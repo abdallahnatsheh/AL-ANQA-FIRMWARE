@@ -5,19 +5,19 @@ CLI for LilyGo T-DECK that looks like linux shell
 Currently have wifi scan/connect , bluetooth scanner , device discover on same network with ping scan , matrix , Expermintal port scanner using ping scan
 
 Main Screen
-![IMG_1](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/62eae90f-7a33-44c3-a103-94bf6d068300 )
+![1](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/2eaf7dda-6fcf-4ec0-a27d-7f14a4257f6a)
 
 Help Screen
-![IMG_2](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/46830f89-5437-40b1-8371-fa7674f19d7d)
+![2](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/8cf90a08-43ee-499b-9a6e-dd6a3dc83f55)
 
 Wifi Scanner
-![IMG_3](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/cc41cbbb-92ea-4274-bc31-e51bafaa1c80)
+![3](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/cc528d69-9250-4065-9bde-49a05dc0643a)
 
 Scan devices on same network
-![IMG_4](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/4f776b15-8701-4427-aef9-8f3286c126f5)
+![4](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/f85e0ea5-3201-4a35-8f4b-37c8d4c4491d)
 
 T-Deck info screen
-![IMG_5](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/3cbdbd1f-2ece-4a95-a4c5-4391b5ce49a0)
+![5](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/fb62bccd-df9d-4cd7-8e68-c6ce28577611)
 
 MATRIX
-![IMG_6](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/54492a0a-ae92-4ee5-81b2-3123c7d29dea)
+![6](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/f8b55268-e276-45e2-a7bc-cc2b1448acae)
