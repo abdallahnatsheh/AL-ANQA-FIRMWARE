@@ -5,7 +5,7 @@ CLI for LilyGo T-DECK that looks like linux shell
 Currently have wifi scan/connect , bluetooth scanner , device discover on same network with ping scan , matrix , Expermintal port scanner using ping scan
 
 Main Screen
-<img src="(https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/62eae90f-7a33-44c3-a103-94bf6d068300)" width="48">
+<img src="(https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/62eae90f-7a33-44c3-a103-94bf6d068300)" width="250" height="250">
 
 Help Screen
 ![IMG_20231104_193701_098 exifless](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/46830f89-5437-40b1-8371-fa7674f19d7d)
