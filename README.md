@@ -14,7 +14,7 @@ Wifi Scanner
 ![IMG_3](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/cc41cbbb-92ea-4274-bc31-e51bafaa1c80)
 
 Scan devices on same network
-![IMG_4](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/d86e8168-7196-451c-95dc-fa7a244695e8)
+![IMG_4](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/4f776b15-8701-4427-aef9-8f3286c126f5)
 
 T-Deck info screen
 ![IMG_5](https://github.com/abdallahnatsheh/T-DECK-CLI/assets/29822416/3cbdbd1f-2ece-4a95-a4c5-4391b5ce49a0)
