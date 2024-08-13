@@ -1,5 +1,5 @@
 #include <Wire.h>
-#include <TFT_eSPI.h>
+#include "LGFX_T-Deck.h"
 #include "utilities.h"
 #include <WiFi.h> 
 #include <ctype.h>
@@ -12,18 +12,19 @@
 #include <ESP32Ping.h>
 
 
-
 #define LILYGO_KB_SLAVE_ADDRESS 0x55
 #define SCREEN_WIDTH  320
 #define SCREEN_HEIGHT 240
-
+#define LGFX_AUTODETECT
 #define CONV_FACTOR 1.8
 #define READS 20
 String HOST_NAME = "T-DECk";
 
-
-TFT_eSPI tft = TFT_eSPI();
-DigitalRainAnimation<TFT_eSPI> matrix_effect = DigitalRainAnimation<TFT_eSPI>();
+#ifndef BOARD_HAS_PSRAM
+#error "PSRAM not enabled. Please set PSRAM to OPI PSRAM in ArduinoIDE."
+#endif
+LGFX tft;
+DigitalRainAnimation<LGFX> matrix_effect = DigitalRainAnimation<LGFX>();
 Pangodream_18650_CL BL(BOARD_BAT_ADC, CONV_FACTOR, READS);
 
 const uint16_t promptHeight = 30;
@@ -45,21 +46,17 @@ BLEScan* pBLEScan;
 void setup()
 {
     Serial.begin(115200);
-    Serial.println("T-Deck Keyboard Master");
-
     pinMode(BOARD_POWERON, OUTPUT);
     digitalWrite(BOARD_POWERON, HIGH);
-
     Wire.begin(BOARD_I2C_SDA, BOARD_I2C_SCL);
-
-    tft.begin();
+    tft.init();
     tft.setRotation(1);
-    tft.invertDisplay(0);
+    tft.setBrightness(128);
+    tft.invertDisplay(1);
     matrix_effect.init(&tft);
     clearScreen();
-
-    // Display command prompt
     tdeck_begin();
+    
         // Check keyboard
     Wire.requestFrom(LILYGO_KB_SLAVE_ADDRESS, 1);
     if (Wire.read() == -1) {
@@ -422,19 +419,9 @@ void scanWiFiNetworks()
     }
 }
 
-char getKeyboardInput()
-{
-    char incoming = 0;
+char getKeyboardInput(){
     Wire.requestFrom(LILYGO_KB_SLAVE_ADDRESS, 1);
-    while (Wire.available() > 0)
-    {
-        incoming = Wire.read();
-        if (incoming != (char)0x00)
-        {
-            return incoming;
-        }
-    }
-    
+    return Wire.available() > 0 ? Wire.read() : 0;
 }
 
 bool startsWith(const char* str, const char* prefix)

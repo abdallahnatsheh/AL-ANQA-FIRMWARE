@@ -8,9 +8,9 @@
 
 // #define CGRAM_OFFSET      // Library will add offsets required
 
-// #define TFT_RGB_ORDER TFT_RGB  // Colour order Red-Green-Blue
-#define TFT_RGB_ORDER TFT_BGR  // Colour order Blue-Green-Red
-
+#define TFT_RGB_ORDER TFT_RGB  // Colour order Red-Green-Blue
+// #define TFT_RGB_ORDER TFT_BGR  // Colour order Blue-Green-Red
+#define INIT_SEQUENCE_2         //Different gamma values
 // #define TFT_INVERSION_ON
 // #define TFT_INVERSION_OFF  //For the first sample of T-Deck need to turn on color inversion
 
@@ -28,7 +28,7 @@
 #define TFT_DC   11
 #define TFT_RST  -1  // Connect reset to ensure display initialises
 #define TFT_BACKLIGHT_ON 1
-#define TFT_BL     42
+// #define TFT_BL     42    //Turn off backlight function by default
 
 
 #define LOAD_GLCD   // Font 1. Original Adafruit 8 pixel font needs ~1820 bytes in FLASH
