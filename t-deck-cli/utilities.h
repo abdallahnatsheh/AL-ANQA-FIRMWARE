@@ -53,3 +53,5 @@
 #define BOARD_BOOT_PIN      0
 
 #define BOARD_BL_PIN        42
+
+#define LILYGO_KB_SLAVE_ADDRESS 0x55
