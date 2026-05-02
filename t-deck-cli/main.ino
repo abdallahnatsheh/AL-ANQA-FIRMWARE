@@ -6,6 +6,7 @@
 #include "bluetooth_functions.h"
 #include "sdcard_manager.h"
 #include "wifimon_functions.h"
+#include "deauth_functions.h"
 
 LGFX tft;
 DisplayManager   displayManager(tft);
@@ -16,6 +17,7 @@ WiFiFunctions    wifiFunctions(displayManager);
 BluetoothFunctions bluetoothFunctions;
 SDCardManager    sdCardManager(displayManager);
 WiFiMonitor      wifiMonitor(displayManager, sdCardManager);
+DeauthAttack     deauthAttack(displayManager);
 
 void setup() {
     Serial.begin(115200);

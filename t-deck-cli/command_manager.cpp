@@ -6,6 +6,7 @@
 #include "bluetooth_functions.h"
 #include "sdcard_manager.h"
 #include "wifimon_functions.h"
+#include "deauth_functions.h"
 
 extern DisplayManager  displayManager;
 extern ESPInfoPrinter  espInfoPrinter;
@@ -13,6 +14,7 @@ extern WiFiFunctions   wifiFunctions;
 extern BluetoothFunctions bluetoothFunctions;
 extern SDCardManager   sdCardManager;
 extern WiFiMonitor     wifiMonitor;
+extern DeauthAttack    deauthAttack;
 
 CommandManager::CommandManager() : commandIndex(0), commandCount(0) {
     resetCommand();
@@ -100,4 +102,6 @@ void CommandManager::setupCommands() {
         if (args && *args) ch = atoi(args);
         wifiMonitor.start(ch);
     }, "WiFi monitor mode [channel 1-13, 0=hop]", true);
+    registerCommand("deauth",  "da",  [](char* args) { deauthAttack.start(args); },
+        "Deauth attack: deauth <bssid> [ch] [client]", true);
 }
