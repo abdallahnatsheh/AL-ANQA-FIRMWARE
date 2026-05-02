@@ -1,4 +1,5 @@
 #include <Preferences.h>
+#include <vector>
 #include "wifi_functions.h"
 #include "input_handling.h"
 #include <ESP32Ping.h>
@@ -20,7 +21,7 @@ void WiFiFunctions::connectToWiFiCommand(char* args) {
     }
 
     int networkIndex;
-    if (sscanf(args, "%d", &networkIndex) != 1 && sscanf(args, "%d", &networkIndex) != 1) {
+    if (sscanf(args, "%d", &networkIndex) != 1) {
         displayManager.println("Invalid command format. Please use 'connectwifi <networkIndex>' or 'cw <networkIndex>'.");
         return;
     }
@@ -36,13 +37,11 @@ void WiFiFunctions::connectToWiFiCommand(char* args) {
 
     if (requiresPassword) {
         password = getWiFiPassword(ssid);
-        Serial.println("Retrieved password: " + password);
         if (password.isEmpty()) {
             displayManager.setCursor(10, displayManager.getCursorY());
             displayManager.printText("Enter password for network ");
             displayManager.println(ssid);
             password = readPassword();
-            Serial.println("Entered password: " + password);
             if (password.length() == 1 && password[0] == 'q') {
                 displayManager.printCommandScreen();
                 return;
@@ -55,7 +54,6 @@ void WiFiFunctions::connectToWiFiCommand(char* args) {
                 return;
             }
             storeWiFiCredentials(ssid, password);
-            Serial.println("Password saved: " + password);
         }
     }
 
@@ -210,7 +208,7 @@ String  WiFiFunctions::readPassword() {
                     password.remove(password.length() - 1);  // Remove the last character from the password
                     displayManager.backspaceChar();                    
                 }
-                else if (isAlphaNumeric(input) && password.length() < 100)
+                else if (isPrintable(input) && input != ' ' && password.length() < 100)
                 {
                     password += input;
                     displayManager.printText(input);
@@ -227,18 +225,7 @@ void WiFiFunctions::storeWiFiCredentials(const String& ssid, const String& passw
         return;
     }
 
-    Serial.println("Storing SSID: " + ssid);
-    Serial.println("Password: " + password);
-
     preferences.putString(ssid.c_str(), password);
-
-    // Confirm storage
-    String storedPassword = preferences.getString(ssid.c_str(), "");
-    if (storedPassword == password) {
-        Serial.println("Password stored successfully.");
-    } else {
-        Serial.println("Failed to store password.");
-    }
 
     preferences.end();
 }
@@ -250,12 +237,6 @@ String WiFiFunctions::getWiFiPassword(const String& ssid) {
     }
 
     String password = preferences.getString(ssid.c_str(), "");
-
-    if (password.isEmpty()) {
-        Serial.println("No password found for SSID: " + ssid);
-    } else {
-        Serial.println("Password retrieved: " + password);
-    }
 
     preferences.end();
     return password;
@@ -309,10 +290,9 @@ void WiFiFunctions::networkDiscovery(){
 
 void WiFiFunctions::pingScan(const IPAddress& gatewayIP, const IPAddress& subnetMask) {
    IPAddress targetIP;
-  uint8_t gatewayLastPart = gatewayIP[3];
   bool stopScan = false;
 
-  for (int i = 1; i <= gatewayLastPart; ++i) {
+  for (int i = 1; i <= 254; ++i) {
     targetIP = gatewayIP;
     targetIP[3] = i;
 
@@ -399,6 +379,28 @@ void WiFiFunctions::performPortScan(const IPAddress& targetIP, int startPort, in
     int currentPage = 0;
     char incomingKey = 0;
 
+    // Scan once, collect open ports
+    std::vector<int> openPorts;
+    displayManager.clearScreen();
+    displayManager.setCursor(10, outputY);
+    displayManager.println("Scanning ports...");
+    displayManager.setCursor(10, displayManager.getCursorY());
+    displayManager.println("Press 'q' to abort");
+
+    for (int port = startPort; port <= endPort; port++)
+    {
+        incomingKey = inputHandler.getKeyboardInput();
+        if (incomingKey == 'q' || incomingKey == 'Q') {
+            displayManager.printCommandScreen();
+            return;
+        }
+        if (performPortCheck(targetIP, port)) {
+            openPorts.push_back(port);
+        }
+    }
+
+    int totalPages = openPorts.empty() ? 1 : (openPorts.size() + portsPerPage - 1) / portsPerPage;
+
     while (true)
     {
         displayManager.clearScreen();
@@ -410,31 +412,30 @@ void WiFiFunctions::performPortScan(const IPAddress& targetIP, int startPort, in
         displayManager.printText("Range: ");
         displayManager.printText(startPort);
         displayManager.printText(" - ");
-        displayManager.println(endPort);
+        displayManager.printText(endPort);
+        displayManager.printText("  Found: ");
+        displayManager.println((int)openPorts.size());
+        displayManager.printText("Page ");
+        displayManager.printText(currentPage + 1);
+        displayManager.printText("/");
+        displayManager.println(totalPages);
         displayManager.println("--------------------");
         displayManager.println("| Port   |  Status |");
         displayManager.println("--------------------");
 
-        for (int port = startPort; port <= endPort; port++)
-        {
-            String status = performPortCheck(targetIP, port) ? "Open" : "Closed";
-            if(strcmp(status.c_str(),"Open") == 0){
-                displayManager.setDefaultTextSize();
+        if (openPorts.empty()) {
+            displayManager.println("| No open ports   |");
+        } else {
+            int startIdx = currentPage * portsPerPage;
+            int endIdx = min(startIdx + portsPerPage, (int)openPorts.size());
+            for (int i = startIdx; i < endIdx; i++) {
                 displayManager.printText("| ");
-                displayManager.printText(port);
-                displayManager.setCursor(displayManager.getCursorX(), displayManager.getCursorY());
-                displayManager.printText("    |  ");
-                
-                displayManager.printText(status);
-                for (int j = 2; j < 8 - status.length(); j++)
-                {
-                    displayManager.printText(" ");
-                }
-                displayManager.println(" |");
+                displayManager.printText(openPorts[i]);
+                displayManager.printText("    |  Open   |");
                 displayManager.println();
-
             }
         }
+
         displayManager.println("--------------------");
         displayManager.printDefaultTableHelpInstructions();
 
@@ -443,20 +444,12 @@ void WiFiFunctions::performPortScan(const IPAddress& targetIP, int startPort, in
             incomingKey = inputHandler.getKeyboardInput();
             if (incomingKey == 'l' || incomingKey == 'L')
             {
-                currentPage++;
-                if (currentPage >= (endPort + 1) / portsPerPage)
-                {
-                    currentPage = (endPort + 1) / portsPerPage - 1;
-                }
+                if (currentPage < totalPages - 1) currentPage++;
                 break;
             }
             else if (incomingKey == 'a' || incomingKey == 'A')
             {
-                currentPage--;
-                if (currentPage < 0)
-                {
-                    currentPage = 0;
-                }
+                if (currentPage > 0) currentPage--;
                 break;
             }
             else if (incomingKey == 'q' || incomingKey == 'Q')

@@ -16,6 +16,7 @@ BluetoothFunctions bluetoothFunctions;
 void setup() {
     Serial.begin(115200);
     displayManager.init();
+    inputHandler.begin();
     commandManager.setupCommands();
 }
 void loop() {

@@ -5,16 +5,19 @@
 #include <DigitalRainAnimation.hpp>
 
 const uint16_t promptHeight = 30;
-const uint16_t promptY = 0;
-const uint16_t outputY = promptY + promptHeight + 8;
+const uint16_t promptY      = 0;
+const uint16_t outputY      = promptY + promptHeight + 8;
 
-#define SCREEN_WIDTH 320
+#define SCREEN_WIDTH  320
 #define SCREEN_HEIGHT 240
+#define LINE_HEIGHT   12
 
 class DisplayManager {
 public:
     DisplayManager(LGFX& tft);
     void init();
+    void tdeck_begin();
+    void updateStatusBar();
     void printFirstCommandScreen(const char* command);
     void setDefaultTextSize();
     void printText(const char *text);
@@ -30,7 +33,6 @@ public:
     void printText(const String& text);
     void newLinePrint(char text);
     void clearScreen();
-    void tdeck_begin();
     void backspaceChar();
     void newLine();
     void clearInputText();
@@ -48,6 +50,7 @@ public:
 private:
     LGFX& tft;
     DigitalRainAnimation<LGFX> matrix_effect = DigitalRainAnimation<LGFX>();
-};;
+    void scrollIfNeeded();
+};
 
 #endif // DISPLAY_MANAGER_H

@@ -14,6 +14,7 @@ public:
 
 private:
     BLEScan* pBLEScan;
+    BLEAdvertisedDeviceCallbacks* pScanCallbacks;
     bool bluetoothScanExecuted;
     int numberOfDevices = 0;
     const int scanTime = 5;

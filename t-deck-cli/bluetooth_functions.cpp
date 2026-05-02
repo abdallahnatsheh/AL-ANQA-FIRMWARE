@@ -6,7 +6,7 @@
 extern DisplayManager displayManager;
 extern InputHandling inputHandler;
 extern Utils utils;
-BluetoothFunctions::BluetoothFunctions() : pBLEScan(nullptr), bluetoothScanExecuted(false), numberOfDevices(0) {}
+BluetoothFunctions::BluetoothFunctions() : pBLEScan(nullptr), pScanCallbacks(nullptr), bluetoothScanExecuted(false), numberOfDevices(0) {}
 
 
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
@@ -25,7 +25,9 @@ void BluetoothFunctions::scanBluetoothDevices() {
 
     BLEDevice::init("");
     pBLEScan = BLEDevice::getScan();
-    pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+    delete pScanCallbacks;
+    pScanCallbacks = new MyAdvertisedDeviceCallbacks();
+    pBLEScan->setAdvertisedDeviceCallbacks(pScanCallbacks);
     pBLEScan->setActiveScan(true);
     pBLEScan->setInterval(100);
     pBLEScan->setWindow(99);
@@ -106,6 +108,8 @@ void BluetoothFunctions::scanBluetoothDevices() {
                 break;
             } else if (incomingKey == 'q' || incomingKey == 'Q') {
                 pBLEScan->clearResults();
+                delete pScanCallbacks;
+                pScanCallbacks = nullptr;
                 displayManager.printCommandScreen();
                 return;
             } else if (incomingKey == 'u' || incomingKey == 'U') {

@@ -21,7 +21,7 @@ public:
     void processInput(char input);
     void executeCommand();
     void setupCommands();
-    static const uint16_t bufferSize = 64;
+    static const uint16_t bufferSize = 128;
     char command[bufferSize];
     Command commands[64];
     uint8_t commandCount;
