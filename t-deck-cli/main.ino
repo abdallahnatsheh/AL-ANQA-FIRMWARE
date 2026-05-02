@@ -7,6 +7,7 @@
 #include "sdcard_manager.h"
 #include "wifimon_functions.h"
 #include "deauth_functions.h"
+#include "task_manager.h"
 
 LGFX tft;
 DisplayManager   displayManager(tft);

@@ -2,6 +2,7 @@
 #include <vector>
 #include "wifi_functions.h"
 #include "input_handling.h"
+#include "task_manager.h"
 #include <ESP32Ping.h>
 #include "utils.h"
 
@@ -257,213 +258,206 @@ void WiFiFunctions::clearAllWiFiCredentials() {
     preferences.end();
 }
 
-void WiFiFunctions::networkDiscovery(){
-    if (!connectedToNetwork)
-    {
+// ── FreeRTOS task: ping scan on Core 0 ───────────────────────────────────────
+struct PingScanParams { uint8_t base[4]; };
+
+static void pingScanTaskFn(void* p) {
+    PingScanParams* params = (PingScanParams*)p;
+    for (int i = 1; i <= 254; i++) {
+        if (TaskManager::stopRequested) break;
+        IPAddress target(params->base[0], params->base[1], params->base[2], i);
+        if (Ping.ping(target, 1)) {
+            TaskResult result;
+            result.type = TaskResult::HOST_FOUND;
+            snprintf(result.data, sizeof(result.data), "%d.%d.%d.%d",
+                     params->base[0], params->base[1], params->base[2], i);
+            xQueueSend(TaskManager::resultQueue, &result, pdMS_TO_TICKS(200));
+        }
+    }
+    TaskResult done; done.type = TaskResult::DONE; done.data[0] = '\0';
+    xQueueSend(TaskManager::resultQueue, &done, pdMS_TO_TICKS(1000));
+    TaskManager::taskRunning = false;
+    vTaskDelete(nullptr);
+}
+
+// ── FreeRTOS task: port scan on Core 0 ───────────────────────────────────────
+struct PortScanParams { uint32_t targetIPRaw; int startPort, endPort; };
+
+static void portScanTaskFn(void* p) {
+    PortScanParams* params = (PortScanParams*)p;
+    IPAddress targetIP(params->targetIPRaw);
+    for (int port = params->startPort; port <= params->endPort; port++) {
+        if (TaskManager::stopRequested) break;
+        WiFiClient client;
+        if (client.connect(targetIP, port, 500)) {
+            client.stop();
+            TaskResult result;
+            result.type = TaskResult::PORT_OPEN;
+            snprintf(result.data, sizeof(result.data), "%d", port);
+            xQueueSend(TaskManager::resultQueue, &result, pdMS_TO_TICKS(200));
+        }
+    }
+    TaskResult done; done.type = TaskResult::DONE; done.data[0] = '\0';
+    xQueueSend(TaskManager::resultQueue, &done, pdMS_TO_TICKS(1000));
+    TaskManager::taskRunning = false;
+    vTaskDelete(nullptr);
+}
+
+// ── networkDiscovery: launches ping scan task, shows results live ─────────────
+void WiFiFunctions::networkDiscovery() {
+    if (!connectedToNetwork) {
         displayManager.setCursor(10, displayManager.getCursorY());
-        displayManager.println("Please connect to wifi network first");
+        displayManager.println("Connect to WiFi first.");
         displayManager.printCommandScreen();
         return;
     }
-    else {
-        displayManager.setCursor(10, displayManager.getCursorY());
-        displayManager.println("Devices discovery started ...");
-        IPAddress gatewayIP = WiFi.gatewayIP();
-        IPAddress subnetMask = WiFi.subnetMask();
 
-        displayManager.setCursor(10, displayManager.getCursorY());
-        displayManager.printText("gatewayIP ip ");
-        displayManager.println(gatewayIP.toString());
+    IPAddress gw = WiFi.gatewayIP();
+    PingScanParams params;
+    params.base[0] = gw[0]; params.base[1] = gw[1];
+    params.base[2] = gw[2]; params.base[3] = 0;
 
-        Serial.print("gatewayIP ip ");
-        Serial.println(gatewayIP);
-
-        displayManager.setCursor(10, displayManager.getCursorY());
-        displayManager.printText("subnetMask ip ");
-        displayManager.println(subnetMask.toString());
-
-        Serial.print("subnetMask ip ");
-        Serial.println(subnetMask);
-        pingScan(gatewayIP, subnetMask);
-    }
-}
-
-void WiFiFunctions::pingScan(const IPAddress& gatewayIP, const IPAddress& subnetMask) {
-   IPAddress targetIP;
-  bool stopScan = false;
-
-  for (int i = 1; i <= 254; ++i) {
-    targetIP = gatewayIP;
-    targetIP[3] = i;
-
-    Serial.print("targetIP ip ");
-    Serial.println(targetIP);
-
-    if (Ping.ping(targetIP)) {
-      displayManager.setCursor(10, displayManager.getCursorY());
-      displayManager.printText("Found device at IP: ");
-      displayManager.println(targetIP.toString());
-    }
-
-      char incomingKey = inputHandler.getKeyboardInput();
-      if (incomingKey == 'q' || incomingKey == 'Q') {
-        stopScan = true;
-        break;
-      }
-    
-  }
-
-  if (stopScan) {
-    displayManager.printCommandScreen();
-    return;
-  }
-}
-
-void WiFiFunctions::networkPortScan(char* args){
-    Serial.println("networkPortScan");
-    Serial.println(args);
-
-    String ipAddress = utils.getValue(args, ' ', 0);
-    String startPortStr = utils.getValue(args, ' ', 1);
-    String endPortStr = utils.getValue(args, ' ', 2);
-    IPAddress targetIp;
-    Serial.print("ipAddress:");
-    Serial.println(ipAddress);
-    Serial.print("startPortStr:");
-    Serial.println(startPortStr);
-    Serial.print("endPortStr:");
-    Serial.println(endPortStr);
-
-    if (ipAddress.isEmpty() || startPortStr.isEmpty() || endPortStr.isEmpty())
-    {
-        displayManager.setCursor(10, displayManager.getCursorY());
-        displayManager.println("Invalid command usage. Usage: portscan [ip address] [start port] [end port]");
-        displayManager.printCommandScreen();
-    }        
-    else if (!targetIp.fromString(ipAddress))
-        {
-            displayManager.setCursor(10, displayManager.getCursorY());
-            displayManager.println("Invalid IP address.");
-            displayManager.setTextColor(TFT_RED);
-            delay(1000);
-            displayManager.printCommandScreen();
-            return;
-        }
-
-        else if (!Ping.ping(targetIp))
-        {
-            displayManager.setCursor(10, displayManager.getCursorY());
-            displayManager.setTextColor(TFT_RED);
-            displayManager.println("Target IP address is unreachable.");
-            delay(1000);
-            displayManager.printCommandScreen();
-            return;
-        }
-        else
-        {
-            int startPort = startPortStr.toInt();
-            int endPort = endPortStr.toInt();
-            Serial.print("port scan on ip:");
-            Serial.println(ipAddress);
-            Serial.print("port scan on startPort:");
-            Serial.println(startPort);
-            Serial.print("port scan on endPort:");
-            Serial.println(endPort);
-            performPortScan(targetIp, startPort, endPort);
-        }
-        return;
-}
-void WiFiFunctions::performPortScan(const IPAddress& targetIP, int startPort, int endPort)
-{
-    const int portsPerPage = 5;
-    int currentPage = 0;
-    char incomingKey = 0;
-
-    // Scan once, collect open ports
-    std::vector<int> openPorts;
     displayManager.clearScreen();
     displayManager.setCursor(10, outputY);
-    displayManager.println("Scanning ports...");
+    displayManager.setTextColor(TFT_CYAN);
+    displayManager.println("-- Network Discovery --");
+    displayManager.setTextColor(TFT_WHITE);
     displayManager.setCursor(10, displayManager.getCursorY());
-    displayManager.println("Press 'q' to abort");
+    displayManager.printText("Subnet: ");
+    displayManager.printText(gw[0]); displayManager.printText(".");
+    displayManager.printText(gw[1]); displayManager.printText(".");
+    displayManager.printText(gw[2]); displayManager.println(".0/24");
+    displayManager.setCursor(10, displayManager.getCursorY());
+    displayManager.setTextColor(TFT_GREEN);
+    displayManager.println("Scanning Core 0  q=stop");
+    displayManager.setTextColor(TFT_WHITE);
+    displayManager.println("------------------------");
 
-    for (int port = startPort; port <= endPort; port++)
-    {
-        incomingKey = inputHandler.getKeyboardInput();
-        if (incomingKey == 'q' || incomingKey == 'Q') {
-            displayManager.printCommandScreen();
-            return;
-        }
-        if (performPortCheck(targetIP, port)) {
-            openPorts.push_back(port);
-        }
+    if (!TaskManager::start(pingScanTaskFn, "pingscan", &params)) {
+        displayManager.println("Task start failed.");
+        displayManager.printCommandScreen();
+        return;
     }
 
-    int totalPages = openPorts.empty() ? 1 : (openPorts.size() + portsPerPage - 1) / portsPerPage;
-
-    while (true)
-    {
-        displayManager.clearScreen();
-        displayManager.setCursor(10, outputY);
-        displayManager.setDefaultTextSize();
-        displayManager.printText("Port Scan - IP: ");
-        displayManager.println(targetIP.toString());
-        displayManager.setCursor(10, displayManager.getCursorY());
-        displayManager.printText("Range: ");
-        displayManager.printText(startPort);
-        displayManager.printText(" - ");
-        displayManager.printText(endPort);
-        displayManager.printText("  Found: ");
-        displayManager.println((int)openPorts.size());
-        displayManager.printText("Page ");
-        displayManager.printText(currentPage + 1);
-        displayManager.printText("/");
-        displayManager.println(totalPages);
-        displayManager.println("--------------------");
-        displayManager.println("| Port   |  Status |");
-        displayManager.println("--------------------");
-
-        if (openPorts.empty()) {
-            displayManager.println("| No open ports   |");
-        } else {
-            int startIdx = currentPage * portsPerPage;
-            int endIdx = min(startIdx + portsPerPage, (int)openPorts.size());
-            for (int i = startIdx; i < endIdx; i++) {
-                displayManager.printText("| ");
-                displayManager.printText(openPorts[i]);
-                displayManager.printText("    |  Open   |");
-                displayManager.println();
-            }
-        }
-
-        displayManager.println("--------------------");
-        displayManager.printDefaultTableHelpInstructions();
-
-        while (true)
-        {
-            incomingKey = inputHandler.getKeyboardInput();
-            if (incomingKey == 'l' || incomingKey == 'L')
-            {
-                if (currentPage < totalPages - 1) currentPage++;
+    int found = 0;
+    while (TaskManager::isRunning() || uxQueueMessagesWaiting(TaskManager::resultQueue) > 0) {
+        TaskResult result;
+        if (xQueueReceive(TaskManager::resultQueue, &result, pdMS_TO_TICKS(50)) == pdTRUE) {
+            if (result.type == TaskResult::HOST_FOUND) {
+                found++;
+                displayManager.setCursor(10, displayManager.getCursorY());
+                displayManager.setTextColor(TFT_GREEN);
+                displayManager.printText("[+] ");
+                displayManager.setTextColor(TFT_WHITE);
+                displayManager.println(result.data);
+            } else if (result.type == TaskResult::DONE) {
                 break;
             }
-            else if (incomingKey == 'a' || incomingKey == 'A')
-            {
-                if (currentPage > 0) currentPage--;
-                break;
-            }
-            else if (incomingKey == 'q' || incomingKey == 'Q')
-            {
-                displayManager.printCommandScreen();
-                return;
-            }
         }
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') { TaskManager::requestStop(); break; }
     }
+
+    TaskManager::cleanup();
+    displayManager.setCursor(10, displayManager.getCursorY());
+    displayManager.println("------------------------");
+    displayManager.setCursor(10, displayManager.getCursorY());
+    displayManager.printText("Total hosts: ");
+    displayManager.println(found);
+    displayManager.printCommandScreen();
 }
-bool WiFiFunctions::performPortCheck(const IPAddress& ip, int port)
-{
+
+// ── networkPortScan: validates args then launches port scan task ──────────────
+void WiFiFunctions::networkPortScan(char* args) {
+    String ipAddress  = utils.getValue(args, ' ', 0);
+    String startPortStr = utils.getValue(args, ' ', 1);
+    String endPortStr   = utils.getValue(args, ' ', 2);
+
+    if (ipAddress.isEmpty() || startPortStr.isEmpty() || endPortStr.isEmpty()) {
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.println("Usage: portscan <ip> <start> <end>");
+        displayManager.printCommandScreen();
+        return;
+    }
+
+    IPAddress targetIp;
+    if (!targetIp.fromString(ipAddress)) {
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.setTextColor(TFT_RED);
+        displayManager.println("Invalid IP address.");
+        displayManager.setTextColor(TFT_WHITE);
+        delay(1000);
+        displayManager.printCommandScreen();
+        return;
+    }
+
+    performPortScan(targetIp, startPortStr.toInt(), endPortStr.toInt());
+}
+
+// ── performPortScan: task on Core 0, live results on Core 1 ──────────────────
+void WiFiFunctions::performPortScan(const IPAddress& targetIP, int startPort, int endPort) {
+    PortScanParams params;
+    params.targetIPRaw = (uint32_t)targetIP;
+    params.startPort   = startPort;
+    params.endPort     = endPort;
+
+    displayManager.clearScreen();
+    displayManager.setCursor(10, outputY);
+    displayManager.setTextColor(TFT_CYAN);
+    displayManager.println("-- Port Scan --");
+    displayManager.setTextColor(TFT_WHITE);
+    displayManager.setCursor(10, displayManager.getCursorY());
+    displayManager.printText("Target: "); displayManager.println(targetIP.toString());
+    displayManager.setCursor(10, displayManager.getCursorY());
+    displayManager.printText("Range:  "); displayManager.printText(startPort);
+    displayManager.printText(" - ");     displayManager.println(endPort);
+    displayManager.setCursor(10, displayManager.getCursorY());
+    displayManager.setTextColor(TFT_GREEN);
+    displayManager.println("Scanning Core 0  q=stop");
+    displayManager.setTextColor(TFT_WHITE);
+    displayManager.println("------------------------");
+
+    if (!TaskManager::start(portScanTaskFn, "portscan", &params)) {
+        displayManager.println("Task start failed.");
+        displayManager.printCommandScreen();
+        return;
+    }
+
+    std::vector<int> openPorts;
+
+    while (TaskManager::isRunning() || uxQueueMessagesWaiting(TaskManager::resultQueue) > 0) {
+        TaskResult result;
+        if (xQueueReceive(TaskManager::resultQueue, &result, pdMS_TO_TICKS(50)) == pdTRUE) {
+            if (result.type == TaskResult::PORT_OPEN) {
+                int port = atoi(result.data);
+                openPorts.push_back(port);
+                displayManager.setCursor(10, displayManager.getCursorY());
+                displayManager.setTextColor(TFT_GREEN);
+                displayManager.printText("[+] Port ");
+                displayManager.printText(port);
+                displayManager.setTextColor(TFT_WHITE);
+                displayManager.println(" OPEN");
+            } else if (result.type == TaskResult::DONE) {
+                break;
+            }
+        }
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') { TaskManager::requestStop(); break; }
+    }
+
+    TaskManager::cleanup();
+
+    displayManager.setCursor(10, displayManager.getCursorY());
+    displayManager.println("------------------------");
+    displayManager.setCursor(10, displayManager.getCursorY());
+    displayManager.printText("Open ports found: ");
+    displayManager.println((int)openPorts.size());
+    displayManager.printCommandScreen();
+}
+
+bool WiFiFunctions::performPortCheck(const IPAddress& ip, int port) {
     WiFiClient client;
-    if (client.connect(ip, port)) { client.stop(); return true; }
+    if (client.connect(ip, port, 500)) { client.stop(); return true; }
     return false;
 }
 
