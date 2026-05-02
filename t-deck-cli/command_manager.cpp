@@ -4,11 +4,13 @@
 #include "esp_info.h"
 #include "wifi_functions.h"
 #include "bluetooth_functions.h"
+#include "sdcard_manager.h"
 
-extern DisplayManager displayManager;
-extern ESPInfoPrinter espInfoPrinter;
-extern WiFiFunctions wifiFunctions;
+extern DisplayManager  displayManager;
+extern ESPInfoPrinter  espInfoPrinter;
+extern WiFiFunctions   wifiFunctions;
 extern BluetoothFunctions bluetoothFunctions;
+extern SDCardManager   sdCardManager;
 
 CommandManager::CommandManager() : commandIndex(0), commandCount(0) {
     resetCommand();
@@ -86,5 +88,9 @@ void CommandManager::setupCommands() {
     registerCommand("portscan","ps", [](char* args) { wifiFunctions.networkPortScan(args); }, "Simple port scanning - ping scan", true);
     registerCommand("MATRIX","matrix", [](char* args) { displayManager.launchMatrixAnimation(); }, "Launch matrix animation",false);
     registerCommand("scanblue","sbl", [](char* args) { bluetoothFunctions.scanBluetoothDevices(); }, "Scan for Bluetooth devices",false);
-    registerCommand("help", "hlp", [](char* args) { Utils::printHelp(args); }, "Print this help message", true);
+    registerCommand("help",    "hlp", [](char* args) { Utils::printHelp(args); },                         "Print this help message",            true);
+    registerCommand("sdinfo",  "sdi", [](char* args) { sdCardManager.printInfo(); },                       "SD card type and storage info",       false);
+    registerCommand("sdls",    "ls",  [](char* args) { sdCardManager.listDirectory(args && *args ? args : "/"); }, "List SD card directory [path]",  true);
+    registerCommand("sdread",  "sdr", [](char* args) { if (args && *args) sdCardManager.readFile(args); else displayManager.println("Usage: sdread <path>"); displayManager.printCommandScreen(); }, "Read file from SD card",  true);
+    registerCommand("sdrm",    "srm", [](char* args) { if (args && *args) sdCardManager.removeFile(args); else displayManager.println("Usage: sdrm <path>"); displayManager.printCommandScreen(); },  "Delete file from SD card", true);
 }
