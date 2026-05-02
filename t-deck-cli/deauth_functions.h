@@ -5,14 +5,16 @@
 #include <WiFi.h>
 #include "esp_wifi.h"
 #include "display_manager.h"
+#include "wifi_functions.h"
 
 class DeauthAttack {
 public:
-    DeauthAttack(DisplayManager& displayManager);
+    DeauthAttack(DisplayManager& displayManager, WiFiFunctions& wifiFunctions);
     void start(char* args);
 
 private:
     DisplayManager& displayManager;
+    WiFiFunctions&  wifiFunctions;
 
     bool   parseMac(const char* str, uint8_t* mac);
     void   buildDeauthFrame(uint8_t* frame, const uint8_t* da, const uint8_t* sa, const uint8_t* bssid);

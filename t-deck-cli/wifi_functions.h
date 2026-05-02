@@ -15,6 +15,9 @@ public:
     void clearAllWiFiCredentials();
     void networkDiscovery();
     void networkPortScan(char* args);
+    bool getNetworkInfo(int index, uint8_t* bssidOut, int* channelOut);
+    int  getNetworkCount() const;
+    bool isScanDone() const;
 private:
     DisplayManager& displayManager;
     int numberOfNetworks = 0;

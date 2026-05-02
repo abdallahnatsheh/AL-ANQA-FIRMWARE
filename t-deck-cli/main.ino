@@ -17,7 +17,7 @@ WiFiFunctions    wifiFunctions(displayManager);
 BluetoothFunctions bluetoothFunctions;
 SDCardManager    sdCardManager(displayManager);
 WiFiMonitor      wifiMonitor(displayManager, sdCardManager);
-DeauthAttack     deauthAttack(displayManager);
+DeauthAttack     deauthAttack(displayManager, wifiFunctions);
 
 void setup() {
     Serial.begin(115200);

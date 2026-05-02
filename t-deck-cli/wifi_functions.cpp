@@ -462,15 +462,24 @@ void WiFiFunctions::performPortScan(const IPAddress& targetIP, int startPort, in
 }
 bool WiFiFunctions::performPortCheck(const IPAddress& ip, int port)
 {
-  WiFiClient client;
-
-  if (client.connect(ip, port))
-  {
-    client.stop();
-    return true;
-  }
-  else
-  {
+    WiFiClient client;
+    if (client.connect(ip, port)) { client.stop(); return true; }
     return false;
-  }
+}
+
+bool WiFiFunctions::isScanDone() const {
+    return networkScanExecuted;
+}
+
+int WiFiFunctions::getNetworkCount() const {
+    return numberOfNetworks;
+}
+
+bool WiFiFunctions::getNetworkInfo(int index, uint8_t* bssidOut, int* channelOut) {
+    if (!networkScanExecuted || index < 0 || index >= numberOfNetworks) return false;
+    uint8_t* b = WiFi.BSSID(index);
+    if (!b) return false;
+    memcpy(bssidOut, b, 6);
+    *channelOut = WiFi.channel(index);
+    return true;
 }
