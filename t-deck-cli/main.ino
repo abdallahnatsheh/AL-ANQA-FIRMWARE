@@ -5,6 +5,7 @@
 #include "wifi_functions.h"
 #include "bluetooth_functions.h"
 #include "sdcard_manager.h"
+#include "wifimon_functions.h"
 
 LGFX tft;
 DisplayManager   displayManager(tft);
@@ -14,6 +15,7 @@ ESPInfoPrinter   espInfoPrinter(displayManager);
 WiFiFunctions    wifiFunctions(displayManager);
 BluetoothFunctions bluetoothFunctions;
 SDCardManager    sdCardManager(displayManager);
+WiFiMonitor      wifiMonitor(displayManager, sdCardManager);
 
 void setup() {
     Serial.begin(115200);

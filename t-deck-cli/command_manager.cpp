@@ -5,12 +5,14 @@
 #include "wifi_functions.h"
 #include "bluetooth_functions.h"
 #include "sdcard_manager.h"
+#include "wifimon_functions.h"
 
 extern DisplayManager  displayManager;
 extern ESPInfoPrinter  espInfoPrinter;
 extern WiFiFunctions   wifiFunctions;
 extern BluetoothFunctions bluetoothFunctions;
 extern SDCardManager   sdCardManager;
+extern WiFiMonitor     wifiMonitor;
 
 CommandManager::CommandManager() : commandIndex(0), commandCount(0) {
     resetCommand();
@@ -93,4 +95,9 @@ void CommandManager::setupCommands() {
     registerCommand("sdls",    "ls",  [](char* args) { sdCardManager.listDirectory(args && *args ? args : "/"); }, "List SD card directory [path]",  true);
     registerCommand("sdread",  "sdr", [](char* args) { if (args && *args) sdCardManager.readFile(args); else displayManager.println("Usage: sdread <path>"); displayManager.printCommandScreen(); }, "Read file from SD card",  true);
     registerCommand("sdrm",    "srm", [](char* args) { if (args && *args) sdCardManager.removeFile(args); else displayManager.println("Usage: sdrm <path>"); displayManager.printCommandScreen(); },  "Delete file from SD card", true);
+    registerCommand("wifimon", "wm",  [](char* args) {
+        int ch = 0;
+        if (args && *args) ch = atoi(args);
+        wifiMonitor.start(ch);
+    }, "WiFi monitor mode [channel 1-13, 0=hop]", true);
 }
