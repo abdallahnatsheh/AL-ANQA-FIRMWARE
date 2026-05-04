@@ -61,7 +61,8 @@ void DisplayManager::clearInputText() {
 }
 
 void DisplayManager::scrollIfNeeded() {
-    if (tft.getCursorY() > SCREEN_HEIGHT - LINE_HEIGHT * 2) {
+    int32_t y = tft.getCursorY();
+    if (y > SCREEN_HEIGHT - LINE_HEIGHT * 2 || y < outputY) {
         clearScreen();
         tft.setCursor(10, outputY);
     }
@@ -156,9 +157,12 @@ int32_t DisplayManager::getCursorY() {
 }
 
 void DisplayManager::printCommandScreen() {
+    int32_t savedY = tft.getCursorY();
     updateStatusBar();
     tft.setTextColor(TFT_WHITE);
     setDefaultTextSize();
+    tft.setCursor(10, savedY);
+    scrollIfNeeded();
     tft.println();
     tft.setCursor(10, tft.getCursorY());
     tft.print("CMD> ");

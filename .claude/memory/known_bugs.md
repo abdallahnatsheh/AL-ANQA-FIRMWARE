@@ -33,5 +33,9 @@ Fix: scan once into `std::vector<int> openPorts`, then paginate the vector.
 64-byte buffer truncates `portscan 192.168.100.200 1 65535` (38 chars fine, but edge cases).
 Fix: increase to 128 bytes.
 
+**Bug 8 — Keyboard INT pin (GPIO 46) never asserts LOW** (`input_handling.cpp`)
+GPIO 46 is an ESP32-S3 strapping pin with a hardware pull-down. `INPUT_PULLUP` + `digitalRead` check always reads HIGH — keyboard MCU at 0x55 is alive on I2C but INT never fires.
+Fix: bypass INT entirely, poll I2C directly every 10ms via `Wire.requestFrom`. MCU returns 0x00 when no key, key code when pressed. **FIXED 2026-05-04.**
+
 **Why:** These were found in the first full code review. Fix all before new feature PRs.
 **How to apply:** When touching any of these files, fix the relevant bug in the same commit.

@@ -28,9 +28,6 @@ void CommandManager::registerCommand(const char* name, const char* shortName, Co
 
 void CommandManager::processInput(char incoming) {
         if (incoming != 0) {
-            Serial.print("keyValue: ");
-            Serial.println(incoming);
-
             if (incoming == '\n' || incoming == '\r') {
                 displayManager.newLine();
                 executeCommand();
@@ -49,6 +46,7 @@ void CommandManager::processInput(char incoming) {
 
 void CommandManager::executeCommand() {
     displayManager.clearInputText();
+    displayManager.setCursor(10, outputY + LINE_HEIGHT);
     for (int i = 0; i < commandCount; i++) {
         if ((commands[i].haveArgs && (Utils::startsWith(command, commands[i].name) || Utils::startsWith(command, commands[i].shortName))) ||
             (!commands[i].haveArgs && strcmp(command, commands[i].name) == 0) ||
@@ -71,7 +69,7 @@ void CommandManager::executeCommand() {
             return;
         }
     }
-    displayManager.newLinePrintLn("Invalid command. Type 'help' to see available commands.");
+    displayManager.println("Invalid command. Type 'help' to see available commands.");
     displayManager.printCommandScreen();
     resetCommand();
 }
