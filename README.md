@@ -12,7 +12,7 @@
 
 <p align="center">
   <b>Offensive security firmware for the LilyGo T-Deck — hacker CLI in your pocket.</b><br/>
-  <i>Scan. Attack. Repeat.</i>
+  <i>DISCOVER. ENUMERATE. COMPROMISE.</i>
 </p>
 
 ---
