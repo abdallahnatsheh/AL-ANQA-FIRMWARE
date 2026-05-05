@@ -3,18 +3,20 @@
 #include "utils.h"
 #include "esp_info.h"
 #include "wifi_functions.h"
+#include "network_scanner.h"
 #include "bluetooth_functions.h"
 #include "sdcard_manager.h"
 #include "wifimon_functions.h"
 #include "deauth_functions.h"
 
-extern DisplayManager  displayManager;
-extern ESPInfoPrinter  espInfoPrinter;
-extern WiFiFunctions   wifiFunctions;
+extern DisplayManager     displayManager;
+extern ESPInfoPrinter     espInfoPrinter;
+extern WiFiFunctions      wifiFunctions;
+extern NetworkScanner     networkScanner;
 extern BluetoothFunctions bluetoothFunctions;
-extern SDCardManager   sdCardManager;
-extern WiFiMonitor     wifiMonitor;
-extern DeauthAttack    deauthAttack;
+extern SDCardManager      sdCardManager;
+extern WiFiMonitor        wifiMonitor;
+extern DeauthAttack       deauthAttack;
 
 CommandManager::CommandManager() : commandIndex(0), commandCount(0) {
     resetCommand();
@@ -86,8 +88,10 @@ void CommandManager::setupCommands() {
     registerCommand("scanwifi","sw", [](char* args) { wifiFunctions.scanWiFiNetworks(); }, "Scan for available Wi-Fi networks",false);
     registerCommand("connectwifi","cw", [](char* args) { wifiFunctions.connectToWiFiCommand(args); }, "Connect to a Wi-Fi network",true);
     registerCommand("clearwifi", "clrw", [](char* args) { wifiFunctions.clearAllWiFiCredentials(); }, "Clear the saved wifi networks", false);
-    registerCommand("netdiscover","nd", [](char* args) { wifiFunctions.networkDiscovery(); }, "Discover devices on the network - ping scan",false);
-    registerCommand("portscan","ps", [](char* args) { wifiFunctions.networkPortScan(args); }, "Simple port scanning - ping scan", true);
+    registerCommand("netdiscover","nd", [](char* args) { networkScanner.networkDiscovery(); },    "ARP scan local subnet — shows IP + MAC",    false);
+    registerCommand("portscan",  "ps", [](char* args) { networkScanner.networkPortScan(args); }, "Port scan: ps <ip|arpIdx> <start> <end>",   true);
+    registerCommand("topscan",   "ts", [](char* args) { networkScanner.topPortScan(args); },     "Top ports scan: ts <ip|arpIdx>",             true);
+    registerCommand("ping",      "pg", [](char* args) { networkScanner.pingHost(args); },         "Ping host: ping <ip or hostname>",            true);
     registerCommand("MATRIX","matrix", [](char* args) { displayManager.launchMatrixAnimation(); }, "Launch matrix animation",false);
     registerCommand("scanblue","sbl", [](char* args) { bluetoothFunctions.scanBluetoothDevices(); }, "Scan for Bluetooth devices",false);
     registerCommand("help",    "hlp", [](char* args) { Utils::printHelp(args); },                         "Print this help message",            true);

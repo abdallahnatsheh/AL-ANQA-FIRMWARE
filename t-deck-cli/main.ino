@@ -3,6 +3,7 @@
 #include "input_handling.h"
 #include "esp_info.h"
 #include "wifi_functions.h"
+#include "network_scanner.h"
 #include "bluetooth_functions.h"
 #include "sdcard_manager.h"
 #include "wifimon_functions.h"
@@ -15,6 +16,7 @@ CommandManager   commandManager;
 InputHandling    inputHandler;
 ESPInfoPrinter   espInfoPrinter(displayManager);
 WiFiFunctions    wifiFunctions(displayManager);
+NetworkScanner   networkScanner(displayManager);
 BluetoothFunctions bluetoothFunctions;
 SDCardManager    sdCardManager(displayManager);
 WiFiMonitor      wifiMonitor(displayManager, sdCardManager);

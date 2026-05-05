@@ -17,7 +17,11 @@ void DisplayManager::init() {
     tft.init();
     tft.setRotation(1);
     tft.setBrightness(128);
+#ifdef BOARD_TDECK_PLUS
     tft.invertDisplay(1);
+#else
+    tft.invertDisplay(0);
+#endif
     matrix_effect.init(&tft);
     tft.fillScreen(TFT_BLACK);
     tdeck_begin();
@@ -31,7 +35,11 @@ void DisplayManager::updateStatusBar() {
 
     tft.setTextColor(TFT_CYAN);
     tft.setCursor(5, promptY + 8);
+#ifdef BOARD_TDECK_PLUS
+    tft.print("T-DECK+");
+#else
     tft.print("T-DECK");
+#endif
 
     if (WiFi.status() == WL_CONNECTED) {
         tft.setTextColor(TFT_GREEN);

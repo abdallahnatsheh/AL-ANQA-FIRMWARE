@@ -55,3 +55,10 @@
 #define BOARD_BL_PIN        42
 
 #define LILYGO_KB_SLAVE_ADDRESS 0x55
+
+#ifdef BOARD_TDECK_PLUS
+// T-Deck Plus: built-in GPS module (NEO-6M on UART1)
+#define BOARD_GPS_RX_PIN    44
+#define BOARD_GPS_TX_PIN    43
+#define BOARD_GPS_BAUD      9600
+#endif

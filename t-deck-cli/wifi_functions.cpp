@@ -2,478 +2,281 @@
 #include <vector>
 #include "wifi_functions.h"
 #include "input_handling.h"
-#include "task_manager.h"
-#include <ESP32Ping.h>
 #include "utils.h"
 
 extern InputHandling inputHandler;
-extern Utils utils;
-Preferences preferences;
+
+// Scan result cache — populated by scanWiFiNetworks(), used by connect + deauth
+static std::vector<NetworkEntry> scanCache;
 
 WiFiFunctions::WiFiFunctions(DisplayManager& displayManager)
-    : displayManager(displayManager) {
-    preferences.begin("wifi", false); // Initialize preferences with a namespace "wifi"
+    : displayManager(displayManager) {}
+
+// ── scan helpers ──────────────────────────────────────────────────────────────
+
+static uint16_t rssiColor(int rssi) {
+    if (rssi >= -60) return TFT_GREEN;
+    if (rssi >= -75) return TFT_YELLOW;
+    return TFT_RED;
+}
+
+static void runScan(int& count, bool& done) {
+    count = WiFi.scanNetworks();
+    done  = true;
+    scanCache.clear();
+    for (int i = 0; i < count; i++) {
+        NetworkEntry e;
+        strncpy(e.ssid, WiFi.SSID(i).c_str(), sizeof(e.ssid) - 1);
+        e.ssid[sizeof(e.ssid) - 1] = '\0';
+        e.rssi    = WiFi.RSSI(i);
+        e.channel = WiFi.channel(i);
+        e.isOpen  = (WiFi.encryptionType(i) == WIFI_AUTH_OPEN);
+        uint8_t* b = WiFi.BSSID(i);
+        if (b) memcpy(e.bssid, b, 6);
+        scanCache.push_back(e);
     }
+}
+
+static void renderScanPage(DisplayManager& dm, int page, int perPage, int total, int totalPages) {
+    dm.clearScreen();
+    dm.setCursor(10, outputY);
+    dm.setDefaultTextSize();
+
+    char title[40];
+    snprintf(title, sizeof(title), "WiFi Networks  [%d/%d]", page + 1, totalPages);
+    dm.setTextColor(TFT_CYAN);
+    dm.println(title);
+    dm.setTextColor(0x7BEF);
+    dm.println("-------------------------------");
+    dm.setTextColor(TFT_WHITE);
+
+    int start = page * perPage;
+    int end   = min(start + perPage, total);
+
+    for (int i = start; i < end; i++) {
+        const NetworkEntry& e = scanCache[i];
+
+        char ssid[16];
+        strncpy(ssid, e.ssid, 14);
+        ssid[14] = '\0';
+        if (strlen(e.ssid) > 14) { ssid[12] = '.'; ssid[13] = '.'; }
+
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(TFT_YELLOW);
+        char idx[5]; snprintf(idx, sizeof(idx), "[%d]", i);
+        dm.printText(idx);
+
+        dm.setTextColor(TFT_WHITE);
+        char padded[18]; snprintf(padded, sizeof(padded), " %-14s", ssid);
+        dm.printText(padded);
+
+        dm.setTextColor(rssiColor(e.rssi));
+        char rssiStr[6]; snprintf(rssiStr, sizeof(rssiStr), "%4d", e.rssi);
+        dm.printText(rssiStr);
+
+        dm.setTextColor(e.isOpen ? TFT_MAGENTA : 0x7BEF);
+        dm.println(e.isOpen ? " OPEN" : " WPA");
+    }
+
+    dm.setTextColor(0x7BEF);
+    dm.println("-------------------------------");
+    dm.setTextColor(TFT_WHITE);
+    dm.printDefaultTableHelpInstructions();
+}
+
+void WiFiFunctions::scanWiFiNetworks() {
+    const int perPage = 6;
+
+    displayManager.clearScreen();
+    displayManager.setCursor(10, outputY);
+    displayManager.setTextColor(TFT_CYAN);
+    displayManager.println("Scanning WiFi...");
+    displayManager.setTextColor(TFT_WHITE);
+
+    runScan(numberOfNetworks, networkScanExecuted);
+    int totalPages  = max(1, (numberOfNetworks + perPage - 1) / perPage);
+    int currentPage = 0;
+
+    while (true) {
+        renderScanPage(displayManager, currentPage, perPage, numberOfNetworks, totalPages);
+
+        while (true) {
+            char k = inputHandler.getKeyboardInput();
+            if (k == 'l' || k == 'L') { if (currentPage < totalPages - 1) currentPage++; break; }
+            if (k == 'a' || k == 'A') { if (currentPage > 0)              currentPage--; break; }
+            if (k == 'q' || k == 'Q') { displayManager.printCommandScreen(); return; }
+            if (k == 'u' || k == 'U') {
+                displayManager.clearScreen();
+                displayManager.setCursor(10, outputY);
+                displayManager.setTextColor(TFT_CYAN);
+                displayManager.println("Scanning WiFi...");
+                displayManager.setTextColor(TFT_WHITE);
+                runScan(numberOfNetworks, networkScanExecuted);
+                totalPages  = max(1, (numberOfNetworks + perPage - 1) / perPage);
+                currentPage = 0;
+                break;
+            }
+        }
+    }
+}
+
+// ── credentials ───────────────────────────────────────────────────────────────
+
+void WiFiFunctions::storeWiFiCredentials(const String& ssid, const String& password) {
+    Preferences prefs;
+    prefs.begin("wifi", false);
+    prefs.putString(ssid.c_str(), password);
+    prefs.end();
+}
+
+String WiFiFunctions::getWiFiPassword(const String& ssid) {
+    Preferences prefs;
+    prefs.begin("wifi", true);
+    String pw = prefs.getString(ssid.c_str(), "");
+    prefs.end();
+    return pw;
+}
+
+void WiFiFunctions::clearAllWiFiCredentials() {
+    Preferences prefs;
+    prefs.begin("wifi", false);
+    prefs.clear();
+    prefs.end();
+    displayManager.setCursor(10, displayManager.getCursorY());
+    displayManager.println("All WiFi credentials cleared.");
+    delay(2000);
+    displayManager.tdeck_begin();
+}
+
+// ── password entry ────────────────────────────────────────────────────────────
+
+String WiFiFunctions::readPassword() {
+    String pw = "";
+    while (true) {
+        char c = inputHandler.getKeyboardInput();
+        if (!c) continue;
+        if (c == '\n' || c == '\r') break;
+        if (c == '\b') {
+            if (pw.length() > 0) {
+                pw.remove(pw.length() - 1);
+                displayManager.backspaceChar();
+            }
+        } else if (isPrintable(c) && c != ' ' && pw.length() < 100) {
+            pw += c;
+            displayManager.printText('*');
+        }
+    }
+    displayManager.println();
+    return pw;
+}
+
+// ── connect ───────────────────────────────────────────────────────────────────
 
 void WiFiFunctions::connectToWiFiCommand(char* args) {
-    if (!networkScanExecuted) {
-        displayManager.println("Please execute scanwifi command first");
+    if (!networkScanExecuted || scanCache.empty()) {
+        displayManager.println("Run scanwifi first.");
+        displayManager.printCommandScreen();
         return;
     }
 
-    int networkIndex;
-    if (sscanf(args, "%d", &networkIndex) != 1) {
-        displayManager.println("Invalid command format. Please use 'connectwifi <networkIndex>' or 'cw <networkIndex>'.");
+    int idx = -1;
+    if (sscanf(args, "%d", &idx) != 1 || idx < 0 || idx >= numberOfNetworks) {
+        displayManager.println("Invalid index.");
+        displayManager.printCommandScreen();
         return;
     }
 
-    if (networkIndex < 0 || networkIndex > numberOfNetworks) {
-        displayManager.println("Invalid network index");
-        return;
-    }
+    const NetworkEntry& net = scanCache[idx];
+    String ssid(net.ssid);
+    String password = "";
 
-    String ssid = WiFi.SSID(networkIndex);
-    bool requiresPassword = WiFi.encryptionType(networkIndex) != WIFI_AUTH_OPEN;
-    String password;
+    displayManager.clearScreen();
+    displayManager.setCursor(10, outputY);
+    displayManager.setTextColor(TFT_CYAN);
+    displayManager.println("-- Connect to WiFi --");
+    displayManager.setTextColor(TFT_WHITE);
+    displayManager.setCursor(10, displayManager.getCursorY());
+    displayManager.printText("SSID: ");
+    displayManager.println(ssid);
 
-    if (requiresPassword) {
+    if (!net.isOpen) {
         password = getWiFiPassword(ssid);
         if (password.isEmpty()) {
             displayManager.setCursor(10, displayManager.getCursorY());
-            displayManager.printText("Enter password for network ");
-            displayManager.println(ssid);
+            displayManager.setTextColor(TFT_YELLOW);
+            displayManager.println("Password (q=cancel):");
+            displayManager.setTextColor(TFT_WHITE);
+            displayManager.setCursor(10, displayManager.getCursorY());
             password = readPassword();
-            if (password.length() == 1 && password[0] == 'q') {
+            if (password == "q" || password == "Q") {
                 displayManager.printCommandScreen();
                 return;
-            }else if (password.length() < 8)
-            {
-                displayManager.setCursor(10, displayManager.getCursorY());
-                displayManager.println("Password must be at least 8 characters long");
+            }
+            if (password.length() < 8) {
+                displayManager.setTextColor(TFT_RED);
+                displayManager.println("Min 8 characters.");
+                displayManager.setTextColor(TFT_WHITE);
                 delay(2000);
                 displayManager.tdeck_begin();
                 return;
             }
             storeWiFiCredentials(ssid, password);
+        } else {
+            displayManager.setCursor(10, displayManager.getCursorY());
+            displayManager.setTextColor(0x7BEF);
+            displayManager.println("Using saved password.");
+            displayManager.setTextColor(TFT_WHITE);
         }
     }
 
-    displayManager.printText("Connecting to Wi-Fi ");
-    displayManager.println(ssid);
-    WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
-    WiFi.setHostname(HOST_NAME.c_str());
-    WiFi.begin(ssid.c_str(), requiresPassword ? password.c_str() : nullptr);
+    displayManager.setCursor(10, displayManager.getCursorY());
+    displayManager.setTextColor(TFT_CYAN);
+    displayManager.printText("Connecting");
+    displayManager.setTextColor(TFT_WHITE);
 
-    unsigned long startTime = millis();
+    WiFi.disconnect(true);
+    delay(100);
+    WiFi.mode(WIFI_STA);
+    WiFi.setHostname("T-DECK");
+    WiFi.begin(ssid.c_str(), net.isOpen ? nullptr : password.c_str());
+
+    unsigned long start = millis();
     while (WiFi.status() != WL_CONNECTED) {
-        delay(1000);
-        displayManager.printText(".");
-        unsigned long currentTime = millis();
-        unsigned long elapsedTime = currentTime - startTime;
-        if (elapsedTime > 15000) {
+        if (millis() - start > 15000) {
+            displayManager.println();
+            displayManager.setCursor(10, displayManager.getCursorY());
             displayManager.setTextColor(TFT_RED);
-            displayManager.println("\nConnection timed out. Please check the password and try again.");
-            WiFi.disconnect();
+            displayManager.println("Timed out. Check password.");
+            displayManager.setTextColor(TFT_WHITE);
+            WiFi.disconnect(true);
             delay(2000);
             displayManager.tdeck_begin();
             return;
         }
+        delay(500);
+        displayManager.printText(".");
     }
+
     displayManager.println();
-    displayManager.println("Wi-Fi connected");
-    displayManager.printText("IP address: ");
+    displayManager.setCursor(10, displayManager.getCursorY());
+    displayManager.setTextColor(TFT_GREEN);
+    displayManager.println("Connected!");
+    displayManager.setTextColor(TFT_WHITE);
+    displayManager.setCursor(10, displayManager.getCursorY());
+    displayManager.printText("IP: ");
     displayManager.println(WiFi.localIP().toString());
-    connectedToNetwork = true;
-    displayManager.println("returning to cli ...");
     delay(3000);
     displayManager.tdeck_begin();
-    return;
 }
 
-void WiFiFunctions::scanWiFiNetworks()
-{
-    numberOfNetworks = 0;
-    int totalPages = 0;
-    int currentPage = 0;
-    char incomingKey = 0;
-    bool updateInProgress = false;
-    const int networksPerPage = 8;
+// ── accessors used by deauth ──────────────────────────────────────────────────
 
-    while (true)
-    {
-        if (updateInProgress || numberOfNetworks == 0 )
-        {
-            displayManager.setCursor(10, displayManager.getCursorY());
-            displayManager.println("Updating Wi-Fi networks...");
-            displayManager.println();
-            displayManager.setCursor(10, displayManager.getCursorY());
-            displayManager.println("Press 'q' to exit");
-            displayManager.println();
-            updateInProgress = false;
-            numberOfNetworks = WiFi.scanNetworks();
-            totalPages = (numberOfNetworks + networksPerPage - 1) / networksPerPage;
-            currentPage = 0;
-            networkScanExecuted = true;
-        }
-
-        displayManager.clearScreen();
-
-        displayManager.setCursor(10, outputY);
-        displayManager.setDefaultTextSize();
-        displayManager.printText("Page ");
-        displayManager.printText(currentPage + 1);
-        displayManager.printText("/");
-        displayManager.println(totalPages);
-        displayManager.println("---------------------------------------------");
-        displayManager.println("| Index |      SSID     | Signal | Password |");
-        displayManager.println("---------------------------------------------");
-
-        int startIndex = currentPage * networksPerPage;
-        int endIndex = min(startIndex + networksPerPage, numberOfNetworks);
-
-        for (int i = startIndex; i < endIndex; i++)
-        {
-            displayManager.setDefaultTextSize();
-            displayManager.printText("|   ");
-            displayManager.printText(i);
-            displayManager.printText("   | ");
-            String ssid = WiFi.SSID(i);
-            if (ssid.length() > 15)
-            {
-                ssid = ssid.substring(0, 12) + "...";
-            }
-            std::string ssid_std = ssid.c_str();
-            displayManager.printText(ssid_std);
-            for (int j = 0; j < 15 - ssid.length(); j++)
-            {
-                displayManager.printText(" ");
-            }
-            displayManager.printText(" |  ");
-            displayManager.printText(WiFi.RSSI(i));
-            displayManager.printText("   |  ");
-            displayManager.printText(WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "No" : "Yes");
-            displayManager.println("  |");
-        }
-
-        displayManager.println("---------------------------------------------");
-        displayManager.printDefaultTableHelpInstructions();
-
-        while (true)
-        {
-            incomingKey = inputHandler.getKeyboardInput();
-            if (incomingKey == 'l' || incomingKey == 'L')
-            {
-                currentPage++;
-                if (currentPage >= totalPages)
-                {
-                    currentPage = totalPages - 1;
-                }
-                break;
-            }
-            else if (incomingKey == 'a' || incomingKey == 'A')
-            {
-                currentPage--;
-                if (currentPage < 0)
-                {
-                    currentPage = 0;
-                }
-                break;
-            }
-            else if (incomingKey == 'q' || incomingKey == 'Q')
-            {
-                displayManager.printCommandScreen();
-                return;
-            }
-            else if (incomingKey == 'u' || incomingKey == 'U')
-            {
-                updateInProgress = true;
-                break;
-            }
-        }
-    }
-}
-String  WiFiFunctions::readPassword() {
-    String password = "";
-    char input = '\0';
-
-    while (true) {
-        input = inputHandler.getKeyboardInput();
-        if (input != (char)0x00)
-            {
-                if (input == '\n' || input == '\r')
-                {
-                    break;
-                }
-                else if (input == '\b' && password.length() > 0)
-                {
-                    password.remove(password.length() - 1);  // Remove the last character from the password
-                    displayManager.backspaceChar();                    
-                }
-                else if (isPrintable(input) && input != ' ' && password.length() < 100)
-                {
-                    password += input;
-                    displayManager.printText(input);
-                }
-            }
-    }
-    displayManager.println();
-    return password;
-}
-
-void WiFiFunctions::storeWiFiCredentials(const String& ssid, const String& password) {
-    if (!preferences.begin("wifi", false)) {
-        Serial.println("Failed to open preferences for writing");
-        return;
-    }
-
-    preferences.putString(ssid.c_str(), password);
-
-    preferences.end();
-}
-
-String WiFiFunctions::getWiFiPassword(const String& ssid) {
-    if (!preferences.begin("wifi", true)) {
-        Serial.println("Failed to open preferences for reading");
-        return "";
-    }
-
-    String password = preferences.getString(ssid.c_str(), "");
-
-    preferences.end();
-    return password;
-}
-
-void WiFiFunctions::clearAllWiFiCredentials() {
-    if (!preferences.begin("wifi", false)) {
-        Serial.println("Failed to open preferences for clearing");
-        return;
-    }
-
-    preferences.clear();
-    Serial.println("All WiFi credentials cleared.");
-    displayManager.setCursor(10, displayManager.getCursorY());
-    displayManager.println("All WiFi credentials cleared...");
-    delay(2000);
-    displayManager.tdeck_begin();
-    preferences.end();
-}
-
-// ── FreeRTOS task: ping scan on Core 0 ───────────────────────────────────────
-struct PingScanParams { uint8_t base[4]; };
-
-static void pingScanTaskFn(void* p) {
-    PingScanParams* params = (PingScanParams*)p;
-    for (int i = 1; i <= 254; i++) {
-        if (TaskManager::stopRequested) break;
-        IPAddress target(params->base[0], params->base[1], params->base[2], i);
-        if (Ping.ping(target, 1)) {
-            TaskResult result;
-            result.type = TaskResult::HOST_FOUND;
-            snprintf(result.data, sizeof(result.data), "%d.%d.%d.%d",
-                     params->base[0], params->base[1], params->base[2], i);
-            xQueueSend(TaskManager::resultQueue, &result, pdMS_TO_TICKS(200));
-        }
-    }
-    TaskResult done; done.type = TaskResult::DONE; done.data[0] = '\0';
-    xQueueSend(TaskManager::resultQueue, &done, pdMS_TO_TICKS(1000));
-    TaskManager::taskRunning = false;
-    vTaskDelete(nullptr);
-}
-
-// ── FreeRTOS task: port scan on Core 0 ───────────────────────────────────────
-struct PortScanParams { uint32_t targetIPRaw; int startPort, endPort; };
-
-static void portScanTaskFn(void* p) {
-    PortScanParams* params = (PortScanParams*)p;
-    IPAddress targetIP(params->targetIPRaw);
-    for (int port = params->startPort; port <= params->endPort; port++) {
-        if (TaskManager::stopRequested) break;
-        WiFiClient client;
-        if (client.connect(targetIP, port, 500)) {
-            client.stop();
-            TaskResult result;
-            result.type = TaskResult::PORT_OPEN;
-            snprintf(result.data, sizeof(result.data), "%d", port);
-            xQueueSend(TaskManager::resultQueue, &result, pdMS_TO_TICKS(200));
-        }
-    }
-    TaskResult done; done.type = TaskResult::DONE; done.data[0] = '\0';
-    xQueueSend(TaskManager::resultQueue, &done, pdMS_TO_TICKS(1000));
-    TaskManager::taskRunning = false;
-    vTaskDelete(nullptr);
-}
-
-// ── networkDiscovery: launches ping scan task, shows results live ─────────────
-void WiFiFunctions::networkDiscovery() {
-    if (!connectedToNetwork) {
-        displayManager.setCursor(10, displayManager.getCursorY());
-        displayManager.println("Connect to WiFi first.");
-        displayManager.printCommandScreen();
-        return;
-    }
-
-    IPAddress gw = WiFi.gatewayIP();
-    PingScanParams params;
-    params.base[0] = gw[0]; params.base[1] = gw[1];
-    params.base[2] = gw[2]; params.base[3] = 0;
-
-    displayManager.clearScreen();
-    displayManager.setCursor(10, outputY);
-    displayManager.setTextColor(TFT_CYAN);
-    displayManager.println("-- Network Discovery --");
-    displayManager.setTextColor(TFT_WHITE);
-    displayManager.setCursor(10, displayManager.getCursorY());
-    displayManager.printText("Subnet: ");
-    displayManager.printText(gw[0]); displayManager.printText(".");
-    displayManager.printText(gw[1]); displayManager.printText(".");
-    displayManager.printText(gw[2]); displayManager.println(".0/24");
-    displayManager.setCursor(10, displayManager.getCursorY());
-    displayManager.setTextColor(TFT_GREEN);
-    displayManager.println("Scanning Core 0  q=stop");
-    displayManager.setTextColor(TFT_WHITE);
-    displayManager.println("------------------------");
-
-    if (!TaskManager::start(pingScanTaskFn, "pingscan", &params)) {
-        displayManager.println("Task start failed.");
-        displayManager.printCommandScreen();
-        return;
-    }
-
-    int found = 0;
-    while (TaskManager::isRunning() || uxQueueMessagesWaiting(TaskManager::resultQueue) > 0) {
-        TaskResult result;
-        if (xQueueReceive(TaskManager::resultQueue, &result, pdMS_TO_TICKS(50)) == pdTRUE) {
-            if (result.type == TaskResult::HOST_FOUND) {
-                found++;
-                displayManager.setCursor(10, displayManager.getCursorY());
-                displayManager.setTextColor(TFT_GREEN);
-                displayManager.printText("[+] ");
-                displayManager.setTextColor(TFT_WHITE);
-                displayManager.println(result.data);
-            } else if (result.type == TaskResult::DONE) {
-                break;
-            }
-        }
-        char k = inputHandler.getKeyboardInput();
-        if (k == 'q' || k == 'Q') { TaskManager::requestStop(); break; }
-    }
-
-    TaskManager::cleanup();
-    displayManager.setCursor(10, displayManager.getCursorY());
-    displayManager.println("------------------------");
-    displayManager.setCursor(10, displayManager.getCursorY());
-    displayManager.printText("Total hosts: ");
-    displayManager.println(found);
-    displayManager.printCommandScreen();
-}
-
-// ── networkPortScan: validates args then launches port scan task ──────────────
-void WiFiFunctions::networkPortScan(char* args) {
-    String ipAddress  = utils.getValue(args, ' ', 0);
-    String startPortStr = utils.getValue(args, ' ', 1);
-    String endPortStr   = utils.getValue(args, ' ', 2);
-
-    if (ipAddress.isEmpty() || startPortStr.isEmpty() || endPortStr.isEmpty()) {
-        displayManager.setCursor(10, displayManager.getCursorY());
-        displayManager.println("Usage: portscan <ip> <start> <end>");
-        displayManager.printCommandScreen();
-        return;
-    }
-
-    IPAddress targetIp;
-    if (!targetIp.fromString(ipAddress)) {
-        displayManager.setCursor(10, displayManager.getCursorY());
-        displayManager.setTextColor(TFT_RED);
-        displayManager.println("Invalid IP address.");
-        displayManager.setTextColor(TFT_WHITE);
-        delay(1000);
-        displayManager.printCommandScreen();
-        return;
-    }
-
-    performPortScan(targetIp, startPortStr.toInt(), endPortStr.toInt());
-}
-
-// ── performPortScan: task on Core 0, live results on Core 1 ──────────────────
-void WiFiFunctions::performPortScan(const IPAddress& targetIP, int startPort, int endPort) {
-    PortScanParams params;
-    params.targetIPRaw = (uint32_t)targetIP;
-    params.startPort   = startPort;
-    params.endPort     = endPort;
-
-    displayManager.clearScreen();
-    displayManager.setCursor(10, outputY);
-    displayManager.setTextColor(TFT_CYAN);
-    displayManager.println("-- Port Scan --");
-    displayManager.setTextColor(TFT_WHITE);
-    displayManager.setCursor(10, displayManager.getCursorY());
-    displayManager.printText("Target: "); displayManager.println(targetIP.toString());
-    displayManager.setCursor(10, displayManager.getCursorY());
-    displayManager.printText("Range:  "); displayManager.printText(startPort);
-    displayManager.printText(" - ");     displayManager.println(endPort);
-    displayManager.setCursor(10, displayManager.getCursorY());
-    displayManager.setTextColor(TFT_GREEN);
-    displayManager.println("Scanning Core 0  q=stop");
-    displayManager.setTextColor(TFT_WHITE);
-    displayManager.println("------------------------");
-
-    if (!TaskManager::start(portScanTaskFn, "portscan", &params)) {
-        displayManager.println("Task start failed.");
-        displayManager.printCommandScreen();
-        return;
-    }
-
-    std::vector<int> openPorts;
-
-    while (TaskManager::isRunning() || uxQueueMessagesWaiting(TaskManager::resultQueue) > 0) {
-        TaskResult result;
-        if (xQueueReceive(TaskManager::resultQueue, &result, pdMS_TO_TICKS(50)) == pdTRUE) {
-            if (result.type == TaskResult::PORT_OPEN) {
-                int port = atoi(result.data);
-                openPorts.push_back(port);
-                displayManager.setCursor(10, displayManager.getCursorY());
-                displayManager.setTextColor(TFT_GREEN);
-                displayManager.printText("[+] Port ");
-                displayManager.printText(port);
-                displayManager.setTextColor(TFT_WHITE);
-                displayManager.println(" OPEN");
-            } else if (result.type == TaskResult::DONE) {
-                break;
-            }
-        }
-        char k = inputHandler.getKeyboardInput();
-        if (k == 'q' || k == 'Q') { TaskManager::requestStop(); break; }
-    }
-
-    TaskManager::cleanup();
-
-    displayManager.setCursor(10, displayManager.getCursorY());
-    displayManager.println("------------------------");
-    displayManager.setCursor(10, displayManager.getCursorY());
-    displayManager.printText("Open ports found: ");
-    displayManager.println((int)openPorts.size());
-    displayManager.printCommandScreen();
-}
-
-bool WiFiFunctions::performPortCheck(const IPAddress& ip, int port) {
-    WiFiClient client;
-    if (client.connect(ip, port, 500)) { client.stop(); return true; }
-    return false;
-}
-
-bool WiFiFunctions::isScanDone() const {
-    return networkScanExecuted;
-}
-
-int WiFiFunctions::getNetworkCount() const {
-    return numberOfNetworks;
-}
+bool WiFiFunctions::isScanDone() const { return networkScanExecuted; }
+int  WiFiFunctions::getNetworkCount() const { return numberOfNetworks; }
 
 bool WiFiFunctions::getNetworkInfo(int index, uint8_t* bssidOut, int* channelOut) {
-    if (!networkScanExecuted || index < 0 || index >= numberOfNetworks) return false;
-    uint8_t* b = WiFi.BSSID(index);
-    if (!b) return false;
-    memcpy(bssidOut, b, 6);
-    *channelOut = WiFi.channel(index);
+    if (!networkScanExecuted || index < 0 || index >= (int)scanCache.size()) return false;
+    memcpy(bssidOut, scanCache[index].bssid, 6);
+    *channelOut = scanCache[index].channel;
     return true;
 }
