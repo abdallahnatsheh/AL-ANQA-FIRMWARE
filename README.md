@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <b>Pentesting CLI firmware for the LilyGo T-Deck — a Linux shell in your pocket.</b><br/>
+  <b>Offensive security firmware for the LilyGo T-Deck — hacker CLI in your pocket.</b><br/>
   <i>Scan. Attack. Repeat.</i>
 </p>
 
