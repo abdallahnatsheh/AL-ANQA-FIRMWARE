@@ -31,13 +31,23 @@ private:
     char  _lastPass[48];
     bool  _dirty;
 
+    // client tracking (event-based — more reliable than softAPgetStationNum)
+    WiFiEventId_t _evConn, _evDisc;
+
     // clone / deauth state
     bool     _isClone;
-    uint8_t  _targetBSSID[6];
+    bool     _targetIsOpen;   // true = open network, false = WPA/WPA2
+    uint8_t  _targetBSSID[6]; // real AP MAC (used for deauth frames)
+    uint8_t  _fakeMAC[6];     // actual MAC our AP uses (cloned or random)
     int      _targetChannel;
     bool     _deauthEnabled;
     uint32_t _deauthLastMs;
     int      _deauthCount;
+
+    // SD custom template
+    bool  _useCustomTemplate;
+    char  _sdTemplatePath[64];
+    char  _sdTemplateName[32];
 
     // -- setup UI --
     int  showModeMenu();
@@ -45,6 +55,7 @@ private:
     void drawScanList(int total, int page);
     bool promptCustomSSID();
     bool askDeauth();
+    bool pickSdTemplate();
 
     // -- portal handlers --
     void setupRoutes();
