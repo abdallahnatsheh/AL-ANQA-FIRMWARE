@@ -27,35 +27,90 @@ void DisplayManager::init() {
     tdeck_begin();
 }
 
+// ── Status bar icon helpers ───────────────────────────────────────────────────
+
+static void drawWiFiBars(LGFX& tft, int x, int yBot, bool connected, int rssi) {
+    const int bW = 3, bGap = 1;
+    const int bH[4] = { 4, 7, 10, 13 };
+    int bars = 0;
+    if (connected) {
+        if      (rssi >= -60) bars = 4;
+        else if (rssi >= -70) bars = 3;
+        else if (rssi >= -80) bars = 2;
+        else                   bars = 1;
+    }
+    for (int i = 0; i < 4; i++) {
+        uint16_t c = (i < bars) ? TFT_GREEN : 0x2104;
+        tft.fillRect(x + i * (bW + bGap), yBot - bH[i], bW, bH[i], c);
+    }
+    if (!connected) {
+        tft.drawLine(x, yBot - 13, x + 14, yBot - 1, TFT_RED);
+        tft.drawLine(x + 14, yBot - 13, x, yBot - 1, TFT_RED);
+    }
+}
+
+static void drawBTIcon(LGFX& tft, int cx, int cy, bool active) {
+    uint16_t c = active ? 0x07FF : 0x2104;  // cyan : dark grey
+    tft.drawFastVLine(cx, cy - 6, 13, c);
+    tft.drawLine(cx, cy - 6, cx + 4, cy - 3, c);
+    tft.drawLine(cx + 4, cy - 3, cx, cy, c);
+    tft.drawLine(cx, cy, cx + 4, cy + 3, c);
+    tft.drawLine(cx + 4, cy + 3, cx, cy + 6, c);
+}
+
+static void drawBattery(LGFX& tft, int x, int y, int pct) {
+    uint16_t c = pct > 50 ? TFT_GREEN : (pct > 20 ? TFT_YELLOW : TFT_RED);
+    tft.drawRect(x, y, 18, 10, TFT_LIGHTGREY);
+    tft.fillRect(x + 18, y + 2, 3, 6, TFT_LIGHTGREY);
+    int fill = max(1, 16 * pct / 100);
+    tft.fillRect(x + 1, y + 1, fill, 8, c);
+}
+
+static int readBatteryPct() {
+    float v = analogRead(BOARD_BAT_ADC) * 3.3f / 4095.0f * 1.8f;
+    int pct = (int)((v - 3.0f) / 1.2f * 100.0f);
+    return pct < 0 ? 0 : (pct > 100 ? 100 : pct);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 void DisplayManager::updateStatusBar() {
     tft.fillRect(0, promptY, SCREEN_WIDTH, promptHeight, 0x000F);
     tft.drawFastHLine(0, promptY + promptHeight - 1, SCREEN_WIDTH, TFT_DARKGREY);
 
     setDefaultTextSize();
 
+    // Title
     tft.setTextColor(TFT_CYAN);
     tft.setCursor(5, promptY + 8);
 #ifdef BOARD_TDECK_PLUS
-    tft.print("T-DECK+");
+    tft.print("T-REX+");
 #else
-    tft.print("T-DECK");
+    tft.print("T-REX");
 #endif
 
-    if (WiFi.status() == WL_CONNECTED) {
+    // WiFi signal bars
+    bool connected = (WiFi.status() == WL_CONNECTED);
+    drawWiFiBars(tft, 56, promptY + 25, connected, connected ? WiFi.RSSI() : 0);
+
+    // IP address (only when connected)
+    if (connected) {
         tft.setTextColor(TFT_GREEN);
-        tft.setCursor(90, promptY + 8);
+        tft.setCursor(74, promptY + 8);
         tft.print(WiFi.localIP().toString());
-    } else {
-        tft.setTextColor(0x7BEF);
-        tft.setCursor(110, promptY + 8);
-        tft.print("OFFLINE");
     }
 
-    tft.setTextColor(0x7BEF);
-    tft.setCursor(278, promptY + 8);
-    tft.print("v0.1");
+    // Bluetooth icon
+    drawBTIcon(tft, 269, promptY + 15, _btActive);
+
+    // Battery
+    drawBattery(tft, 279, promptY + 10, readBatteryPct());
 
     tft.setTextColor(TFT_WHITE);
+}
+
+void DisplayManager::setBtActive(bool active) {
+    _btActive = active;
 }
 
 void DisplayManager::tdeck_begin() {

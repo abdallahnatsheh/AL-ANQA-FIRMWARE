@@ -24,6 +24,7 @@ void BluetoothFunctions::scanBluetoothDevices() {
     numberOfDevices = 0;
 
     BLEDevice::init("");
+    displayManager.setBtActive(true);
     pBLEScan = BLEDevice::getScan();
     delete pScanCallbacks;
     pScanCallbacks = new MyAdvertisedDeviceCallbacks();
@@ -110,6 +111,7 @@ void BluetoothFunctions::scanBluetoothDevices() {
                 pBLEScan->clearResults();
                 delete pScanCallbacks;
                 pScanCallbacks = nullptr;
+                displayManager.setBtActive(false);
                 displayManager.printCommandScreen();
                 return;
             } else if (incomingKey == 'u' || incomingKey == 'U') {

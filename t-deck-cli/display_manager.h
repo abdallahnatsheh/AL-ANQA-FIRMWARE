@@ -47,8 +47,10 @@ public:
     void fillRect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color);
     void launchMatrixAnimation();
     void setTextSize(float size);
+    void setBtActive(bool active);
 private:
     LGFX& tft;
+    bool _btActive = false;
     DigitalRainAnimation<LGFX> matrix_effect = DigitalRainAnimation<LGFX>();
     void scrollIfNeeded();
 };
