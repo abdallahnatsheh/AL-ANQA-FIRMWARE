@@ -8,6 +8,8 @@
 #include "sdcard_manager.h"
 #include "wifimon_functions.h"
 #include "deauth_functions.h"
+#include "trackme.h"
+#include "eviltwin.h"
 
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
@@ -17,6 +19,12 @@ extern BluetoothFunctions bluetoothFunctions;
 extern SDCardManager      sdCardManager;
 extern WiFiMonitor        wifiMonitor;
 extern DeauthAttack       deauthAttack;
+extern TrackMeScanner     trackMe;
+extern EvilTwin           evilTwin;
+
+// Temp test commands (no header needed — forward-declared here)
+void runGpsTest();
+void runSpeakerTest();
 
 CommandManager::CommandManager() : commandIndex(0), commandCount(0) {
     resetCommand();
@@ -106,4 +114,12 @@ void CommandManager::setupCommands() {
     }, "WiFi monitor mode [channel 1-13, 0=hop]", true);
     registerCommand("deauth",  "da",  [](char* args) { deauthAttack.start(args); },
         "Deauth attack: deauth <bssid> [ch] [client]", true);
+    registerCommand("eviltwin", "et",  [](char* args) { evilTwin.start(args); },
+        "Evil Twin AP: et [ssid]", true);
+    registerCommand("trackme", "tm",  [](char* args) { trackMe.start(); },
+        "Anti-tracking scanner (BLE+WiFi)", false);
+    registerCommand("gpstest", "gt",  [](char* args) { runGpsTest(); },
+        "GPS coordinate test", false);
+    registerCommand("spktest", "st",  [](char* args) { runSpeakerTest(); },
+        "Speaker tone test", false);
 }

@@ -1,4 +1,5 @@
 #include "display_manager.h"
+#include "battery_manager.h"
 #include "utilities.h"
 #include <Wire.h>
 #include <string>
@@ -6,7 +7,8 @@
 #include <WiFi.h>
 #include "input_handling.h"
 
-extern InputHandling inputHandler;
+extern InputHandling  inputHandler;
+extern BatteryManager batteryManager;
 
 DisplayManager::DisplayManager(LGFX& tft) : tft(tft) {}
 
@@ -29,47 +31,53 @@ void DisplayManager::init() {
 
 // ── Status bar icon helpers ───────────────────────────────────────────────────
 
-static void drawWiFiBars(LGFX& tft, int x, int yBot, bool connected, int rssi) {
+// WiFi: 3 states — off (grey+X), on-no-IP (grey bars), connected (green bars by RSSI)
+static void drawWiFiBars(LGFX& tft, int x, int yBot, bool wifiOn, bool connected, int rssi) {
     const int bW = 3, bGap = 1;
     const int bH[4] = { 4, 7, 10, 13 };
-    int bars = 0;
+    int litBars = 0;
     if (connected) {
-        if      (rssi >= -60) bars = 4;
-        else if (rssi >= -70) bars = 3;
-        else if (rssi >= -80) bars = 2;
-        else                   bars = 1;
+        if      (rssi >= -60) litBars = 4;
+        else if (rssi >= -70) litBars = 3;
+        else if (rssi >= -80) litBars = 2;
+        else                   litBars = 1;
     }
     for (int i = 0; i < 4; i++) {
-        uint16_t c = (i < bars) ? TFT_GREEN : 0x2104;
+        uint16_t c = (i < litBars) ? TFT_GREEN : 0x2104;
         tft.fillRect(x + i * (bW + bGap), yBot - bH[i], bW, bH[i], c);
     }
-    if (!connected) {
+    // Red X only when WiFi stack is completely off
+    if (!wifiOn) {
         tft.drawLine(x, yBot - 13, x + 14, yBot - 1, TFT_RED);
         tft.drawLine(x + 14, yBot - 13, x, yBot - 1, TFT_RED);
     }
 }
 
+// BT icon: classic ᛒ rune, 2-px thick spine, 7-px right reach, 16-px tall
 static void drawBTIcon(LGFX& tft, int cx, int cy, bool active) {
-    uint16_t c = active ? 0x07FF : 0x2104;  // cyan : dark grey
-    tft.drawFastVLine(cx, cy - 6, 13, c);
-    tft.drawLine(cx, cy - 6, cx + 4, cy - 3, c);
-    tft.drawLine(cx + 4, cy - 3, cx, cy, c);
-    tft.drawLine(cx, cy, cx + 4, cy + 3, c);
-    tft.drawLine(cx + 4, cy + 3, cx, cy + 6, c);
+    uint16_t c  = active ? 0x07FF : 0x2104;   // cyan : dark grey
+    uint16_t bg = 0x000F;                       // status bar background
+    tft.fillRect(cx - 2, cy - 8, 11, 17, bg);  // clear area first
+    tft.fillRect(cx, cy - 8, 2, 17, c);         // thick vertical spine
+    // Upper-right arms
+    tft.drawLine(cx + 1, cy - 8, cx + 7, cy - 4, c);
+    tft.drawLine(cx + 7, cy - 4, cx + 1, cy,     c);
+    // Lower-right arms
+    tft.drawLine(cx + 1, cy,     cx + 7, cy + 4, c);
+    tft.drawLine(cx + 7, cy + 4, cx + 1, cy + 8, c);
 }
 
 static void drawBattery(LGFX& tft, int x, int y, int pct) {
-    uint16_t c = pct > 50 ? TFT_GREEN : (pct > 20 ? TFT_YELLOW : TFT_RED);
-    tft.drawRect(x, y, 18, 10, TFT_LIGHTGREY);
-    tft.fillRect(x + 18, y + 2, 3, 6, TFT_LIGHTGREY);
-    int fill = max(1, 16 * pct / 100);
-    tft.fillRect(x + 1, y + 1, fill, 8, c);
-}
-
-static int readBatteryPct() {
-    float v = analogRead(BOARD_BAT_ADC) * 3.3f / 4095.0f * 1.8f;
-    int pct = (int)((v - 3.0f) / 1.2f * 100.0f);
-    return pct < 0 ? 0 : (pct > 100 ? 100 : pct);
+    // Each 20 % = one lit cell  (5 cells total, 2 px wide, 1 px gap)
+    int litCells = pct / 20;                              // 0-5
+    uint16_t c   = litCells > 2 ? TFT_GREEN
+                 : litCells > 1 ? TFT_YELLOW
+                 :                TFT_RED;
+    tft.drawRect(x, y, 18, 10, TFT_LIGHTGREY);           // outline
+    tft.fillRect(x + 18, y + 2, 3, 6, TFT_LIGHTGREY);   // nub
+    tft.fillRect(x + 1, y + 1, 16, 8, 0x000F);           // clear interior
+    for (int i = 0; i < 5; i++)
+        tft.fillRect(x + 2 + i * 3, y + 2, 2, 6, i < litCells ? c : 0x2104);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -77,7 +85,6 @@ static int readBatteryPct() {
 void DisplayManager::updateStatusBar() {
     tft.fillRect(0, promptY, SCREEN_WIDTH, promptHeight, 0x000F);
     tft.drawFastHLine(0, promptY + promptHeight - 1, SCREEN_WIDTH, TFT_DARKGREY);
-
     setDefaultTextSize();
 
     // Title
@@ -89,22 +96,22 @@ void DisplayManager::updateStatusBar() {
     tft.print("T-REX");
 #endif
 
-    // WiFi signal bars
+    // WiFi bars (raised from y+25 to y+22; IP offset to x=78 for breathing room)
+    bool wifiOn    = (WiFi.getMode() != WIFI_MODE_NULL);
     bool connected = (WiFi.status() == WL_CONNECTED);
-    drawWiFiBars(tft, 56, promptY + 25, connected, connected ? WiFi.RSSI() : 0);
+    drawWiFiBars(tft, 54, promptY + 22, wifiOn, connected, connected ? WiFi.RSSI() : 0);
 
-    // IP address (only when connected)
     if (connected) {
         tft.setTextColor(TFT_GREEN);
-        tft.setCursor(74, promptY + 8);
+        tft.setCursor(78, promptY + 8);
         tft.print(WiFi.localIP().toString());
     }
 
-    // Bluetooth icon
-    drawBTIcon(tft, 269, promptY + 15, _btActive);
+    // BT icon — left of battery with clear gap
+    drawBTIcon(tft, 258, promptY + 15, _btActive);
 
-    // Battery
-    drawBattery(tft, 279, promptY + 10, readBatteryPct());
+    // Battery — rightmost, 5 px from edge
+    drawBattery(tft, 278, promptY + 10, batteryManager.getPct());
 
     tft.setTextColor(TFT_WHITE);
 }

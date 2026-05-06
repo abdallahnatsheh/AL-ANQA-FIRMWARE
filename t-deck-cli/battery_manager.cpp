@@ -1,4 +1,5 @@
 #include "battery_manager.h"
+#include <Arduino.h>
 
 BatteryManager::BatteryManager(DisplayManager& displayManager)
     : bl(BOARD_BAT_ADC, CONV_FACTOR, READS), displayManager(displayManager) {}
@@ -22,3 +23,8 @@ String BatteryManager::getBatteryChargeLevel(float volts) {
     float percentage = voltageToPercentage(volts);
     return String(percentage, 1) + "%";
 }
+
+int BatteryManager::getPct() {
+    return (int)voltageToPercentage(bl.getBatteryVolts());
+}
+

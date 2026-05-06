@@ -6,13 +6,16 @@
 #include "utilities.h"
 
 #define CONV_FACTOR 1.8
-#define READS 20
+#define READS       20
 
 class BatteryManager {
 public:
     BatteryManager(DisplayManager& displayManager);
-    void printBatteryInfo();
+
+    void   printBatteryInfo();
     String getBatteryChargeLevel(float volts);
+
+    int getPct();
 
 private:
     Pangodream_18650_CL bl;

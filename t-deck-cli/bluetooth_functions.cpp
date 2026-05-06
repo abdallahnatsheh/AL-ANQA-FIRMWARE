@@ -25,6 +25,7 @@ void BluetoothFunctions::scanBluetoothDevices() {
 
     BLEDevice::init("");
     displayManager.setBtActive(true);
+    displayManager.updateStatusBar();
     pBLEScan = BLEDevice::getScan();
     delete pScanCallbacks;
     pScanCallbacks = new MyAdvertisedDeviceCallbacks();
