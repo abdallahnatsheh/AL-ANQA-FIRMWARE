@@ -60,11 +60,17 @@ Inspired by [Bruce](https://github.com/pr3y/Bruce), but with its own identity: n
 |---------|--------|
 | BLE tracker detection (AirTag, Tile, Samsung, Chipolo, Eufy, Pebblebee) | ✅ |
 | WiFi probe request surveillance detection | ✅ |
+| 60s baseline — auto-learns your watch, phone, car BT at session start | ✅ |
+| Permanent device whitelist (`w` key → `/logs/trackme_known.csv` on SD) | ✅ |
+| Movement-aware WiFi detection — no GPS movement = no WiFi alert (no router FP) | ✅ |
+| GPS movement path for Gate 3 — 200m followed = confirmed, no 5-min wait | ✅ |
 | Behaviour scoring — unknown device analysis | ✅ |
+| 30s minimum gap — immune to single missed BLE advertisement | ✅ |
+| WARNING only after Gate 3 — score alone can never trigger a beep | ✅ |
 | Traffic jam / crowd false positive filtering | ✅ |
 | Kalman-filtered RSSI distance estimation | ✅ |
 | Custom tracker signatures from SD card | ✅ |
-| GPS displacement tracking (T-Deck Plus only) | ✅ |
+| GPS status display — `GPS:none / GPS:srch / GPS:142m` | ✅ |
 | Speaker alert (WARNING beep / ALERT alarm) | ✅ |
 | SD card alert logging | ✅ |
 
@@ -206,59 +212,85 @@ Credentials are saved to `/logs/eviltwin.csv` on the SD card.
 CMD> trackme
 ```
 
-`trackme` is a passive anti-tracking detector that uses BLE and WiFi to detect devices that may be following you. Think of it like wardriving — but instead of mapping networks, you are watching whether any radio signal is consistently following you through the environment.
+`trackme` is a passive anti-tracking detector. It uses BLE and WiFi probe sniffing to detect devices that may be physically following you. The core problem it solves: your own phone, smartwatch, car Bluetooth, and family members' phones all look identical to a tracker in terms of radio signals — they all follow you perfectly because they are with you. The algorithm is specifically designed to handle this.
+
+### Step 0 — Baseline (first 60 seconds)
+
+When you start `trackme`, the first 60 seconds are a **learning period**. Every device detected during this window — your watch, your phone, car Bluetooth, passengers' phones — is marked as a **companion** and shown in dark grey in the table. Companions are never scored or alerted. Only devices that appear *after* the baseline ends are treated as potential trackers.
+
+The display shows a yellow countdown: `BASELINE 47s — learning your devices...`
+
+**Tip:** Start `trackme` *before* you leave home or get in your car so all your own devices are baselined first.
+
+### Permanent whitelist
+
+If a device slips through (e.g. your phone connected after baseline), press **`w`** to permanently whitelist it. The MAC is saved to `/logs/trackme_known.csv` on the SD card and recognized instantly on all future sessions.
 
 ### Detection pipeline
 
-The scanner alternates between BLE (1 second) and WiFi probe sniffing (0.5 seconds) in a continuous loop, time-slicing the shared ESP32-S3 radio. Every detected device passes through a 3-gate pipeline:
+After baseline, every new device passes a 3-gate pipeline:
 
 **Gate 1 — Signature check**
-The device's BLE manufacturer data is matched against a table of known tracker signatures. AirTags, Tile, Samsung SmartTag, Chipolo, Eufy, and Pebblebee are identified by company ID, payload byte, and manufacturer data length. Apple non-trackers (iPhones, Macs, AirPods) are classified separately and never flagged as threats — matching the company ID alone is not enough.
+BLE manufacturer data is matched against known tracker signatures. AirTags, Tile, Samsung SmartTag, Chipolo, Eufy, and Pebblebee are identified by company ID, payload byte, and minimum manufacturer data length. Apple non-trackers (iPhones, Macs, AirPods) are classified separately and never scored — matching the company ID alone is not sufficient.
 
-**Gate 2 — Behaviour scoring** *(unknown devices only)*
-Devices that don't match any known tracker signature are scored on behaviour: time seen, RSSI consistency (staying at the same distance from you), gap-and-return events (device disappeared then came back), and sighting count across multiple scan cycles. Score below 40 → ignored. Score 40 or above → proceeds to Gate 3.
+**Gate 2 — Behaviour scoring** *(unknown BLE devices only)*
+Unknown devices are scored on: time seen, sighting count, RSSI consistency, and gap-and-return events. A gap only counts if the device was absent for **30+ seconds** — a single missed BLE advertisement does not trigger a false gap-return. Score below 40 → ignored. Score ≥ 40 → Gate 3.
 
-**Gate 3 — Confirmation** *(all devices)*
-Before any alert fires: seen for at least 5 minutes, still nearby (RSSI above -80 dBm), and not explained by a traffic jam or crowd scenario. Requires either 3+ distinct gap-and-return windows or 3+ total sightings. A device that arrived when 4 or more others were present and has never disappeared and returned is treated as a coincidence, not a tracker.
+**Gate 3 — Confirmation** *(required for WARNING or ALERT)*
+No alert can sound before Gate 3 passes. Two paths:
+- **GPS path** (T-Deck Plus): user has moved 200m+ and the device was present throughout with at least one real gap-and-return. Physical movement is direct proof — no time minimum needed.
+- **Time path**: device seen for 5+ minutes, still nearby (RSSI > −80 dBm), 3+ gap-returns or sightings, not explained by a crowd scenario.
 
-### RSSI and Kalman filtering
+### WiFi probe detection and GPS movement
 
-Every RSSI reading is smoothed with a 1-D Kalman filter before use. Devices below -85 dBm are dropped immediately — too far to be a credible threat. The filter also enables RSSI consistency scoring: a real tracker stays at roughly the same distance from you, giving a very low RSSI variance that is heavily weighted in Gate 2.
+WiFi probe sniffing catches phones, laptops — and also **routers**, which actively scan channels and send probe requests. Without GPS, a WiFi-only device (never confirmed by BLE) is capped at NOTICE and cannot trigger a beep. With GPS (T-Deck Plus), a WiFi device can only reach NOTICE if **you have moved 100m+ this session** and the device followed with a real gap-and-return. A router you're sitting near stays at THREAT_NONE because you are not moving.
+
+The status line shows your GPS state: `GPS:none` (no module), `GPS:srch` (searching, NMEA flowing), `GPS:142m` (fix acquired, 142m moved this session).
 
 ### Device tiers
 
 | Tier | Max | Purpose |
 |------|-----|---------|
-| Tier 1 | 20 | Close devices — full 3-gate analysis |
-| Tier 2 | 100 | Distant or Apple devices — lightweight tracking only |
+| Tier 1 | 20 | Close devices (RSSI > −70) — full 3-gate analysis |
+| Tier 2 | 100 | Distant or Apple non-tracker devices — lightweight tracking only |
 
-Apple non-trackers are permanently locked to Tier 2 and never scored or alerted.
+Apple non-trackers are locked to Tier 2 and never scored.
 
 ### Alert levels
 
 | Level | Trigger | Speaker | Display |
 |-------|---------|---------|---------|
-| NOTICE | Known tracker seen 60 s, not yet Gate 3 confirmed | Silent | Yellow row |
-| WARNING | Unknown device score ≥ 60, Gate 3 pending | 1 short beep | Orange row |
-| ALERT | Gate 3 confirmed — device is following you | 3 beeps, repeat every 30 s | Red row |
+| NOTICE | Known tracker seen 60s + 2 sightings (not in crowd) | Silent | Yellow row |
+| WARNING | BLE device, Gate 3 confirmed, score 60–79 | 1 short beep | Orange row |
+| ALERT | Gate 3 confirmed, known tracker OR score ≥ 80 | 3 beeps every 30s | Red row |
+
+**WARNING and ALERT can only fire after Gate 3.** Score alone — no matter how high — cannot trigger a beep before Gate 3 is confirmed.
+
+### Keys
+
+| Key | Action |
+|-----|--------|
+| `a` / `l` | Previous / next page |
+| `w` | Whitelist highest-threat device (saves to SD permanently) |
+| `s` | Save current log to SD |
+| `q` | Quit |
 
 ### Custom tracker signatures
 
-Drop a `signatures.csv` on the SD card root to extend the tracker database without reflashing:
+Drop `/signatures.csv` on the SD card to extend the database without reflashing:
 
-```
-# type,company_id,name,threat_level
+```csv
 BLE,0x004C,Apple AirTag,HIGH
 BLE,0x00D7,Tile Tracker,HIGH
 ```
 
-If no SD card is present, a hardcoded list covers all major commercial trackers. Apple non-tracker entries are always appended automatically regardless of SD card content.
+Apple non-tracker entries are always appended automatically regardless of SD content.
 
 ### Known limitations
 
-- **MAC randomization**: iPhones and Android phones rotate their BLE MAC every ~15 minutes. Unknown devices reset their history on each rotation. Commercial trackers (AirTag, Tile, etc.) use consistent MACs and are detected reliably.
-- **Single radio**: BLE and WiFi share one physical radio and cannot scan simultaneously. The time-slice means a brief advertisement could theoretically be missed, but trackers broadcast repeatedly so this is not a practical problem.
-- **GPS** (T-Deck Plus only): When GPS is available, physical displacement is used to strengthen Gate 3 confirmation — moving 100 m+ with a device still present increments its gap-and-return window count. On base T-Deck, time and RSSI consistency serve as proxies.
+- **MAC randomization**: iPhones and Android phones rotate BLE MACs every ~15 min. Commercial trackers (AirTag, Tile) use stable MACs and are detected reliably. Randomized phone MACs reset their history on rotation — this is expected behavior.
+- **Single radio**: BLE and WiFi share one physical antenna and cannot scan simultaneously. The 1.5s scan cycle means a brief advertisement may occasionally be missed — the 30s gap minimum makes this harmless.
+- **Cold GPS start**: The L76K GPS module needs ~4 minutes for a cold fix. The display shows `GPS:srch` with NMEA byte count so you can confirm the module is alive during the wait. Subsequent starts are faster (warm fix ~30s).
 
 ---
 

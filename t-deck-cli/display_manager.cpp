@@ -26,7 +26,7 @@ void DisplayManager::init() {
 #endif
     matrix_effect.init(&tft);
     tft.fillScreen(TFT_BLACK);
-    tdeck_begin();
+    // tdeck_begin() called by main after splash so CMD screen never shows before it
 }
 
 // ── Status bar icon helpers ───────────────────────────────────────────────────
@@ -132,7 +132,7 @@ void DisplayManager::clearInputText() {
 
 void DisplayManager::scrollIfNeeded() {
     int32_t y = tft.getCursorY();
-    if (y > SCREEN_HEIGHT - LINE_HEIGHT * 2 || y < outputY) {
+    if (y > SCREEN_HEIGHT - LINE_HEIGHT || y < outputY) {
         clearScreen();
         tft.setCursor(10, outputY);
     }
@@ -151,7 +151,7 @@ void DisplayManager::printFirstCommandScreen(const char* command) {
 }
 
 void DisplayManager::setDefaultTextSize() {
-    tft.setTextSize(1.2, 1.2);
+    tft.setTextSize(1.0, 1.0);
 }
 
 void DisplayManager::printText(const char* text) {

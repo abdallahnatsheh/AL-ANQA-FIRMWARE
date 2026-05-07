@@ -652,9 +652,9 @@ bool EvilTwin::pickSdTemplate() {
     }
 
     // Collect up to 8 .html / .htm filenames
-    char names[8][48] = {};
+    char names[ET_PER_PAGE][48] = {};
     int  count = 0;
-    while (count < 8) {
+    while (count < ET_PER_PAGE) {
         File f = dir.openNextFile();
         if (!f) break;
         if (!f.isDirectory()) {
@@ -697,7 +697,7 @@ bool EvilTwin::pickSdTemplate() {
         char k = inputHandler.getKeyboardInput();
         if (!k) { delay(20); continue; }
         if (k == 'q' || k == 'Q') return false;
-        if (k >= '1' && k <= '0' + count) {
+        if (k >= '1' && k <= '0' + min(count, ET_PER_PAGE)) {
             int idx = k - '1';
             snprintf(_sdTemplatePath, sizeof(_sdTemplatePath),
                      "/evilportal/%s", names[idx]);

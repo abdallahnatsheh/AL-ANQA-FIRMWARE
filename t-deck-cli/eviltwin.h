@@ -9,7 +9,7 @@
 #include "sdcard_manager.h"
 
 #define ET_LOG_PATH  "/logs/eviltwin.csv"
-#define ET_PER_PAGE  5
+#define ET_PER_PAGE  8
 
 class EvilTwin {
 public:

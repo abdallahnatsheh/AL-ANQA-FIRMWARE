@@ -62,10 +62,9 @@ struct TrackedDev {
     bool        alertFired;
     bool        isAppleDevice;       // true = matched THREAT_NONE Apple entry, never scored/alerted
     bool        isWiFi;              // detected via probe request (not BLE)
+    bool        isCompanion;         // seen during baseline or on SD whitelist — never scored
     uint8_t     crowdAtArrival;      // tier1Count when device first appeared
-#ifdef BOARD_TDECK_PLUS
-    float       dispMeters;          // GPS displacement while device tracked
-#endif
+    float       followDistM;         // metres the user moved while this device was in range (GPS)
 };
 
 class TrackMeScanner {
@@ -90,6 +89,19 @@ private:
 
     int      page;
     uint32_t startMs;
+
+    // GPS movement tracking (always present; stays 0 when no GPS available)
+    float    _totalDistM;   // cumulative distance moved this session
+    bool     _gpsMoving;    // true once _totalDistM >= 50 m
+
+    // Companion / whitelist
+    bool     _baselineDone;              // true after first 60 s of session
+    uint8_t  _knownMAC[20][6];           // permanent whitelist loaded from SD
+    char     _knownLabel[20][24];
+    int      _knownCount;
+    bool     matchKnown(const uint8_t* mac);
+    void     loadWhitelist();
+    bool     addToWhitelist(const uint8_t* mac, const char* label);
 
     // -- radio --
     void doBLEScan(int seconds);

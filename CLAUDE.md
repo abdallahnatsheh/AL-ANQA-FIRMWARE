@@ -16,11 +16,11 @@ This is built with PlatformIO + Arduino framework. All source lives in `t-deck-c
 | Keyboard (PS/2 via I2C) | SDA=18, SCL=8, slave=0x55, INT=46 | Working |
 | Battery ADC | GPIO 4 | Working |
 | Touch | INT=16 | Unused |
-| SD Card | CS=39, SPI shared | Unused |
+| SD Card | CS=39, SPI shared | Working — logs/, signatures.csv, evilportal/ |
 | LoRa (SX1262) | CS=9, BUSY=13, RST=17, DIO1=45 | Unused |
-| Audio I2S out | WS=5, BCK=7, DOUT=6 | Unused |
+| Audio I2S out | WS=5, BCK=7, DOUT=6 | Working — trackme alerts, spktest |
 | ES7210 mic | MCLK=48, LRCK=21, SCK=47, DIN=14 | Unused |
-| GPS | (UART — module availability TBD) | Unused |
+| GPS | RX=44, TX=43, baud=9600 (T-Deck Plus only) | Working — L76K / u-blox M10Q, ~4min cold fix |
 | Power control | GPIO 10 (must be HIGH) | Working |
 
 **Board:** LilyGo T-DECK (ESP32-S3, 16MB flash, PSRAM)
@@ -87,20 +87,37 @@ BluetoothFunctions bluetoothFunctions;
 
 | Command | Short | Args | Description |
 |---|---|---|---|
+| `help` | `hlp` | `[cmd]` | Help |
 | `info` | `inf` | — | Device info (IP, MAC, battery) |
 | `clear` | `clr` | — | Clear screen |
-| `scanwifi` | `sw` | — | Scan WiFi networks |
+| `MATRIX` | `matrix` | — | Matrix rain animation |
+| **WiFi** | | | |
+| `scanwifi` | `sw` | — | Scan WiFi networks (paginated) |
 | `connectwifi` | `cw` | `<index>` | Connect to scanned network |
 | `clearwifi` | `clrw` | — | Clear saved credentials |
-| `netdiscover` | `nd` | — | Ping scan local subnet |
-| `portscan` | `ps` | `<ip> <start> <end>` | TCP connect port scan |
-| `scanblue` | `sbl` | — | BLE device scan |
-| `MATRIX` | `matrix` | — | Matrix animation |
-| `help` | `hlp` | `[command]` | Help |
+| `wifimon` | `wm` | `[ch]` | Monitor mode, ch 1-13, 0=hop |
+| `deauth` | `da` | `<bssid\|#> [ch] [client]` | Raw 802.11 deauth attack |
+| `eviltwin` | `et` | — | Evil Twin AP + captive portal |
+| **Network** | | | |
+| `netdiscover` | `nd` | — | ARP scan local /24 |
+| `portscan` | `ps` | `<ip\|#> <start> <end>` | TCP port scan, 4× parallel |
+| `topscan` | `ts` | `<ip\|#>` | Scan top 26 common ports |
+| `ping` | `pg` | `<ip\|hostname>` | ICMP ping with RTT + loss |
+| **Bluetooth** | | | |
+| `scanblue` | `sbl` | — | BLE device scan (paginated) |
+| `trackme` | `tm` | — | Anti-tracking scanner |
+| **SD Card** | | | |
+| `sdinfo` | `sdi` | — | SD card type and size |
+| `sdls` | `ls` | `[path]` | List SD directory |
+| `sdread` | `sdr` | `<path>` | Read file from SD |
+| `sdrm` | `srm` | `<path>` | Delete file from SD |
+| **Diagnostics** | | | |
+| `gpstest` | `gt` | — | GPS test (T-Deck Plus only) |
+| `spktest` | `st` | — | I2S speaker tone test |
 
 ---
 
-## Known Bugs (must fix before any new features)
+## Known Bugs (open)
 
 1. **`pingScan` only scans 1 host** (`wifi_functions.cpp:315`)
    - `for (int i = 1; i <= gatewayLastPart; ++i)` should be `i <= 254`
@@ -121,10 +138,6 @@ BluetoothFunctions bluetoothFunctions;
    - The outer `while(true)` re-scans `startPort..endPort` on each page flip
    - Fix: scan once into a `std::vector<int> openPorts`, paginate the results
 
-7. **Command buffer too small** (`command_manager.h`)
-   - 64-byte buffer is too short for `portscan 192.168.100.200 1 65535`
-   - Increase to 128 bytes
-
 ---
 
 ## Active Branch
@@ -133,35 +146,53 @@ BluetoothFunctions bluetoothFunctions;
 
 ---
 
-## Planned Pentesting Features (Prioritized)
+## Architecture — Key Modules
 
-### Tier 1 — WiFi Attack Surface
-- **Monitor mode / packet sniffer** (`wifimon/wm`) — `esp_wifi_set_promiscuous()` + frame callback
-- **Deauth attack** (`deauth/da <bssid>`) — raw 802.11 deauth via `esp_wifi_80211_tx()`
-- **Evil Twin AP** (`eviltwin/et <ssid>`) — rogue AP + captive portal logging credentials
-- **WPS detection** (`wpscheck/wc`) — flag WPS-enabled networks in scan output
-- **WPA2 handshake capture** — EAPOL frame filter in promiscuous mode, save `.cap` to SD
+### TrackMe (`trackme.cpp/h`)
+- `start(bool silent)` — entry point; runs BLE+WiFi scan loop until `q`
+- **Baseline (60s)**: all devices seen at startup → `isCompanion=true`, never scored
+- **Whitelist**: loads `/logs/trackme_known.csv` at start; `w` key appends to it
+- **Tiers**: Tier1 (RSSI > −70, max 20, full analysis) · Tier2 (distant/Apple, max 100)
+- **Kalman filter**: 1-D per device, Q=1 R=4, smooths RSSI before all decisions
+- **Gate 1**: BLE signature match (company_id + payloadByte + minMfrLen)
+- **Gate 2**: behaviour score — time(+25), sightings(+20), variance(+35), gap-return(+25)
+- **Gate 3**: GPS path (followDistM≥200m + distinctWindows≥1) OR time path (5min + 3 windows)
+- **Gap minimum**: 30s absent before `distinctWindows` increments — misses a single advert
+- **WiFi-only cap**: probe sniff only → max NOTICE, requires GPS movement ≥100m
+- **WARNING/ALERT only after Gate 3** — score alone can never beep
+- **GPS tracking** (`#ifdef BOARD_TDECK_PLUS`): updates `_totalDistM` + per-device `followDistM` every 10m step; shows `GPS:none/srch/Nm` in status
+- **I2S audio**: inits `I2S_NUM_0` on start, deinits on exit; 1-beep WARNING, 3-beep ALERT every 30s
 
-### Tier 2 — Network Recon
-- **ARP scan** (replace/augment ping scan) — faster, firewall-resistant
-- **Banner grabbing** (`banner/bn <ip> <port>`) — read first 256 bytes from open port
-- **Subnet-aware discovery** — use actual subnet mask for host range calculation
+### EvilTwin (`eviltwin.cpp/h`)
+- `start(ssid)` — interactive: mode menu → scan/pick or custom SSID → AP + portal loop
+- **Smart MAC**: open network → clone target BSSID; WPA2 → random locally-administered MAC
+- **Adaptive deauth**: 15× deauth + 15× disassoc burst every 8s, pauses while portal clients present
+- **Client tracking**: WiFi event-based (`ARDUINO_EVENT_WIFI_AP_STACONNECTED/DISCONNECTED`)
+- **Templates**: built-in Google/Router login; `s` key → pick from `/evilportal/*.html` on SD
+- Saves credentials to `/logs/eviltwin.csv`
 
-### Tier 3 — Bluetooth
-- **BLE GATT enumeration** (`bleinfo/bi <mac>`) — connect, list services + characteristics
-- **BLE device tracker** (`btrack/bt`) — continuous scan, log new/disappearing MACs
-- **Bluetooth Classic scan** — `esp_bt_gap_start_discovery()` for non-BLE devices
+### WiFiMonitor (`wifimon_functions.cpp/h`)
+- Promiscuous mode, optional channel hop or fixed channel
+- Displays frame type, BSSID, RSSI, channel
 
-### Tier 4 — BadUSB / HID
-- **HID keystroke injection** (`badusb/bu <file>`) — ESP32-S3 native USB, DuckyScript from SD
-- Requires: TinyUSB HID + SD card integration
+### DeauthAttack (`deauth_functions.cpp/h`)
+- Raw 802.11 deauth/disassoc via `esp_wifi_80211_tx(WIFI_IF_AP, ...)`
+- `ieee80211_raw_frame_sanity_check` override included (required by ESP-IDF)
 
-### Tier 5 — LoRa (RadioLib already in lib/)
-- **LoRa scanner** (`lorascan/ls`) — scan frequencies, display packets (freq, SF, RSSI, SNR, hex payload)
+### NetworkScanner (`network_scanner.cpp/h`)
+- ARP scan via raw Ethernet frames
+- Parallel TCP port scan (4× FreeRTOS tasks, 150ms timeout)
 
-### Tier 6 — Infrastructure
-- **SD card integration** — log all scan results, store BadUSB scripts
-- **GPS wardriving** — correlate WiFi/BT scans with GPS coordinates, save to SD
+---
+
+## Pending Features
+
+- WPA handshake capture (EAPOL filter in promiscuous mode, save `.cap` to SD)
+- BadUSB / HID keystroke injection (DuckyScript from SD, TinyUSB)
+- BLE GATT enumeration (`bleinfo/bi <mac>`)
+- LoRa frequency scanner (RadioLib already in `lib/`)
+- Banner grabber (`banner/bn <ip> <port>`)
+- macwatch — WiFi probe + BLE MAC watchlist, alert when a known MAC enters range
 
 ---
 

@@ -34,6 +34,7 @@ void setup() {
     displayManager.init();
     inputHandler.begin();
     showSplashScreen();
+    displayManager.tdeck_begin();
 
     if (!sdCardManager.begin()) {
         Serial.println("SD card not found or failed to mount.");
