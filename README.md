@@ -17,6 +17,14 @@
 
 ---
 
+> **⚠️ Legal Disclaimer**
+> T-Rex is intended for **authorized security testing, CTF competitions, and educational use only.**
+> Using these tools against networks or devices you do not own or have explicit written permission to test is **illegal** in most jurisdictions.
+> The authors are not responsible for any misuse or damage caused by this software.
+> **Always get permission before you test.**
+
+---
+
 ## What is T-Rex?
 
 T-Rex is an offensive security toolkit firmware for the **LilyGo T-Deck** and **T-Deck Plus**, built around a raw terminal-first CLI that feels like a Linux shell. Type commands, run attacks, scan networks — all from a pocket-sized ESP32-S3 device with a physical keyboard.

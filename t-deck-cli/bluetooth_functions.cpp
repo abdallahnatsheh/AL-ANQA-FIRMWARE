@@ -10,9 +10,7 @@ BluetoothFunctions::BluetoothFunctions() : pBLEScan(nullptr), pScanCallbacks(nul
 
 
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
-    void onResult(BLEAdvertisedDevice advertisedDevice) {
-      Serial.printf("Advertised Device: %s \n", advertisedDevice.toString().c_str());
-    }
+    void onResult(BLEAdvertisedDevice advertisedDevice) {}
 };
 
 void BluetoothFunctions::scanBluetoothDevices() {
