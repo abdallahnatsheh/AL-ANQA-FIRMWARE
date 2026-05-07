@@ -1,7 +1,13 @@
-// Adapted from Bruce firmware (https://github.com/pr3y/Bruce)
+// T-REX — offensive security firmware for LilyGo T-Deck
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2024 Abdallah Natsheh
+//
+// Portions derived from Bruce firmware (https://github.com/pr3y/Bruce)
 // Original: evil_portal.cpp/.h — captive portal logic + HTML templates
 // Adapted for T-REX: synchronous WebServer, MAC spoofing, inline deauth,
 // T-REX display/keyboard/SD systems.
+// Bruce is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+// Modifications are licensed under AGPL-3.0-or-later.
 
 #include "eviltwin.h"
 #include "input_handling.h"

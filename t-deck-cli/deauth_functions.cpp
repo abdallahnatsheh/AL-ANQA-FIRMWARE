@@ -1,3 +1,11 @@
+// T-REX — offensive security firmware for LilyGo T-Deck
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2024 Abdallah Natsheh
+//
+// Portions derived from Bruce firmware (https://github.com/pr3y/Bruce)
+// Bruce is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+// Modifications are licensed under AGPL-3.0-or-later.
+
 #include "deauth_functions.h"
 #include "input_handling.h"
 #include "task_manager.h"

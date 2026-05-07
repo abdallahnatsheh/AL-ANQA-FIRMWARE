@@ -22,12 +22,22 @@ static void fillBuiltinSigs(TrackerSig* sigs, int& count) {
     // payloadByte: required mfr[2] in BLE advertisement; 0x00 = any
     // Apple 0x004C is shared by ALL Apple devices — require 0x12 (Offline Finding / Find My)
     // to distinguish AirTag / separated AirPods from iPhones and Macs.
-    const struct { const char* name; uint16_t cid; uint8_t pb; } entries[] = {
-        { "Apple AirTag",     0x004C, 0x12 },
-        { "Tile Tracker",     0x00D7, 0x00 },
-        { "Samsung SmartTag", 0x0075, 0x00 },
-        { "Chipolo",          0x00F0, 0x00 },
-        { "Google FindMy",    0x00E0, 0x00 },
+    const struct { const char* name; uint16_t cid; uint8_t pb; uint8_t ml; ThreatLevel lvl; } entries[] = {
+        { "Apple AirTag",     0x004C, 0x12, 27, THREAT_WARNING },
+        { "Apple Device",     0x004C, 0x10,  0, THREAT_NONE    },
+        { "Apple Device",     0x004C, 0x09,  0, THREAT_NONE    },
+        { "Apple Device",     0x004C, 0x07,  0, THREAT_NONE    },
+        { "Apple Device",     0x004C, 0x02,  0, THREAT_NONE    },
+        { "Apple Device",     0x004C, 0x0F,  0, THREAT_NONE    },
+        { "Apple Device",     0x004C, 0x05,  0, THREAT_NONE    },
+        { "Apple Device",     0x004C, 0x06,  0, THREAT_NONE    },
+        { "Apple Device",     0x004C, 0x08,  0, THREAT_NONE    },
+        { "Tile Tracker",     0x00D7, 0x00,  0, THREAT_WARNING },
+        { "Samsung SmartTag", 0x0075, 0x00,  0, THREAT_WARNING },
+        { "Chipolo",          0x00F0, 0x00,  0, THREAT_WARNING },
+        { "Google FindMy",    0x00E0, 0x00,  0, THREAT_WARNING },
+        { "Eufy SmartTrack",  0x006B, 0x00,  0, THREAT_WARNING },
+        { "Pebblebee",        0x0157, 0x00,  0, THREAT_WARNING },
     };
     for (auto& e : entries) {
         if (count >= TM_SIG_MAX) break;
@@ -35,7 +45,8 @@ static void fillBuiltinSigs(TrackerSig* sigs, int& count) {
         sigs[count].name[23]    = '\0';
         sigs[count].companyId   = e.cid;
         sigs[count].payloadByte = e.pb;
-        sigs[count].level       = THREAT_WARNING;
+        sigs[count].minMfrLen   = e.ml;
+        sigs[count].level       = e.lvl;
         count++;
     }
 }
@@ -48,7 +59,7 @@ TrackMeScanner::TrackMeScanner(DisplayManager& dm, SDCardManager& sd)
 {
 #ifdef BOARD_TDECK_PLUS
     gpsLat = 0; gpsLon = 0; gpsValid = false;
-    gpsSerial = nullptr; gpsBufLen = 0;
+    gpsSerial = nullptr;
 #endif
 }
 
@@ -89,15 +100,19 @@ float TrackMeScanner::calcVariance(const TrackedDev& d) {
 
 // ── signature matching ────────────────────────────────────────────────────────
 // mfrType = mfr[2] from BLE advertisement; 0x00 means "not available / any"
-int TrackMeScanner::matchSig(uint16_t companyId, uint8_t mfrType) {
+int TrackMeScanner::matchSig(uint16_t companyId, uint8_t mfrType, uint8_t mfrDataLen) {
     if (companyId == 0) return -1;
+    // Apple with unreadable payload → classify as Apple Device (THREAT_NONE), never as AirTag
+    if (companyId == 0x004C && mfrType == 0x00) {
+        for (int i = 0; i < sigCount; i++) {
+            if (sigs[i].companyId == 0x004C && sigs[i].level == THREAT_NONE) return i;
+        }
+    }
     for (int i = 0; i < sigCount; i++) {
         if (sigs[i].companyId != companyId) continue;
-        // If the signature requires a specific payload byte, enforce it.
-        // If mfrType == 0x00 (not available) we skip the check — better a
-        // false positive than a miss when payload couldn't be read.
         if (sigs[i].payloadByte != 0x00 && mfrType != 0x00 &&
             mfrType != sigs[i].payloadByte) continue;
+        if (sigs[i].minMfrLen > 0 && mfrDataLen < sigs[i].minMfrLen) continue;
         return i;
     }
     return -1;
@@ -106,6 +121,7 @@ int TrackMeScanner::matchSig(uint16_t companyId, uint8_t mfrType) {
 // ── signature loading ─────────────────────────────────────────────────────────
 void TrackMeScanner::loadSignatures() {
     sigCount = 0;
+    bool loadedFromSD = false;
 
     if (sd.isReady() && SD.exists("/signatures.csv")) {
         File f = SD.open("/signatures.csv", FILE_READ);
@@ -114,7 +130,6 @@ void TrackMeScanner::loadSignatures() {
                 String line = f.readStringUntil('\n');
                 line.trim();
                 if (line.length() == 0 || line[0] == '#') continue;
-                // format: BLE,0x004C,Apple AirTag,HIGH
                 int f1 = line.indexOf(',');
                 int f2 = line.indexOf(',', f1 + 1);
                 int f3 = line.indexOf(',', f2 + 1);
@@ -128,22 +143,48 @@ void TrackMeScanner::loadSignatures() {
                 strncpy(sigs[sigCount].name, name.c_str(), 23);
                 sigs[sigCount].name[23]    = '\0';
                 sigs[sigCount].companyId   = cid;
-                sigs[sigCount].payloadByte = 0x00; // CSV doesn't specify payload byte
+                sigs[sigCount].payloadByte = 0x00;
+                sigs[sigCount].minMfrLen   = 0;
                 sigs[sigCount].level       = THREAT_WARNING;
                 sigCount++;
             }
             f.close();
-            if (sigCount > 0) return;
+            if (sigCount > 0) loadedFromSD = true;
         }
     }
 
-    fillBuiltinSigs(sigs, sigCount);
+    if (!loadedFromSD) {
+        fillBuiltinSigs(sigs, sigCount);
+        return;
+    }
+
+    // Ensure Apple THREAT_NONE entries exist even with a custom SD file,
+    // to prevent iPhones/Macs from being misidentified as AirTags.
+    bool hasAppleNone = false;
+    for (int i = 0; i < sigCount; i++) {
+        if (sigs[i].companyId == 0x004C && sigs[i].level == THREAT_NONE) {
+            hasAppleNone = true; break;
+        }
+    }
+    if (!hasAppleNone) {
+        const uint8_t appleTypes[] = { 0x10, 0x09, 0x07, 0x02, 0x0F, 0x05, 0x06, 0x08 };
+        for (uint8_t pb : appleTypes) {
+            if (sigCount >= TM_SIG_MAX) break;
+            strncpy(sigs[sigCount].name, "Apple Device", 23);
+            sigs[sigCount].name[23]    = '\0';
+            sigs[sigCount].companyId   = 0x004C;
+            sigs[sigCount].payloadByte = pb;
+            sigs[sigCount].minMfrLen   = 0;
+            sigs[sigCount].level       = THREAT_NONE;
+            sigCount++;
+        }
+    }
 }
 
 // ── device init helper ────────────────────────────────────────────────────────
 void TrackMeScanner::initDev(TrackedDev& d, const uint8_t* mac, const char* name,
                               uint16_t companyId, int8_t rssi, bool isWiFi, uint8_t t,
-                              uint8_t mfrType, uint8_t crowd) {
+                              uint8_t mfrType, uint8_t mfrDataLen, uint8_t crowd) {
     memset(&d, 0, sizeof(TrackedDev));
     memcpy(d.mac, mac, 6);
     strncpy(d.name, name, 27); d.name[27] = '\0';
@@ -155,8 +196,10 @@ void TrackMeScanner::initDev(TrackedDev& d, const uint8_t* mac, const char* name
     d.rssiHistory[0] = rssi;
     d.rssiIdx        = 1 % TM_RSSI_HISTORY;
     d.rssiCount      = 1;
-    d.sigIdx         = matchSig(companyId, mfrType);
-    d.isKnown        = (d.sigIdx >= 0);
+    d.sigIdx         = matchSig(companyId, mfrType, mfrDataLen);
+    d.isKnown        = (d.sigIdx >= 0 && sigs[d.sigIdx].level != THREAT_NONE);
+    d.isAppleDevice  = (d.sigIdx >= 0 && sigs[d.sigIdx].level == THREAT_NONE
+                        && companyId == 0x004C);
     d.tier           = t;
     d.isWiFi         = isWiFi;
     d.crowdAtArrival = crowd;
@@ -165,7 +208,7 @@ void TrackMeScanner::initDev(TrackedDev& d, const uint8_t* mac, const char* name
 // ── process one detected device ───────────────────────────────────────────────
 void TrackMeScanner::processDevice(const uint8_t* mac, const char* name,
                                     uint16_t companyId, uint8_t mfrType,
-                                    int8_t rssi, bool isWiFi) {
+                                    int8_t rssi, bool isWiFi, uint8_t mfrDataLen) {
     // Locate in tier1 or tier2
     TrackedDev* existing = nullptr;
     KState*     ks       = nullptr;
@@ -199,11 +242,14 @@ void TrackMeScanner::processDevice(const uint8_t* mac, const char* name,
         if (name[0] != '\0' && existing->name[0] == '\0') {
             strncpy(existing->name, name, 27); existing->name[27] = '\0';
         }
-        // If we now learn the company ID for an existing device, re-run sig match
         if (companyId != 0 && existing->companyId == 0) {
             existing->companyId = companyId;
-            int idx = matchSig(companyId, mfrType);
-            if (idx >= 0) { existing->sigIdx = idx; existing->isKnown = true; }
+            int idx = matchSig(companyId, mfrType, mfrDataLen);
+            if (idx >= 0) {
+                existing->sigIdx        = idx;
+                existing->isKnown       = (sigs[idx].level != THREAT_NONE);
+                existing->isAppleDevice = (sigs[idx].level == THREAT_NONE && companyId == 0x004C);
+            }
         }
 
         // Gap return
@@ -213,8 +259,8 @@ void TrackMeScanner::processDevice(const uint8_t* mac, const char* name,
             existing->distinctWindows++;
         }
 
-        // Tier 2 → Tier 1 promotion
-        if (t2idx >= 0) {
+        // Tier 2 → Tier 1 promotion — Apple non-trackers stay in tier2 always
+        if (t2idx >= 0 && !existing->isAppleDevice) {
             bool promote = (smooth > -70.0f) || (existing->sightings >= 3);
             if (promote && tier1Count < TM_TIER1_MAX) {
                 tier1[tier1Count]      = *existing;
@@ -228,20 +274,22 @@ void TrackMeScanner::processDevice(const uint8_t* mac, const char* name,
         }
     } else {
         KState newK = { smooth, 10.0f };
-        if (smooth > -70.0f) {
-            if (tier1Count < TM_TIER1_MAX) {
-                // tier1Count before insertion = number of other devices present = crowd size
-                initDev(tier1[tier1Count], mac, name, companyId, rssi, isWiFi, 1,
-                        mfrType, (uint8_t)tier1Count);
-                k1[tier1Count] = newK;
-                tier1Count++;
-            }
-        } else {
+        int  preSig  = matchSig(companyId, mfrType, mfrDataLen);
+        bool isApple = (preSig >= 0 && sigs[preSig].level == THREAT_NONE && companyId == 0x004C);
+
+        if (isApple || smooth <= -70.0f) {
             if (tier2Count < TM_TIER2_MAX) {
                 initDev(tier2[tier2Count], mac, name, companyId, rssi, isWiFi, 2,
-                        mfrType, (uint8_t)tier1Count);
+                        mfrType, mfrDataLen, (uint8_t)tier1Count);
                 k2[tier2Count] = newK;
                 tier2Count++;
+            }
+        } else {
+            if (tier1Count < TM_TIER1_MAX) {
+                initDev(tier1[tier1Count], mac, name, companyId, rssi, isWiFi, 1,
+                        mfrType, mfrDataLen, (uint8_t)tier1Count);
+                k1[tier1Count] = newK;
+                tier1Count++;
             }
         }
     }
@@ -279,7 +327,8 @@ void TrackMeScanner::runGate2(TrackedDev& d) {
     if      (var < 20.0f) score += 35; // very consistent (+20 low + +15 very)
     else if (var < 50.0f) score += 20;
 
-    if (d.gapReturned) score += 25;
+    if (d.gapReturned)          score += 25;
+    if (d.distinctWindows >= 2) score += 15;
 
     d.score = score;
 }
@@ -305,6 +354,7 @@ void TrackMeScanner::runScoring() {
     uint32_t now = millis();
     for (int i = 0; i < tier1Count; i++) {
         TrackedDev& d = tier1[i];
+        if (d.isAppleDevice) { d.alertLevel = THREAT_NONE; continue; }
         uint32_t seenMs = now - d.firstSeen;
 
         if (d.isKnown) {
@@ -367,15 +417,17 @@ void TrackMeScanner::doBLEScan(int seconds) {
         sscanf(addr.c_str(), "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
                &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
         uint8_t mfrType = 0x00;
+        uint8_t mfrLen  = 0;
         if (dev.haveManufacturerData()) {
             std::string mfr = dev.getManufacturerData();
+            mfrLen = (uint8_t)min((int)mfr.size(), 255);
             if (mfr.size() >= 2)
                 companyId = (uint8_t)mfr[0] | ((uint16_t)(uint8_t)mfr[1] << 8);
             if (mfr.size() >= 3)
-                mfrType = (uint8_t)mfr[2]; // advertisement type byte
+                mfrType = (uint8_t)mfr[2];
         }
         String name = dev.getName().c_str();
-        processDevice(mac, name.c_str(), companyId, mfrType, dev.getRSSI(), false);
+        processDevice(mac, name.c_str(), companyId, mfrType, dev.getRSSI(), false, mfrLen);
     }
     scan->clearResults();
 }
@@ -398,7 +450,7 @@ void TrackMeScanner::doWiFiSniff(uint32_t durationMs) {
             ProbeEntry pe;
             memcpy(&pe, (const void*)&_ring[_rTail], sizeof(ProbeEntry));
             _rTail = (_rTail + 1) % TM_PROBE_RING;
-            processDevice(pe.mac, "", 0, 0x00, pe.rssi, true);
+            processDevice(pe.mac, "", 0, 0x00, pe.rssi, true, 0);
         }
         delay(10);
     }
@@ -459,7 +511,7 @@ void TrackMeScanner::playTone(int freq, int durationMs) {
     size_t blockBytes = (size_t)cycLen * 4;
     uint32_t t0 = millis();
     while ((int32_t)(millis() - t0) < durationMs) {
-        i2s_write(TM_I2S_PORT, buf, blockBytes, &written, portMAX_DELAY);
+        i2s_write(TM_I2S_PORT, buf, blockBytes, &written, pdMS_TO_TICKS(500));
     }
     i2s_zero_dma_buffer(TM_I2S_PORT);
 }
@@ -545,15 +597,21 @@ void TrackMeScanner::drawScreen(ThreatLevel highestLevel,
     for (int i = start; i < end; i++) {
         const TrackedDev& d = tier1[i];
         uint16_t color;
-        switch (d.alertLevel) {
-            case THREAT_ALERT:   color = TFT_RED;    break;
-            case THREAT_WARNING: color = TFT_ORANGE; break;
-            case THREAT_NOTICE:  color = TFT_YELLOW; break;
-            default:             color = TFT_WHITE;  break;
+        if (d.isAppleDevice) {
+            color = TFT_WHITE;
+        } else {
+            switch (d.alertLevel) {
+                case THREAT_ALERT:   color = TFT_RED;    break;
+                case THREAT_WARNING: color = TFT_ORANGE; break;
+                case THREAT_NOTICE:  color = TFT_YELLOW; break;
+                default:             color = TFT_WHITE;  break;
+            }
         }
         uint32_t seenMs = millis() - d.firstSeen;
         char typeBuf[11];
-        if (d.isKnown && d.sigIdx >= 0)
+        if (d.isAppleDevice)
+            strcpy(typeBuf, "Apple Dev");
+        else if (d.isKnown && d.sigIdx >= 0)
             snprintf(typeBuf, sizeof(typeBuf), "%.10s", sigs[d.sigIdx].name);
         else if (d.isWiFi)
             strcpy(typeBuf, "WiFi?");
@@ -612,34 +670,88 @@ void TrackMeScanner::drawScreen(ThreatLevel highestLevel,
 
 // ── GPS (T-Deck Plus only) ────────────────────────────────────────────────────
 #ifdef BOARD_TDECK_PLUS
-void TrackMeScanner::readGPS() {
-    if (!gpsSerial) return;
-    while (gpsSerial->available()) {
-        char c = gpsSerial->read();
-        if (c == '\n' || c == '\r') {
-            if (gpsBufLen > 6 && strncmp(gpsBuf, "$GPRMC", 6) == 0) {
-                char   status = 'V';
-                float  lat = 0, lon = 0;
-                // $GPRMC,HHMMSS.ss,A,DDMM.mmmm,N,DDDMM.mmmm,E,...
-                if (sscanf(gpsBuf, "$GPRMC,%*f,%c,%f,%*c,%f,%*c",
-                           &status, &lat, &lon) == 3 && status == 'A') {
-                    float latDeg = (int)(lat / 100);
-                    float lonDeg = (int)(lon / 100);
-                    gpsLat  = latDeg + (lat - latDeg * 100.0f) / 60.0f;
-                    gpsLon  = lonDeg + (lon - lonDeg * 100.0f) / 60.0f;
-                    gpsValid = true;
+
+static HardwareSerial* _tmGser = nullptr;
+
+static int tmGpsGetAck(uint8_t reqClass, uint8_t reqID) {
+    uint8_t  buf[32];
+    uint16_t fc = 0;
+    uint32_t t0 = millis();
+    while (millis() - t0 < 800) {
+        while (_tmGser->available()) {
+            int c = _tmGser->read();
+            switch (fc) {
+                case 0: fc = (c == 0xB5) ? 1 : 0; break;
+                case 1: fc = (c == 0x62) ? 2 : 0; break;
+                case 2: fc = (c == reqClass) ? 3 : 0; break;
+                case 3: fc = (c == reqID)    ? 4 : 0; break;
+                case 4: {
+                    uint16_t need = c;
+                    uint32_t tw = millis() + 100;
+                    while (!_tmGser->available() && millis() < tw) {}
+                    need |= (_tmGser->read() << 8);
+                    if (need == 0 || need > sizeof(buf)) { fc = 0; break; }
+                    if ((int)_tmGser->readBytes(buf, need) == need) return (int)need;
+                    fc = 0; break;
                 }
+                default: fc = 0; break;
             }
-            gpsBufLen = 0;
-        } else if (gpsBufLen < (int)sizeof(gpsBuf) - 1) {
-            gpsBuf[gpsBufLen++] = c;
-            gpsBuf[gpsBufLen]   = '\0';
         }
     }
+    return 0;
+}
+
+static bool tmInitL76K() {
+    for (int attempt = 0; attempt < 3; attempt++) {
+        _tmGser->write("$PCAS03,0,0,0,0,0,0,0,0,0,0,,,0,0*02\r\n");
+        delay(100);
+        while (_tmGser->available()) _tmGser->read();
+        delay(100);
+        _tmGser->write("$PCAS06,0*1B\r\n");
+        uint32_t t0 = millis();
+        while (!_tmGser->available() && millis() - t0 < 600) {}
+        _tmGser->setTimeout(200);
+        String ver = _tmGser->readStringUntil('\n');
+        if (ver.startsWith("$GPTXT,01,01,02")) {
+            _tmGser->write("$PCAS04,5*1C\r\n");  delay(250);
+            _tmGser->write("$PCAS03,1,1,1,1,1,1,1,1,1,1,,,0,0*02\r\n"); delay(250);
+            _tmGser->write("$PCAS11,3*1E\r\n");  delay(100);
+            return true;
+        }
+        delay(500);
+    }
+    return false;
+}
+
+static bool tmRecoverUblox() {
+    static const uint8_t CFG1[] = {0xB5,0x62,0x06,0x09,0x0D,0x00,0xFF,0xFF,0x00,0x00,
+                                    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0x1C,0xA2};
+    static const uint8_t CFG2[] = {0xB5,0x62,0x06,0x09,0x0D,0x00,0xFF,0xFF,0x00,0x00,
+                                    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x1B,0xA1};
+    static const uint8_t CFG3[] = {0xB5,0x62,0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,
+                                    0x00,0x00,0x00,0x00,0xFF,0xFF,0x00,0x00,0x03,0x1D,0xB3};
+    static const uint8_t RATE[] = {0xB5,0x62,0x06,0x08,0x00,0x00,0x0E,0x30};
+    _tmGser->write(CFG1, sizeof(CFG1)); tmGpsGetAck(0x05, 0x01);
+    _tmGser->write(CFG2, sizeof(CFG2)); tmGpsGetAck(0x05, 0x01);
+    _tmGser->write(CFG3, sizeof(CFG3)); tmGpsGetAck(0x05, 0x01);
+    _tmGser->write(RATE, sizeof(RATE));
+    return tmGpsGetAck(0x06, 0x08) > 0;
+}
+
+float TrackMeScanner::gpsDistance(float lat1, float lon1, float lat2, float lon2) {
+    const float R = 6371000.0f;
+    float dLat = (lat2 - lat1) * M_PI / 180.0f;
+    float dLon = (lon2 - lon1) * M_PI / 180.0f;
+    float a = sinf(dLat / 2) * sinf(dLat / 2) +
+              cosf(lat1 * M_PI / 180.0f) * cosf(lat2 * M_PI / 180.0f) *
+              sinf(dLon / 2) * sinf(dLon / 2);
+    return R * 2.0f * atan2f(sqrtf(a), sqrtf(1.0f - a));
 }
 #endif
 
 // ── entry point ───────────────────────────────────────────────────────────────
+static bool s_bleInited = false;
+
 void TrackMeScanner::start() {
     loadSignatures();
 
@@ -651,14 +763,28 @@ void TrackMeScanner::start() {
     page    = 0;
     startMs = millis();
 
-    BLEDevice::init("");
+    if (!s_bleInited) {
+        BLEDevice::init("");
+        s_bleInited = true;
+    }
     dm.setBtActive(true);
     startI2S();
 
 #ifdef BOARD_TDECK_PLUS
     gpsSerial = new HardwareSerial(1);
-    gpsSerial->begin(BOARD_GPS_BAUD, SERIAL_8N1, BOARD_GPS_RX_PIN, BOARD_GPS_TX_PIN);
-    gpsValid = false; gpsBufLen = 0;
+    _tmGser   = gpsSerial;
+    gpsSerial->begin(9600, SERIAL_8N1, BOARD_GPS_RX_PIN, BOARD_GPS_TX_PIN);
+    if (!tmInitL76K()) {
+        // Try u-blox M10Q at 38400, fall back to 9600
+        gpsSerial->begin(38400, SERIAL_8N1, BOARD_GPS_RX_PIN, BOARD_GPS_TX_PIN);
+        if (!tmRecoverUblox()) {
+            gpsSerial->updateBaudRate(9600);
+            tmRecoverUblox();
+        }
+    }
+    gpsValid = false;
+    float lastGpsLat = 0, lastGpsLon = 0;
+    bool  lastGpsSet = false;
 #endif
 
     drawHeader();
@@ -673,11 +799,33 @@ void TrackMeScanner::start() {
     while (true) {
         uint32_t cycleStart = millis();
 
-        doBLEScan(2);        // ~2 s
+        doBLEScan(1);        // 1 s (reduced for faster key response)
         doWiFiSniff(500);    // ~0.5 s
 
 #ifdef BOARD_TDECK_PLUS
-        readGPS();
+        while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+        if (gps.location.isUpdated()) {
+            gpsLat   = (float)gps.location.lat();
+            gpsLon   = (float)gps.location.lng();
+            gpsValid = gps.location.isValid();
+        }
+        if (gpsValid) {
+            if (lastGpsSet) {
+                float dist = gpsDistance(lastGpsLat, lastGpsLon, gpsLat, gpsLon);
+                if (dist > 100.0f) {
+                    for (int i = 0; i < tier1Count; i++) {
+                        if (!tier1[i].gapActive && tier1[i].rssiSmoothed > -80.0f)
+                            tier1[i].distinctWindows++;
+                    }
+                    lastGpsLat = gpsLat;
+                    lastGpsLon = gpsLon;
+                }
+            } else {
+                lastGpsLat = gpsLat;
+                lastGpsLon = gpsLon;
+                lastGpsSet = true;
+            }
+        }
 #endif
 
         markGaps(cycleStart);
@@ -688,6 +836,7 @@ void TrackMeScanner::start() {
         alertName[0] = '\0';
         alertSec     = 0;
         for (int i = 0; i < tier1Count; i++) {
+            if (tier1[i].isAppleDevice) continue;
             if (tier1[i].alertLevel > highestLevel) {
                 highestLevel = tier1[i].alertLevel;
                 const char* src = (tier1[i].isKnown && tier1[i].sigIdx >= 0)
@@ -715,6 +864,7 @@ void TrackMeScanner::start() {
 
         // Auto-log new alerts
         for (int i = 0; i < tier1Count; i++) {
+            if (tier1[i].isAppleDevice) continue;
             if (tier1[i].alertLevel >= THREAT_WARNING && !tier1[i].alertFired) {
                 appendLog(tier1[i]);
                 tier1[i].alertFired = true;
@@ -739,12 +889,12 @@ void TrackMeScanner::start() {
 
     // Cleanup
     esp_wifi_set_promiscuous(false);
-    BLEDevice::deinit(false);
+    // BLE stack stays resident to avoid double-init crash on re-entry
     stopI2S();
     dm.setBtActive(false);
 
 #ifdef BOARD_TDECK_PLUS
-    if (gpsSerial) { gpsSerial->end(); delete gpsSerial; gpsSerial = nullptr; }
+    if (gpsSerial) { gpsSerial->end(); delete gpsSerial; gpsSerial = nullptr; _tmGser = nullptr; }
 #endif
 
     dm.printCommandScreen();

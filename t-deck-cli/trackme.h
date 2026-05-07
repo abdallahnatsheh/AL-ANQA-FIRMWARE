@@ -8,6 +8,9 @@
 #include "esp_wifi.h"
 #include "display_manager.h"
 #include "sdcard_manager.h"
+#ifdef BOARD_TDECK_PLUS
+#include <TinyGPS++.h>
+#endif
 
 #define TM_TIER1_MAX     20
 #define TM_TIER2_MAX    100
@@ -26,7 +29,8 @@ enum ThreatLevel : uint8_t {
 struct TrackerSig {
     char        name[24];
     uint16_t    companyId;
-    uint8_t     payloadByte; // required mfr[2] value; 0x00 = match any payload
+    uint8_t     payloadByte;
+    uint8_t     minMfrLen;   // minimum mfr data length required; 0 = no check
     ThreatLevel level;
 };
 
@@ -55,7 +59,8 @@ struct TrackedDev {
     uint32_t    gapStart;            // millis when device was last lost
     bool        gapActive;           // device is currently absent
     bool        gapReturned;         // has ever disappeared then returned
-    bool        alertFired;          // SD log entry written for this device
+    bool        alertFired;
+    bool        isAppleDevice;       // true = matched THREAT_NONE Apple entry, never scored/alerted
     bool        isWiFi;              // detected via probe request (not BLE)
     uint8_t     crowdAtArrival;      // tier1Count when device first appeared
 #ifdef BOARD_TDECK_PLUS
@@ -92,18 +97,18 @@ private:
 
     // -- device pool --
     void processDevice(const uint8_t* mac, const char* name,
-                       uint16_t companyId, uint8_t mfrType, int8_t rssi, bool isWiFi);
+                       uint16_t companyId, uint8_t mfrType, int8_t rssi, bool isWiFi,
+                       uint8_t mfrDataLen = 0);
     void initDev(TrackedDev& d, const uint8_t* mac, const char* name,
                  uint16_t companyId, int8_t rssi, bool isWiFi, uint8_t tier,
-                 uint8_t mfrType = 0x00, uint8_t crowd = 0);
-    void promoteTier2(uint32_t cycleStart);
+                 uint8_t mfrType = 0x00, uint8_t mfrDataLen = 0, uint8_t crowd = 0);
     void markGaps(uint32_t cycleStart);
 
     // -- analysis --
     void        runScoring();
     void        runGate2(TrackedDev& d);
     bool        runGate3(const TrackedDev& d);
-    int         matchSig(uint16_t companyId, uint8_t mfrType = 0x00);
+    int         matchSig(uint16_t companyId, uint8_t mfrType, uint8_t mfrDataLen);
     float       kalmanUpdate(KState& k, float z);
     float       calcVariance(const TrackedDev& d);
 
@@ -135,13 +140,12 @@ private:
     static void IRAM_ATTR wifiCb(void* buf, wifi_promiscuous_pkt_type_t type);
 
 #ifdef BOARD_TDECK_PLUS
-    void  readGPS();
-    float gpsLat;
-    float gpsLon;
-    bool  gpsValid;
+    float gpsDistance(float lat1, float lon1, float lat2, float lon2);
+    float       gpsLat;
+    float       gpsLon;
+    bool        gpsValid;
     HardwareSerial* gpsSerial;
-    char  gpsBuf[96];
-    uint8_t gpsBufLen;
+    TinyGPSPlus gps;
 #endif
 };
 
