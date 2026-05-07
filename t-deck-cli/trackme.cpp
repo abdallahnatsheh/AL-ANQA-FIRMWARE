@@ -910,7 +910,83 @@ void TrackMeScanner::start(bool silent) {
     gpsValid = false;
     float lastGpsLat = 0, lastGpsLon = 0;
     bool  lastGpsSet = false;
+
+    // GPS warm-up: 100% CPU to GPS until fix or timeout; BLE/WiFi start after
+    {
+        const uint32_t GPS_INIT_MS = 90000;
+        uint32_t gpsInitStart = millis();
+        uint32_t lastDrawMs   = 0;
+
+        dm.clearScreen();
+        drawHeader();
+        dm.setDefaultTextSize();
+        dm.setCursor(4, outputY);
+        dm.setTextColor(TFT_CYAN);
+        dm.printText("GPS warm-up — any key to skip");
+
+        while (millis() - gpsInitStart < GPS_INIT_MS) {
+            while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+
+            if (gps.location.isValid()) {
+                gpsLat   = (float)gps.location.lat();
+                gpsLon   = (float)gps.location.lng();
+                gpsValid = true;
+
+                dm.setCursor(4, outputY + LINE_HEIGHT * 2);
+                dm.setTextColor(TFT_GREEN);
+                char ok[56];
+                if (gps.time.isValid())
+                    snprintf(ok, sizeof(ok), "Fix! UTC %02d:%02d:%02d  %lu sats",
+                             (int)gps.time.hour(), (int)gps.time.minute(),
+                             (int)gps.time.second(),
+                             gps.satellites.isValid() ? (unsigned long)gps.satellites.value() : 0UL);
+                else
+                    snprintf(ok, sizeof(ok), "Fix acquired!");
+                dm.printText(ok);
+                dm.setCursor(4, outputY + LINE_HEIGHT * 3);
+                dm.setTextColor(TFT_WHITE);
+                dm.printText("Starting baseline scan...");
+                uint32_t pauseStart = millis();
+                while (millis() - pauseStart < 1500) {
+                    while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+                }
+                break;
+            }
+
+            // Refresh display every 500 ms
+            uint32_t now = millis();
+            if (now - lastDrawMs >= 500) {
+                lastDrawMs = now;
+                uint32_t sats = gps.satellites.isValid() ? (uint32_t)gps.satellites.value() : 0;
+                uint32_t elapsed = (now - gpsInitStart) / 1000;
+                uint32_t remain  = (GPS_INIT_MS / 1000) > elapsed ? (GPS_INIT_MS / 1000) - elapsed : 0;
+                char line[48];
+                snprintf(line, sizeof(line), "Sats: %lu/12   timeout: %lus   ", (unsigned long)sats, (unsigned long)remain);
+                dm.setCursor(4, outputY + LINE_HEIGHT);
+                dm.setTextColor(sats >= 4 ? TFT_YELLOW : TFT_ORANGE);
+                dm.printText(line);
+            }
+
+            char k = inputHandler.getKeyboardInput();
+            if (k) break;
+
+            vTaskDelay(pdMS_TO_TICKS(20)); // yield to WDT + RTOS tasks
+        }
+
+        if (!gpsValid) {
+            dm.setCursor(4, outputY + LINE_HEIGHT * 2);
+            dm.setTextColor(TFT_DARKGREY);
+            dm.printText("No GPS fix — scanning without GPS");
+            uint32_t pauseStart = millis();
+            while (millis() - pauseStart < 1000) {
+                while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+            }
+        }
+    }
 #endif
+
+    // Reset baseline timer so the 60s learning window starts NOW (after GPS init)
+    startMs = millis();
 
     drawHeader();
     drawScreen(THREAT_NONE, "", 0);
