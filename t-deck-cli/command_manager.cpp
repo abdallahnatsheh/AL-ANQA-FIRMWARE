@@ -31,9 +31,9 @@ CommandManager::CommandManager() : commandIndex(0), commandCount(0) {
     resetCommand();
 }
 
-void CommandManager::registerCommand(const char* name, const char* shortName, CommandFunction function, const char* description, bool haveArgs) {
+void CommandManager::registerCommand(const char* name, const char* shortName, CommandFunction function, const char* description, bool haveArgs, const char* category) {
     if (commandCount < sizeof(commands) / sizeof(commands[0])) {
-        commands[commandCount++] = {name, shortName, function, description, haveArgs};
+        commands[commandCount++] = {name, shortName, function, description, haveArgs, category};
     }
 }
 
@@ -93,33 +93,33 @@ void CommandManager::resetCommand () {
 
 void CommandManager::setupCommands() {
     // ── System ────────────────────────────────────────────────────────────────
-    registerCommand("help",        "hlp",    [](char* a) { Utils::printHelp(a); },                                          "Help [cmd]",                              true);
-    registerCommand("info",        "inf",    [](char* a) { espInfoPrinter.printESPInfo(); },                                 "Device info (IP, MAC, battery)",          false);
-    registerCommand("clear",       "clr",    [](char* a) { displayManager.tdeck_begin(); },                                  "Clear screen",                            false);
-    registerCommand("MATRIX",      "matrix", [](char* a) { displayManager.launchMatrixAnimation(); },                       "Matrix rain animation",                   false);
+    registerCommand("help",        "hlp",    [](char* a) { Utils::printHelp(a); },                                          "Help [cmd]",                              true,  "System");
+    registerCommand("info",        "inf",    [](char* a) { espInfoPrinter.printESPInfo(); },                                 "Device info (IP, MAC, battery)",          false, "System");
+    registerCommand("clear",       "clr",    [](char* a) { displayManager.tdeck_begin(); },                                  "Clear screen",                            false, "System");
+    registerCommand("MATRIX",      "matrix", [](char* a) { displayManager.launchMatrixAnimation(); },                       "Matrix rain animation",                   false, "System");
     // ── WiFi ──────────────────────────────────────────────────────────────────
-    registerCommand("scanwifi",    "sw",     [](char* a) { wifiFunctions.scanWiFiNetworks(); },                              "Scan WiFi networks",                      false);
-    registerCommand("connectwifi", "cw",     [](char* a) { wifiFunctions.connectToWiFiCommand(a); },                        "Connect to WiFi: cw <index>",             true);
-    registerCommand("clearwifi",   "clrw",   [](char* a) { wifiFunctions.clearAllWiFiCredentials(); },                      "Clear saved WiFi credentials",            false);
-    registerCommand("wifimon",     "wm",     [](char* a) { wifiMonitor.start(a && *a ? atoi(a) : 0); },                    "WiFi monitor [ch 1-13, 0=hop]",           true);
-    registerCommand("deauth",      "da",     [](char* a) { deauthAttack.start(a); },                                        "Deauth: da <bssid> [ch] [client]",        true);
-    registerCommand("eviltwin",    "et",     [](char* a) { evilTwin.start(a); },                                            "Evil Twin AP + captive portal",           true);
+    registerCommand("scanwifi",    "sw",     [](char* a) { wifiFunctions.scanWiFiNetworks(); },                              "Scan WiFi networks",                      false, "WiFi");
+    registerCommand("connectwifi", "cw",     [](char* a) { wifiFunctions.connectToWiFiCommand(a); },                        "Connect to WiFi: cw <index>",             true,  "WiFi");
+    registerCommand("clearwifi",   "clrw",   [](char* a) { wifiFunctions.clearAllWiFiCredentials(); },                      "Clear saved WiFi credentials",            false, "WiFi");
+    registerCommand("wifimon",     "wm",     [](char* a) { wifiMonitor.start(a && *a ? atoi(a) : 0); },                    "WiFi monitor [ch 1-13, 0=hop]",           true,  "WiFi");
+    registerCommand("deauth",      "da",     [](char* a) { deauthAttack.start(a); },                                        "Deauth: da <bssid> [ch] [client]",        true,  "WiFi");
+    registerCommand("eviltwin",    "et",     [](char* a) { evilTwin.start(a); },                                            "Evil Twin AP + captive portal",           true,  "WiFi");
     // ── Network ───────────────────────────────────────────────────────────────
-    registerCommand("netdiscover", "nd",     [](char* a) { networkScanner.networkDiscovery(); },                             "ARP scan local subnet",                   false);
-    registerCommand("portscan",    "ps",     [](char* a) { networkScanner.networkPortScan(a); },                            "Port scan: ps <ip|#> <start> <end>",      true);
-    registerCommand("topscan",     "ts",     [](char* a) { networkScanner.topPortScan(a); },                                "Top 26 ports: ts <ip|#>",                 true);
-    registerCommand("ping",        "pg",     [](char* a) { networkScanner.pingHost(a); },                                   "Ping: pg <ip or hostname>",               true);
+    registerCommand("netdiscover", "nd",     [](char* a) { networkScanner.networkDiscovery(); },                             "ARP scan local subnet",                   false, "Network");
+    registerCommand("portscan",    "ps",     [](char* a) { networkScanner.networkPortScan(a); },                            "Port scan: ps <ip|#> <start> <end>",      true,  "Network");
+    registerCommand("topscan",     "ts",     [](char* a) { networkScanner.topPortScan(a); },                                "Top 26 ports: ts <ip|#>",                 true,  "Network");
+    registerCommand("ping",        "pg",     [](char* a) { networkScanner.pingHost(a); },                                   "Ping: pg <ip or hostname>",               true,  "Network");
     // ── Bluetooth ─────────────────────────────────────────────────────────────
-    registerCommand("scanblue",    "sbl",    [](char* a) { bluetoothFunctions.scanBluetoothDevices(); },                    "BLE device scan",                         false);
-    registerCommand("trackme",     "tm",     [](char* a) { trackMe.start(a && (strncmp(a,"s",1)==0||strncmp(a,"silent",6)==0)); }, "Anti-tracking scanner: tm [silent]", true);
+    registerCommand("scanblue",    "sbl",    [](char* a) { bluetoothFunctions.scanBluetoothDevices(); },                    "BLE device scan",                         false, "Bluetooth");
+    registerCommand("trackme",     "tm",     [](char* a) { trackMe.start(a && (strncmp(a,"s",1)==0||strncmp(a,"silent",6)==0)); }, "Anti-tracking scanner: tm [silent]", true, "Bluetooth");
     // ── SD Card ───────────────────────────────────────────────────────────────
-    registerCommand("sdinfo",      "sdi",    [](char* a) { sdCardManager.printInfo(); },                                    "SD card type and size",                   false);
-    registerCommand("sdls",        "ls",     [](char* a) { sdCardManager.listDirectory(a && *a ? a : "/"); },               "List SD directory [path]",                true);
-    registerCommand("sdread",      "sdr",    [](char* a) { if (a&&*a) sdCardManager.readFile(a); else displayManager.println("Usage: sdread <path>"); displayManager.printCommandScreen(); }, "Read file from SD",  true);
-    registerCommand("sdrm",        "srm",    [](char* a) { if (a&&*a) sdCardManager.removeFile(a); else displayManager.println("Usage: sdrm <path>");  displayManager.printCommandScreen(); }, "Delete file from SD", true);
+    registerCommand("sdinfo",      "sdi",    [](char* a) { sdCardManager.printInfo(); },                                    "SD card type and size",                   false, "SD Card");
+    registerCommand("sdls",        "ls",     [](char* a) { sdCardManager.listDirectory(a && *a ? a : "/"); },               "List SD directory [path]",                true,  "SD Card");
+    registerCommand("sdread",      "sdr",    [](char* a) { if (a&&*a) sdCardManager.readFile(a); else displayManager.println("Usage: sdread <path>"); displayManager.printCommandScreen(); }, "Read file from SD",  true,  "SD Card");
+    registerCommand("sdrm",        "srm",    [](char* a) { if (a&&*a) sdCardManager.removeFile(a); else displayManager.println("Usage: sdrm <path>");  displayManager.printCommandScreen(); }, "Delete file from SD", true, "SD Card");
     // ── Diagnostics ───────────────────────────────────────────────────────────
-    registerCommand("gpson",       "gon",    [](char* a) { runGpsOn(); },                                                   "GPS background task + live status",       false);
-    registerCommand("gpsoff",      "gof",    [](char* a) { runGpsOff(); },                                                  "Stop GPS background task",                false);
-    registerCommand("gpstest",     "gt",     [](char* a) { runGpsTest(); },                                                  "GPS coordinate test",                     false);
-    registerCommand("spktest",     "st",     [](char* a) { runSpeakerTest(); },                                              "Speaker tone test",                       false);
+    registerCommand("gpson",       "gon",    [](char* a) { runGpsOn(); },                                                   "GPS background task + live status",       false, "Diagnostics");
+    registerCommand("gpsoff",      "gof",    [](char* a) { runGpsOff(); },                                                  "Stop GPS background task",                false, "Diagnostics");
+    registerCommand("gpstest",     "gt",     [](char* a) { runGpsTest(); },                                                  "GPS coordinate test",                     false, "Diagnostics");
+    registerCommand("spktest",     "st",     [](char* a) { runSpeakerTest(); },                                              "Speaker tone test",                       false, "Diagnostics");
 }

@@ -14,7 +14,8 @@ bool Utils::startsWith(const char* str, const char* prefix) {
 }
 
 void Utils::printHelp(char* args) {
-    if (args != NULL && args[0] != '\0') {
+    // ── specific command lookup ───────────────────────────────────────────────
+    if (args && args[0] != '\0') {
         bool found = false;
         for (int i = 0; i < commandManager.commandCount; i++) {
             if (strcmp(args, commandManager.commands[i].name) == 0 ||
@@ -28,45 +29,50 @@ void Utils::printHelp(char* args) {
                 break;
             }
         }
-        if (!found)
-            displayManager.newLinePrintLn("Command not found.");
+        if (!found) displayManager.newLinePrintLn("Command not found.");
         displayManager.printCommandScreen();
         return;
     }
 
-    const int PAGE_SIZE = 6;
-    const int LINE_H    = 10;
-    int total      = commandManager.commandCount;
-    int totalPages = (total + PAGE_SIZE - 1) / PAGE_SIZE;
-    int page       = 0;
+    // ── build ordered category list ───────────────────────────────────────────
+    const char* cats[16];
+    int catCount = 0;
+    for (int i = 0; i < commandManager.commandCount; i++) {
+        const char* cat = commandManager.commands[i].category;
+        bool dup = false;
+        for (int j = 0; j < catCount; j++) {
+            if (strcmp(cats[j], cat) == 0) { dup = true; break; }
+        }
+        if (!dup && catCount < 16) cats[catCount++] = cat;
+    }
+
+    const int LINE_H = 10;
+    int page = 0;
 
     while (true) {
         displayManager.clearScreen();
         displayManager.setTextSize(1.0f);
 
-        // ── header ───────────────────────────────────────────────
+        // ── header: category name + page indicator ────────────────────────────
         displayManager.setCursor(10, outputY);
         displayManager.setTextColor(TFT_CYAN);
-        displayManager.printText("COMMANDS ");
+        displayManager.printText(cats[page]);
         displayManager.setTextColor(0x7BEF);
-        char pg[10];
-        sprintf(pg, "(%d/%d)", page + 1, totalPages);
+        char pg[12];
+        sprintf(pg, " (%d/%d)", page + 1, catCount);
         displayManager.printText(pg);
         displayManager.fillRect(5, outputY + LINE_H + 1, 310, 1, TFT_DARKGREY);
 
-        // ── command entries ───────────────────────────────────────
-        int start = page * PAGE_SIZE;
-        int end   = min(start + PAGE_SIZE, total);
-        int y     = outputY + LINE_H + 4;
-
-        for (int i = start; i < end; i++) {
+        // ── commands in this category ─────────────────────────────────────────
+        int y = outputY + LINE_H + 4;
+        for (int i = 0; i < commandManager.commandCount; i++) {
+            if (strcmp(commandManager.commands[i].category, cats[page]) != 0) continue;
             displayManager.setCursor(10, y);
             displayManager.setTextColor(TFT_GREEN);
             displayManager.printText(commandManager.commands[i].name);
             displayManager.setTextColor(TFT_DARKGREY);
             displayManager.printText("/");
             displayManager.printText(commandManager.commands[i].shortName);
-
             y += LINE_H;
             displayManager.setCursor(16, y);
             displayManager.setTextColor(0x7BEF);
@@ -74,41 +80,27 @@ void Utils::printHelp(char* args) {
             y += LINE_H;
         }
 
-        // ── bottom nav ────────────────────────────────────────────
+        // ── nav bar ───────────────────────────────────────────────────────────
         displayManager.fillRect(5, y + 1, 310, 1, TFT_DARKGREY);
         displayManager.setCursor(10, y + 4);
-        displayManager.setTextColor(TFT_WHITE);
-        displayManager.printText("--");
-        displayManager.setTextColor(TFT_GREEN);
-        displayManager.printText("a=prev");
-        displayManager.setTextColor(TFT_WHITE);
-        displayManager.printText("-");
-        displayManager.setTextColor(TFT_GREEN);
-        displayManager.printText("l=next");
-        displayManager.setTextColor(TFT_WHITE);
-        displayManager.printText("-");
-        displayManager.setTextColor(TFT_GREEN);
-        displayManager.printText("q=quit");
-        displayManager.setTextColor(TFT_WHITE);
-        displayManager.printText("--");
+        displayManager.setTextColor(TFT_WHITE);  displayManager.printText("--");
+        displayManager.setTextColor(TFT_GREEN);  displayManager.printText("a=prev");
+        displayManager.setTextColor(TFT_WHITE);  displayManager.printText("-");
+        displayManager.setTextColor(TFT_GREEN);  displayManager.printText("l=next");
+        displayManager.setTextColor(TFT_WHITE);  displayManager.printText("-");
+        displayManager.setTextColor(TFT_GREEN);  displayManager.printText("q=quit");
+        displayManager.setTextColor(TFT_WHITE);  displayManager.printText("--");
 
         displayManager.setDefaultTextSize();
         displayManager.setTextColor(TFT_WHITE);
 
-        // ── wait for key ──────────────────────────────────────────
+        // ── key wait ──────────────────────────────────────────────────────────
         bool flip = false;
         while (!flip) {
             char key = inputHandler.getKeyboardInput();
-            if (key == 'q' || key == 'Q') {
-                displayManager.clearInputText();
-                return;
-            } else if ((key == 'l' || key == 'L') && page < totalPages - 1) {
-                page++;
-                flip = true;
-            } else if ((key == 'a' || key == 'A') && page > 0) {
-                page--;
-                flip = true;
-            }
+            if      (key == 'q' || key == 'Q')                              { displayManager.clearInputText(); return; }
+            else if ((key == 'l' || key == 'L') && page < catCount - 1)    { page++; flip = true; }
+            else if ((key == 'a' || key == 'A') && page > 0)               { page--; flip = true; }
         }
     }
 }

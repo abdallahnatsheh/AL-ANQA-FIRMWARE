@@ -13,11 +13,12 @@ struct Command {
     CommandFunction function;
     const char* description;
     bool haveArgs;
+    const char* category;
 };
 class CommandManager {
 public:
     CommandManager();
-    void registerCommand(const char* name, const char* shortName, CommandFunction function, const char* description, bool haveArgs);
+    void registerCommand(const char* name, const char* shortName, CommandFunction function, const char* description, bool haveArgs, const char* category);
     void processInput(char input);
     void executeCommand();
     void setupCommands();
