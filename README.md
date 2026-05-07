@@ -211,70 +211,89 @@ Credentials are saved to `/logs/eviltwin.csv` on the SD card.
 > **⚠️ Experimental:** `trackme` is a best-effort tool and may produce false positives. Radio signals alone cannot prove physical tracking — use results as a general indicator, not as conclusive evidence. GPS movement data (T-Deck Plus only) significantly improves accuracy.
 
 ```
-CMD> trackme
+CMD> trackme          # with speaker alerts
+CMD> trackme silent   # silent mode — no beeps
 ```
 
-`trackme` is a passive anti-tracking detector. It uses BLE and WiFi probe sniffing to detect devices that may be physically following you. The core problem it solves: your own phone, smartwatch, car Bluetooth, and family members' phones all look identical to a tracker in terms of radio signals — they all follow you perfectly because they are with you. The algorithm is specifically designed to handle this.
+`trackme` is a passive anti-tracking detector. It uses BLE scanning and (on T-Deck Plus) WiFi probe sniffing to detect devices that may be physically following you. The core challenge: your own phone, smartwatch, car Bluetooth, and passengers' phones all look identical to a tracker — they follow you perfectly because they are with you. The algorithm is specifically designed to handle this.
 
-### Step 0 — Baseline (first 60 seconds)
+**T-Deck Plus tip:** Run `gpson` before starting `trackme`. If the GPS background task already has a fix, `trackme` skips its 90-second GPS warm-up and starts scanning immediately with location data ready.
 
-When you start `trackme`, the first 60 seconds are a **learning period**. Every device detected during this window — your watch, your phone, car Bluetooth, passengers' phones — is marked as a **companion** and shown in dark grey in the table. Companions are never scored or alerted. Only devices that appear *after* the baseline ends are treated as potential trackers.
+### Step 1 — Baseline (first 60 seconds)
 
-The display shows a yellow countdown: `BASELINE 47s — learning your devices...`
+When you start `trackme`, the first 60 seconds are a **learning period**. Every device detected during this window — your watch, your phone, car Bluetooth, passengers' phones — is marked as a **companion** and shown in dark grey. Companions are never scored or alerted. Only devices that appear *after* the baseline ends are treated as potential trackers.
+
+The display shows a countdown: `BASELINE 47s — learning your devices...`
 
 **Tip:** Start `trackme` *before* you leave home or get in your car so all your own devices are baselined first.
 
-### Permanent whitelist
+### Step 2 — Detection pipeline
 
-If a device slips through (e.g. your phone connected after baseline), press **`w`** to permanently whitelist it. The MAC is saved to `/logs/trackme_known.csv` on the SD card and recognized instantly on all future sessions.
-
-### Detection pipeline
-
-After baseline, every new device passes a 3-gate pipeline:
+After baseline, every new device is processed through a 3-gate pipeline. RSSI is smoothed with a Kalman filter before any decision is made.
 
 **Gate 1 — Signature check**
-BLE manufacturer data is matched against known tracker signatures. AirTags, Tile, Samsung SmartTag, Chipolo, Eufy, and Pebblebee are identified by company ID, payload byte, and minimum manufacturer data length. Apple non-trackers (iPhones, Macs, AirPods) are classified separately and never scored — matching the company ID alone is not sufficient.
+BLE manufacturer data is matched against known tracker signatures. AirTags, Tile, Samsung SmartTag, Chipolo, Eufy, and Pebblebee are identified by company ID, payload byte, and minimum data length. Apple non-trackers (iPhones, Macs, AirPods) are excluded — matching the Apple company ID alone is not sufficient.
 
 **Gate 2 — Behaviour scoring** *(unknown BLE devices only)*
-Unknown devices are scored on: time seen, sighting count, RSSI consistency, and gap-and-return events. A gap only counts if the device was absent for **30+ seconds** — a single missed BLE advertisement does not trigger a false gap-return. Score below 40 → ignored. Score ≥ 40 → Gate 3.
+Unknown devices accumulate a suspicion score based on: time seen (+25), sighting count (+20), RSSI consistency (+35), and gap-and-return events (+25). A gap only counts if the device was absent for **at least 30 seconds** — a single missed BLE advertisement does not trigger a false gap-return.
+
+- Score < 60 → NONE
+- Score ≥ 60 → NOTICE (if Gate 3 not yet passed)
+- Score 60–79 + Gate 3 → WARNING
+- Score ≥ 80 + Gate 3 → ALERT
 
 **Gate 3 — Confirmation** *(required for WARNING or ALERT)*
-No alert can sound before Gate 3 passes. Two paths:
-- **GPS path** (T-Deck Plus): user has moved 200m+ and the device was present throughout with at least one real gap-and-return. Physical movement is direct proof — no time minimum needed.
-- **Time path**: device seen for 5+ minutes, still nearby (RSSI > −80 dBm), 3+ gap-returns or sightings, not explained by a crowd scenario.
+No alert can sound before Gate 3 passes. Two paths to confirmation:
+- **GPS path** (T-Deck Plus): you have moved 200m+ and the device was present throughout with at least one real gap-and-return. Physical movement is direct proof — no time minimum.
+- **Time path**: device seen 5+ minutes, RSSI > −80 dBm, 3+ gap-returns or sightings, not explained by a crowd at arrival.
 
-### WiFi probe detection and GPS movement
+### WiFi probe detection *(T-Deck Plus only)*
 
-WiFi probe sniffing catches phones, laptops — and also **routers**, which actively scan channels and send probe requests. Without GPS, a WiFi-only device (never confirmed by BLE) is capped at NOTICE and cannot trigger a beep. With GPS (T-Deck Plus), a WiFi device can only reach NOTICE if **you have moved 100m+ this session** and the device followed with a real gap-and-return. A router you're sitting near stays at THREAT_NONE because you are not moving.
+WiFi probe sniffing detects phones and laptops that broadcast probe requests. Because routers and access points also probe, a WiFi-only device (never seen via BLE) is capped at **NOTICE** and cannot trigger a beep. It can only reach NOTICE if you have moved 100m+ this session and the device followed — a stationary router stays at THREAT_NONE permanently.
 
-The status line shows your GPS state: `GPS:none` (no module), `GPS:srch` (searching, NMEA flowing), `GPS:142m` (fix acquired, 142m moved this session).
+WiFi probe sniffing is disabled on the standard T-Deck (no GPS) because without movement data every WiFi detection would be a false positive.
+
+### GPS status
+
+The status line shows your current GPS state:
+
+| Status | Meaning |
+|--------|---------|
+| `GPS:none` | No GPS module (standard T-Deck) |
+| `GPS:srch` | Module responding, waiting for satellite fix |
+| `GPS:142m` | Fix acquired, 142 m moved this session |
 
 ### Device tiers
 
-| Tier | Max | Purpose |
-|------|-----|---------|
-| Tier 1 | 20 | Close devices (RSSI > −70) — full 3-gate analysis |
-| Tier 2 | 100 | Distant or Apple non-tracker devices — lightweight tracking only |
+| Tier | Capacity | Criteria |
+|------|----------|---------|
+| Tier 1 | 20 devices | RSSI > −70 dBm — full 3-gate analysis |
+| Tier 2 | 100 devices | RSSI −70 to −85 dBm or Apple non-tracker — lightweight tracking only |
 
-Apple non-trackers are locked to Tier 2 and never scored.
+Devices below −85 dBm are dropped immediately. Tier 2 devices can be promoted to Tier 1 if RSSI improves or sightings reach 3+.
 
 ### Alert levels
 
 | Level | Trigger | Speaker | Display |
 |-------|---------|---------|---------|
-| NOTICE | Known tracker seen 60s + 2 sightings (not in crowd) | Silent | Yellow row |
-| WARNING | BLE device, Gate 3 confirmed, score 60–79 | 1 short beep | Orange row |
-| ALERT | Gate 3 confirmed, known tracker OR score ≥ 80 | 3 beeps every 30s | Red row |
+| NONE | Not suspicious | Silent | Grey or white row |
+| NOTICE | Known tracker seen 60s + 2 sightings, or score ≥ 60 before Gate 3 | Silent | Yellow row |
+| WARNING | Gate 3 confirmed, score 60–79 | 1 beep every 30s | Orange row |
+| ALERT | Gate 3 confirmed, known tracker or score ≥ 80 | 3 beeps every 30s | Red row |
 
-**WARNING and ALERT can only fire after Gate 3.** Score alone — no matter how high — cannot trigger a beep before Gate 3 is confirmed.
+**WARNING and ALERT can only fire after Gate 3.** Score alone cannot trigger a beep.
+
+### Permanent whitelist
+
+If a device slips through (e.g. your phone connected after baseline), press **`w`** to whitelist it permanently. The MAC is saved to `/logs/trackme_known.csv` on the SD card and recognized on all future sessions.
 
 ### Keys
 
 | Key | Action |
 |-----|--------|
 | `a` / `l` | Previous / next page |
-| `w` | Whitelist highest-threat device (saves to SD permanently) |
-| `s` | Save current log to SD |
+| `w` | Whitelist highest-threat non-companion device (saves to SD) |
+| `s` | Save current session log to SD |
 | `q` | Quit |
 
 ### Custom tracker signatures
@@ -286,13 +305,13 @@ BLE,0x004C,Apple AirTag,HIGH
 BLE,0x00D7,Tile Tracker,HIGH
 ```
 
-Apple non-tracker entries are always appended automatically regardless of SD content.
+Apple non-tracker entries are appended automatically regardless of SD content.
 
 ### Known limitations
 
-- **MAC randomization**: iPhones and Android phones rotate BLE MACs every ~15 min. Commercial trackers (AirTag, Tile) use stable MACs and are detected reliably. Randomized phone MACs reset their history on rotation — this is expected behavior.
-- **Single radio**: BLE and WiFi share one physical antenna and cannot scan simultaneously. The 1.5s scan cycle means a brief advertisement may occasionally be missed — the 30s gap minimum makes this harmless.
-- **Cold GPS start**: The L76K GPS module needs ~4 minutes for a cold fix. The display shows `GPS:srch` with NMEA byte count so you can confirm the module is alive during the wait. Subsequent starts are faster (warm fix ~30s).
+- **MAC randomization**: iPhones and Android phones rotate BLE MACs every ~15 minutes. Commercial trackers (AirTag, Tile) use stable MACs and are reliably detected. Randomized MACs reset their history on rotation — this is expected behavior, not a bug.
+- **Shared radio**: BLE and WiFi share one antenna and cannot scan simultaneously. A brief advertisement may occasionally be missed — the 30-second gap minimum prevents this from counting as a gap-and-return.
+- **Cold GPS start**: The GPS module needs ~4 minutes for a cold fix outdoors. Run `gpson` in advance to have a fix ready before starting `trackme`. The `GPS:srch` status with a rising chars count confirms the module is alive during the wait.
 
 ---
 
