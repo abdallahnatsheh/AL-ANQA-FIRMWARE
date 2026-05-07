@@ -1,4 +1,5 @@
 #include "trackme.h"
+#include "gps_manager.h"
 #include "input_handling.h"
 #include "utilities.h"
 #include <WiFi.h>
@@ -663,11 +664,14 @@ void TrackMeScanner::drawScreen(ThreatLevel highestLevel,
 
 #ifdef BOARD_TDECK_PLUS
     {
+        GpsManager& _gm = GpsManager::instance();
+        bool  _gmOn  = _gm.isRunning();
         char gpsStr[22];
         if (!gpsValid) {
-            uint32_t chars = gps.charsProcessed();
+            uint32_t sats  = _gmOn ? _gm.satellites()
+                                   : (gps.satellites.isValid() ? gps.satellites.value() : 0);
+            uint32_t chars = _gmOn ? _gm.charsProcessed() : gps.charsProcessed();
             if (chars > 0) {
-                uint32_t sats = gps.satellites.isValid() ? gps.satellites.value() : 0;
                 snprintf(gpsStr, sizeof(gpsStr), " GPS:srch(%lu)", (unsigned long)sats);
                 dm.setTextColor(sats >= 4 ? TFT_YELLOW : TFT_ORANGE);
             } else {
@@ -675,13 +679,13 @@ void TrackMeScanner::drawScreen(ThreatLevel highestLevel,
                 dm.setTextColor(TFT_DARKGREY);
             }
         } else if (!_gpsMoving) {
-            // Fix acquired but user hasn't moved 50m yet — show UTC time
-            if (gps.time.isValid()) {
-                snprintf(gpsStr, sizeof(gpsStr), " GPS:%02d:%02d",
-                         (int)gps.time.hour(), (int)gps.time.minute());
-            } else {
+            bool tValid = _gmOn ? _gm.timeValid() : gps.time.isValid();
+            int  h = _gmOn ? (int)_gm.hour()   : (int)gps.time.hour();
+            int  m = _gmOn ? (int)_gm.minute()  : (int)gps.time.minute();
+            if (tValid)
+                snprintf(gpsStr, sizeof(gpsStr), " GPS:%02d:%02d", h, m);
+            else
                 snprintf(gpsStr, sizeof(gpsStr), " GPS:fix");
-            }
             dm.setTextColor(TFT_GREEN);
         } else {
             snprintf(gpsStr, sizeof(gpsStr), " GPS:%.0fm", _totalDistM);
@@ -786,76 +790,8 @@ void TrackMeScanner::drawScreen(ThreatLevel highestLevel,
 }
 
 // ── GPS (T-Deck Plus only) ────────────────────────────────────────────────────
+// Init, module detection, and background task are in gps_manager.cpp.
 #ifdef BOARD_TDECK_PLUS
-
-static HardwareSerial* _tmGser = nullptr;
-
-static int tmGpsGetAck(uint8_t reqClass, uint8_t reqID) {
-    uint8_t  buf[32];
-    uint16_t fc = 0;
-    uint32_t t0 = millis();
-    while (millis() - t0 < 800) {
-        while (_tmGser->available()) {
-            int c = _tmGser->read();
-            switch (fc) {
-                case 0: fc = (c == 0xB5) ? 1 : 0; break;
-                case 1: fc = (c == 0x62) ? 2 : 0; break;
-                case 2: fc = (c == reqClass) ? 3 : 0; break;
-                case 3: fc = (c == reqID)    ? 4 : 0; break;
-                case 4: {
-                    uint16_t need = c;
-                    uint32_t tw = millis() + 100;
-                    while (!_tmGser->available() && millis() < tw) {}
-                    need |= (_tmGser->read() << 8);
-                    if (need == 0 || need > sizeof(buf)) { fc = 0; break; }
-                    if ((int)_tmGser->readBytes(buf, need) == need) return (int)need;
-                    fc = 0; break;
-                }
-                default: fc = 0; break;
-            }
-        }
-    }
-    return 0;
-}
-
-static bool tmInitL76K() {
-    for (int attempt = 0; attempt < 3; attempt++) {
-        _tmGser->write("$PCAS03,0,0,0,0,0,0,0,0,0,0,,,0,0*02\r\n");
-        delay(100);
-        while (_tmGser->available()) _tmGser->read();
-        delay(100);
-        _tmGser->write("$PCAS06,0*1B\r\n");
-        uint32_t t0 = millis();
-        while (!_tmGser->available() && millis() - t0 < 600) {}
-        _tmGser->setTimeout(200);
-        String ver = _tmGser->readStringUntil('\n');
-        if (ver.startsWith("$GPTXT,01,01,02")) {
-            _tmGser->write("$PCAS04,5*1C\r\n");  delay(250);
-            // GGA + RMC only — reduces ~500 B/s to ~150 B/s so the 1-s BLE scan
-            // does not overflow the UART buffer and corrupt sentences.
-            _tmGser->write("$PCAS03,1,0,0,0,1,0,0,0,0,0,,,0,0*02\r\n"); delay(250);
-            _tmGser->write("$PCAS11,3*1E\r\n");  delay(100);
-            return true;
-        }
-        delay(500);
-    }
-    return false;
-}
-
-static bool tmRecoverUblox() {
-    static const uint8_t CFG1[] = {0xB5,0x62,0x06,0x09,0x0D,0x00,0xFF,0xFF,0x00,0x00,
-                                    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0x1C,0xA2};
-    static const uint8_t CFG2[] = {0xB5,0x62,0x06,0x09,0x0D,0x00,0xFF,0xFF,0x00,0x00,
-                                    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x1B,0xA1};
-    static const uint8_t CFG3[] = {0xB5,0x62,0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,
-                                    0x00,0x00,0x00,0x00,0xFF,0xFF,0x00,0x00,0x03,0x1D,0xB3};
-    static const uint8_t RATE[] = {0xB5,0x62,0x06,0x08,0x00,0x00,0x0E,0x30};
-    _tmGser->write(CFG1, sizeof(CFG1)); tmGpsGetAck(0x05, 0x01);
-    _tmGser->write(CFG2, sizeof(CFG2)); tmGpsGetAck(0x05, 0x01);
-    _tmGser->write(CFG3, sizeof(CFG3)); tmGpsGetAck(0x05, 0x01);
-    _tmGser->write(RATE, sizeof(RATE));
-    return tmGpsGetAck(0x06, 0x08) > 0;
-}
 
 float TrackMeScanner::gpsDistance(float lat1, float lon1, float lat2, float lon2) {
     const float R = 6371000.0f;
@@ -895,91 +831,130 @@ void TrackMeScanner::start(bool silent) {
     startI2S();
 
 #ifdef BOARD_TDECK_PLUS
-    gpsSerial = new HardwareSerial(1);
-    _tmGser   = gpsSerial;
-    gpsSerial->setRxBufferSize(1024);   // default 256 overflows during 1-s BLE scan
-    gpsSerial->begin(9600, SERIAL_8N1, BOARD_GPS_RX_PIN, BOARD_GPS_TX_PIN);
-    if (!tmInitL76K()) {
-        // Try u-blox M10Q at 38400, fall back to 9600
-        gpsSerial->begin(38400, SERIAL_8N1, BOARD_GPS_RX_PIN, BOARD_GPS_TX_PIN);
-        if (!tmRecoverUblox()) {
-            gpsSerial->updateBaudRate(9600);
-            tmRecoverUblox();
-        }
+    GpsManager& gpsMgr = GpsManager::instance();
+    bool _ownGps = !gpsMgr.isRunning(); // we init GPS only when background task isn't
+
+    if (_ownGps) {
+        gpsSerial = new HardwareSerial(1);
+        gpsSerial->setRxBufferSize(1024);
+        gpsSerial->begin(BOARD_GPS_BAUD, SERIAL_8N1, BOARD_GPS_RX_PIN, BOARD_GPS_TX_PIN);
+        // Module detection moved to GpsManager; reuse the same init via a temporary manager start/stop
+        // is overkill — just call the static helpers via a local GpsManager that we immediately discard.
+        // Instead: delegate module init to GpsManager's public helpers by starting it, then handing
+        // the serial over.  Simplest: just re-implement the quick init inline here (same 3 lines).
+        gpsSerial->write("$PCAS04,5*1C\r\n");  delay(250);
+        gpsSerial->write("$PCAS03,1,0,0,0,1,0,0,0,0,0,,,0,0*02\r\n"); delay(250);
+        gpsSerial->write("$PCAS11,3*1E\r\n");  delay(100);
     }
-    gpsValid = false;
+
+    gpsValid = gpsMgr.isRunning() && gpsMgr.isValid();
+    if (gpsValid) { gpsLat = gpsMgr.lat(); gpsLon = gpsMgr.lon(); }
     float lastGpsLat = 0, lastGpsLon = 0;
     bool  lastGpsSet = false;
 
-    // GPS warm-up: 100% CPU to GPS until fix or timeout; BLE/WiFi start after
+    // GPS readiness screen
     {
-        const uint32_t GPS_INIT_MS = 90000;
-        uint32_t gpsInitStart = millis();
-        uint32_t lastDrawMs   = 0;
-
         dm.clearScreen();
         drawHeader();
         dm.setDefaultTextSize();
         dm.setCursor(4, outputY);
-        dm.setTextColor(TFT_CYAN);
-        dm.printText("GPS warm-up — any key to skip");
 
-        while (millis() - gpsInitStart < GPS_INIT_MS) {
-            while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+        if (gpsMgr.isRunning() && gpsValid) {
+            // GPS already fixed from background — skip straight to scan
+            dm.setTextColor(TFT_GREEN);
+            char msg[48];
+            snprintf(msg, sizeof(msg), "GPS ready!  %lu sats  UTC %02d:%02d",
+                     (unsigned long)gpsMgr.satellites(),
+                     (int)gpsMgr.hour(), (int)gpsMgr.minute());
+            dm.printText(msg);
+            vTaskDelay(pdMS_TO_TICKS(1000));
 
-            if (gps.location.isValid()) {
-                gpsLat   = (float)gps.location.lat();
-                gpsLon   = (float)gps.location.lng();
-                gpsValid = true;
-
-                dm.setCursor(4, outputY + LINE_HEIGHT * 2);
-                dm.setTextColor(TFT_GREEN);
-                char ok[56];
-                if (gps.time.isValid())
-                    snprintf(ok, sizeof(ok), "Fix! UTC %02d:%02d:%02d  %lu sats",
-                             (int)gps.time.hour(), (int)gps.time.minute(),
-                             (int)gps.time.second(),
-                             gps.satellites.isValid() ? (unsigned long)gps.satellites.value() : 0UL);
-                else
-                    snprintf(ok, sizeof(ok), "Fix acquired!");
-                dm.printText(ok);
-                dm.setCursor(4, outputY + LINE_HEIGHT * 3);
-                dm.setTextColor(TFT_WHITE);
-                dm.printText("Starting baseline scan...");
-                uint32_t pauseStart = millis();
-                while (millis() - pauseStart < 1500) {
-                    while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+        } else if (gpsMgr.isRunning() && !gpsValid) {
+            // Background task running but no fix yet — wait briefly then proceed
+            dm.setTextColor(TFT_CYAN);
+            dm.printText("GPS running in background — waiting for fix...");
+            uint32_t waitStart = millis();
+            while (millis() - waitStart < 8000) {
+                if (gpsMgr.isValid()) {
+                    gpsValid = true; gpsLat = gpsMgr.lat(); gpsLon = gpsMgr.lon();
+                    dm.setCursor(4, outputY + LINE_HEIGHT * 2);
+                    dm.setTextColor(TFT_GREEN);
+                    dm.printText("Fix! Starting scan...");
+                    vTaskDelay(pdMS_TO_TICKS(800));
+                    break;
                 }
-                break;
-            }
-
-            // Refresh display every 500 ms
-            uint32_t now = millis();
-            if (now - lastDrawMs >= 500) {
-                lastDrawMs = now;
-                uint32_t sats = gps.satellites.isValid() ? (uint32_t)gps.satellites.value() : 0;
-                uint32_t elapsed = (now - gpsInitStart) / 1000;
-                uint32_t remain  = (GPS_INIT_MS / 1000) > elapsed ? (GPS_INIT_MS / 1000) - elapsed : 0;
-                char line[48];
-                snprintf(line, sizeof(line), "Sats: %lu/12   timeout: %lus   ", (unsigned long)sats, (unsigned long)remain);
+                uint32_t sats = gpsMgr.satellites();
+                char line[40];
+                snprintf(line, sizeof(line), "Sats: %lu/12   ", (unsigned long)sats);
                 dm.setCursor(4, outputY + LINE_HEIGHT);
                 dm.setTextColor(sats >= 4 ? TFT_YELLOW : TFT_ORANGE);
                 dm.printText(line);
+                vTaskDelay(pdMS_TO_TICKS(300));
+                if (inputHandler.getKeyboardInput()) break;
+            }
+            if (!gpsValid) {
+                dm.setCursor(4, outputY + LINE_HEIGHT * 2);
+                dm.setTextColor(TFT_DARKGREY);
+                dm.printText("No fix yet — scanning without GPS");
+                vTaskDelay(pdMS_TO_TICKS(800));
             }
 
-            char k = inputHandler.getKeyboardInput();
-            if (k) break;
+        } else {
+            // No background GPS — run the full 90s warm-up with own serial
+            dm.setTextColor(TFT_CYAN);
+            dm.printText("GPS warm-up — any key to skip");
+            const uint32_t GPS_INIT_MS = 90000;
+            uint32_t gpsInitStart = millis();
+            uint32_t lastDrawMs   = 0;
 
-            vTaskDelay(pdMS_TO_TICKS(20)); // yield to WDT + RTOS tasks
-        }
-
-        if (!gpsValid) {
-            dm.setCursor(4, outputY + LINE_HEIGHT * 2);
-            dm.setTextColor(TFT_DARKGREY);
-            dm.printText("No GPS fix — scanning without GPS");
-            uint32_t pauseStart = millis();
-            while (millis() - pauseStart < 1000) {
+            while (millis() - gpsInitStart < GPS_INIT_MS) {
                 while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+
+                if (gps.location.isValid()) {
+                    gpsLat = (float)gps.location.lat(); gpsLon = (float)gps.location.lng();
+                    gpsValid = true;
+                    dm.setCursor(4, outputY + LINE_HEIGHT * 2);
+                    dm.setTextColor(TFT_GREEN);
+                    char ok[56];
+                    if (gps.time.isValid())
+                        snprintf(ok, sizeof(ok), "Fix! UTC %02d:%02d:%02d  %lu sats",
+                                 (int)gps.time.hour(), (int)gps.time.minute(),
+                                 (int)gps.time.second(),
+                                 gps.satellites.isValid() ? (unsigned long)gps.satellites.value() : 0UL);
+                    else
+                        snprintf(ok, sizeof(ok), "Fix acquired!");
+                    dm.printText(ok);
+                    dm.setCursor(4, outputY + LINE_HEIGHT * 3);
+                    dm.setTextColor(TFT_WHITE);
+                    dm.printText("Starting baseline scan...");
+                    uint32_t p = millis();
+                    while (millis() - p < 1500)
+                        while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+                    break;
+                }
+
+                uint32_t now = millis();
+                if (now - lastDrawMs >= 500) {
+                    lastDrawMs = now;
+                    uint32_t sats = gps.satellites.isValid() ? (uint32_t)gps.satellites.value() : 0;
+                    uint32_t elapsed = (now - gpsInitStart) / 1000;
+                    uint32_t remain  = (GPS_INIT_MS / 1000) - elapsed;
+                    char line[48];
+                    snprintf(line, sizeof(line), "Sats: %lu/12   timeout: %lus   ", (unsigned long)sats, (unsigned long)remain);
+                    dm.setCursor(4, outputY + LINE_HEIGHT);
+                    dm.setTextColor(sats >= 4 ? TFT_YELLOW : TFT_ORANGE);
+                    dm.printText(line);
+                }
+                if (inputHandler.getKeyboardInput()) break;
+                vTaskDelay(pdMS_TO_TICKS(20));
+            }
+            if (!gpsValid) {
+                dm.setCursor(4, outputY + LINE_HEIGHT * 2);
+                dm.setTextColor(TFT_DARKGREY);
+                dm.printText("No GPS fix — scanning without GPS");
+                uint32_t p = millis();
+                while (millis() - p < 1000)
+                    while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
             }
         }
     }
@@ -1001,8 +976,9 @@ void TrackMeScanner::start(bool silent) {
         uint32_t cycleStart = millis();
 
 #ifdef BOARD_TDECK_PLUS
-        // Drain GPS buffer before BLE blocks the CPU for 1 s
-        if (gpsSerial) while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+        // Pre-flush own serial before BLE blocks core 1 for 1 s
+        if (_ownGps && gpsSerial)
+            while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
 #endif
         doBLEScan(1);        // 1 s (reduced for faster key response)
 #ifdef BOARD_TDECK_PLUS
@@ -1010,10 +986,17 @@ void TrackMeScanner::start(bool silent) {
 #endif
 
 #ifdef BOARD_TDECK_PLUS
-        while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
-        if (gps.location.isValid()) {
-            gpsLat  = (float)gps.location.lat();
-            gpsLon  = (float)gps.location.lng();
+        // Update position from whichever GPS source is active
+        if (_ownGps && gpsSerial) {
+            while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+            if (gps.location.isValid()) {
+                gpsLat = (float)gps.location.lat();
+                gpsLon = (float)gps.location.lng();
+                gpsValid = true;
+            }
+        } else if (!_ownGps && gpsMgr.isValid()) {
+            gpsLat  = gpsMgr.lat();
+            gpsLon  = gpsMgr.lon();
             gpsValid = true;
         }
         if (gpsValid) {
@@ -1131,7 +1114,8 @@ void TrackMeScanner::start(bool silent) {
     dm.setBtActive(false);
 
 #ifdef BOARD_TDECK_PLUS
-    if (gpsSerial) { gpsSerial->end(); delete gpsSerial; gpsSerial = nullptr; _tmGser = nullptr; }
+    if (_ownGps && gpsSerial) { gpsSerial->end(); delete gpsSerial; gpsSerial = nullptr; }
+    // GpsManager-owned serial stays open — background task keeps running
 #endif
 
     dm.printCommandScreen();

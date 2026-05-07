@@ -10,6 +10,8 @@
 #include "deauth_functions.h"
 #include "trackme.h"
 #include "eviltwin.h"
+#include "gps_manager.h"
+#include "input_handling.h"
 
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
@@ -21,6 +23,7 @@ extern WiFiMonitor        wifiMonitor;
 extern DeauthAttack       deauthAttack;
 extern TrackMeScanner     trackMe;
 extern EvilTwin           evilTwin;
+extern InputHandling      inputHandler;
 
 // Temp test commands (no header needed — forward-declared here)
 void runGpsTest();
@@ -124,4 +127,69 @@ void CommandManager::setupCommands() {
         "GPS coordinate test", false);
     registerCommand("spktest", "st",  [](char* args) { runSpeakerTest(); },
         "Speaker tone test", false);
+
+#ifdef BOARD_TDECK_PLUS
+    registerCommand("gpson", "gon", [](char* args) {
+        GpsManager& gm = GpsManager::instance();
+        if (!gm.isRunning()) {
+            displayManager.println("Starting GPS background task...");
+            gm.start();
+            displayManager.println("GPS task running. Use gpsoff to stop.");
+        }
+        // Live status screen — exit with any key, GPS stays on
+        displayManager.clearScreen();
+        while (true) {
+            displayManager.setCursor(4, outputY);
+            displayManager.setTextColor(TFT_CYAN);
+            displayManager.printText("GPS BACKGROUND STATUS");
+            displayManager.setCursor(4, outputY + LINE_HEIGHT);
+            displayManager.setTextColor(0x7BEF);
+            displayManager.printText("─────────────────────────────");
+            char line[48];
+            if (gm.isValid()) {
+                displayManager.setCursor(4, outputY + LINE_HEIGHT * 2);
+                displayManager.setTextColor(TFT_GREEN);
+                displayManager.printText("Status: FIX             ");
+                snprintf(line, sizeof(line), "Sats:   %lu / 12         ", (unsigned long)gm.satellites());
+                displayManager.setCursor(4, outputY + LINE_HEIGHT * 3);
+                displayManager.printText(line);
+                if (gm.timeValid()) {
+                    snprintf(line, sizeof(line), "UTC:    %02d:%02d:%02d        ",
+                             (int)gm.hour(), (int)gm.minute(), (int)gm.second());
+                    displayManager.setCursor(4, outputY + LINE_HEIGHT * 4);
+                    displayManager.printText(line);
+                }
+            } else {
+                uint32_t sats = gm.satellites();
+                displayManager.setCursor(4, outputY + LINE_HEIGHT * 2);
+                displayManager.setTextColor(sats >= 4 ? TFT_YELLOW : TFT_ORANGE);
+                displayManager.printText("Status: searching       ");
+                snprintf(line, sizeof(line), "Sats:   %lu / 12         ", (unsigned long)sats);
+                displayManager.setCursor(4, outputY + LINE_HEIGHT * 3);
+                displayManager.printText(line);
+            }
+            displayManager.setCursor(4, outputY + LINE_HEIGHT * 6);
+            displayManager.setTextColor(TFT_DARKGREY);
+            displayManager.printText("GPS stays on in background");
+            displayManager.setCursor(4, outputY + LINE_HEIGHT * 7);
+            displayManager.printText("[any key] return to CLI");
+
+            vTaskDelay(pdMS_TO_TICKS(500));
+            char k = inputHandler.getKeyboardInput();
+            if (k) break;
+        }
+        displayManager.tdeck_begin();
+    }, "Start GPS background task (T-Deck Plus)", false);
+
+    registerCommand("gpsoff", "gof", [](char* args) {
+        GpsManager& gm = GpsManager::instance();
+        if (gm.isRunning()) {
+            displayManager.println("Stopping GPS background task...");
+            gm.stop();
+            displayManager.println("GPS stopped.");
+        } else {
+            displayManager.println("GPS background task not running.");
+        }
+    }, "Stop GPS background task (T-Deck Plus)", false);
+#endif
 }
