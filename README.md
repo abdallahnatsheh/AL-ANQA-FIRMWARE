@@ -21,7 +21,7 @@
 
 T-Rex is an offensive security toolkit firmware for the **LilyGo T-Deck** and **T-Deck Plus**, built around a raw terminal-first CLI that feels like a Linux shell. Type commands, run attacks, scan networks — all from a pocket-sized ESP32-S3 device with a physical keyboard.
 
-Inspired by [Bruce](https://github.com/pr3y/Bruce) and [ESP32 Marauder](https://github.com/justcallmekoko/ESP32Marauder), but with its own identity: no menus, no GUI — just a blinking cursor and a command line.
+Inspired by [Bruce](https://github.com/pr3y/Bruce), but with its own identity: no menus, no GUI — just a blinking cursor and a command line.
 
 ---
 
@@ -326,9 +326,9 @@ PRs and issues are welcome! If you want to add a new attack module or command:
 
 Built on the shoulders of giants:
 - [Bruce Firmware](https://github.com/pr3y/Bruce) — offensive ESP32 toolkit (Evil Twin HTML templates adapted under AGPL-3.0)
-- [ESP32 Marauder](https://github.com/justcallmekoko/ESP32Marauder) — WiFi/BT attack suite
 - [LilyGo T-Deck](https://github.com/Xinyuan-LilyGO/T-Deck) — hardware reference
 - [AirGuard](https://github.com/seemoo-lab/AirGuard) — anti-tracking research and methodology by the Secure Mobile Networking Lab, TU Darmstadt. No code was used; credited for research inspiration only.
+- Built with [ChatGPT](https://chatgpt.com) · [GitHub Copilot](https://github.com/features/copilot) · [Claude Code](https://claude.ai/code)
 
 ---
 
