@@ -55,7 +55,7 @@ static void fillBuiltinSigs(TrackerSig* sigs, int& count) {
 TrackMeScanner::TrackMeScanner(DisplayManager& dm, SDCardManager& sd)
     : dm(dm), sd(sd), sigCount(0),
       tier1Count(0), tier2Count(0),
-      page(0), startMs(0), _i2sReady(false)
+      page(0), startMs(0), _i2sReady(false), _silent(false)
 {
 #ifdef BOARD_TDECK_PLUS
     gpsLat = 0; gpsLon = 0; gpsValid = false;
@@ -517,7 +517,7 @@ void TrackMeScanner::playTone(int freq, int durationMs) {
 }
 
 void TrackMeScanner::beep(ThreatLevel lvl) {
-    if (!_i2sReady) return;
+    if (_silent || !_i2sReady) return;
     if (lvl == THREAT_WARNING) {
         playTone(1000, 200);
     } else if (lvl == THREAT_ALERT) {
@@ -560,7 +560,10 @@ void TrackMeScanner::saveLog() {
 void TrackMeScanner::drawHeader() {
     dm.fillRect(0, promptY, SCREEN_WIDTH, promptHeight, TFT_RED);
     dm.printText("T-REX // TRACK ME", 5, promptY + 9, TFT_WHITE);
-    dm.printText("[q]quit",          250, promptY + 9, TFT_WHITE);
+    if (_silent)
+        dm.printText("[MUTE][q]", 210, promptY + 9, TFT_YELLOW);
+    else
+        dm.printText("[q]quit",   250, promptY + 9, TFT_WHITE);
 }
 
 // ── full screen redraw ────────────────────────────────────────────────────────
@@ -752,7 +755,8 @@ float TrackMeScanner::gpsDistance(float lat1, float lon1, float lat2, float lon2
 // ── entry point ───────────────────────────────────────────────────────────────
 static bool s_bleInited = false;
 
-void TrackMeScanner::start() {
+void TrackMeScanner::start(bool silent) {
+    _silent = silent;
     loadSignatures();
 
     memset(tier1, 0, sizeof(tier1)); tier1Count = 0;

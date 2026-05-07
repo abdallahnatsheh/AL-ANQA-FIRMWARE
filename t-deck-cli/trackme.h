@@ -71,7 +71,7 @@ struct TrackedDev {
 class TrackMeScanner {
 public:
     TrackMeScanner(DisplayManager& dm, SDCardManager& sd);
-    void start();
+    void start(bool silent = false);
 
 private:
     DisplayManager& dm;
@@ -122,6 +122,7 @@ private:
     void stopI2S();
     void playTone(int freq, int durationMs);
     bool _i2sReady;
+    bool _silent;
 
     // -- SD --
     void loadSignatures();

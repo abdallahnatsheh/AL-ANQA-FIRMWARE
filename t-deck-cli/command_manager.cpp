@@ -116,8 +116,10 @@ void CommandManager::setupCommands() {
         "Deauth attack: deauth <bssid> [ch] [client]", true);
     registerCommand("eviltwin", "et",  [](char* args) { evilTwin.start(args); },
         "Evil Twin AP: et [ssid]", true);
-    registerCommand("trackme", "tm",  [](char* args) { trackMe.start(); },
-        "Anti-tracking scanner (BLE+WiFi)", false);
+    registerCommand("trackme", "tm",  [](char* args) {
+        bool silent = args && (strncmp(args, "s", 1) == 0 || strncmp(args, "silent", 6) == 0);
+        trackMe.start(silent);
+    }, "Anti-tracking scanner (BLE+WiFi): tm [s]ilent", true);
     registerCommand("gpstest", "gt",  [](char* args) { runGpsTest(); },
         "GPS coordinate test", false);
     registerCommand("spktest", "st",  [](char* args) { runSpeakerTest(); },

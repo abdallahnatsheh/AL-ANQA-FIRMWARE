@@ -1,3 +1,4 @@
+#include "splash_screen.h"
 #include "command_manager.h"
 #include "display_manager.h"
 #include "battery_manager.h"
@@ -32,6 +33,7 @@ void setup() {
     Serial.begin(115200);
     displayManager.init();
     inputHandler.begin();
+    showSplashScreen();
 
     if (!sdCardManager.begin()) {
         Serial.println("SD card not found or failed to mount.");
