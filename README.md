@@ -170,7 +170,7 @@ CMD> help
 | `ping` | `pg` | `<ip\|hostname>` | ICMP ping with RTT + loss stats |
 | **Bluetooth** | | | |
 | `scanblue` | `sbl` | — | BLE device scan (paginated) |
-| `trackme` | `tm` | — | Anti-tracking scanner — BLE + WiFi probes |
+| `trackme` | `tm` | `[silent]` | Anti-tracking scanner — BLE + WiFi probes ⚠️ experimental |
 | **SD Card** | | | |
 | `sdinfo` | `sdi` | — | SD card type and capacity |
 | `sdls` | `ls` | `[path]` | List SD card directory |
@@ -207,6 +207,8 @@ Credentials are saved to `/logs/eviltwin.csv` on the SD card.
 ---
 
 ## 🛡️ How `trackme` works
+
+> **⚠️ Experimental:** `trackme` is a best-effort tool and may produce false positives. Radio signals alone cannot prove physical tracking — use results as a general indicator, not as conclusive evidence. GPS movement data (T-Deck Plus only) significantly improves accuracy.
 
 ```
 CMD> trackme

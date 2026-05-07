@@ -852,6 +852,28 @@ void TrackMeScanner::start(bool silent) {
     float lastGpsLat = 0, lastGpsLon = 0;
     bool  lastGpsSet = false;
 
+    // ── experimental disclaimer ───────────────────────────────────────────────
+    {
+        dm.clearScreen();
+        drawHeader();
+        dm.setDefaultTextSize();
+        dm.setCursor(4, outputY);
+        dm.setTextColor(TFT_YELLOW);
+        dm.println("[!] EXPERIMENTAL TOOL");
+        dm.setCursor(4, outputY + LINE_HEIGHT + 2);
+        dm.setTextColor(0x7BEF);
+        dm.println("Results may include false positives.");
+        dm.println("Use as a general indicator only.");
+        dm.setCursor(4, outputY + LINE_HEIGHT * 4);
+        dm.setTextColor(TFT_DARKGREY);
+        dm.println("Press any key to continue...");
+        uint32_t t0 = millis();
+        while (millis() - t0 < 2000) {
+            if (inputHandler.getKeyboardInput()) break;
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+    }
+
     // GPS readiness screen
     {
         dm.clearScreen();

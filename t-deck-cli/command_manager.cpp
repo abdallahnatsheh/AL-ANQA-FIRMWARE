@@ -111,7 +111,7 @@ void CommandManager::setupCommands() {
     registerCommand("ping",        "pg",     [](char* a) { networkScanner.pingHost(a); },                                   "Ping: pg <ip or hostname>",               true,  "Network");
     // ── Bluetooth ─────────────────────────────────────────────────────────────
     registerCommand("scanblue",    "sbl",    [](char* a) { bluetoothFunctions.scanBluetoothDevices(); },                    "BLE device scan",                         false, "Bluetooth");
-    registerCommand("trackme",     "tm",     [](char* a) { trackMe.start(a && (strncmp(a,"s",1)==0||strncmp(a,"silent",6)==0)); }, "Anti-tracking scanner: tm [silent]", true, "Bluetooth");
+    registerCommand("trackme",     "tm",     [](char* a) { trackMe.start(a && (strncmp(a,"s",1)==0||strncmp(a,"silent",6)==0)); }, "[EXP] Anti-tracking: tm [silent]",   true, "Bluetooth");
     // ── SD Card ───────────────────────────────────────────────────────────────
     registerCommand("sdinfo",      "sdi",    [](char* a) { sdCardManager.printInfo(); },                                    "SD card type and size",                   false, "SD Card");
     registerCommand("sdls",        "ls",     [](char* a) { sdCardManager.listDirectory(a && *a ? a : "/"); },               "List SD directory [path]",                true,  "SD Card");
