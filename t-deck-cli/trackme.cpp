@@ -1005,7 +1005,9 @@ void TrackMeScanner::start(bool silent) {
         if (gpsSerial) while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
 #endif
         doBLEScan(1);        // 1 s (reduced for faster key response)
-        doWiFiSniff(500);    // ~0.5 s
+#ifdef BOARD_TDECK_PLUS
+        doWiFiSniff(500);    // ~0.5 s — requires GPS movement to avoid false positives
+#endif
 
 #ifdef BOARD_TDECK_PLUS
         while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
