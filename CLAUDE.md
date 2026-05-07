@@ -183,6 +183,20 @@ BluetoothFunctions bluetoothFunctions;
 - ARP scan via raw Ethernet frames
 - Parallel TCP port scan (4× FreeRTOS tasks, 150ms timeout)
 
+### GpsManager (`gps_manager.cpp/h`) — T-Deck Plus only
+- Singleton: `GpsManager::instance()`
+- `start()` / `stop()` — create/destroy FreeRTOS task pinned to core 0
+- `gpsTask()` drains serial every 30ms, updates volatile state (no mutex — ARM32 4-byte aligned reads are atomic)
+- **Module detection order** (must mirror `test_gps.cpp` exactly):
+  1. `_serial->begin(9600, ...)` — inside `initModule()`, before any probe
+  2. `initL76K()` — 3 attempts × delay(500) ≈ 4.5s boot window for M10Q
+  3. If L76K fails: `_serial->begin(38400, ...)` → `recoverUblox()` (UBX CFG-CFG reset + RATE poll)
+  4. If 38400 fails: `updateBaudRate(9600)` → `recoverUblox()`
+- **Critical**: single L76K attempt (~1s) is not enough — M10Q needs ~4.5s to boot before UBX ACK arrives
+- Status bar icon: grey=off, yellow=searching, green=fixed (`updateStatusBar()` queries instance directly)
+- `runGpsOn()` — live display (module, chars/sats, lat/lon/Maps/UTC); `q` exits but task stays running
+- Trackme integration: if GpsManager is already running, trackme skips own GPS init and 90s warm-up
+
 ---
 
 ## Pending Features
