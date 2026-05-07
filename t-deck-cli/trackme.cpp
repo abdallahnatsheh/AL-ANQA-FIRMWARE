@@ -663,11 +663,26 @@ void TrackMeScanner::drawScreen(ThreatLevel highestLevel,
 
 #ifdef BOARD_TDECK_PLUS
     {
-        char gpsStr[18];
+        char gpsStr[22];
         if (!gpsValid) {
             uint32_t chars = gps.charsProcessed();
-            snprintf(gpsStr, sizeof(gpsStr), " GPS:%s", chars > 0 ? "srch" : "none");
-            dm.setTextColor(chars > 0 ? TFT_YELLOW : TFT_DARKGREY);
+            if (chars > 0) {
+                uint32_t sats = gps.satellites.isValid() ? gps.satellites.value() : 0;
+                snprintf(gpsStr, sizeof(gpsStr), " GPS:srch(%lu)", (unsigned long)sats);
+                dm.setTextColor(sats >= 4 ? TFT_YELLOW : TFT_ORANGE);
+            } else {
+                snprintf(gpsStr, sizeof(gpsStr), " GPS:none");
+                dm.setTextColor(TFT_DARKGREY);
+            }
+        } else if (!_gpsMoving) {
+            // Fix acquired but user hasn't moved 50m yet — show UTC time
+            if (gps.time.isValid()) {
+                snprintf(gpsStr, sizeof(gpsStr), " GPS:%02d:%02d",
+                         (int)gps.time.hour(), (int)gps.time.minute());
+            } else {
+                snprintf(gpsStr, sizeof(gpsStr), " GPS:fix");
+            }
+            dm.setTextColor(TFT_GREEN);
         } else {
             snprintf(gpsStr, sizeof(gpsStr), " GPS:%.0fm", _totalDistM);
             dm.setTextColor(TFT_GREEN);
@@ -816,7 +831,9 @@ static bool tmInitL76K() {
         String ver = _tmGser->readStringUntil('\n');
         if (ver.startsWith("$GPTXT,01,01,02")) {
             _tmGser->write("$PCAS04,5*1C\r\n");  delay(250);
-            _tmGser->write("$PCAS03,1,1,1,1,1,1,1,1,1,1,,,0,0*02\r\n"); delay(250);
+            // GGA + RMC only — reduces ~500 B/s to ~150 B/s so the 1-s BLE scan
+            // does not overflow the UART buffer and corrupt sentences.
+            _tmGser->write("$PCAS03,1,0,0,0,1,0,0,0,0,0,,,0,0*02\r\n"); delay(250);
             _tmGser->write("$PCAS11,3*1E\r\n");  delay(100);
             return true;
         }
@@ -880,6 +897,7 @@ void TrackMeScanner::start(bool silent) {
 #ifdef BOARD_TDECK_PLUS
     gpsSerial = new HardwareSerial(1);
     _tmGser   = gpsSerial;
+    gpsSerial->setRxBufferSize(1024);   // default 256 overflows during 1-s BLE scan
     gpsSerial->begin(9600, SERIAL_8N1, BOARD_GPS_RX_PIN, BOARD_GPS_TX_PIN);
     if (!tmInitL76K()) {
         // Try u-blox M10Q at 38400, fall back to 9600
@@ -906,15 +924,19 @@ void TrackMeScanner::start(bool silent) {
     while (true) {
         uint32_t cycleStart = millis();
 
+#ifdef BOARD_TDECK_PLUS
+        // Drain GPS buffer before BLE blocks the CPU for 1 s
+        if (gpsSerial) while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+#endif
         doBLEScan(1);        // 1 s (reduced for faster key response)
         doWiFiSniff(500);    // ~0.5 s
 
 #ifdef BOARD_TDECK_PLUS
         while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
-        if (gps.location.isUpdated()) {
-            gpsLat   = (float)gps.location.lat();
-            gpsLon   = (float)gps.location.lng();
-            gpsValid = gps.location.isValid();
+        if (gps.location.isValid()) {
+            gpsLat  = (float)gps.location.lat();
+            gpsLon  = (float)gps.location.lng();
+            gpsValid = true;
         }
         if (gpsValid) {
             if (lastGpsSet) {
