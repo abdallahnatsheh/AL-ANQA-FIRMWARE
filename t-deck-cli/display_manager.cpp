@@ -1,5 +1,6 @@
 #include "display_manager.h"
 #include "battery_manager.h"
+#include "gps_manager.h"
 #include "utilities.h"
 #include <Wire.h>
 #include <string>
@@ -50,6 +51,26 @@ static void drawWiFiBars(LGFX& tft, int x, int yBot, bool wifiOn, bool connected
     if (!wifiOn) {
         tft.drawLine(x, yBot - 13, x + 14, yBot - 1, TFT_RED);
         tft.drawLine(x + 14, yBot - 13, x, yBot - 1, TFT_RED);
+    }
+}
+
+// GPS icon: satellite body (4×4 square) with two solar-panel arms and a signal arc
+static void drawGPSIcon(LGFX& tft, int cx, int cy, bool active, bool fixed) {
+    uint16_t bg   = 0x000F;
+    uint16_t body = active ? (fixed ? TFT_GREEN : TFT_YELLOW) : 0x2104;
+    uint16_t arc  = active ? (fixed ? TFT_GREEN : TFT_ORANGE) : 0x2104;
+    tft.fillRect(cx - 6, cy - 8, 13, 17, bg);  // clear area
+    // Satellite body (4×4)
+    tft.fillRect(cx - 2, cy - 2, 4, 4, body);
+    // Solar panels (left and right, 3px wide 2px tall)
+    tft.fillRect(cx - 6, cy - 1, 3, 2, body);
+    tft.fillRect(cx + 3, cy - 1, 3, 2, body);
+    // Signal arcs below (3 concentric arcs = strong signal when fixed)
+    if (active) {
+        tft.drawArc(cx, cy + 6, 3, 2, 200, 340, arc);
+        if (fixed) {
+            tft.drawArc(cx, cy + 6, 6, 5, 200, 340, arc);
+        }
     }
 }
 
@@ -107,11 +128,19 @@ void DisplayManager::updateStatusBar() {
         tft.print(WiFi.localIP().toString());
     }
 
-    // BT icon — left of battery with clear gap
-    drawBTIcon(tft, 258, promptY + 15, _btActive);
+    // GPS icon — only on T-Deck Plus; yellow=searching, green=fixed
+#ifdef BOARD_TDECK_PLUS
+    {
+        GpsManager& gm = GpsManager::instance();
+        drawGPSIcon(tft, 236, promptY + 15, gm.isRunning(), gm.isValid());
+    }
+#endif
+
+    // BT icon
+    drawBTIcon(tft, 255, promptY + 15, _btActive);
 
     // Battery — rightmost, 5 px from edge
-    drawBattery(tft, 278, promptY + 10, batteryManager.getPct());
+    drawBattery(tft, 275, promptY + 10, batteryManager.getPct());
 
     tft.setTextColor(TFT_WHITE);
 }

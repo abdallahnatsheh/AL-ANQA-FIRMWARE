@@ -1,4 +1,9 @@
 #include "gps_manager.h"
+#include "display_manager.h"
+#include "input_handling.h"
+
+extern DisplayManager displayManager;
+extern InputHandling  inputHandler;
 
 #ifdef BOARD_TDECK_PLUS
 #include "utilities.h"
@@ -82,8 +87,7 @@ bool GpsManager::initL76K() {
         String ver = _serial->readStringUntil('\n');
         if (ver.startsWith("$GPTXT,01,01,02")) {
             _serial->write("$PCAS04,5*1C\r\n");  delay(250);
-            // GGA + RMC only — keeps throughput low enough for 1-s BLE scan
-            _serial->write("$PCAS03,1,0,0,0,1,0,0,0,0,0,,,0,0*02\r\n"); delay(250);
+            _serial->write("$PCAS03,1,1,1,1,1,1,1,1,1,1,,,0,0*02\r\n"); delay(250);
             _serial->write("$PCAS11,3*1E\r\n");  delay(100);
             return true;
         }
@@ -110,13 +114,33 @@ bool GpsManager::recoverUblox() {
 
 // ── public interface ──────────────────────────────────────────────────────────
 void GpsManager::initModule() {
-    if (!initL76K()) {
-        _serial->begin(38400, SERIAL_8N1, BOARD_GPS_RX_PIN, BOARD_GPS_TX_PIN);
-        if (!recoverUblox()) {
-            _serial->updateBaudRate(9600);
-            recoverUblox();
-        }
+    _serial->begin(9600, SERIAL_8N1, BOARD_GPS_RX_PIN, BOARD_GPS_TX_PIN);
+
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.setTextColor(0x7BEF);
+    displayManager.println("Trying L76K at 9600 baud");
+    if (initL76K()) {
+        strncpy(_module, "L76K (GPS+GLONASS)", sizeof(_module) - 1);
+        return;
     }
+
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.println("Trying u-blox at 38400 baud");
+    _serial->begin(38400, SERIAL_8N1, BOARD_GPS_RX_PIN, BOARD_GPS_TX_PIN);
+    if (recoverUblox()) {
+        strncpy(_module, "u-blox M10Q @38400", sizeof(_module) - 1);
+        return;
+    }
+
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.println("Trying u-blox at 9600 baud");
+    _serial->updateBaudRate(9600);
+    if (recoverUblox()) {
+        strncpy(_module, "u-blox M10Q @9600", sizeof(_module) - 1);
+        return;
+    }
+
+    strncpy(_module, "Unknown (no ack)", sizeof(_module) - 1);
 }
 
 void GpsManager::start() {
@@ -128,7 +152,6 @@ void GpsManager::start() {
 
     _serial = new HardwareSerial(1);
     _serial->setRxBufferSize(1024);
-    _serial->begin(BOARD_GPS_BAUD, SERIAL_8N1, BOARD_GPS_RX_PIN, BOARD_GPS_TX_PIN);
     initModule();
 
     // Pin to core 0 — truly parallel with BLE/WiFi scan on core 1
@@ -146,5 +169,109 @@ void GpsManager::stop() {
     if (_serial) { _serial->end(); delete _serial; _serial = nullptr; }
     _valid = false;
 }
+
+// ── command entry points (called from command_manager) ────────────────────────
+void runGpsOn() {
+    GpsManager& gm = GpsManager::instance();
+
+    displayManager.clearScreen();
+    displayManager.setDefaultTextSize();
+    displayManager.setCursor(4, outputY);
+    displayManager.setTextColor(TFT_CYAN);
+    if (!gm.isRunning()) {
+        displayManager.println("GPS BACKGROUND — starting...");
+        gm.start();
+        displayManager.setCursor(4, displayManager.getCursorY());
+        displayManager.setTextColor(TFT_GREEN);
+        displayManager.println("Task running on core 0");
+    } else {
+        displayManager.println("GPS BACKGROUND — already running");
+    }
+
+    uint32_t lastDraw = 0;
+    while (true) {
+        if (millis() - lastDraw >= 1000) {
+            lastDraw = millis();
+            displayManager.clearScreen();
+            displayManager.setDefaultTextSize();
+
+            displayManager.setCursor(4, outputY);
+            displayManager.setTextColor(TFT_CYAN);
+            displayManager.println("GPS BACKGROUND");
+
+            char buf[52];
+            displayManager.setCursor(4, displayManager.getCursorY());
+            displayManager.setTextColor(TFT_GREEN);
+            snprintf(buf, sizeof(buf), "Module: %s", gm.moduleName());
+            displayManager.println(buf);
+
+            uint32_t chars = gm.charsProcessed();
+            uint32_t sats  = gm.satellites();
+            displayManager.setCursor(4, displayManager.getCursorY());
+            displayManager.setTextColor(chars > 0 ? TFT_GREEN : TFT_RED);
+            snprintf(buf, sizeof(buf), "Chars: %lu   Sats: %lu", (unsigned long)chars, (unsigned long)sats);
+            displayManager.println(buf);
+
+            displayManager.setCursor(4, displayManager.getCursorY());
+            if (chars == 0) {
+                displayManager.setTextColor(TFT_RED);
+                displayManager.println("No data — module not responding");
+            } else if (!gm.isValid()) {
+                displayManager.setTextColor(TFT_YELLOW);
+                displayManager.println("Searching for fix... (go outside)");
+            } else {
+                displayManager.setTextColor(TFT_GREEN);
+                displayManager.println("FIX OK");
+
+                displayManager.setTextColor(TFT_WHITE);
+                snprintf(buf, sizeof(buf), "Lat:  %+.6f", (double)gm.lat());
+                displayManager.setCursor(4, displayManager.getCursorY());
+                displayManager.println(buf);
+
+                snprintf(buf, sizeof(buf), "Lon:  %+.6f", (double)gm.lon());
+                displayManager.setCursor(4, displayManager.getCursorY());
+                displayManager.println(buf);
+
+                displayManager.setTextColor(TFT_YELLOW);
+                snprintf(buf, sizeof(buf), "Maps: %.6f,%.6f", (double)gm.lat(), (double)gm.lon());
+                displayManager.setCursor(4, displayManager.getCursorY());
+                displayManager.println(buf);
+
+                if (gm.timeValid()) {
+                    displayManager.setTextColor(TFT_WHITE);
+                    snprintf(buf, sizeof(buf), "UTC:  %02d:%02d:%02d",
+                             (int)gm.hour(), (int)gm.minute(), (int)gm.second());
+                    displayManager.setCursor(4, displayManager.getCursorY());
+                    displayManager.println(buf);
+                }
+            }
+
+            displayManager.setCursor(4, displayManager.getCursorY());
+            displayManager.setTextColor(0x7BEF);
+            displayManager.println("[q] back to CLI  (GPS stays on)");
+        }
+
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') break;
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    displayManager.printCommandScreen();
+}
+
+void runGpsOff() {
+    GpsManager& gm = GpsManager::instance();
+    if (gm.isRunning()) {
+        displayManager.println("Stopping GPS background task...");
+        gm.stop();
+        displayManager.println("GPS stopped.");
+    } else {
+        displayManager.println("GPS background task not running.");
+    }
+}
+
+#else  // non-Plus stub
+
+void runGpsOn()  { displayManager.println("GPS only on T-Deck Plus."); displayManager.printCommandScreen(); }
+void runGpsOff() { displayManager.println("GPS only on T-Deck Plus."); displayManager.printCommandScreen(); }
 
 #endif // BOARD_TDECK_PLUS

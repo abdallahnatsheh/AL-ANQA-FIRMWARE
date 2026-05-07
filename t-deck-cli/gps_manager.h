@@ -14,16 +14,17 @@ public:
     void start();
     void stop();
 
-    bool     isRunning()      const { return _task != nullptr; }
-    bool     isValid()        const { return _valid; }
-    float    lat()            const { return _lat; }
-    float    lon()            const { return _lon; }
-    uint32_t satellites()     const { return _sats; }
-    bool     timeValid()      const { return _timeValid; }
-    uint8_t  hour()           const { return _hour; }
-    uint8_t  minute()         const { return _minute; }
-    uint8_t  second()         const { return _second; }
-    uint32_t charsProcessed() const { return _chars; }
+    bool        isRunning()      const { return _task != nullptr; }
+    bool        isValid()        const { return _valid; }
+    float       lat()            const { return _lat; }
+    float       lon()            const { return _lon; }
+    uint32_t    satellites()     const { return _sats; }
+    bool        timeValid()      const { return _timeValid; }
+    uint8_t     hour()           const { return _hour; }
+    uint8_t     minute()         const { return _minute; }
+    uint8_t     second()         const { return _second; }
+    uint32_t    charsProcessed() const { return _chars; }
+    const char* moduleName()     const { return _module; }
 
 private:
     GpsManager() = default;
@@ -49,6 +50,7 @@ private:
     volatile uint8_t  _minute    = 0;
     volatile uint8_t  _second    = 0;
     volatile uint32_t _chars     = 0;
+    char              _module[24] = "Unknown";
 };
 
 #endif // BOARD_TDECK_PLUS
