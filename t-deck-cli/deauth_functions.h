@@ -11,6 +11,7 @@ class DeauthAttack {
 public:
     DeauthAttack(DisplayManager& displayManager, WiFiFunctions& wifiFunctions);
     void start(char* args);
+    void sendBroadcastBurst(const uint8_t* bssid);
 
 private:
     DisplayManager& displayManager;

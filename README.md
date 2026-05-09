@@ -44,6 +44,7 @@ Inspired by [Bruce](https://github.com/pr3y/Bruce), but with its own identity: n
 | Monitor mode / packet capture | ✅ |
 | Deauth attack (raw 802.11) | ✅ |
 | Evil Twin AP / Captive Portal | ✅ |
+| Hidden SSID reveal (deauth+sniff, SD persist, scan table integration) | ✅ |
 | WPA Handshake capture + PCAP export | 🔨 WIP |
 
 ### 🌐 Network Recon
@@ -174,6 +175,7 @@ CMD> help
 | `wifimon` | `wm` | `[ch]` | Monitor mode — channel 1-13, 0=hop |
 | `deauth` | `da` | `<bssid\|#> [ch] [client]` | Deauth attack via raw 802.11 |
 | `eviltwin` | `et` | `[ssid]` | Evil Twin AP with captive portal |
+| `hiddenssid` | `hs` | `<idx\|bssid> [ch] [silent]` | Reveal hidden SSID via deauth + probe sniff |
 | **Network** | | | |
 | `netdiscover` | `nd` | — | ARP scan local /24 (paginated, u=rescan) |
 | `portscan` | `ps` | `<ip\|#> <start> <end>` | TCP port scan, 4× parallel |
@@ -350,6 +352,7 @@ All scan results use a consistent table UI:
 - [x] WiFi monitor mode
 - [x] Deauth attack (raw 802.11, broadcast + targeted)
 - [x] Evil Twin AP (clone MAC, adaptive deauth, captive portal, SD templates)
+- [x] Hidden SSID reveal (deauth+sniff, SD persistence, scan table shows `~name`)
 - [x] ARP LAN discovery (batch scan, paginated table)
 - [x] Parallel TCP port scan (4× tasks, 150 ms timeout)
 - [x] Top-26 ports scan

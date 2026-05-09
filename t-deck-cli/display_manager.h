@@ -10,7 +10,7 @@ const uint16_t outputY      = promptY + promptHeight + 8;
 
 #define SCREEN_WIDTH  320
 #define SCREEN_HEIGHT 240
-#define LINE_HEIGHT   12
+#define LINE_HEIGHT   14
 
 class DisplayManager {
 public:
@@ -43,6 +43,7 @@ public:
     int32_t getCursorX();
     void setCursor(uint16_t x, uint16_t y);
     void printDefaultTableHelpInstructions();
+    void printSeparator(uint16_t color = 0x7BEF);
     void setTextColor(uint16_t colour);
     void fillRect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color);
     void launchMatrixAnimation();

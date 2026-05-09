@@ -105,30 +105,32 @@ static void drawBattery(LGFX& tft, int x, int y, int pct) {
 
 void DisplayManager::updateStatusBar() {
     tft.fillRect(0, promptY, SCREEN_WIDTH, promptHeight, 0x000F);
-    tft.drawFastHLine(0, promptY + promptHeight - 1, SCREEN_WIDTH, TFT_DARKGREY);
+    tft.drawFastHLine(0, promptY + promptHeight - 1, SCREEN_WIDTH, TFT_CYAN);
     setDefaultTextSize();
 
-    // Title
+    // ── [T-REX] title ────────────────────────────────────────────────────────
+    tft.setCursor(5, promptY + 11);
+    tft.setTextColor(0x7BEF); tft.print("[");
     tft.setTextColor(TFT_CYAN);
-    tft.setCursor(5, promptY + 8);
 #ifdef BOARD_TDECK_PLUS
     tft.print("T-REX+");
 #else
     tft.print("T-REX");
 #endif
+    tft.setTextColor(0x7BEF); tft.print("]");
 
-    // WiFi bars (raised from y+25 to y+22; IP offset to x=78 for breathing room)
+    // ── WiFi bars + IP ────────────────────────────────────────────────────────
     bool wifiOn    = (WiFi.getMode() != WIFI_MODE_NULL);
     bool connected = (WiFi.status() == WL_CONNECTED);
-    drawWiFiBars(tft, 54, promptY + 22, wifiOn, connected, connected ? WiFi.RSSI() : 0);
+    drawWiFiBars(tft, 60, promptY + 22, wifiOn, connected, connected ? WiFi.RSSI() : 0);
 
     if (connected) {
         tft.setTextColor(TFT_GREEN);
-        tft.setCursor(78, promptY + 8);
+        tft.setCursor(82, promptY + 11);
         tft.print(WiFi.localIP().toString());
     }
 
-    // GPS icon — only on T-Deck Plus; yellow=searching, green=fixed
+    // ── GPS icon (T-Deck Plus only) ───────────────────────────────────────────
 #ifdef BOARD_TDECK_PLUS
     {
         GpsManager& gm = GpsManager::instance();
@@ -136,10 +138,10 @@ void DisplayManager::updateStatusBar() {
     }
 #endif
 
-    // BT icon
+    // ── BT icon ───────────────────────────────────────────────────────────────
     drawBTIcon(tft, 255, promptY + 15, _btActive);
 
-    // Battery — rightmost, 5 px from edge
+    // ── Battery ───────────────────────────────────────────────────────────────
     drawBattery(tft, 275, promptY + 10, batteryManager.getPct());
 
     tft.setTextColor(TFT_WHITE);
@@ -173,9 +175,11 @@ void DisplayManager::clearScreen() {
 
 void DisplayManager::printFirstCommandScreen(const char* command) {
     tft.setCursor(10, outputY);
-    tft.setTextColor(TFT_WHITE);
     setDefaultTextSize();
-    tft.print("CMD> ");
+    tft.setTextColor(0x7BEF); tft.print("[");
+    tft.setTextColor(TFT_CYAN); tft.print(">");
+    tft.setTextColor(0x7BEF); tft.print("] ");
+    tft.setTextColor(TFT_WHITE);
     tft.print(command);
 }
 
@@ -237,7 +241,7 @@ void DisplayManager::printText(const String& text) {
 void DisplayManager::backspaceChar() {
     int16_t x = tft.getCursorX();
     int16_t y = tft.getCursorY();
-    int16_t charW = (int16_t)(6 * 1.2);
+    int16_t charW = 6;
     if (x - charW < 10) return;
     tft.fillRect(x - charW, y, charW, LINE_HEIGHT + 2, TFT_BLACK);
     tft.setCursor(x - charW, y);
@@ -264,7 +268,10 @@ void DisplayManager::printCommandScreen() {
     scrollIfNeeded();
     tft.println();
     tft.setCursor(10, tft.getCursorY());
-    tft.print("CMD> ");
+    tft.setTextColor(0x7BEF); tft.print("[");
+    tft.setTextColor(TFT_CYAN); tft.print(">");
+    tft.setTextColor(0x7BEF); tft.print("] ");
+    tft.setTextColor(TFT_WHITE);
 }
 
 void DisplayManager::newLinePrintLn(const char* text) {
@@ -289,24 +296,24 @@ void DisplayManager::setCursor(uint16_t x, uint16_t y) {
 
 void DisplayManager::printDefaultTableHelpInstructions() {
     setDefaultTextSize();
+    auto kv = [&](const char* k, const char* label) {
+        tft.setTextColor(0x7BEF); tft.print("[");
+        tft.setTextColor(TFT_GREEN); tft.print(k);
+        tft.setTextColor(0x7BEF); tft.print("]");
+        tft.setTextColor(TFT_WHITE); tft.print(label);
+    };
+    kv("a", "prev ");
+    kv("l", "next ");
+    kv("q", "quit ");
+    kv("u", "scan");
+    tft.println();
     tft.setTextColor(TFT_WHITE);
-    tft.print("--");
-    tft.setTextColor(TFT_GREEN);
-    tft.print("a=prev");
-    tft.setTextColor(TFT_WHITE);
-    tft.print("-");
-    tft.setTextColor(TFT_GREEN);
-    tft.print("l=next");
-    tft.setTextColor(TFT_WHITE);
-    tft.print("-");
-    tft.setTextColor(TFT_GREEN);
-    tft.print("q=quit");
-    tft.setTextColor(TFT_WHITE);
-    tft.print("-");
-    tft.setTextColor(TFT_GREEN);
-    tft.print("u=update");
-    tft.setTextColor(TFT_WHITE);
-    tft.println("--");
+}
+
+void DisplayManager::printSeparator(uint16_t color) {
+    int32_t y = tft.getCursorY();
+    tft.fillRect(4, y + LINE_HEIGHT / 2, SCREEN_WIDTH - 8, 1, color);
+    tft.setCursor(10, y + LINE_HEIGHT);
 }
 
 void DisplayManager::setTextColor(uint16_t color) {

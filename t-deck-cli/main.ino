@@ -14,6 +14,7 @@
 #include "task_manager.h"
 #include "trackme.h"
 #include "eviltwin.h"
+#include "hidden_ssid.h"
 
 LGFX tft;
 DisplayManager   displayManager(tft);
@@ -29,6 +30,7 @@ WiFiMonitor      wifiMonitor(displayManager, sdCardManager);
 DeauthAttack     deauthAttack(displayManager, wifiFunctions);
 TrackMeScanner   trackMe(displayManager, sdCardManager);
 EvilTwin         evilTwin(displayManager, sdCardManager);
+HiddenSSID       hiddenSSID(displayManager, wifiFunctions, deauthAttack);
 
 void setup() {
     Serial.begin(115200);

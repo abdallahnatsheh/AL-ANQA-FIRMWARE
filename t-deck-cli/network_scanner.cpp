@@ -126,13 +126,14 @@ static void renderArpPage(DisplayManager& dm, int page, int perPage,
                           int total, int totalPages) {
     dm.clearScreen();
     dm.setCursor(10, outputY);
-    dm.setTextColor(TFT_CYAN);
-    char title[36];
-    snprintf(title, sizeof(title), "-- ARP Scan --  [%d/%d]  %d host(s)",
-             page + 1, totalPages, total);
-    dm.println(title);
-    dm.setTextColor(0x7BEF);
-    dm.println("──────────────────────────────");
+    char title[20]; snprintf(title, sizeof(title), "%02d/%02d  %d hosts", page + 1, totalPages, total);
+    dm.setTextColor(0x7BEF);     dm.printText("[");
+    dm.setTextColor(TFT_CYAN);   dm.printText("SCAN");
+    dm.setTextColor(0x7BEF);     dm.printText("::");
+    dm.setTextColor(TFT_YELLOW); dm.printText("ARP");
+    dm.setTextColor(0x7BEF);     dm.printText("]  ");
+    dm.setTextColor(0x7BEF);     dm.println(title);
+    dm.printSeparator();
     dm.setTextColor(TFT_WHITE);
 
     int start = page * perPage;
@@ -162,12 +163,9 @@ static void renderArpPage(DisplayManager& dm, int page, int perPage,
         dm.setTextColor(TFT_WHITE);
     }
 
-    dm.setTextColor(0x7BEF);
+    dm.printSeparator();
     dm.setCursor(10, dm.getCursorY());
-    dm.println("──────────────────────────────");
-    dm.setTextColor(TFT_WHITE);
-    dm.setCursor(10, dm.getCursorY());
-    dm.println("a=prev  l=next  u=rescan  q=quit");
+    dm.printDefaultTableHelpInstructions();
 }
 
 void NetworkScanner::networkDiscovery() {
@@ -182,7 +180,7 @@ void NetworkScanner::networkDiscovery() {
     uint8_t base[3] = { (uint8_t)gw[0], (uint8_t)gw[1], (uint8_t)gw[2] };
     struct netif* nif = netif_default;
 
-    const int perPage = 8;
+    const int perPage = 10;
 
     while (true) {
         // ── scan progress screen ──────────────────────────────────────────────

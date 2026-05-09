@@ -56,12 +56,14 @@ static void renderBlePage(int page, int perPage, int total) {
     displayManager.setCursor(10, outputY);
     displayManager.setDefaultTextSize();
 
-    char hdr[36];
-    snprintf(hdr, sizeof(hdr), "BLE Devices  [%d/%d]", page + 1, totalPages);
-    displayManager.setTextColor(TFT_CYAN);
-    displayManager.println(hdr);
-    displayManager.setTextColor(0x7BEF);
-    displayManager.println("-------------------------------");
+    char hdr[8]; snprintf(hdr, sizeof(hdr), "%02d/%02d", page + 1, totalPages);
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("[");
+    displayManager.setTextColor(TFT_CYAN);   displayManager.printText("SCAN");
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("::");
+    displayManager.setTextColor(TFT_YELLOW); displayManager.printText("BLE");
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("]  ");
+    displayManager.setTextColor(0x7BEF);     displayManager.println(hdr);
+    displayManager.printSeparator();
 
     int start = page * perPage;
     int end   = min(start + perPage, total);
@@ -89,7 +91,7 @@ static void renderBlePage(int page, int perPage, int total) {
         // name in yellow if present
         if (s_bleDevices[i].name[0]) {
             char name[22];
-            snprintf(name, sizeof(name), " %.18s", s_bleDevices[i].name);
+            snprintf(name, sizeof(name), " %.9s", s_bleDevices[i].name);
             displayManager.setTextColor(TFT_YELLOW);
             displayManager.println(name);
         } else {
@@ -97,14 +99,13 @@ static void renderBlePage(int page, int perPage, int total) {
         }
     }
 
-    displayManager.setTextColor(0x7BEF);
-    displayManager.println("-------------------------------");
-    displayManager.setTextColor(TFT_WHITE);
+    displayManager.printSeparator();
+    displayManager.setCursor(10, displayManager.getCursorY());
     displayManager.printDefaultTableHelpInstructions();
 }
 
 void BluetoothFunctions::scanBluetoothDevices() {
-    const int perPage = 6;
+    const int perPage = 10;
     int currentPage   = 0;
     bool needScan     = true;
 
@@ -206,6 +207,7 @@ void BluetoothFunctions::scanBluetoothDevices() {
 
             if (aborted) {
                 pBLEScan->clearResults();
+                pBLEScan->setAdvertisedDeviceCallbacks(nullptr);
                 delete pScanCallbacks; pScanCallbacks = nullptr;
                 displayManager.setBtActive(false);
                 displayManager.printCommandScreen();
@@ -223,6 +225,7 @@ void BluetoothFunctions::scanBluetoothDevices() {
             if (k == 'u' || k == 'U') { needScan = true; break; }
             if (k == 'q' || k == 'Q') {
                 pBLEScan->clearResults();
+                pBLEScan->setAdvertisedDeviceCallbacks(nullptr);
                 delete pScanCallbacks; pScanCallbacks = nullptr;
                 displayManager.setBtActive(false);
                 displayManager.printCommandScreen();

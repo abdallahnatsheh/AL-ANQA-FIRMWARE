@@ -12,6 +12,7 @@
 #define SD_LOG_PACKETS "/logs/packets.txt"
 #define SD_DIR_SCRIPTS "/scripts"
 #define SD_DIR_CAPTURES "/captures"
+#define SD_LOG_HIDDEN_SSIDS "/logs/hidden_ssids.csv"
 
 class SDCardManager {
 public:

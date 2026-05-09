@@ -53,11 +53,12 @@ void WiFiMonitor::parseFrame(const uint8_t* d, uint16_t len, uint8_t ch, int8_t 
 }
 
 // ── SSID extraction from tagged parameters ────────────────────────────────────
-void WiFiMonitor::extractSSID(const uint8_t* d, uint16_t len, uint8_t subtype, char* ssidOut) {
+void IRAM_ATTR WiFiMonitor::extractSSID(const uint8_t* d, uint16_t len, uint8_t subtype, char* ssidOut) {
     // Beacon/probe-response have 12 bytes of fixed params after the 24-byte MAC header.
     // Probe-request has IEs starting immediately at offset 24.
     uint16_t offset = 24;
     if (subtype == SUBTYPE_BEACON || subtype == SUBTYPE_PROBE_RESP) offset += 12;
+    else if (subtype == SUBTYPE_ASSOC_REQ)                          offset += 4;
 
     while (offset + 2 <= len) {
         uint8_t id  = d[offset];

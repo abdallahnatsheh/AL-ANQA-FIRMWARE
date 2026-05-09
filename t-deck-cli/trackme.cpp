@@ -474,32 +474,34 @@ void IRAM_ATTR TrackMeScanner::wifiCb(void* buf, wifi_promiscuous_pkt_type_t typ
 void TrackMeScanner::doBLEScan(int seconds) {
     esp_wifi_set_promiscuous(false);
     BLEScan* scan = BLEDevice::getScan();
+    scan->setAdvertisedDeviceCallbacks(nullptr);  // clear any stale callback from scanblue
     scan->setActiveScan(true);
     scan->setInterval(100);
     scan->setWindow(99);
-    BLEScanResults results = scan->start(seconds, false);
-
-    int n = results.getCount();
-    for (int i = 0; i < n; i++) {
-        BLEAdvertisedDevice dev = results.getDevice(i);
-        uint8_t  mac[6]    = {0};
-        uint16_t companyId = 0;
-        String   addr      = dev.getAddress().toString().c_str();
-        sscanf(addr.c_str(), "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-               &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
-        uint8_t mfrType = 0x00;
-        uint8_t mfrLen  = 0;
-        if (dev.haveManufacturerData()) {
-            std::string mfr = dev.getManufacturerData();
-            mfrLen = (uint8_t)min((int)mfr.size(), 255);
-            if (mfr.size() >= 2)
-                companyId = (uint8_t)mfr[0] | ((uint16_t)(uint8_t)mfr[1] << 8);
-            if (mfr.size() >= 3)
-                mfrType = (uint8_t)mfr[2];
+    {
+        BLEScanResults results = scan->start(seconds, false);
+        int n = results.getCount();
+        for (int i = 0; i < n; i++) {
+            BLEAdvertisedDevice dev = results.getDevice(i);
+            uint8_t  mac[6]    = {0};
+            uint16_t companyId = 0;
+            String   addr      = dev.getAddress().toString().c_str();
+            sscanf(addr.c_str(), "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                   &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
+            uint8_t mfrType = 0x00;
+            uint8_t mfrLen  = 0;
+            if (dev.haveManufacturerData()) {
+                std::string mfr = dev.getManufacturerData();
+                mfrLen = (uint8_t)min((int)mfr.size(), 255);
+                if (mfr.size() >= 2)
+                    companyId = (uint8_t)mfr[0] | ((uint16_t)(uint8_t)mfr[1] << 8);
+                if (mfr.size() >= 3)
+                    mfrType = (uint8_t)mfr[2];
+            }
+            String name = dev.getName().c_str();
+            processDevice(mac, name.c_str(), companyId, mfrType, dev.getRSSI(), false, mfrLen);
         }
-        String name = dev.getName().c_str();
-        processDevice(mac, name.c_str(), companyId, mfrType, dev.getRSSI(), false, mfrLen);
-    }
+    } // results destructs here — safe to clear scan state below
     scan->clearResults();
 }
 
@@ -917,7 +919,7 @@ void TrackMeScanner::start(bool silent) {
             if (!gpsValid) {
                 dm.setCursor(4, outputY + LINE_HEIGHT * 2);
                 dm.setTextColor(TFT_DARKGREY);
-                dm.printText("No fix yet — scanning without GPS");
+                dm.printText("No fix — scanning without GPS");
                 vTaskDelay(pdMS_TO_TICKS(800));
             }
 
@@ -976,8 +978,10 @@ void TrackMeScanner::start(bool silent) {
                 dm.setTextColor(TFT_DARKGREY);
                 dm.printText("No GPS fix — scanning without GPS");
                 uint32_t p = millis();
-                while (millis() - p < 1000)
+                while (millis() - p < 1000) {
                     while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+                    vTaskDelay(pdMS_TO_TICKS(10));
+                }
             }
         }
     }

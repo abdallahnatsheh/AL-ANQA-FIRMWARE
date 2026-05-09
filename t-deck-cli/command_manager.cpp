@@ -10,6 +10,7 @@
 #include "deauth_functions.h"
 #include "trackme.h"
 #include "eviltwin.h"
+#include "hidden_ssid.h"
 #include "powersave_manager.h"
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
@@ -21,6 +22,7 @@ extern WiFiMonitor        wifiMonitor;
 extern DeauthAttack       deauthAttack;
 extern TrackMeScanner     trackMe;
 extern EvilTwin           evilTwin;
+extern HiddenSSID         hiddenSSID;
 
 // Forward declarations for standalone command functions
 void runGpsOn();
@@ -82,7 +84,13 @@ void CommandManager::executeCommand() {
             return;
         }
     }
-    displayManager.println("Invalid command. Type 'help' to see available commands.");
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("[");
+    displayManager.setTextColor(TFT_RED);    displayManager.printText("ERR");
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("::CMD]  '");
+    displayManager.setTextColor(TFT_YELLOW); displayManager.printText(command);
+    displayManager.setTextColor(0x7BEF);     displayManager.println("' not found");
+    displayManager.setCursor(10, displayManager.getCursorY());
+    displayManager.setTextColor(0x7BEF);     displayManager.println("type help for commands");
     displayManager.printCommandScreen();
     resetCommand();
 }
@@ -99,7 +107,7 @@ void CommandManager::setupCommands() {
     registerCommand("info",        "inf",    [](char* a) { espInfoPrinter.printESPInfo(); },                                 "Device info (IP, MAC, battery)",          false, "System");
     registerCommand("clear",       "clr",    [](char* a) { displayManager.tdeck_begin(); },                                  "Clear screen",                            false, "System");
     registerCommand("MATRIX",      "matrix", [](char* a) { displayManager.launchMatrixAnimation(); },                       "Matrix rain animation",                   false, "System");
-    registerCommand("pwrsave",     "psv",    [](char* a) { PowerSaveManager::handleCommand(a); },                         "Power save settings: pwrsave [status|on|off|set ...]",  true,  "System");
+    registerCommand("pwrsave",     "psv",    [](char* a) { PowerSaveManager::handleCommand(a); },                         "Power save: on/off/set/status",  true,  "System");
     // ── WiFi ──────────────────────────────────────────────────────────────────
     registerCommand("scanwifi",    "sw",     [](char* a) { wifiFunctions.scanWiFiNetworks(); },                              "Scan WiFi networks",                      false, "WiFi");
     registerCommand("connectwifi", "cw",     [](char* a) { wifiFunctions.connectToWiFiCommand(a); },                        "Connect to WiFi: cw <index>",             true,  "WiFi");
@@ -107,6 +115,7 @@ void CommandManager::setupCommands() {
     registerCommand("wifimon",     "wm",     [](char* a) { wifiMonitor.start(a && *a ? atoi(a) : 0); },                    "WiFi monitor [ch 1-13, 0=hop]",           true,  "WiFi");
     registerCommand("deauth",      "da",     [](char* a) { deauthAttack.start(a); },                                        "Deauth: da <bssid> [ch] [client]",        true,  "WiFi");
     registerCommand("eviltwin",    "et",     [](char* a) { evilTwin.start(a); },                                            "Evil Twin AP + captive portal",           true,  "WiFi");
+    registerCommand("hiddenssid",  "hs",     [](char* a) { hiddenSSID.start(a); },                                          "Uncover hidden SSID: hs <idx|bssid> [ch] [silent]", true,  "WiFi");
     // ── Network ───────────────────────────────────────────────────────────────
     registerCommand("netdiscover", "nd",     [](char* a) { networkScanner.networkDiscovery(); },                             "ARP scan local subnet",                   false, "Network");
     registerCommand("portscan",    "ps",     [](char* a) { networkScanner.networkPortScan(a); },                            "Port scan: ps <ip|#> <start> <end>",      true,  "Network");

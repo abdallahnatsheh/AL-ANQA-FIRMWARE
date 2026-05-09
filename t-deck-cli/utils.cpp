@@ -3,6 +3,7 @@
 #include "display_manager.h"
 #include "input_handling.h"
 #include <cstring>
+#include <cctype>
 #include <stdio.h>
 
 extern CommandManager commandManager;
@@ -46,22 +47,27 @@ void Utils::printHelp(char* args) {
         if (!dup && catCount < 16) cats[catCount++] = cat;
     }
 
-    const int LINE_H = 10;
+    const int LINE_H = 14;
     int page = 0;
 
     while (true) {
         displayManager.clearScreen();
-        displayManager.setTextSize(1.0f);
 
         // ── header: category name + page indicator ────────────────────────────
         displayManager.setCursor(10, outputY);
-        displayManager.setTextColor(TFT_CYAN);
-        displayManager.printText(cats[page]);
-        displayManager.setTextColor(0x7BEF);
-        char pg[12];
-        sprintf(pg, " (%d/%d)", page + 1, catCount);
-        displayManager.printText(pg);
-        displayManager.fillRect(5, outputY + LINE_H + 1, 310, 1, TFT_DARKGREY);
+        char upcat[20]; int ci = 0;
+        for (const char* p = cats[page]; *p && ci < 19; p++, ci++)
+            upcat[ci] = toupper((unsigned char)*p);
+        upcat[ci] = '\0';
+        char pg[8];
+        sprintf(pg, "%02d/%02d", page + 1, catCount);
+        displayManager.setTextColor(0x7BEF);     displayManager.printText("[");
+        displayManager.setTextColor(TFT_CYAN);   displayManager.printText("HELP");
+        displayManager.setTextColor(0x7BEF);     displayManager.printText("::");
+        displayManager.setTextColor(TFT_YELLOW); displayManager.printText(upcat);
+        displayManager.setTextColor(0x7BEF);     displayManager.printText("]  ");
+        displayManager.setTextColor(0x7BEF);     displayManager.println(pg);
+        displayManager.fillRect(5, outputY + LINE_H + 1, 310, 1, TFT_CYAN);
 
         // ── commands in this category ─────────────────────────────────────────
         int y = outputY + LINE_H + 4;
@@ -81,15 +87,17 @@ void Utils::printHelp(char* args) {
         }
 
         // ── nav bar ───────────────────────────────────────────────────────────
-        displayManager.fillRect(5, y + 1, 310, 1, TFT_DARKGREY);
+        displayManager.fillRect(5, y + 1, 310, 1, TFT_CYAN);
         displayManager.setCursor(10, y + 4);
-        displayManager.setTextColor(TFT_WHITE);  displayManager.printText("--");
-        displayManager.setTextColor(TFT_GREEN);  displayManager.printText("a=prev");
-        displayManager.setTextColor(TFT_WHITE);  displayManager.printText("-");
-        displayManager.setTextColor(TFT_GREEN);  displayManager.printText("l=next");
-        displayManager.setTextColor(TFT_WHITE);  displayManager.printText("-");
-        displayManager.setTextColor(TFT_GREEN);  displayManager.printText("q=quit");
-        displayManager.setTextColor(TFT_WHITE);  displayManager.printText("--");
+        auto kv = [&](const char* k, const char* label) {
+            displayManager.setTextColor(0x7BEF); displayManager.printText("[");
+            displayManager.setTextColor(TFT_GREEN); displayManager.printText(k);
+            displayManager.setTextColor(0x7BEF); displayManager.printText("]");
+            displayManager.setTextColor(TFT_WHITE); displayManager.printText(label);
+        };
+        kv("a", "prev ");
+        kv("l", "next ");
+        kv("q", "quit");
 
         displayManager.setDefaultTextSize();
         displayManager.setTextColor(TFT_WHITE);

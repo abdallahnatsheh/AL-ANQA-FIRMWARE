@@ -27,19 +27,20 @@ static void iRow(DisplayManager& dm, const char* lbl, const char* val, uint16_t 
 }
 
 static void iSep(DisplayManager& dm) {
-    dm.setCursor(10, dm.getCursorY());
-    dm.setTextColor(0x7BEF);
-    dm.println("-------------------------------");
+    dm.printSeparator();
 }
 
-static void iHeader(DisplayManager& dm, const char* title, int page, int pages) {
+static void iHeader(DisplayManager& dm, const char* name, int page, int pages) {
     dm.clearScreen();
     dm.setDefaultTextSize();
-    char buf[36];
-    snprintf(buf, sizeof(buf), "%-16s [%d/%d]", title, page + 1, pages);
     dm.setCursor(10, outputY);
-    dm.setTextColor(TFT_CYAN);
-    dm.println(buf);
+    char pgBuf[8]; snprintf(pgBuf, sizeof(pgBuf), "%02d/%02d", page + 1, pages);
+    dm.setTextColor(0x7BEF);     dm.printText("[");
+    dm.setTextColor(TFT_CYAN);   dm.printText("INFO");
+    dm.setTextColor(0x7BEF);     dm.printText("::");
+    dm.setTextColor(TFT_YELLOW); dm.printText(name);
+    dm.setTextColor(0x7BEF);     dm.printText("]  ");
+    dm.setTextColor(0x7BEF);     dm.println(pgBuf);
     iSep(dm);
 }
 
@@ -215,7 +216,7 @@ void ESPInfoPrinter::drawPageHardware() {
 void ESPInfoPrinter::printESPInfo() {
     static const int PAGES = 3;
     static const char* const TITLES[PAGES] = {
-        "System", "Radio", "Hardware"
+        "SYS", "RADIO", "HW"
     };
 
     int  page   = 0;

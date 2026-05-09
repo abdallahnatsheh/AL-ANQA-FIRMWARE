@@ -61,7 +61,11 @@ private:
 
     static void IRAM_ATTR rxCallback(void* buf, wifi_promiscuous_pkt_type_t type);
     static void parseFrame(const uint8_t* data, uint16_t len, uint8_t ch, int8_t rssi, PktSummary& out);
-    static void extractSSID(const uint8_t* data, uint16_t len, uint8_t subtype, char* ssidOut);
+
+public:
+    static void IRAM_ATTR extractSSID(const uint8_t* data, uint16_t len, uint8_t subtype, char* ssidOut);
+
+private:
 
     static volatile PktSummary ringBuf[PKT_RING_SIZE];
     static volatile uint8_t    ringHead;

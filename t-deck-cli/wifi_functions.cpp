@@ -1,6 +1,8 @@
 #include <Preferences.h>
 #include <vector>
+#include <SD.h>
 #include "wifi_functions.h"
+#include "sdcard_manager.h"
 #include "input_handling.h"
 #include "utils.h"
 
@@ -8,6 +10,46 @@ extern InputHandling inputHandler;
 
 // Scan result cache — populated by scanWiFiNetworks(), used by connect + deauth
 static std::vector<NetworkEntry> scanCache;
+
+// ── Hidden SSID cache (loaded from SD after each scan) ────────────────────────
+struct HiddenEntry { uint8_t bssid[6]; char ssid[33]; };
+static HiddenEntry hiddenCache[64];
+static int         hiddenCacheCount = 0;
+
+static void loadHiddenCache() {
+    hiddenCacheCount = 0;
+    File f = SD.open(SD_LOG_HIDDEN_SSIDS, FILE_READ);
+    if (!f) return;
+    char buf[96];
+    while (f.available() && hiddenCacheCount < 64) {
+        int n = 0;
+        while (f.available() && n < (int)sizeof(buf) - 1) {
+            char c = (char)f.read();
+            if (c == '\n') break;
+            if (c != '\r') buf[n++] = c;
+        }
+        buf[n] = '\0';
+        if (n == 0) continue;
+        char* bssidStr = strtok(buf, ",");
+        char* ssidStr  = strtok(nullptr, ",");
+        if (!bssidStr || !ssidStr) continue;
+        uint8_t b[6];
+        if (sscanf(bssidStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                   &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) == 6) {
+            memcpy(hiddenCache[hiddenCacheCount].bssid, b, 6);
+            strncpy(hiddenCache[hiddenCacheCount].ssid, ssidStr, 32);
+            hiddenCache[hiddenCacheCount].ssid[32] = '\0';
+            hiddenCacheCount++;
+        }
+    }
+    f.close();}
+
+static const char* lookupHidden(const uint8_t* bssid) {
+    for (int i = 0; i < hiddenCacheCount; i++) {
+        if (memcmp(hiddenCache[i].bssid, bssid, 6) == 0) return hiddenCache[i].ssid;
+    }
+    return nullptr;
+}
 
 WiFiFunctions::WiFiFunctions(DisplayManager& displayManager)
     : displayManager(displayManager) {}
@@ -48,12 +90,14 @@ static void renderScanPage(DisplayManager& dm, int page, int perPage, int total,
     dm.setCursor(10, outputY);
     dm.setDefaultTextSize();
 
-    char title[40];
-    snprintf(title, sizeof(title), "WiFi Networks  [%d/%d]", page + 1, totalPages);
-    dm.setTextColor(TFT_CYAN);
-    dm.println(title);
-    dm.setTextColor(0x7BEF);
-    dm.println("-------------------------------");
+    char pgBuf[8]; snprintf(pgBuf, sizeof(pgBuf), "%02d/%02d", page + 1, totalPages);
+    dm.setTextColor(0x7BEF);     dm.printText("[");
+    dm.setTextColor(TFT_CYAN);   dm.printText("SCAN");
+    dm.setTextColor(0x7BEF);     dm.printText("::");
+    dm.setTextColor(TFT_YELLOW); dm.printText("WIFI");
+    dm.setTextColor(0x7BEF);     dm.printText("]  ");
+    dm.setTextColor(0x7BEF);     dm.println(pgBuf);
+    dm.printSeparator();
     dm.setTextColor(TFT_WHITE);
 
     int start = page * perPage;
@@ -62,19 +106,31 @@ static void renderScanPage(DisplayManager& dm, int page, int perPage, int total,
     for (int i = start; i < end; i++) {
         const NetworkEntry& e = scanCache[i];
 
-        char ssid[16];
-        strncpy(ssid, e.ssid, 14);
-        ssid[14] = '\0';
-        if (strlen(e.ssid) > 14) { ssid[12] = '.'; ssid[13] = '.'; }
-
         dm.setCursor(10, dm.getCursorY());
         dm.setTextColor(TFT_YELLOW);
         char idx[5]; snprintf(idx, sizeof(idx), "[%d]", i);
         dm.printText(idx);
 
-        dm.setTextColor(TFT_WHITE);
-        char padded[18]; snprintf(padded, sizeof(padded), " %-14s", ssid);
-        dm.printText(padded);
+        if (e.ssid[0] == '\0') {
+            const char* known = lookupHidden(e.bssid);
+            if (known && known[0] != '\0') {
+                char trunc[14]; strncpy(trunc, known, 13); trunc[13] = '\0';
+                char padded[18]; snprintf(padded, sizeof(padded), " ~%-13s", trunc);
+                dm.setTextColor(TFT_CYAN);
+                dm.printText(padded);
+            } else {
+                dm.setTextColor(0x7BEF);
+                dm.printText(" <hidden>      ");
+            }
+        } else {
+            char ssid[16];
+            strncpy(ssid, e.ssid, 14);
+            ssid[14] = '\0';
+            if (strlen(e.ssid) > 14) { ssid[12] = '.'; ssid[13] = '.'; }
+            char padded[18]; snprintf(padded, sizeof(padded), " %-14s", ssid);
+            dm.setTextColor(TFT_WHITE);
+            dm.printText(padded);
+        }
 
         dm.setTextColor(rssiColor(e.rssi));
         char rssiStr[6]; snprintf(rssiStr, sizeof(rssiStr), "%4d", e.rssi);
@@ -84,9 +140,8 @@ static void renderScanPage(DisplayManager& dm, int page, int perPage, int total,
         dm.println(e.isOpen ? " OPEN" : " WPA");
     }
 
-    dm.setTextColor(0x7BEF);
-    dm.println("-------------------------------");
-    dm.setTextColor(TFT_WHITE);
+    dm.printSeparator();
+    dm.setCursor(10, dm.getCursorY());
     dm.printDefaultTableHelpInstructions();
 }
 
@@ -108,11 +163,12 @@ static bool runAsyncScan(DisplayManager& dm, int& count, bool& done) {
         }
     }
     populateScanCache(count, done);
+    loadHiddenCache();
     return true;
 }
 
 void WiFiFunctions::scanWiFiNetworks() {
-    const int perPage = 6;
+    const int perPage = 10;
 
     displayManager.clearScreen();
     displayManager.setCursor(10, outputY);
@@ -312,3 +368,6 @@ bool WiFiFunctions::getNetworkInfo(int index, uint8_t* bssidOut, int* channelOut
     *channelOut = scanCache[index].channel;
     return true;
 }
+
+void WiFiFunctions::refreshHiddenCache()              { loadHiddenCache(); }
+bool WiFiFunctions::isHiddenKnown(const uint8_t* b) const { return lookupHidden(b) != nullptr; }

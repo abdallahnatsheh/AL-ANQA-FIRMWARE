@@ -21,6 +21,8 @@ public:
     bool getNetworkInfo(int index, uint8_t* bssidOut, int* channelOut);
     int  getNetworkCount() const;
     bool isScanDone() const;
+    void refreshHiddenCache();
+    bool isHiddenKnown(const uint8_t* bssid) const;
 
 private:
     DisplayManager& displayManager;

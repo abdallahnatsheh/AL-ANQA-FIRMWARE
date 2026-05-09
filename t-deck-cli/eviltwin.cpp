@@ -730,15 +730,15 @@ void EvilTwin::showCredsTable() {
 
             dm.setCursor(4, dm.getCursorY() + 2);
             dm.setTextColor(0x7BEF);
-            dm.println("[n]next [p]prev [q]back");
+            dm.println("[a]prev [l]next [q]back");
             redraw = false;
         }
 
         char k = inputHandler.getKeyboardInput();
         if (!k) continue;
         if (k == 'q' || k == 'Q') break;
-        if ((k == 'n' || k == 'N') && page < pages - 1) { page++; redraw = true; }
-        if ((k == 'p' || k == 'P') && page > 0)         { page--; redraw = true; }
+        if ((k == 'l' || k == 'L') && page < pages - 1) { page++; redraw = true; }
+        if ((k == 'a' || k == 'A') && page > 0)         { page--; redraw = true; }
     }
 }
 
