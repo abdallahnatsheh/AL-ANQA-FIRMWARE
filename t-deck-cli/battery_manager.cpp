@@ -4,14 +4,23 @@
 BatteryManager::BatteryManager(DisplayManager& displayManager)
     : bl(BOARD_BAT_ADC, CONV_FACTOR, READS), displayManager(displayManager) {}
 
+float BatteryManager::getVolts() {
+    return bl.getBatteryVolts();
+}
+
 void BatteryManager::printBatteryInfo() {
-    displayManager.newLinePrint("Average value from pin: ");
-    displayManager.println(bl.pinRead());
-    displayManager.newLinePrint("Volts: ");
-    displayManager.println(bl.getBatteryVolts());
-    displayManager.newLinePrint("Charge level: ");
-    displayManager.println(getBatteryChargeLevel(bl.getBatteryVolts()));
-    displayManager.printCommandScreen();
+    float volts = bl.getBatteryVolts();
+    int   pct   = (int)voltageToPercentage(volts);
+    uint16_t color = pct >= 60 ? TFT_GREEN : (pct >= 30 ? TFT_YELLOW : TFT_RED);
+
+    char buf[40];
+    snprintf(buf, sizeof(buf), "%.2fV", volts);
+    displayManager.setTextColor(TFT_WHITE);
+    displayManager.printText(buf);
+
+    snprintf(buf, sizeof(buf), "  %d%%", pct);
+    displayManager.setTextColor(color);
+    displayManager.println(buf);
 }
 
 float BatteryManager::voltageToPercentage(float voltage) {

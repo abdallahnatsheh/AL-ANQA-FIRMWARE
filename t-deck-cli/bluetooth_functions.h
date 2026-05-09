@@ -6,6 +6,7 @@
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
 #include "display_manager.h"
+#include "task_manager.h"
 
 class BluetoothFunctions {
 public:

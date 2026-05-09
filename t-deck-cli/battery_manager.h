@@ -15,7 +15,8 @@ public:
     void   printBatteryInfo();
     String getBatteryChargeLevel(float volts);
 
-    int getPct();
+    int   getPct();
+    float getVolts();
 
 private:
     Pangodream_18650_CL bl;

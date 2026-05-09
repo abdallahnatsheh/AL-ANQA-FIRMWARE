@@ -20,8 +20,13 @@ static uint16_t rssiColor(int rssi) {
     return TFT_RED;
 }
 
-static void runScan(int& count, bool& done) {
-    count = WiFi.scanNetworks();
+static void triggerAsyncScan() {
+    WiFi.scanNetworks(true, true); // async=true, show_hidden=true — returns immediately
+}
+
+static void populateScanCache(int& count, bool& done) {
+    int n = WiFi.scanComplete();
+    count = (n < 0) ? 0 : n;
     done  = true;
     scanCache.clear();
     for (int i = 0; i < count; i++) {
@@ -35,6 +40,7 @@ static void runScan(int& count, bool& done) {
         if (b) memcpy(e.bssid, b, 6);
         scanCache.push_back(e);
     }
+    WiFi.scanDelete();
 }
 
 static void renderScanPage(DisplayManager& dm, int page, int perPage, int total, int totalPages) {
@@ -84,6 +90,27 @@ static void renderScanPage(DisplayManager& dm, int page, int perPage, int total,
     dm.printDefaultTableHelpInstructions();
 }
 
+static bool runAsyncScan(DisplayManager& dm, int& count, bool& done) {
+    triggerAsyncScan();
+    uint32_t frame = 0;
+    const char spinner[] = "|/-\\";
+    while (WiFi.scanComplete() == WIFI_SCAN_RUNNING) {
+        char buf[28];
+        snprintf(buf, sizeof(buf), "Scanning WiFi... %c", spinner[frame++ % 4]);
+        dm.fillRect(10, outputY, SCREEN_WIDTH - 10, LINE_HEIGHT, TFT_BLACK);
+        dm.setCursor(10, outputY);
+        dm.setTextColor(TFT_CYAN);
+        dm.printText(buf);
+        vTaskDelay(pdMS_TO_TICKS(200));
+        if (inputHandler.getKeyboardInput() == 'q') {
+            WiFi.scanDelete();
+            return false; // aborted
+        }
+    }
+    populateScanCache(count, done);
+    return true;
+}
+
 void WiFiFunctions::scanWiFiNetworks() {
     const int perPage = 6;
 
@@ -91,9 +118,12 @@ void WiFiFunctions::scanWiFiNetworks() {
     displayManager.setCursor(10, outputY);
     displayManager.setTextColor(TFT_CYAN);
     displayManager.println("Scanning WiFi...");
-    displayManager.setTextColor(TFT_WHITE);
 
-    runScan(numberOfNetworks, networkScanExecuted);
+    if (!runAsyncScan(displayManager, numberOfNetworks, networkScanExecuted)) {
+        displayManager.printCommandScreen();
+        return;
+    }
+
     int totalPages  = max(1, (numberOfNetworks + perPage - 1) / perPage);
     int currentPage = 0;
 
@@ -110,8 +140,10 @@ void WiFiFunctions::scanWiFiNetworks() {
                 displayManager.setCursor(10, outputY);
                 displayManager.setTextColor(TFT_CYAN);
                 displayManager.println("Scanning WiFi...");
-                displayManager.setTextColor(TFT_WHITE);
-                runScan(numberOfNetworks, networkScanExecuted);
+                if (!runAsyncScan(displayManager, numberOfNetworks, networkScanExecuted)) {
+                    displayManager.printCommandScreen();
+                    return;
+                }
                 totalPages  = max(1, (numberOfNetworks + perPage - 1) / perPage);
                 currentPage = 0;
                 break;

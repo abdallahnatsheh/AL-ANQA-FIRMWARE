@@ -37,22 +37,31 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 - Gate1=signature · Gate2=score(max 100) · Gate3=GPS≥200m OR time≥5min — WARNING/ALERT need Gate3
 - Whitelist: `/logs/trackme_known.csv` · Signatures: `/signatures.csv`
 
+**PowerSaveManager** (`powersave_manager.cpp/h`) — singleton:
+- Hooked into `getKeyboardInput()` — `update()` every poll, `updateActivity()` on keypress — works globally in all blocking loops with no per-command changes
+- Inactivity dim + battery-aware dim (force dim when battery < threshold)
+- `init()` must call `tft.setBrightness()` directly — `wakeUp()` guards on `isDimState` and skips at startup
+- SD config: `/pwrsave.json` (key=value format), loaded on init, written by `save`, deleted by `reset`
+
 **EvilTwin** (`eviltwin.cpp/h`):
 - Clone MAC for open networks, random LA-MAC for WPA2
 - Adaptive deauth pauses when portal clients connected
 - Templates: built-in or `/evilportal/*.html` from SD · Logs to `/logs/eviltwin.csv`
+- In-memory credential table `_creds[20]` — `[c]` shows table without stopping portal, `[s]` saves to SD
+- `handleRedirect()` sends 302 + `Captive-Portal-URL` header + HTML meta-refresh body — empty body was breaking iOS/Windows
+- Windows: no auto-popup; user sees toast or "Sign in" in WiFi Settings
 
 **NetworkScanner** (`network_scanner.cpp/h`):
 - ARP scan full /24 (batchStart 1→254)
 - Port scan: results collected into `std::vector<int> openPorts` once, then paginated
 
 ## Commands (current)
-System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix`
+System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv`
 WiFi: `scanwifi/sw` `connectwifi/cw` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et`
 Network: `netdiscover/nd` `portscan/ps` `topscan/ts` `ping/pg`
 Bluetooth: `scanblue/sbl` `trackme/tm [silent]`
 SD: `sdinfo/sdi` `sdls/ls` `sdread/sdr` `sdrm/srm`
-Diagnostics: `gpson/gon` `gpsoff/gof` `gpstest/gt` `spktest/st`
+Diagnostics: `gpson/gon` `gpsoff/gof` `gpstest/gt` `spktest/st` `loratest/lt`
 
 ## SD Layout
 `/logs/` — eviltwin.csv, trackme.csv, trackme_known.csv
@@ -72,5 +81,5 @@ Diagnostics: `gpson/gon` `gpsoff/gof` `gpstest/gt` `spktest/st`
 - WPA handshake capture (EAPOL → `.cap` on SD)
 - BadUSB / DuckyScript (TinyUSB)
 - BLE GATT enumeration (`bleinfo/bi <mac>`)
-- LoRa scanner (RadioLib in `lib/`)
+- LoRa scanner / packet logger (RadioLib active via `loratest`, scanner not yet built)
 - macwatch — MAC watchlist with proximity alert

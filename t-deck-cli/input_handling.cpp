@@ -1,9 +1,11 @@
 #include "input_handling.h"
 #include "utilities.h"
+#include "powersave_manager.h"
 #include <Wire.h>
 
 void InputHandling::begin() {
     pinMode(BOARD_KEYBOARD_INT, INPUT_PULLUP);
+    lastActivityTime = millis();
     delay(300);
     Wire.requestFrom(LILYGO_KB_SLAVE_ADDRESS, 1);
     while (Wire.available()) Wire.read();
@@ -14,6 +16,14 @@ char InputHandling::getKeyboardInput() {
     uint32_t now = millis();
     if (now - lastPoll < 10) return 0;
     lastPoll = now;
+
+    PowerSaveManager::getInstance().update();
+
     if (Wire.requestFrom(LILYGO_KB_SLAVE_ADDRESS, 1) == 0) return 0;
-    return Wire.read();
+    char key = Wire.read();
+    if (key != 0) {
+        updateActivity();
+        PowerSaveManager::getInstance().updateActivity();
+    }
+    return key;
 }

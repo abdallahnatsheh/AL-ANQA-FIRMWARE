@@ -3,6 +3,7 @@
 #include "display_manager.h"
 #include "battery_manager.h"
 #include "input_handling.h"
+#include "powersave_manager.h"
 #include "esp_info.h"
 #include "wifi_functions.h"
 #include "network_scanner.h"
@@ -39,6 +40,9 @@ void setup() {
     if (!sdCardManager.begin()) {
         Serial.println("SD card not found or failed to mount.");
     }
+
+    // Initialize PowerSaveManager after battery manager
+    PowerSaveManager::getInstance().init(&batteryManager);
 
     commandManager.setupCommands();
 }

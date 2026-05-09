@@ -10,6 +10,7 @@
 #include "deauth_functions.h"
 #include "trackme.h"
 #include "eviltwin.h"
+#include "powersave_manager.h"
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
 extern WiFiFunctions      wifiFunctions;
@@ -26,6 +27,7 @@ void runGpsOn();
 void runGpsOff();
 void runGpsTest();
 void runSpeakerTest();
+void runLoraTest();
 
 CommandManager::CommandManager() : commandIndex(0), commandCount(0) {
     resetCommand();
@@ -97,6 +99,7 @@ void CommandManager::setupCommands() {
     registerCommand("info",        "inf",    [](char* a) { espInfoPrinter.printESPInfo(); },                                 "Device info (IP, MAC, battery)",          false, "System");
     registerCommand("clear",       "clr",    [](char* a) { displayManager.tdeck_begin(); },                                  "Clear screen",                            false, "System");
     registerCommand("MATRIX",      "matrix", [](char* a) { displayManager.launchMatrixAnimation(); },                       "Matrix rain animation",                   false, "System");
+    registerCommand("pwrsave",     "psv",    [](char* a) { PowerSaveManager::handleCommand(a); },                         "Power save settings: pwrsave [status|on|off|set ...]",  true,  "System");
     // ── WiFi ──────────────────────────────────────────────────────────────────
     registerCommand("scanwifi",    "sw",     [](char* a) { wifiFunctions.scanWiFiNetworks(); },                              "Scan WiFi networks",                      false, "WiFi");
     registerCommand("connectwifi", "cw",     [](char* a) { wifiFunctions.connectToWiFiCommand(a); },                        "Connect to WiFi: cw <index>",             true,  "WiFi");
@@ -122,4 +125,5 @@ void CommandManager::setupCommands() {
     registerCommand("gpsoff",      "gof",    [](char* a) { runGpsOff(); },                                                  "Stop GPS background task",                false, "Diagnostics");
     registerCommand("gpstest",     "gt",     [](char* a) { runGpsTest(); },                                                  "GPS coordinate test",                     false, "Diagnostics");
     registerCommand("spktest",     "st",     [](char* a) { runSpeakerTest(); },                                              "Speaker tone test",                       false, "Diagnostics");
+    registerCommand("loratest",    "lt",     [](char* a) { runLoraTest(); },                                                 "LoRa SX1262 diagnostic",                  false, "Diagnostics");
 }

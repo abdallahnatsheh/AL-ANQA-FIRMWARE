@@ -962,7 +962,8 @@ void TrackMeScanner::start(bool silent) {
                     uint32_t elapsed = (now - gpsInitStart) / 1000;
                     uint32_t remain  = (GPS_INIT_MS / 1000) - elapsed;
                     char line[48];
-                    snprintf(line, sizeof(line), "Sats: %lu/12   timeout: %lus   ", (unsigned long)sats, (unsigned long)remain);
+                    snprintf(line, sizeof(line), "Sats: %lu/12  timeout: %lus", (unsigned long)sats, (unsigned long)remain);
+                    dm.fillRect(4, outputY + LINE_HEIGHT, SCREEN_WIDTH - 8, LINE_HEIGHT, TFT_BLACK);
                     dm.setCursor(4, outputY + LINE_HEIGHT);
                     dm.setTextColor(sats >= 4 ? TFT_YELLOW : TFT_ORANGE);
                     dm.printText(line);

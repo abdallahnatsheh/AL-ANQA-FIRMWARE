@@ -94,7 +94,9 @@ Inspired by [Bruce](https://github.com/pr3y/Bruce), but with its own identity: n
 | Feature | Status |
 |---------|--------|
 | Terminal-style CLI interface | ✅ |
-| Device info (IP, MAC, battery) | ✅ |
+| Device info — 3-page view (chip, MACs, battery, SD, LoRa pins, GPS) | ✅ |
+| Power save — inactivity dim + battery-aware dim, SD config persistence | ✅ |
+| LoRa SX1262 diagnostic — init, TX test, RX monitor, frequency switch | ✅ |
 | GPS coordinate test (T-Deck Plus) | ✅ |
 | Speaker / I2S audio test | ✅ |
 | Matrix rain animation | ✅ |
@@ -162,8 +164,9 @@ CMD> help
 | Command | Short | Args | Description |
 |---------|-------|------|-------------|
 | `help` | `hlp` | `[command]` | Show all commands or detail for one |
-| `info` | `inf` | — | Device info — IP, MAC, battery |
+| `info` | `inf` | — | Device info — 3 pages: chip/radio/hardware (`a`/`l` navigate) |
 | `clear` | `clr` | — | Clear the screen |
+| `pwrsave` | `psv` | `[status\|on\|off\|set ...]` | Power save settings — dim, timeout, battery mode |
 | **WiFi** | | | |
 | `scanwifi` | `sw` | — | Scan WiFi networks (paginated table) |
 | `connectwifi` | `cw` | `<index>` | Connect to network from last scan |
@@ -185,8 +188,11 @@ CMD> help
 | `sdread` | `sdr` | `<path>` | Read file from SD card |
 | `sdrm` | `srm` | `<path>` | Delete file from SD card |
 | **Diagnostics** | | | |
+| `gpson` | `gon` | — | Start GPS background task + live status (T-Deck Plus) |
+| `gpsoff` | `gof` | — | Stop GPS background task |
 | `gpstest` | `gt` | — | GPS coordinate test (T-Deck Plus only) |
 | `spktest` | `st` | — | Speaker / I2S tone test |
+| `loratest` | `lt` | — | LoRa SX1262 diagnostic — TX, RX, frequency switch |
 | `MATRIX` | `matrix` | — | Matrix rain animation (q to exit) |
 
 > **ARP index shortcut:** run `nd` first, then use the host index (e.g. `ts 3`) instead of typing an IP address in `ps`/`ts`.
@@ -210,7 +216,9 @@ T-Rex scans nearby networks and shows a picker. Pick a network and T-Rex automat
 
 **Custom portal pages** — drop `.html` files into `/evilportal/` on the SD card. Press `[s]` while the portal is running to switch to an SD template live.
 
-Credentials are saved to `/logs/eviltwin.csv` on the SD card.
+Captured credentials are stored in memory (up to 20 entries) and also appended live to `/logs/eviltwin.csv`. Press **`[c]`** to view the credential table at any time — the portal keeps running while you browse. Press **`[s]`** to flush all captures to SD.
+
+**Captive portal popup** works on Android (auto), iOS (auto), and Windows (click the "Additional sign-in required" toast or the "Sign in" button in WiFi Settings).
 
 ---
 
@@ -350,6 +358,8 @@ All scan results use a consistent table UI:
 - [x] Anti-tracking detector (trackme)
 - [x] SD card file manager
 - [x] T-Deck Plus support (GPS + speaker diagnostics)
+- [x] Power save — inactivity dim, battery-aware dim, SD config
+- [x] LoRa SX1262 diagnostic (TX, RX monitor, frequency switch)
 - [ ] WPA handshake capture + PCAP export to SD
 - [ ] BadUSB / HID keystroke injection (DuckyScript)
 - [ ] BLE GATT enumeration

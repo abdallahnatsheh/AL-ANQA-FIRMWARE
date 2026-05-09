@@ -5,6 +5,7 @@
 #include "display_manager.h"
 #include "utilities.h"
 #include "battery_manager.h"
+#include "input_handling.h"
 
 class ESPInfoPrinter {
 public:
@@ -13,7 +14,11 @@ public:
 
 private:
     DisplayManager& displayManager;
-    BatteryManager batteryManager;
+    BatteryManager  batteryManager;
+
+    void drawPageSystem();
+    void drawPageRadio();
+    void drawPageHardware();
 };
 
 #endif // ESP_INFO_H
