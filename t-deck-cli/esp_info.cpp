@@ -1,6 +1,7 @@
 #include "esp_info.h"
 #include <SD.h>
 #include <esp_system.h>
+#include "mac_changer.h"
 #if __has_include(<esp_mac.h>)
 #include <esp_mac.h>   // IDF 5.x — esp_read_mac moved here
 #endif
@@ -108,6 +109,12 @@ void ESPInfoPrinter::drawPageRadio() {
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     fmtMac(mac, macStr);
     iRow(dm, "STA MAC ", macStr);
+    if (MacChanger::getInstance().isEnabled()) {
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(TFT_YELLOW);
+        dm.println(MacChanger::getInstance().isCustom() ? "  ^ CUSTOM MAC" : "  ^ RANDOMIZED");
+        dm.setTextColor(TFT_WHITE);
+    }
 
     esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);
     fmtMac(mac, macStr);

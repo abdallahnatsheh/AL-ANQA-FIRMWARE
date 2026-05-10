@@ -19,6 +19,7 @@ public:
     void connectToWiFiCommand(char* args);
     void clearAllWiFiCredentials();
     bool getNetworkInfo(int index, uint8_t* bssidOut, int* channelOut);
+    bool getNetworkSSID(int index, char* ssidOut) const;
     int  getNetworkCount() const;
     bool isScanDone() const;
     void refreshHiddenCache();

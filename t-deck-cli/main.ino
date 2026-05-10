@@ -15,6 +15,9 @@
 #include "trackme.h"
 #include "eviltwin.h"
 #include "hidden_ssid.h"
+#include "handshake_capture.h"
+#include "mac_changer.h"
+#include "man_pages.h"
 
 LGFX tft;
 DisplayManager   displayManager(tft);
@@ -31,6 +34,8 @@ DeauthAttack     deauthAttack(displayManager, wifiFunctions);
 TrackMeScanner   trackMe(displayManager, sdCardManager);
 EvilTwin         evilTwin(displayManager, sdCardManager);
 HiddenSSID       hiddenSSID(displayManager, wifiFunctions, deauthAttack);
+HandshakeCapture handshakeCapture(displayManager, wifiFunctions, deauthAttack);
+ManPages         manPages(displayManager);
 
 void setup() {
     Serial.begin(115200);
@@ -43,7 +48,7 @@ void setup() {
         Serial.println("SD card not found or failed to mount.");
     }
 
-    // Initialize PowerSaveManager after battery manager
+    MacChanger::getInstance().begin();
     PowerSaveManager::getInstance().init(&batteryManager);
 
     commandManager.setupCommands();

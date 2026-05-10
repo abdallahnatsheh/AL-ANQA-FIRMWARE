@@ -5,6 +5,7 @@
 #include "sdcard_manager.h"
 #include "input_handling.h"
 #include "utils.h"
+#include "mac_changer.h"
 
 extern InputHandling inputHandler;
 
@@ -63,6 +64,8 @@ static uint16_t rssiColor(int rssi) {
 }
 
 static void triggerAsyncScan() {
+    WiFi.mode(WIFI_STA);
+    MacChanger::getInstance().applyIfEnabled();
     WiFi.scanNetworks(true, true); // async=true, show_hidden=true — returns immediately
 }
 
@@ -325,6 +328,7 @@ void WiFiFunctions::connectToWiFiCommand(char* args) {
     WiFi.disconnect(true);
     delay(100);
     WiFi.mode(WIFI_STA);
+    MacChanger::getInstance().applyIfEnabled();
     WiFi.setHostname("T-DECK");
     WiFi.begin(ssid.c_str(), net.isOpen ? nullptr : password.c_str());
 
@@ -366,6 +370,13 @@ bool WiFiFunctions::getNetworkInfo(int index, uint8_t* bssidOut, int* channelOut
     if (!networkScanExecuted || index < 0 || index >= (int)scanCache.size()) return false;
     memcpy(bssidOut, scanCache[index].bssid, 6);
     *channelOut = scanCache[index].channel;
+    return true;
+}
+
+bool WiFiFunctions::getNetworkSSID(int index, char* ssidOut) const {
+    if (!networkScanExecuted || index < 0 || index >= (int)scanCache.size()) return false;
+    strncpy(ssidOut, scanCache[index].ssid, 32);
+    ssidOut[32] = '\0';
     return true;
 }
 

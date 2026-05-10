@@ -47,20 +47,33 @@ void Utils::printHelp(char* args) {
         if (!dup && catCount < 16) cats[catCount++] = cat;
     }
 
-    const int LINE_H = 14;
-    int page = 0;
+    const int LINE_H  = 14;
+    const int CMDS_PP = 5;   // commands per sub-page (5×2 lines×14px = 140px, fits with nav bar)
+    int catIdx = 0, subPage = 0;
 
     while (true) {
+        // collect command indices for current category
+        int idx[64]; int cnt = 0;
+        for (int i = 0; i < commandManager.commandCount; i++)
+            if (strcmp(commandManager.commands[i].category, cats[catIdx]) == 0 && cnt < 64)
+                idx[cnt++] = i;
+        int subPages = (cnt + CMDS_PP - 1) / CMDS_PP;
+        if (subPages < 1) subPages = 1;
+        if (subPage >= subPages) subPage = subPages - 1;
+
         displayManager.clearScreen();
 
         // ── header: category name + page indicator ────────────────────────────
         displayManager.setCursor(10, outputY);
         char upcat[20]; int ci = 0;
-        for (const char* p = cats[page]; *p && ci < 19; p++, ci++)
+        for (const char* p = cats[catIdx]; *p && ci < 19; p++, ci++)
             upcat[ci] = toupper((unsigned char)*p);
         upcat[ci] = '\0';
-        char pg[8];
-        sprintf(pg, "%02d/%02d", page + 1, catCount);
+        char pg[16];
+        if (subPages > 1)
+            snprintf(pg, sizeof(pg), "%d/%d %d/%d", catIdx+1, catCount, subPage+1, subPages);
+        else
+            snprintf(pg, sizeof(pg), "%02d/%02d", catIdx+1, catCount);
         displayManager.setTextColor(0x7BEF);     displayManager.printText("[");
         displayManager.setTextColor(TFT_CYAN);   displayManager.printText("HELP");
         displayManager.setTextColor(0x7BEF);     displayManager.printText("::");
@@ -69,20 +82,21 @@ void Utils::printHelp(char* args) {
         displayManager.setTextColor(0x7BEF);     displayManager.println(pg);
         displayManager.fillRect(5, outputY + LINE_H + 1, 310, 1, TFT_CYAN);
 
-        // ── commands in this category ─────────────────────────────────────────
+        // ── commands for this sub-page ────────────────────────────────────────
         int y = outputY + LINE_H + 4;
-        for (int i = 0; i < commandManager.commandCount; i++) {
-            if (strcmp(commandManager.commands[i].category, cats[page]) != 0) continue;
+        int start = subPage * CMDS_PP;
+        int end   = min(start + CMDS_PP, cnt);
+        for (int i = start; i < end; i++) {
             displayManager.setCursor(10, y);
             displayManager.setTextColor(TFT_GREEN);
-            displayManager.printText(commandManager.commands[i].name);
+            displayManager.printText(commandManager.commands[idx[i]].name);
             displayManager.setTextColor(TFT_DARKGREY);
             displayManager.printText("/");
-            displayManager.printText(commandManager.commands[i].shortName);
+            displayManager.printText(commandManager.commands[idx[i]].shortName);
             y += LINE_H;
             displayManager.setCursor(16, y);
             displayManager.setTextColor(0x7BEF);
-            displayManager.printText(commandManager.commands[i].description);
+            displayManager.printText(commandManager.commands[idx[i]].description);
             y += LINE_H;
         }
 
@@ -106,9 +120,15 @@ void Utils::printHelp(char* args) {
         bool flip = false;
         while (!flip) {
             char key = inputHandler.getKeyboardInput();
-            if      (key == 'q' || key == 'Q')                              { displayManager.clearInputText(); return; }
-            else if ((key == 'l' || key == 'L') && page < catCount - 1)    { page++; flip = true; }
-            else if ((key == 'a' || key == 'A') && page > 0)               { page--; flip = true; }
+            if (key == 'q' || key == 'Q') { displayManager.clearInputText(); return; }
+            if (key == 'l' || key == 'L') {
+                if      (subPage < subPages - 1)  { subPage++; flip = true; }
+                else if (catIdx  < catCount  - 1) { catIdx++;  subPage = 0; flip = true; }
+            }
+            if (key == 'a' || key == 'A') {
+                if      (subPage > 0) { subPage--; flip = true; }
+                else if (catIdx  > 0) { catIdx--;  subPage = 0; flip = true; }
+            }
         }
     }
 }

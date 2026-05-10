@@ -65,6 +65,23 @@ static const char* portService(int port) {
     }
 }
 
+static String grabBanner(const IPAddress& ip, int port) {
+    WiFiClient c;
+    if (!c.connect(ip, port, 300)) return "";
+    char buf[128];
+    int len = 0;
+    unsigned long t0 = millis();
+    while (millis() - t0 < 800 && len < 127) {
+        if (c.available()) buf[len++] = c.read();
+        else delay(5);
+    }
+    c.stop();
+    buf[len] = '\0';
+    for (int i = 0; i < len; i++)
+        if (buf[i] == '\r' || buf[i] == '\n') { buf[i] = '\0'; break; }
+    return String(buf);
+}
+
 NetworkScanner::NetworkScanner(DisplayManager& displayManager)
     : displayManager(displayManager) {}
 
@@ -318,7 +335,9 @@ void NetworkScanner::networkPortScan(char* args) {
 }
 
 static void renderPortTable(DisplayManager& dm, const IPAddress& target,
-                            const std::vector<int>& ports, int page, int perPage,
+                            const std::vector<int>& ports,
+                            const std::vector<String>& banners,
+                            int page, int perPage,
                             int total, int totalPages) {
     dm.clearScreen();
     dm.setCursor(10, outputY);
@@ -354,7 +373,14 @@ static void renderPortTable(DisplayManager& dm, const IPAddress& target,
         dm.setTextColor(TFT_WHITE);
         dm.printText("  ");
         dm.setTextColor(svc[0] ? TFT_CYAN : 0x7BEF);
-        dm.println(svc[0] ? svc : "unknown");
+        dm.printText(svc[0] ? svc : "?");
+        if (i < (int)banners.size() && banners[i].length() > 0) {
+            char bnr[32];
+            snprintf(bnr, sizeof(bnr), "  %.28s", banners[i].c_str());
+            dm.setTextColor(0x7BEF);
+            dm.printText(bnr);
+        }
+        dm.println("");
         dm.setTextColor(TFT_WHITE);
     }
 
@@ -366,7 +392,7 @@ static void renderPortTable(DisplayManager& dm, const IPAddress& target,
     char summary[16]; snprintf(summary, sizeof(summary), "%d open", total);
     dm.printText(summary);
     dm.setTextColor(0x7BEF);
-    dm.println("   a=prev l=next q=quit");
+    dm.println("  a=prev l=next b=grab q=quit");
     dm.setTextColor(TFT_WHITE);
 }
 
@@ -455,6 +481,7 @@ void NetworkScanner::performPortScan(const IPAddress& targetIP, int startPort, i
     g_portQueue = nullptr;
 
     std::sort(openPorts.begin(), openPorts.end());
+    std::vector<String> banners(openPorts.size(), "");
 
     // Brief done flash
     displayManager.fillRect(10, progressY, SCREEN_WIDTH - 10, LINE_HEIGHT + 2, TFT_BLACK);
@@ -473,12 +500,17 @@ void NetworkScanner::performPortScan(const IPAddress& targetIP, int startPort, i
     int currentPage    = 0;
 
     while (true) {
-        renderPortTable(displayManager, targetIP, openPorts, currentPage, perPage, total, totalPages);
+        renderPortTable(displayManager, targetIP, openPorts, banners, currentPage, perPage, total, totalPages);
         while (true) {
             char k = inputHandler.getKeyboardInput();
             if (k == 'l' || k == 'L') { if (currentPage < totalPages - 1) currentPage++; break; }
             if (k == 'a' || k == 'A') { if (currentPage > 0)              currentPage--; break; }
             if (k == 'q' || k == 'Q') { displayManager.printCommandScreen(); return; }
+            if (k == 'b' || k == 'B') {
+                for (int i = 0; i < (int)openPorts.size(); i++)
+                    if (banners[i].isEmpty()) banners[i] = grabBanner(targetIP, openPorts[i]);
+                break;
+            }
         }
     }
 }
@@ -592,6 +624,7 @@ void NetworkScanner::topPortScan(char* args) {
     }
 
     TaskManager::cleanup();
+    std::vector<String> banners(openPorts.size(), "");
 
     // Brief done flash
     displayManager.fillRect(10, progressY, SCREEN_WIDTH - 10, LINE_HEIGHT + 2, TFT_BLACK);
@@ -610,12 +643,17 @@ void NetworkScanner::topPortScan(char* args) {
     int currentPage    = 0;
 
     while (true) {
-        renderPortTable(displayManager, targetIp, openPorts, currentPage, perPage, total, totalPages);
+        renderPortTable(displayManager, targetIp, openPorts, banners, currentPage, perPage, total, totalPages);
         while (true) {
             char k = inputHandler.getKeyboardInput();
             if (k == 'l' || k == 'L') { if (currentPage < totalPages - 1) currentPage++; break; }
             if (k == 'a' || k == 'A') { if (currentPage > 0)              currentPage--; break; }
             if (k == 'q' || k == 'Q') { displayManager.printCommandScreen(); return; }
+            if (k == 'b' || k == 'B') {
+                for (int i = 0; i < (int)openPorts.size(); i++)
+                    if (banners[i].isEmpty()) banners[i] = grabBanner(targetIp, openPorts[i]);
+                break;
+            }
         }
     }
 }

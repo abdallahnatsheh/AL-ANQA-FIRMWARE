@@ -45,7 +45,8 @@ Inspired by [Bruce](https://github.com/pr3y/Bruce), but with its own identity: n
 | Deauth attack (raw 802.11) | ✅ |
 | Evil Twin AP / Captive Portal | ✅ |
 | Hidden SSID reveal (deauth+sniff, SD persist, scan table integration) | ✅ |
-| WPA Handshake capture + PCAP export | 🔨 WIP |
+| MAC spoofer — randomize or set STA MAC, hooks into scan/connect/deauth | ✅ |
+| WPA2 handshake capture + on-device crack (EAPOL sniff → PCAP, SD wordlist or built-in top-100) | ✅ |
 
 ### 🌐 Network Recon
 | Feature | Status |
@@ -54,7 +55,7 @@ Inspired by [Bruce](https://github.com/pr3y/Bruce), but with its own identity: n
 | Port scan — 4× parallel, 150ms timeout | ✅ |
 | Top-26 common ports scan | ✅ |
 | Ping — ICMP with RTT + packet loss | ✅ |
-| Banner grabber | 🔨 WIP |
+| Banner grabber (`b` key in port scan results) | ✅ |
 | DNS enumeration | 🔨 WIP |
 
 ### 🔵 Bluetooth
@@ -176,6 +177,8 @@ CMD> help
 | `deauth` | `da` | `<bssid\|#> [ch] [client]` | Deauth attack via raw 802.11 |
 | `eviltwin` | `et` | `[ssid]` | Evil Twin AP with captive portal |
 | `hiddenssid` | `hs` | `<idx\|bssid> [ch] [silent]` | Reveal hidden SSID via deauth + probe sniff |
+| `macchanger` | `mc` | `on\|off\|random\|set <mac>` | Spoof STA MAC address (persists across scan/connect/deauth) |
+| `wpasniff` | `ws` | `<idx\|bssid> [ch]` | Capture WPA2 handshake — `c` to crack on-device, saves to `/logs/cracked.csv` |
 | **Network** | | | |
 | `netdiscover` | `nd` | — | ARP scan local /24 (paginated, u=rescan) |
 | `portscan` | `ps` | `<ip\|#> <start> <end>` | TCP port scan, 4× parallel |
@@ -353,21 +356,24 @@ All scan results use a consistent table UI:
 - [x] Deauth attack (raw 802.11, broadcast + targeted)
 - [x] Evil Twin AP (clone MAC, adaptive deauth, captive portal, SD templates)
 - [x] Hidden SSID reveal (deauth+sniff, SD persistence, scan table shows `~name`)
+- [x] MAC spoofer (`macchanger/mc`) — randomize or set MAC, hooks into scan/connect/deauth/wpasniff
+- [x] WPA2 handshake capture + on-device crack (`wpasniff/ws`) — EAPOL sniff, PBKDF2+PRF512 crack, SD wordlist
 - [x] ARP LAN discovery (batch scan, paginated table)
 - [x] Parallel TCP port scan (4× tasks, 150 ms timeout)
 - [x] Top-26 ports scan
 - [x] ICMP ping with RTT stats
+- [x] Banner grabber (`b` in port scan results)
 - [x] BLE scanner
 - [x] Anti-tracking detector (trackme)
 - [x] SD card file manager
 - [x] T-Deck Plus support (GPS + speaker diagnostics)
 - [x] Power save — inactivity dim, battery-aware dim, SD config
 - [x] LoRa SX1262 diagnostic (TX, RX monitor, frequency switch)
-- [ ] WPA handshake capture + PCAP export to SD
+- [ ] WPS flag detection in WiFi scan
 - [ ] BadUSB / HID keystroke injection (DuckyScript)
-- [ ] BLE GATT enumeration
+- [ ] BLE GATT enumeration (`bleinfo/bi`)
 - [ ] LoRa frequency scanner + packet logger
-- [ ] Banner grabber
+- [ ] MAC proximity watchlist (`macwatch/mw`)
 - [ ] DNS enumeration
 
 ---
