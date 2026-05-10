@@ -97,6 +97,8 @@ Inspired by [Bruce](https://github.com/pr3y/Bruce), but with its own identity: n
 |---------|--------|
 | Terminal-style CLI interface | ✅ |
 | Device info — 3-page view (chip, MACs, battery, SD, LoRa pins, GPS) | ✅ |
+| Man pages — on-device manual for all 29 commands (`man/mn <cmd>`) | ✅ |
+| Help command — paginated by category, 5 cmds/sub-page (no overflow) | ✅ |
 | Power save — inactivity dim + battery-aware dim, SD config persistence | ✅ |
 | LoRa SX1262 diagnostic — init, TX test, RX monitor, frequency switch | ✅ |
 | GPS coordinate test (T-Deck Plus) | ✅ |
@@ -166,6 +168,7 @@ CMD> help
 | Command | Short | Args | Description |
 |---------|-------|------|-------------|
 | `help` | `hlp` | `[command]` | Show all commands or detail for one |
+| `man` | `mn` | `<command>` | Full manual page for a command — syntax, steps, examples |
 | `info` | `inf` | — | Device info — 3 pages: chip/radio/hardware (`a`/`l` navigate) |
 | `clear` | `clr` | — | Clear the screen |
 | `pwrsave` | `psv` | `[status\|on\|off\|set ...]` | Power save settings — dim, timeout, battery mode |
@@ -369,6 +372,8 @@ All scan results use a consistent table UI:
 - [x] T-Deck Plus support (GPS + speaker diagnostics)
 - [x] Power save — inactivity dim, battery-aware dim, SD config
 - [x] LoRa SX1262 diagnostic (TX, RX monitor, frequency switch)
+- [x] On-device man pages (`man/mn`) for all 29 commands
+- [x] Help sub-pagination — 5 commands per page, no more WiFi overflow
 - [ ] WPS flag detection in WiFi scan
 - [ ] BadUSB / HID keystroke injection (DuckyScript)
 - [ ] BLE GATT enumeration (`bleinfo/bi`)
