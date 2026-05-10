@@ -32,9 +32,17 @@ void MacChanger::randomMac(uint8_t* mac) {
 }
 
 void MacChanger::applyMac(const uint8_t* mac) {
-    WiFi.mode(WIFI_STA);
+    // esp_wifi_set_mac() requires the interface to be stopped first.
+    // After esp_wifi_stop() the driver still owns the NVS/mode state, so we call
+    // esp_wifi_start() directly rather than going through WiFi.mode() (which is a
+    // no-op when the mode register hasn't changed).
+    if (WiFi.getMode() == WIFI_MODE_NULL)
+        WiFi.mode(WIFI_STA);   // first-time init via Arduino path
+    esp_wifi_stop();
     if (esp_wifi_set_mac(WIFI_IF_STA, (uint8_t*)mac) == ESP_OK)
         memcpy(_currentMac, mac, 6);
+    esp_wifi_start();   // restart directly — avoids Arduino mode-guard no-op
+    delay(300);
 }
 
 void MacChanger::applyIfEnabled() {
@@ -160,10 +168,13 @@ void MacChanger::handleCommand(char* args) {
     if (a == "off") {
         _enabled = false;
         saveConfig();
-        // restore real HW MAC
+        // restore real HW MAC — same stop/set/restart sequence as applyMac()
         uint8_t real[6]; esp_read_mac(real, ESP_MAC_WIFI_STA);
-        WiFi.mode(WIFI_STA);
+        if (WiFi.getMode() == WIFI_MODE_NULL) WiFi.mode(WIFI_STA);
+        esp_wifi_stop();
         esp_wifi_set_mac(WIFI_IF_STA, real);
+        esp_wifi_start();
+        delay(300);
         memset(_currentMac, 0, 6);
         dm.setCursor(10, dm.getCursorY());
         dm.setTextColor(TFT_YELLOW);

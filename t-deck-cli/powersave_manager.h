@@ -6,12 +6,14 @@
 
 // Default power-save settings
 #define DEFAULT_INACTIVITY_TIMEOUT_MS   120000  // 2 minutes
+#define DEFAULT_SCREEN_OFF_TIMEOUT_MS   300000  // 5 minutes
 #define DEFAULT_DIM_BRIGHTNESS          32
 #define DEFAULT_FULL_BRIGHTNESS         128
 #define DEFAULT_BATTERY_DIM_BRIGHTNESS  30
 #define DEFAULT_BATTERY_THRESHOLD       20      // 20%
 #define DEFAULT_BATTERY_MODE_ENABLED    true
 #define DEFAULT_PWRSAVE_ENABLED         true
+#define DEFAULT_SCREEN_OFF_ENABLED      true
 
 // Min/Max constraints
 #define MIN_TIMEOUT_MS      10000       // 10 seconds
@@ -43,10 +45,14 @@ public:
     void disable() { enabled = false; wakeUp(); }
     void enableBatteryMode() { batteryAwareDimEnabled = true; }
     void disableBatteryMode() { batteryAwareDimEnabled = false; }
+    void enableScreenOff()  { screenOffEnabled = true; }
+    void disableScreenOff() { screenOffEnabled = false; }
+    bool isScreenOff() const { return isScreenOffState; }
     void updateActivity();  // Called when user provides input
-    
+
     // Settings modification
     void setTimeoutMs(uint32_t ms);
+    void setScreenOffTimeoutMs(uint32_t ms);
     void setDimBrightness(uint8_t brightness);
     void setFullBrightness(uint8_t brightness);
     void setBatteryDimBrightness(uint8_t brightness);
@@ -72,20 +78,24 @@ private:
     PowerSaveManager& operator=(const PowerSaveManager&) = delete;
     
     void applyDim();
+    void applyScreenOff();
     void wakeUp();
     void updateFromBatteryState();
-    
+
     // Config values
     uint32_t inactivityTimeoutMs;
+    uint32_t screenOffTimeoutMs;
     uint8_t  dimBrightness;
     uint8_t  fullBrightness;
     uint8_t  batteryDimBrightness;
     uint8_t  batteryThreshold;
-    
+
     // Flags
     bool enabled;
     bool isDimState;
+    bool isScreenOffState;
     bool batteryAwareDimEnabled;
+    bool screenOffEnabled;
     
     // Tracking
     uint32_t lastActivityTime;

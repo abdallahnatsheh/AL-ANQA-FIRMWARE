@@ -5,6 +5,10 @@
 #include "task_manager.h"
 #include "utils.h"
 #include <ESP32Ping.h>
+#include <lwip/raw.h>
+#include <lwip/icmp.h>
+#include <lwip/inet_chksum.h>
+#include <lwip/ip4.h>
 #include <lwip/etharp.h>
 #include <lwip/netif.h>
 #include <lwip/tcpip.h>
@@ -22,8 +26,9 @@ static std::vector<ArpEntry> g_arpResults;
 // Top ports — nmap-style common services
 static const uint16_t TOP_PORTS[] = {
     21, 22, 23, 25, 53, 80, 110, 111, 135, 139,
-    143, 389, 443, 445, 587, 993, 995, 1433, 1723,
-    3306, 3389, 5900, 6379, 8080, 8443, 9200
+    143, 161, 389, 443, 445, 587, 993, 995, 1433, 1521,
+    1723, 3306, 3389, 5432, 5900, 6379, 8080, 8443, 8888, 9200,
+    27017
 };
 static const int TOP_PORTS_COUNT = (int)(sizeof(TOP_PORTS) / sizeof(TOP_PORTS[0]));
 
@@ -42,44 +47,353 @@ static bool resolveTarget(const String& tok, IPAddress& out) {
 
 static const char* portService(int port) {
     switch (port) {
-        case 21:   return "FTP";
-        case 22:   return "SSH";
-        case 23:   return "Telnet";
-        case 25:   return "SMTP";
-        case 53:   return "DNS";
-        case 80:   return "HTTP";
-        case 110:  return "POP3";
-        case 143:  return "IMAP";
-        case 389:  return "LDAP";
-        case 443:  return "HTTPS";
-        case 445:  return "SMB";
-        case 1433: return "MSSQL";
-        case 3306: return "MySQL";
-        case 3389: return "RDP";
-        case 5900: return "VNC";
-        case 6379: return "Redis";
-        case 8080: return "HTTP-alt";
-        case 8443: return "HTTPS-alt";
-        case 9200: return "Elastic";
-        default:   return "";
+        case 20:    return "FTP-data";
+        case 21:    return "FTP";
+        case 22:    return "SSH";
+        case 23:    return "Telnet";
+        case 25:    return "SMTP";
+        case 53:    return "DNS";
+        case 69:    return "TFTP";
+        case 80:    return "HTTP";
+        case 88:    return "Kerberos";
+        case 110:   return "POP3";
+        case 111:   return "RPC";
+        case 119:   return "NNTP";
+        case 123:   return "NTP";
+        case 135:   return "MSRPC";
+        case 137:   return "NetBIOS";
+        case 138:   return "NetBIOS";
+        case 139:   return "NetBIOS";
+        case 143:   return "IMAP";
+        case 161:   return "SNMP";
+        case 162:   return "SNMP-trap";
+        case 179:   return "BGP";
+        case 389:   return "LDAP";
+        case 443:   return "HTTPS";
+        case 445:   return "SMB";
+        case 500:   return "IKE";
+        case 514:   return "Syslog";
+        case 587:   return "SMTP-sub";
+        case 631:   return "IPP";
+        case 636:   return "LDAPS";
+        case 873:   return "rsync";
+        case 993:   return "IMAPS";
+        case 995:   return "POP3S";
+        case 1080:  return "SOCKS";
+        case 1194:  return "OpenVPN";
+        case 1433:  return "MSSQL";
+        case 1521:  return "Oracle";
+        case 1723:  return "PPTP";
+        case 2049:  return "NFS";
+        case 2082:  return "cPanel";
+        case 2083:  return "cPanel-SSL";
+        case 3128:  return "Squid";
+        case 3306:  return "MySQL";
+        case 3389:  return "RDP";
+        case 4444:  return "Msfp";
+        case 5000:  return "UPnP";
+        case 5432:  return "PostgreSQL";
+        case 5900:  return "VNC";
+        case 6379:  return "Redis";
+        case 6667:  return "IRC";
+        case 8080:  return "HTTP-alt";
+        case 8443:  return "HTTPS-alt";
+        case 8888:  return "HTTP-alt";
+        case 9000:  return "PHP-FPM";
+        case 9200:  return "Elastic";
+        case 10000: return "Webmin";
+        case 11211: return "Memcached";
+        case 27017: return "MongoDB";
+        default:    return "";
     }
 }
 
 static String grabBanner(const IPAddress& ip, int port) {
     WiFiClient c;
     if (!c.connect(ip, port, 300)) return "";
+
+    // Active probes for protocols that don't send first
+    if (port == 80 || port == 8080)
+        c.print("HEAD / HTTP/1.0\r\nHost: x\r\n\r\n");
+    else if (port == 9200)
+        c.print("GET / HTTP/1.0\r\nHost: x\r\n\r\n");
+    else if (port == 6379)
+        c.print("PING\r\n");
+
     char buf[128];
     int len = 0;
     unsigned long t0 = millis();
-    while (millis() - t0 < 800 && len < 127) {
-        if (c.available()) buf[len++] = c.read();
+    while (millis() - t0 < 1000 && len < 127) {
+        if (c.available()) buf[len++] = (char)c.read();
         else delay(5);
     }
     c.stop();
     buf[len] = '\0';
-    for (int i = 0; i < len; i++)
-        if (buf[i] == '\r' || buf[i] == '\n') { buf[i] = '\0'; break; }
+    if (len == 0) return "";
+
+    // TLS: first byte is 0x16 (handshake record)
+    if ((port == 443 || port == 8443) && (uint8_t)buf[0] == 0x16)
+        return "TLS";
+
+    // MySQL: 4-byte packet header + 1-byte protocol, then null-terminated version string
+    if (port == 3306 && len > 5) {
+        char ver[32] = {0}; int vi = 0;
+        for (int i = 5; i < len && vi < 31 && buf[i] != '\0'; i++)
+            if ((uint8_t)buf[i] >= 0x20 && (uint8_t)buf[i] < 0x7F) ver[vi++] = buf[i];
+        return vi > 0 ? String(ver) : String("");
+    }
+
+    // Truncate at first non-printable / newline / null
+    for (int i = 0; i < len; i++) {
+        if ((uint8_t)buf[i] < 0x20 || (uint8_t)buf[i] == 0x7F) { buf[i] = '\0'; break; }
+    }
     return String(buf);
+}
+
+static void grabAllBanners(DisplayManager& dm, const IPAddress& ip,
+                            const std::vector<int>& ports, std::vector<String>& banners) {
+    const char spinner[] = "|/-\\";
+    int   total   = (int)ports.size();
+    const int maxShow = 7;
+
+    for (int i = 0; i < total; i++) {
+        if (!banners[i].isEmpty()) continue;
+
+        // ── header + completed results ────────────────────────────────────────
+        dm.clearScreen();
+        dm.setCursor(10, outputY);
+        dm.setTextColor(0x7BEF);     dm.printText("[");
+        dm.setTextColor(TFT_CYAN);   dm.printText("BANNER");
+        dm.setTextColor(0x7BEF);     dm.printText("::");
+        dm.setTextColor(TFT_YELLOW); dm.printText("GRAB");
+        dm.setTextColor(0x7BEF);     dm.println("]");
+        dm.printSeparator();
+
+        int showFrom = max(0, i - maxShow);
+        for (int j = showFrom; j < i; j++) {
+            dm.setCursor(10, dm.getCursorY());
+            if (banners[j].length() > 0) {
+                dm.setTextColor(TFT_GREEN);
+                char ln[42]; snprintf(ln, sizeof(ln), "%d: %.32s", ports[j], banners[j].c_str());
+                dm.println(ln);
+            } else {
+                dm.setTextColor(0x7BEF);
+                char ln[20]; snprintf(ln, sizeof(ln), "%d: -", ports[j]);
+                dm.println(ln);
+            }
+        }
+
+        int32_t spinY    = dm.getCursorY();
+        uint32_t spinFrm = (uint32_t)(i * 3);   // stagger initial frame per port
+
+        // helper to redraw the spinner line
+        auto drawSpin = [&](char ch) {
+            dm.fillRect(10, spinY, SCREEN_WIDTH - 10, LINE_HEIGHT + 2, TFT_BLACK);
+            dm.setCursor(10, spinY);
+            dm.setTextColor(TFT_YELLOW);
+            char cur[40];
+            snprintf(cur, sizeof(cur), "%d: %c  (%d/%d)", ports[i], ch, i + 1, total);
+            dm.println(cur);
+            dm.setTextColor(TFT_WHITE);
+        };
+
+        drawSpin(spinner[spinFrm % 4]);
+
+        // ── connect ───────────────────────────────────────────────────────────
+        WiFiClient c;
+        bool connected = c.connect(ip, ports[i], 300);
+
+        if (!connected) {
+            banners[i] = "";
+        } else {
+            // active probes for protocols that don't send first
+            if (ports[i] == 80 || ports[i] == 8080)
+                c.print("HEAD / HTTP/1.0\r\nHost: x\r\n\r\n");
+            else if (ports[i] == 9200)
+                c.print("GET / HTTP/1.0\r\nHost: x\r\n\r\n");
+            else if (ports[i] == 6379)
+                c.print("PING\r\n");
+
+            // ── animated read loop ────────────────────────────────────────────
+            char buf[384]; int len = 0;
+            uint32_t t0 = millis(), lastSpin = 0;
+
+            while (millis() - t0 < 1000 && len < 383) {
+                if (c.available()) {
+                    buf[len++] = (char)c.read();
+                } else {
+                    uint32_t now = millis();
+                    if (now - lastSpin >= 120) {
+                        lastSpin = now;
+                        drawSpin(spinner[++spinFrm % 4]);
+                    }
+                    delay(5);
+                }
+            }
+            c.stop();
+            buf[len] = '\0';
+
+            // ── parse ─────────────────────────────────────────────────────────
+            bool isHTTP = (ports[i] == 80 || ports[i] == 8080 ||
+                           ports[i] == 8888 || ports[i] == 9200) && len > 4 &&
+                          memcmp(buf, "HTTP", 4) == 0;
+
+            if (len == 0) {
+                banners[i] = "";
+            } else if ((ports[i] == 443 || ports[i] == 8443) && (uint8_t)buf[0] == 0x16) {
+                banners[i] = "TLS";
+            } else if (ports[i] == 3306 && len > 5) {
+                char ver[32] = {0}; int vi = 0;
+                for (int k = 5; k < len && vi < 31 && buf[k] != '\0'; k++)
+                    if ((uint8_t)buf[k] >= 0x20 && (uint8_t)buf[k] < 0x7F) ver[vi++] = buf[k];
+                banners[i] = vi > 0 ? String(ver) : String("");
+            } else if (isHTTP) {
+                // Search for "Server:" header — it's on a later line than the status line
+                const char* sv = nullptr;
+                for (int k = 0; k < len - 8 && !sv; k++) {
+                    if (buf[k] == '\n') {
+                        const char* cand = buf + k + 1;
+                        if (strncasecmp(cand, "Server:", 7) == 0) sv = cand + 7;
+                    }
+                }
+                if (sv) {
+                    while (*sv == ' ' || *sv == '\t') sv++;
+                    char sval[48] = {0}; int vi = 0;
+                    while (*sv && *sv != '\r' && *sv != '\n' && vi < 47) sval[vi++] = *sv++;
+                    banners[i] = String(sval);
+                } else {
+                    // Fallback: status line
+                    for (int k = 0; k < len; k++)
+                        if ((uint8_t)buf[k] < 0x20) { buf[k] = '\0'; break; }
+                    banners[i] = String(buf);
+                }
+            } else {
+                for (int k = 0; k < len; k++)
+                    if ((uint8_t)buf[k] < 0x20 || (uint8_t)buf[k] == 0x7F) { buf[k] = '\0'; break; }
+                banners[i] = String(buf);
+            }
+        }
+
+        // ── show result on spinner line ───────────────────────────────────────
+        dm.fillRect(10, spinY, SCREEN_WIDTH - 10, LINE_HEIGHT + 2, TFT_BLACK);
+        dm.setCursor(10, spinY);
+        if (banners[i].length() > 0) {
+            dm.setTextColor(TFT_GREEN);
+            char ln[42]; snprintf(ln, sizeof(ln), "%d: %.32s", ports[i], banners[i].c_str());
+            dm.println(ln);
+        } else {
+            dm.setTextColor(0x7BEF);
+            char ln[20]; snprintf(ln, sizeof(ln), "%d: -", ports[i]);
+            dm.println(ln);
+        }
+        dm.setTextColor(TFT_WHITE);
+        delay(200);   // brief pause so user can read the result before next port
+    }
+
+    delay(800);
+}
+
+// ── OS detection — TTL fingerprint + banner analysis ─────────────────────────
+
+// TTL detection via lwip raw ICMP — callback fires from the tcpip task
+struct _PingCtx { volatile bool done; volatile uint8_t ttl; };
+
+static uint8_t _rawPingRecv(void* arg, struct raw_pcb* pcb, struct pbuf* p, const ip_addr_t* addr) {
+    if (p->len < sizeof(struct icmp_echo_hdr)) return 0;
+    struct icmp_echo_hdr* hdr = (struct icmp_echo_hdr*)p->payload;
+    if (hdr->type == ICMP_ER && hdr->code == 0 && hdr->id == PP_HTONS(0xABCD)) {
+        _PingCtx* ctx = (_PingCtx*)arg;
+        const struct ip_hdr* ip = ip4_current_header();
+        if (ip) ctx->ttl = IPH_TTL(ip);
+        ctx->done = true;
+        pbuf_free(p);
+        return 1;   // consumed
+    }
+    return 0;
+}
+
+static uint8_t getIPTTL(const IPAddress& ip) {
+    ip_addr_t target = {};
+    IP4_ADDR(&target.u_addr.ip4, ip[0], ip[1], ip[2], ip[3]);
+    target.type = IPADDR_TYPE_V4;
+
+    _PingCtx ctx = {false, 0};
+
+    LOCK_TCPIP_CORE();
+    struct raw_pcb* pcb = raw_new(IP_PROTO_ICMP);
+    if (!pcb) { UNLOCK_TCPIP_CORE(); return 0; }
+    raw_recv(pcb, _rawPingRecv, &ctx);
+    raw_bind(pcb, IP_ADDR_ANY);
+
+    struct pbuf* p = pbuf_alloc(PBUF_IP, sizeof(struct icmp_echo_hdr), PBUF_RAM);
+    if (!p) { raw_remove(pcb); UNLOCK_TCPIP_CORE(); return 0; }
+    struct icmp_echo_hdr* echo = (struct icmp_echo_hdr*)p->payload;
+    ICMPH_TYPE_SET(echo, ICMP_ECHO);
+    ICMPH_CODE_SET(echo, 0);
+    echo->chksum = 0;
+    echo->id     = PP_HTONS(0xABCD);
+    echo->seqno  = PP_HTONS(1);
+    echo->chksum = inet_chksum(echo, sizeof(*echo));
+    raw_sendto(pcb, p, &target);
+    pbuf_free(p);
+    UNLOCK_TCPIP_CORE();
+
+    for (uint32_t t0 = millis(); !ctx.done && millis() - t0 < 2000;) delay(10);
+
+    LOCK_TCPIP_CORE();
+    raw_remove(pcb);
+    UNLOCK_TCPIP_CORE();
+
+    return ctx.done ? (uint8_t)ctx.ttl : 0;
+}
+
+static String buildOSHint(uint8_t ttl) {
+    if (ttl == 0) return "";
+    const char* os;
+    if      (ttl <= 32)  os = "Embedded";
+    else if (ttl <= 64)  os = "Linux/macOS";
+    else if (ttl <= 128) os = "Windows";
+    else                 os = "Network";
+    char buf[28];
+    snprintf(buf, sizeof(buf), "%s  TTL %d", os, ttl);
+    return String(buf);
+}
+
+static String checkBannerOS(const std::vector<int>& ports, const std::vector<String>& banners) {
+    // Banner analysis (most accurate)
+    for (int i = 0; i < (int)ports.size(); i++) {
+        const String& b = banners[i]; if (b.isEmpty()) continue;
+        if (ports[i] == 22) {
+            if (b.indexOf("Ubuntu")  >= 0) return "Ubuntu Linux";
+            if (b.indexOf("Debian")  >= 0) return "Debian Linux";
+            if (b.indexOf("CentOS")  >= 0) return "CentOS/RHEL";
+            if (b.indexOf("Fedora")  >= 0) return "Fedora";
+            if (b.indexOf("Alpine")  >= 0) return "Alpine Linux";
+            if (b.indexOf("Windows") >= 0) return "Windows";
+            if (!b.isEmpty())              return "Unix/Linux";
+        }
+        if (ports[i] == 80 || ports[i] == 8080 || ports[i] == 8888 || ports[i] == 9200) {
+            if (b.indexOf("IIS")        >= 0) return "Windows/IIS";
+            if (b.indexOf("Microsoft")  >= 0) return "Windows";
+            if (b.indexOf("ASP.NET")    >= 0) return "Windows";
+            if (b.indexOf("Ubuntu")     >= 0) return "Ubuntu Linux";
+            if (b.indexOf("Debian")     >= 0) return "Debian Linux";
+            if (b.indexOf("CentOS")     >= 0) return "CentOS/RHEL";
+            if (b.indexOf("Red Hat")    >= 0) return "RHEL";
+            if (b.indexOf("Fedora")     >= 0) return "Fedora";
+        }
+    }
+    // Port-presence fallback — useful before banner grab or when no banners reveal OS
+    bool has3389 = false, has135 = false, has445 = false;
+    for (int p : ports) {
+        if (p == 3389) has3389 = true;
+        if (p == 135)  has135  = true;
+        if (p == 445)  has445  = true;
+    }
+    if (has3389)        return "Windows (RDP)";
+    if (has135 && has445) return "Windows (SMB)";
+    if (has135)         return "Windows (MSRPC)";
+    return "";
 }
 
 NetworkScanner::NetworkScanner(DisplayManager& displayManager)
@@ -338,7 +652,8 @@ static void renderPortTable(DisplayManager& dm, const IPAddress& target,
                             const std::vector<int>& ports,
                             const std::vector<String>& banners,
                             int page, int perPage,
-                            int total, int totalPages) {
+                            int total, int totalPages,
+                            const String& osHint = "") {
     dm.clearScreen();
     dm.setCursor(10, outputY);
     dm.setTextColor(TFT_CYAN);
@@ -348,6 +663,12 @@ static void renderPortTable(DisplayManager& dm, const IPAddress& target,
     dm.setTextColor(TFT_WHITE);
     dm.setCursor(10, dm.getCursorY());
     dm.printText("Target: "); dm.println(target.toString());
+    if (osHint.length() > 0) {
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(TFT_WHITE);  dm.printText("OS:     ");
+        dm.setTextColor(TFT_CYAN);   dm.println(osHint);
+        dm.setTextColor(TFT_WHITE);
+    }
     dm.setTextColor(0x7BEF);
     dm.setCursor(10, dm.getCursorY());
     dm.println("──────────────────────────────");
@@ -436,6 +757,9 @@ void NetworkScanner::performPortScan(const IPAddress& targetIP, int startPort, i
     for (int t = 0; t < PARALLEL_SCAN_TASKS; t++)
         xTaskCreatePinnedToCore(portSegTaskFn, "pseg", 6144, &segs[t], 2, nullptr, 0);
 
+    // Grab TTL concurrently while tasks spin up — adds no perceived latency
+    String osHint = buildOSHint(getIPTTL(targetIP));
+
     std::vector<int> openPorts;
     unsigned long lastProgUpd = 0;
     bool running = true;
@@ -483,6 +807,9 @@ void NetworkScanner::performPortScan(const IPAddress& targetIP, int startPort, i
     std::sort(openPorts.begin(), openPorts.end());
     std::vector<String> banners(openPorts.size(), "");
 
+    // Port-presence OS hint (no banner needed — RDP/MSRPC/SMB identify Windows immediately)
+    { String pos = checkBannerOS(openPorts, banners); if (pos.length() > 0) osHint = pos; }
+
     // Brief done flash
     displayManager.fillRect(10, progressY, SCREEN_WIDTH - 10, LINE_HEIGHT + 2, TFT_BLACK);
     displayManager.setCursor(10, progressY);
@@ -500,15 +827,16 @@ void NetworkScanner::performPortScan(const IPAddress& targetIP, int startPort, i
     int currentPage    = 0;
 
     while (true) {
-        renderPortTable(displayManager, targetIP, openPorts, banners, currentPage, perPage, total, totalPages);
+        renderPortTable(displayManager, targetIP, openPorts, banners, currentPage, perPage, total, totalPages, osHint);
         while (true) {
             char k = inputHandler.getKeyboardInput();
             if (k == 'l' || k == 'L') { if (currentPage < totalPages - 1) currentPage++; break; }
             if (k == 'a' || k == 'A') { if (currentPage > 0)              currentPage--; break; }
             if (k == 'q' || k == 'Q') { displayManager.printCommandScreen(); return; }
             if (k == 'b' || k == 'B') {
-                for (int i = 0; i < (int)openPorts.size(); i++)
-                    if (banners[i].isEmpty()) banners[i] = grabBanner(targetIP, openPorts[i]);
+                grabAllBanners(displayManager, targetIP, openPorts, banners);
+                String bos = checkBannerOS(openPorts, banners);
+                if (bos.length() > 0) osHint = bos;
                 break;
             }
         }
@@ -593,6 +921,9 @@ void NetworkScanner::topPortScan(char* args) {
         return;
     }
 
+    // Grab TTL while the scan task is running
+    String osHint = buildOSHint(getIPTTL(targetIp));
+
     std::vector<int> openPorts;
     unsigned long lastUpd = 0;
 
@@ -626,6 +957,9 @@ void NetworkScanner::topPortScan(char* args) {
     TaskManager::cleanup();
     std::vector<String> banners(openPorts.size(), "");
 
+    // Port-presence OS hint
+    { String pos = checkBannerOS(openPorts, banners); if (pos.length() > 0) osHint = pos; }
+
     // Brief done flash
     displayManager.fillRect(10, progressY, SCREEN_WIDTH - 10, LINE_HEIGHT + 2, TFT_BLACK);
     displayManager.setCursor(10, progressY);
@@ -643,15 +977,16 @@ void NetworkScanner::topPortScan(char* args) {
     int currentPage    = 0;
 
     while (true) {
-        renderPortTable(displayManager, targetIp, openPorts, banners, currentPage, perPage, total, totalPages);
+        renderPortTable(displayManager, targetIp, openPorts, banners, currentPage, perPage, total, totalPages, osHint);
         while (true) {
             char k = inputHandler.getKeyboardInput();
             if (k == 'l' || k == 'L') { if (currentPage < totalPages - 1) currentPage++; break; }
             if (k == 'a' || k == 'A') { if (currentPage > 0)              currentPage--; break; }
             if (k == 'q' || k == 'Q') { displayManager.printCommandScreen(); return; }
             if (k == 'b' || k == 'B') {
-                for (int i = 0; i < (int)openPorts.size(); i++)
-                    if (banners[i].isEmpty()) banners[i] = grabBanner(targetIp, openPorts[i]);
+                grabAllBanners(displayManager, targetIp, openPorts, banners);
+                String bos = checkBannerOS(openPorts, banners);
+                if (bos.length() > 0) osHint = bos;
                 break;
             }
         }

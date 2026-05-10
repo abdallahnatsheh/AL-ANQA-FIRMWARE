@@ -53,9 +53,10 @@ Inspired by [Bruce](https://github.com/pr3y/Bruce), but with its own identity: n
 |---------|--------|
 | ARP scan — LAN host discovery (paginated table) | ✅ |
 | Port scan — 4× parallel, 150ms timeout | ✅ |
-| Top-26 common ports scan | ✅ |
+| Top-31 common ports scan | ✅ |
 | Ping — ICMP with RTT + packet loss | ✅ |
-| Banner grabber (`b` key in port scan results) | ✅ |
+| Banner grabber — protocol-aware (HTTP/TLS/MySQL/Redis), animated, HTTP Server header extraction | ✅ |
+| OS fingerprinting — TTL detection + banner analysis + port-presence hints (RDP/SMB/MSRPC) | ✅ |
 | DNS enumeration | 🔨 WIP |
 
 ### 🔵 Bluetooth
@@ -99,7 +100,7 @@ Inspired by [Bruce](https://github.com/pr3y/Bruce), but with its own identity: n
 | Device info — 3-page view (chip, MACs, battery, SD, LoRa pins, GPS) | ✅ |
 | Man pages — on-device manual for all 29 commands (`man/mn <cmd>`) | ✅ |
 | Help command — paginated by category, 5 cmds/sub-page (no overflow) | ✅ |
-| Power save — inactivity dim + battery-aware dim, SD config persistence | ✅ |
+| Power save — inactivity dim (2 min), screen-off (5 min → brightness 0), battery-aware dim, SD config | ✅ |
 | LoRa SX1262 diagnostic — init, TX test, RX monitor, frequency switch | ✅ |
 | GPS coordinate test (T-Deck Plus) | ✅ |
 | Speaker / I2S audio test | ✅ |
@@ -171,7 +172,7 @@ CMD> help
 | `man` | `mn` | `<command>` | Full manual page for a command — syntax, steps, examples |
 | `info` | `inf` | — | Device info — 3 pages: chip/radio/hardware (`a`/`l` navigate) |
 | `clear` | `clr` | — | Clear the screen |
-| `pwrsave` | `psv` | `[status\|on\|off\|set ...]` | Power save settings — dim, timeout, battery mode |
+| `pwrsave` | `psv` | `[status\|on\|off\|set ...]` | Power save — dim, screen-off, timeout, battery mode (`set screenoff <s>`, `set screenoffmode on\|off`) |
 | **WiFi** | | | |
 | `scanwifi` | `sw` | — | Scan WiFi networks (paginated table) |
 | `connectwifi` | `cw` | `<index>` | Connect to network from last scan |
@@ -185,7 +186,7 @@ CMD> help
 | **Network** | | | |
 | `netdiscover` | `nd` | — | ARP scan local /24 (paginated, u=rescan) |
 | `portscan` | `ps` | `<ip\|#> <start> <end>` | TCP port scan, 4× parallel |
-| `topscan` | `ts` | `<ip\|#>` | Scan top 26 common ports |
+| `topscan` | `ts` | `<ip\|#>` | Scan top 31 common ports |
 | `ping` | `pg` | `<ip\|hostname>` | ICMP ping with RTT + loss stats |
 | **Bluetooth** | | | |
 | `scanblue` | `sbl` | — | BLE device scan (paginated) |
@@ -363,14 +364,15 @@ All scan results use a consistent table UI:
 - [x] WPA2 handshake capture + on-device crack (`wpasniff/ws`) — EAPOL sniff, PBKDF2+PRF512 crack, SD wordlist
 - [x] ARP LAN discovery (batch scan, paginated table)
 - [x] Parallel TCP port scan (4× tasks, 150 ms timeout)
-- [x] Top-26 ports scan
+- [x] Top-31 ports scan
 - [x] ICMP ping with RTT stats
-- [x] Banner grabber (`b` in port scan results)
+- [x] Banner grabber — protocol-aware, animated spinner, HTTP Server header extraction
+- [x] OS fingerprinting — TTL (lwip raw ICMP) + banner analysis + port-presence hints
 - [x] BLE scanner
 - [x] Anti-tracking detector (trackme)
 - [x] SD card file manager
 - [x] T-Deck Plus support (GPS + speaker diagnostics)
-- [x] Power save — inactivity dim, battery-aware dim, SD config
+- [x] Power save — inactivity dim (2 min), screen-off tier (5 min → brightness 0), battery-aware dim, SD config
 - [x] LoRa SX1262 diagnostic (TX, RX monitor, frequency switch)
 - [x] On-device man pages (`man/mn`) for all 29 commands
 - [x] Help sub-pagination — 5 commands per page, no more WiFi overflow

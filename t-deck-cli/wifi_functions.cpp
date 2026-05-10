@@ -65,7 +65,6 @@ static uint16_t rssiColor(int rssi) {
 
 static void triggerAsyncScan() {
     WiFi.mode(WIFI_STA);
-    MacChanger::getInstance().applyIfEnabled();
     WiFi.scanNetworks(true, true); // async=true, show_hidden=true — returns immediately
 }
 
