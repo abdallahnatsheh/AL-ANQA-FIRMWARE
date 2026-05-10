@@ -4,6 +4,14 @@ description: What is implemented vs what is not yet started
 type: project
 ---
 
+## Session 2026-05-10
+- MAC changer bug fix #1 — removed `esp_wifi_set_mode(WIFI_MODE_NULL)` trick that was corrupting scan subsystem (scan returned 0 results after any `mc` command)
+- MAC changer bug fix #2 — re-added `applyIfEnabled()` in `connectToWiFiCommand()` after `WiFi.mode(WIFI_STA)` because `WiFi.disconnect(true)` deinits driver and wipes custom MAC
+- Banner grabber overhaul — protocol-aware probing, 120ms animated spinner inlined in read loop, HTTP Server header extraction (384-byte buffer, `\nServer:` line search)
+- OS fingerprinting — TTL via lwip raw ICMP (`raw_pcb`, `ip4_current_header()`) + SSH/HTTP banner analysis + port-presence fallback (RDP/SMB/MSRPC → Windows)
+- Power save screen-off tier — 5 min inactivity → brightness 0, keypress wakes to 128; `set screenoff <s>` + `set screenoffmode on|off`
+- README + project memory updated; `feature/wpa-man-helpfix` merged into `feature/pentest-enhancements`
+
 ## Done
 - Bug fixes (all 8), keyboard polling fix, command buffer 128b
 - SD card manager, WiFi monitor, deauth attack, FreeRTOS task infra
