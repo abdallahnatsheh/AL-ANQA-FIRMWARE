@@ -1,0 +1,54 @@
+---
+title: Home
+nav_order: 1
+description: T-Rex offensive security firmware for LilyGo T-Deck
+permalink: /
+---
+
+# T-Rex
+
+**Offensive security firmware for the LilyGo T-Deck — hacker CLI in your pocket.**
+
+T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GUI — just a blinking cursor, a physical keyboard, and a full suite of offensive security tools running on an ESP32-S3.
+
+---
+
+> ⚠️ **Legal Disclaimer** — For authorized security testing, CTF competitions, and educational use only. Always get written permission before testing.
+
+---
+
+## Documentation
+
+| Guide | What's covered |
+|-------|---------------|
+| [WiFi Attacks](wifi-attacks) | scanwifi, connectwifi, wifimon, deauth, eviltwin, hiddenssid, wpasniff, macchanger |
+| [Network Recon](network) | netdiscover, portscan, topscan, ping, banner grabber, OS fingerprinting |
+| [Bluetooth](bluetooth) | scanblue, trackme |
+| [Anti-Tracking](trackme) | Full trackme algorithm guide — baseline, gates, GPS, alerts |
+| [System](system) | Trackpad, help, man pages, pwrsave, SD commands, diagnostics |
+
+---
+
+## Quick Start
+
+**Requirements:** [VSCode](https://code.visualstudio.com) + [PlatformIO](https://platformio.org) extension
+
+```bash
+git clone https://github.com/abdallahnatsheh/T-DECK-CLI
+# Open in VSCode → select env:T-Deck or env:T-Deck-Plus → click Upload
+```
+
+> **Can't upload?** Hold the trackball button, plug in USB, then try again — this forces download mode.
+
+---
+
+## Hardware
+
+| Component | Details |
+|-----------|---------|
+| Devices | LilyGo T-Deck · LilyGo T-Deck Plus |
+| MCU | ESP32-S3 (16 MB flash, 8 MB PSRAM) |
+| Display | 320×240 ST7789 TFT |
+| Input | Physical QWERTY keyboard + trackball |
+| Radio | WiFi 2.4 GHz · Bluetooth 5 · LoRa SX1262 |
+| GPS | L76K / u-blox M10Q (T-Deck Plus only) |

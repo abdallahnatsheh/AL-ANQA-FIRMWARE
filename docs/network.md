@@ -1,3 +1,8 @@
+---
+title: Network Recon
+nav_order: 3
+---
+
 # Network Recon Tools
 
 > All network tools require an active WiFi connection. Run `connectwifi` first.

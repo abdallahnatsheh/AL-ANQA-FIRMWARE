@@ -1,3 +1,8 @@
+---
+title: System
+nav_order: 6
+---
+
 # System Commands
 
 ---

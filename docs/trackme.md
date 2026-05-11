@@ -1,3 +1,8 @@
+---
+title: Anti-Tracking
+nav_order: 5
+---
+
 # Anti-Tracking (`trackme`) — Full Guide
 
 > **⚠️ Experimental:** `trackme` is a best-effort tool and may produce false positives. Radio signals alone cannot prove physical tracking — use results as a general indicator, not as conclusive evidence. GPS movement data (T-Deck Plus only) significantly improves accuracy.

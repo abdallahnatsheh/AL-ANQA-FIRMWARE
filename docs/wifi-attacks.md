@@ -1,3 +1,8 @@
+---
+title: WiFi Attacks
+nav_order: 2
+---
+
 # WiFi Attack Tools
 
 > All WiFi attacks require being in range of the target. Always run `scanwifi` first to populate the network list.

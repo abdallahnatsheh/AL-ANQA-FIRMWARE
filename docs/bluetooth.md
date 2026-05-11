@@ -1,3 +1,8 @@
+---
+title: Bluetooth
+nav_order: 4
+---
+
 # Bluetooth Tools
 
 ---
