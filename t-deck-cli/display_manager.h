@@ -49,9 +49,11 @@ public:
     void launchMatrixAnimation();
     void setTextSize(float size);
     void setBtActive(bool active);
+    void redrawCommandLine(const char* cmd, int cursorPos);
 private:
     LGFX& tft;
-    bool _btActive = false;
+    bool    _btActive  = false;
+    int32_t _cmdLineY  = outputY;
     DigitalRainAnimation<LGFX> matrix_effect = DigitalRainAnimation<LGFX>();
     void scrollIfNeeded();
 };

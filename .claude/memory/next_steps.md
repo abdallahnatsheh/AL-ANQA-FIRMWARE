@@ -4,12 +4,6 @@ description: Ordered feature queue — priority order, cut worthless items
 type: project
 ---
 
-## Input System (before anything else)
-
-0a. **Show last scan results** — `show/sh <wifi|ble|hosts|ports <ip>>`; render cached results without rescanning; reuse existing render functions; "No scan data" if cache empty.
-
-0b. **Cursor + inline editing via trackball** — cursor position in cmd buffer; trackball left/right moves cursor; insert at cursor; backspace deletes before cursor; trackball click = Enter; re-render prompt with cursor indicator. Confirm trackball GPIO pins before starting.
-
 ## WiFi Pentest
 
 1. **WPS flag in scanwifi** — detect WPS IE (tag 0xDD OUI 00:50:F2:04) in beacon frames; show cyan `[WPS]` tag in scan table.

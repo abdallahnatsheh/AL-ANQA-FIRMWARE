@@ -8,6 +8,7 @@ class NetworkScanner {
 public:
     NetworkScanner(DisplayManager& displayManager);
     void networkDiscovery();
+    void showHostResults();
     void networkPortScan(char* args);
     void topPortScan(char* args);
     void pingHost(char* args);

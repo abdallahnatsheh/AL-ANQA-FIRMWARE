@@ -16,6 +16,7 @@ class WiFiFunctions {
 public:
     WiFiFunctions(DisplayManager& displayManager);
     void scanWiFiNetworks();
+    void showWiFiResults();
     void connectToWiFiCommand(char* args);
     void clearAllWiFiCredentials();
     bool getNetworkInfo(int index, uint8_t* bssidOut, int* channelOut);

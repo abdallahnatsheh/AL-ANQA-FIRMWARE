@@ -173,7 +173,33 @@ void DisplayManager::clearScreen() {
     tft.fillRect(0, promptY + promptHeight, SCREEN_WIDTH, SCREEN_HEIGHT - (promptY + promptHeight), TFT_BLACK);
 }
 
+void DisplayManager::redrawCommandLine(const char* cmd, int cursorPos) {
+    tft.fillRect(0, _cmdLineY, SCREEN_WIDTH, LINE_HEIGHT + 2, TFT_BLACK);
+    tft.setCursor(10, _cmdLineY);
+    setDefaultTextSize();
+    tft.setTextColor(0x7BEF); tft.print("[");
+    tft.setTextColor(TFT_CYAN); tft.print(">");
+    tft.setTextColor(0x7BEF); tft.print("] ");
+
+    int len = (int)strlen(cmd);
+
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    for (int i = 0; i < cursorPos && i < len; i++) tft.print(cmd[i]);
+
+    if (cursorPos < len) {
+        tft.setTextColor(TFT_BLACK, TFT_CYAN);
+        tft.print(cmd[cursorPos]);
+        tft.setTextColor(TFT_WHITE, TFT_BLACK);
+        for (int i = cursorPos + 1; i < len; i++) tft.print(cmd[i]);
+    } else {
+        tft.setTextColor(TFT_CYAN, TFT_BLACK);
+        tft.print('_');
+    }
+    tft.setTextColor(TFT_WHITE);
+}
+
 void DisplayManager::printFirstCommandScreen(const char* command) {
+    _cmdLineY = outputY;
     tft.setCursor(10, outputY);
     setDefaultTextSize();
     tft.setTextColor(0x7BEF); tft.print("[");
@@ -268,6 +294,7 @@ void DisplayManager::printCommandScreen() {
     scrollIfNeeded();
     tft.println();
     tft.setCursor(10, tft.getCursorY());
+    _cmdLineY = tft.getCursorY();
     tft.setTextColor(0x7BEF); tft.print("[");
     tft.setTextColor(TFT_CYAN); tft.print(">");
     tft.setTextColor(0x7BEF); tft.print("] ");

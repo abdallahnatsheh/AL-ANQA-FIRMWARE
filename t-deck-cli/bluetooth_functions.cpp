@@ -104,6 +104,28 @@ static void renderBlePage(int page, int perPage, int total) {
     displayManager.printDefaultTableHelpInstructions();
 }
 
+void BluetoothFunctions::showBleResults() {
+    if (!bluetoothScanExecuted || s_bleCount == 0) {
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.println("No scan data. Run scanblue first.");
+        displayManager.printCommandScreen();
+        return;
+    }
+    const int perPage  = 10;
+    int total          = s_bleCount;
+    int totalPages     = max(1, (total + perPage - 1) / perPage);
+    int currentPage    = 0;
+    while (true) {
+        renderBlePage(currentPage, perPage, total);
+        while (true) {
+            char k = inputHandler.getKeyboardInput();
+            if (k == 'l' || k == 'L') { if (currentPage < totalPages - 1) currentPage++; break; }
+            if (k == 'a' || k == 'A') { if (currentPage > 0)              currentPage--; break; }
+            if (k == 'q' || k == 'Q') { displayManager.printCommandScreen(); return; }
+        }
+    }
+}
+
 void BluetoothFunctions::scanBluetoothDevices() {
     const int perPage = 10;
     int currentPage   = 0;

@@ -30,10 +30,16 @@ type: project
 - Help command sub-pagination (5 cmds/sub-page) — fixes WiFi category overflow (9 cmds → 2 sub-pages)
 - Man pages (`man/mn <cmd>`) — all 29 commands; SYNTAX/ABOUT/STEPS/KEYS/NOTE/FILES/WARNING labels in grey; l/a browse adjacent pages; short name lookup works
 
+## Session 2026-05-11
+- `show/sh <wifi|ble|hosts>` — re-display last scan without rescanning; reuses static render functions (renderScanPage / renderBlePage / renderArpPage) in same .cpp; "No scan data" guard
+- Trackpad cursor — GPIO edge detection on BOARD_TBOX_G02/G01/G04/G03 + BOARD_BOOT_PIN; `_cursorPos` tracking in CommandManager; insert-at-cursor with buffer shift; `redrawCommandLine()` in DisplayManager with inverted-color cursor char; `_cmdLineY` tracks scrolling prompt Y; click fires only on falling edge to prevent double-fire; `_tballLast[]` initialized from actual pin state in `begin()` to prevent false startup triggers
+- README: System features table, Commands table, Roadmap, Navigation section all updated
+- Memory files updated
+
 ## Not Yet Built
 - WPS flag in scanwifi output
 - macwatch / mw — MAC proximity watchlist
 - BLE GATT enumeration (`bleinfo/bi`)
 - LoRa scanner (`lorascan/ls`)
 - BadUSB / DuckyScript (`badusb/bu`)
-- Trackpad gestures, touchscreen, microphone
+- Touchscreen, microphone

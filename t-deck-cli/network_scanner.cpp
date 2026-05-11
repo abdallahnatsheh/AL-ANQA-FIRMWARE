@@ -499,6 +499,28 @@ static void renderArpPage(DisplayManager& dm, int page, int perPage,
     dm.printDefaultTableHelpInstructions();
 }
 
+void NetworkScanner::showHostResults() {
+    if (g_arpResults.empty()) {
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.println("No scan data. Run netdiscover first.");
+        displayManager.printCommandScreen();
+        return;
+    }
+    const int perPage  = 10;
+    int total          = (int)g_arpResults.size();
+    int totalPages     = max(1, (total + perPage - 1) / perPage);
+    int currentPage    = 0;
+    while (true) {
+        renderArpPage(displayManager, currentPage, perPage, total, totalPages);
+        while (true) {
+            char k = inputHandler.getKeyboardInput();
+            if (k == 'l' || k == 'L') { if (currentPage < totalPages - 1) currentPage++; break; }
+            if (k == 'a' || k == 'A') { if (currentPage > 0)              currentPage--; break; }
+            if (k == 'q' || k == 'Q') { displayManager.printCommandScreen(); return; }
+        }
+    }
+}
+
 void NetworkScanner::networkDiscovery() {
     if (WiFi.status() != WL_CONNECTED) {
         displayManager.setCursor(10, displayManager.getCursorY());

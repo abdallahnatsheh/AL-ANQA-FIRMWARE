@@ -67,6 +67,21 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "show", "sh", {
+        "SYNTAX   show <wifi|ble|hosts>",
+        "",
+        "ABOUT    Re-display the last scan result",
+        "         without running a new scan.",
+        "",
+        "OPTIONS  wifi  — last scanwifi table",
+        "         ble   — last scanblue table",
+        "         hosts — last netdiscover table",
+        "",
+        "KEYS     [l]/[a] pages  [q] quit",
+        "NOTE     'No scan data' if not run yet.",
+        nullptr
+    }},
+
     { "scanwifi", "sw", {
         "SYNTAX   scanwifi",
         "",

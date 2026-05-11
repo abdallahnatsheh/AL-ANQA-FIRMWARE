@@ -210,6 +210,28 @@ void WiFiFunctions::scanWiFiNetworks() {
     }
 }
 
+void WiFiFunctions::showWiFiResults() {
+    if (!networkScanExecuted || scanCache.empty()) {
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.println("No scan data. Run scanwifi first.");
+        displayManager.printCommandScreen();
+        return;
+    }
+    const int perPage  = 10;
+    int total          = (int)scanCache.size();
+    int totalPages     = max(1, (total + perPage - 1) / perPage);
+    int currentPage    = 0;
+    while (true) {
+        renderScanPage(displayManager, currentPage, perPage, total, totalPages);
+        while (true) {
+            char k = inputHandler.getKeyboardInput();
+            if (k == 'l' || k == 'L') { if (currentPage < totalPages - 1) currentPage++; break; }
+            if (k == 'a' || k == 'A') { if (currentPage > 0)              currentPage--; break; }
+            if (k == 'q' || k == 'Q') { displayManager.printCommandScreen(); return; }
+        }
+    }
+}
+
 // ── credentials ───────────────────────────────────────────────────────────────
 
 void WiFiFunctions::storeWiFiCredentials(const String& ssid, const String& password) {

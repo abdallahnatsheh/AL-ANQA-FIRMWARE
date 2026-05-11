@@ -12,6 +12,7 @@ class BluetoothFunctions {
 public:
     BluetoothFunctions();
     void scanBluetoothDevices();
+    void showBleResults();
 
 private:
     BLEScan* pBLEScan;

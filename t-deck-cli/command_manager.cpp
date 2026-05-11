@@ -36,7 +36,7 @@ void runGpsTest();
 void runSpeakerTest();
 void runLoraTest();
 
-CommandManager::CommandManager() : commandIndex(0), commandCount(0) {
+CommandManager::CommandManager() : commandIndex(0), commandCount(0), _cursorPos(0) {
     resetCommand();
 }
 
@@ -47,21 +47,52 @@ void CommandManager::registerCommand(const char* name, const char* shortName, Co
 }
 
 void CommandManager::processInput(char incoming) {
-        if (incoming != 0) {
-            if (incoming == '\n' || incoming == '\r') {
-                displayManager.newLine();
-                executeCommand();
-            } else if (incoming == '\b' && commandIndex > 0) {
-                commandIndex--;
-                command[commandIndex] = '\0';
-                displayManager.backspaceChar();
-            } else if (commandIndex < bufferSize - 1) {
-                command[commandIndex] = incoming;
-                commandIndex++;
-                command[commandIndex] = '\0';
-                displayManager.printText(incoming);
-            }
+    if (incoming == 0) return;
+
+    if (incoming == '\n' || incoming == '\r') {
+        displayManager.newLine();
+        executeCommand();
+    } else if (incoming == '\b') {
+        if (_cursorPos > 0) {
+            for (int i = _cursorPos - 1; i < (int)commandIndex - 1; i++)
+                command[i] = command[i + 1];
+            commandIndex--;
+            command[commandIndex] = '\0';
+            _cursorPos--;
+            displayManager.redrawCommandLine(command, _cursorPos);
         }
+    } else if (commandIndex < bufferSize - 1) {
+        for (int i = (int)commandIndex; i > _cursorPos; i--)
+            command[i] = command[i - 1];
+        command[_cursorPos] = incoming;
+        commandIndex++;
+        _cursorPos++;
+        command[commandIndex] = '\0';
+        displayManager.redrawCommandLine(command, _cursorPos);
+    }
+}
+
+void CommandManager::processTrackball(TrackballEvent evt) {
+    switch (evt) {
+        case TBALL_LEFT:
+            if (_cursorPos > 0) {
+                _cursorPos--;
+                displayManager.redrawCommandLine(command, _cursorPos);
+            }
+            break;
+        case TBALL_RIGHT:
+            if (_cursorPos < (int)commandIndex) {
+                _cursorPos++;
+                displayManager.redrawCommandLine(command, _cursorPos);
+            }
+            break;
+        case TBALL_CLICK:
+            displayManager.newLine();
+            executeCommand();
+            break;
+        default:
+            break;
+    }
 }
 
 void CommandManager::executeCommand() {
@@ -101,13 +132,21 @@ void CommandManager::executeCommand() {
 }
 
 
-void CommandManager::resetCommand () {
+void CommandManager::resetCommand() {
     memset(command, 0, bufferSize);
     commandIndex = 0;
+    _cursorPos   = 0;
 }
 
 void CommandManager::setupCommands() {
     // ── System ────────────────────────────────────────────────────────────────
+    registerCommand("show",        "sh",     [](char* a) {
+        if      (!a || !*a)              { displayManager.println("Usage: show <wifi|ble|hosts>"); displayManager.printCommandScreen(); }
+        else if (strcmp(a,"wifi")  == 0) { wifiFunctions.showWiFiResults(); }
+        else if (strcmp(a,"ble")   == 0) { bluetoothFunctions.showBleResults(); }
+        else if (strcmp(a,"hosts") == 0) { networkScanner.showHostResults(); }
+        else                             { displayManager.println("Usage: show <wifi|ble|hosts>"); displayManager.printCommandScreen(); }
+    },                                                                                                 "Show last scan: wifi|ble|hosts",          true,  "System");
     registerCommand("help",        "hlp",    [](char* a) { Utils::printHelp(a); },                                          "Help [cmd]",                              true,  "System");
     registerCommand("man",         "mn",     [](char* a) { manPages.show(a); },                                               "Manual: man <command>",                   true,  "System");
     registerCommand("info",        "inf",    [](char* a) { espInfoPrinter.printESPInfo(); },                                 "Device info (IP, MAC, battery)",          false, "System");

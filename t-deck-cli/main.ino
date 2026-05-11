@@ -57,4 +57,5 @@ void setup() {
 void loop() {
     char input = inputHandler.getKeyboardInput();
     commandManager.processInput(input);
+    commandManager.processTrackball(inputHandler.getTrackballEvent());
 }
