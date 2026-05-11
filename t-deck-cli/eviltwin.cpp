@@ -1,6 +1,6 @@
 // T-REX — offensive security firmware for LilyGo T-Deck
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Copyright (C) 2024 Abdallah Natsheh
+// Copyright (C) 2026 Abdallah Natsheh
 //
 // Portions derived from Bruce firmware (https://github.com/pr3y/Bruce)
 // Original: evil_portal.cpp/.h — captive portal logic + HTML templates

@@ -1,6 +1,6 @@
 // T-REX — offensive security firmware for LilyGo T-DECK
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Copyright (C) 2024 Abdallah Natsheh
+// Copyright (C) 2026 Abdallah Natsheh
 
 #include "man_pages.h"
 #include <cctype>
