@@ -1,19 +1,20 @@
 // T-Rex color scheme for just-the-docs
-// Dark terminal aesthetic — matches the on-device CLI
+// Dark terminal aesthetic — matches the on-device CLI logo
+// Cyan #00e5ff · Yellow #ffd600 · Red #ff1744 · Blue #1565c0
 
-$body-background-color:       #0d1117;   // near-black, GitHub dark bg
+$body-background-color:       #0d1117;   // near-black
 $sidebar-color:               #010409;   // deeper black for sidebar
-$body-heading-color:          #00e5ff;   // cyan — matches T-Rex prompt
+$body-heading-color:          #00e5ff;   // cyan headings — T-Rex prompt color
 $body-text-color:             #c9d1d9;   // light grey text
 $link-color:                  #00bcd4;   // cyan links
-$btn-primary-color:           #00e5ff;
-$base-button-color:           #161b22;
+$btn-primary-color:           #ffd600;   // yellow primary button
+$base-button-color:           #1565c0;   // blue secondary button
 $code-background-color:       #161b22;   // dark code blocks
-$border-color:                #30363d;   // subtle borders
+$border-color:                #ff1744;   // red borders — danger/alert accent
 $table-background-color:      #161b22;
 $search-background-color:     #161b22;
 $search-result-preview-color: #8b949e;
-$nav-child-link-color:        #8b949e;
+$nav-child-link-color:        #ffd600;   // yellow nav child links
 $feedback-color:              #0d1117;
-$code-linenumber-color:       #8b949e;
+$code-linenumber-color:       #ffd600;   // yellow line numbers
 $code-badge-background-color: #161b22;
