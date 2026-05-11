@@ -11,6 +11,10 @@
 </p>
 
 <p align="center">
+  <a href="https://abdallahnatsheh.github.io/T-DECK-CLI"><b>📖 Documentation</b></a>
+</p>
+
+<p align="center">
   <b>Offensive security firmware for the LilyGo T-Deck — hacker CLI in your pocket.</b><br/>
   <i>DISCOVER. ENUMERATE. COMPROMISE.</i>
 </p>
