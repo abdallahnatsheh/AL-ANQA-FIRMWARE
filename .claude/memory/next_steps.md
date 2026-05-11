@@ -6,9 +6,7 @@ type: project
 
 ## WiFi Pentest
 
-1. **WPS flag in scanwifi** — detect WPS IE (tag 0xDD OUI 00:50:F2:04) in beacon frames; show cyan `[WPS]` tag in scan table.
-
-2. **PMKID attack** — capture PMKID from single EAPOL frame (no client needed); reuse `wpasniff` crack logic. Command: `pmkid/pm <idx|bssid> [ch]`. Save to `/logs/pmkid.csv`.
+1. **PMKID attack** — capture PMKID from single EAPOL frame (no client needed); reuse `wpasniff` crack logic. Command: `pmkid/pm <idx|bssid> [ch]`. Save to `/logs/pmkid.csv`.
 
 3. **Karma / MANA** — softAP responding to any probe with matching SSID; log probing clients to `/logs/karma.csv`; `[p]` to attach captive portal. Command: `karma/km`.
 

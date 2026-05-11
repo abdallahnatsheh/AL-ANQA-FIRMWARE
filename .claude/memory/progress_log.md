@@ -36,8 +36,10 @@ type: project
 - README: System features table, Commands table, Roadmap, Navigation section all updated
 - Memory files updated
 
+## Session 2026-05-11 (continued)
+- WPS flag in `scanwifi` — reads `wifi_ap_record_t.wps` bit via `WiFi.getScanInfoByIndex(i)` cast; shows cyan ` WPS` tag after auth in scan table; zero extra scan overhead
+
 ## Not Yet Built
-- WPS flag in scanwifi output
 - macwatch / mw — MAC proximity watchlist
 - BLE GATT enumeration (`bleinfo/bi`)
 - LoRa scanner (`lorascan/ls`)

@@ -1,6 +1,7 @@
 #include <Preferences.h>
 #include <vector>
 #include <SD.h>
+#include <esp_wifi.h>
 #include "wifi_functions.h"
 #include "sdcard_manager.h"
 #include "input_handling.h"
@@ -82,6 +83,8 @@ static void populateScanCache(int& count, bool& done) {
         e.isOpen  = (WiFi.encryptionType(i) == WIFI_AUTH_OPEN);
         uint8_t* b = WiFi.BSSID(i);
         if (b) memcpy(e.bssid, b, 6);
+        wifi_ap_record_t* rec = (wifi_ap_record_t*)WiFi.getScanInfoByIndex(i);
+        e.wps = rec ? (bool)rec->wps : false;
         scanCache.push_back(e);
     }
     WiFi.scanDelete();
@@ -139,7 +142,9 @@ static void renderScanPage(DisplayManager& dm, int page, int perPage, int total,
         dm.printText(rssiStr);
 
         dm.setTextColor(e.isOpen ? TFT_MAGENTA : 0x7BEF);
-        dm.println(e.isOpen ? " OPEN" : " WPA");
+        dm.printText(e.isOpen ? " OPEN" : " WPA");
+        if (e.wps) { dm.setTextColor(TFT_CYAN); dm.printText(" WPS"); }
+        dm.println();
     }
 
     dm.printSeparator();

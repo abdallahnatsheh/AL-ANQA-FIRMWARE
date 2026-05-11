@@ -10,6 +10,7 @@ struct NetworkEntry {
     uint8_t bssid[6];
     int     channel;
     bool    isOpen;
+    bool    wps;
 };
 
 class WiFiFunctions {

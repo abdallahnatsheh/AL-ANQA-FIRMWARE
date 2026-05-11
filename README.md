@@ -47,6 +47,7 @@ Inspired by [Bruce](https://github.com/pr3y/Bruce), but with its own identity: n
 | Hidden SSID reveal (deauth+sniff, SD persist, scan table integration) | ✅ |
 | MAC spoofer — randomize or set STA MAC, hooks into scan/connect/deauth | ✅ |
 | WPA2 handshake capture + on-device crack (EAPOL sniff → PCAP, SD wordlist or built-in top-100) | ✅ |
+| WPS flag detection — cyan `WPS` tag in scan table | ✅ |
 
 ### 🌐 Network Recon
 | Feature | Status |
@@ -388,7 +389,7 @@ All scan results use a consistent table UI:
 - [x] Help sub-pagination — 5 commands per page, no more WiFi overflow
 - [x] Show last scan results without rescanning (`show/sh wifi|ble|hosts`)
 - [x] Trackpad cursor — left/right to move, insert mid-line, click = Enter
-- [ ] WPS flag detection in WiFi scan
+- [x] WPS flag detection — cyan `WPS` tag in scan table (`wifi_ap_record_t.wps` bit, zero extra scan overhead)
 - [ ] BadUSB / HID keystroke injection (DuckyScript)
 - [ ] BLE GATT enumeration (`bleinfo/bi`)
 - [ ] LoRa frequency scanner + packet logger
