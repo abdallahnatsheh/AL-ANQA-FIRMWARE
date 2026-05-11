@@ -5,6 +5,10 @@ description: T-Rex offensive security firmware for LilyGo T-Deck
 permalink: /
 ---
 
+<p align="center">
+  <img src="assets/images/banner.png" width="480"/>
+</p>
+
 # T-Rex
 
 **Offensive security firmware for the LilyGo T-Deck — hacker CLI in your pocket.**
