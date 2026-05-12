@@ -36,11 +36,17 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 
 ## Features
 
-**📡 WiFi** — [full guide](docs/wifi-attacks.md)
+**📡 WiFi Attacks** — [full guide](docs/wifi-attacks.md)
 - Scan, connect, monitor mode, deauth attack
 - Evil Twin AP with adaptive deauth + captive portal
 - Hidden SSID reveal, WPA2 handshake capture + on-device crack
 - MAC spoofer, WPS flag detection
+
+**🔑 WiFi Credentials** — [full guide](docs/wifi-credentials.md)
+- Saved credential manager (`wifipass`) — view all saved passwords
+- Auto-save on connect, NVS + SD dual storage
+- Linux `wpa_supplicant.conf` bidirectional sync — share networks between T-Deck and Linux
+- Desktop Linux migration via `nmcli` + `wpa_passphrase`
 
 **🌐 Network** — [full guide](docs/network.md)
 - ARP host discovery, TCP port scan (4× parallel), top-31 ports
@@ -97,7 +103,8 @@ git clone https://github.com/abdallahnatsheh/T-Rex
 | `pwrsave` | `psv` | `[status\|on\|off\|set ...]` | Power save config |
 | **WiFi** | | | |
 | `scanwifi` | `sw` | — | Scan WiFi networks |
-| `connectwifi` | `cw` | `<index>` | Connect to scanned network |
+| `connectwifi` | `cw` | `<index\|ssid>` | Connect by scan index or SSID name |
+| `wifipass` | `wp` | — | View all saved WiFi passwords |
 | `clearwifi` | `clrw` | — | Erase saved credentials |
 | `wifimon` | `wm` | `[ch]` | Monitor mode (ch 1-13, 0=hop) |
 | `deauth` | `da` | `<bssid\|#> [ch] [client]` | Deauth attack |
@@ -147,17 +154,22 @@ Trackball: roll left/right to move the cursor mid-command, click to execute.
 ## SD Layout
 
 ```
-/logs/          — eviltwin.csv, trackme.csv, hidden_ssids.csv, cracked.csv
-/evilportal/    — custom HTML portal templates
-/signatures.csv — custom BLE tracker signatures
-/pwrsave.json   — power save config
+/wpa_supplicant.conf  — saved WiFi credentials (Linux-compatible format)
+/wpa_supplicant.bak   — auto-backup of original file before T-Rex modifies it
+/logs/                — eviltwin.csv, trackme.csv, hidden_ssids.csv, cracked.csv
+/evilportal/          — custom HTML portal templates
+/wordlist.txt         — custom WPA crack wordlist
+/signatures.csv       — custom BLE tracker signatures
+/pwrsave.json         — power save config
 ```
+
+> See the [SD Card guide](docs/sdcard.md) for the full file reference and quick-start checklist.
 
 ---
 
 ## Roadmap
 
-- [x] WiFi scan, connect, monitor, deauth, Evil Twin, hidden SSID, MAC spoof, WPA2 crack, WPS flag
+- [x] WiFi scan, connect, monitor, deauth, Evil Twin, hidden SSID, MAC spoof, WPA2 crack, WPS flag, saved credential manager, Linux wpa_supplicant.conf sync
 - [x] ARP discovery, port scan, ping, banner grabber, OS fingerprinting
 - [x] BLE scanner, anti-tracking detector
 - [x] SD file manager, man pages, help, power save, trackpad cursor

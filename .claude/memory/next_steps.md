@@ -28,8 +28,6 @@ type: project
 
 10. **Beacon flood** — spam fake SSIDs; modes: `random` / `funny` / `rickroll` / `custom <ssid>`; raw 802.11 inject. Command: `beaconflood/bf [mode] [count]`.
 
-11. **WiFi Password Recovery** — list all SSIDs + saved passwords from NVS (Preferences). Command: `wifipass/wp`.
-
 ## Bluetooth
 
 12. **BLE Spam** — flood BLE ads spoofing Apple/Samsung/Windows/SwiftPair; endless pairing popups. Command: `blespam/bs [apple|samsung|windows|all]`.

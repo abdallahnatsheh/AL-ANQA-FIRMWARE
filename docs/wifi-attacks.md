@@ -30,14 +30,15 @@ The scan result is cached — use `show wifi` to view it again without rescannin
 ## `connectwifi` / `cw` — Connect to a Network
 
 ```
-CMD> cw <index>
+CMD> cw <index>       # connect by scan index from last sw
+CMD> cw <ssid>        # connect by SSID name — no scan needed
 ```
 
-Connects to a network by its index from the last scan. Passwords are saved to NVS and reused automatically on future connections.
+Connects to a network by scan index or SSID name. Passwords are resolved automatically from NVS or SD card; you are only prompted if the password is unknown.
 
-```
-CMD> cw 3
-```
+On successful connection the network is saved to `/wpa_supplicant.conf` on the SD card.
+
+> For credential management, Linux sync, and the `wifipass` command see the [WiFi Credentials](wifi-credentials) guide.
 
 ---
 
