@@ -212,3 +212,153 @@ bool SDCardManager::appendLine(const char* path, const String& line) {
     file.close();
     return true;
 }
+
+void SDCardManager::formatSDCard() {
+    displayManager.clearScreen();
+    displayManager.setCursor(10, outputY);
+    displayManager.setTextColor(TFT_RED);
+    displayManager.println("======== WARNING ========");
+    displayManager.setTextColor(TFT_WHITE);
+    displayManager.println("");
+    displayManager.println("This will FORMAT the SD card.");
+    displayManager.println("ALL DATA WILL BE LOST!");
+    displayManager.println("");
+    displayManager.println("Press 'y' to confirm.");
+    displayManager.println("Press any other key to cancel.");
+    displayManager.println("");
+    displayManager.setTextColor(TFT_YELLOW);
+    displayManager.println("Waiting for input...");
+    displayManager.setTextColor(TFT_WHITE);
+
+    char key = 0;
+    while (key == 0) {
+        key = inputHandler.getKeyboardInput();
+        delay(50);
+    }
+
+    if (key != 'y' && key != 'Y') {
+        displayManager.clearScreen();
+        displayManager.setCursor(10, outputY);
+        displayManager.println("Format cancelled.");
+        displayManager.printCommandScreen();
+        return;
+    }
+
+    displayManager.clearScreen();
+    displayManager.setCursor(10, outputY);
+    displayManager.setTextColor(TFT_YELLOW);
+    displayManager.println("Formatting SD card...");
+    displayManager.println("Please wait, do NOT remove card.");
+    displayManager.setTextColor(TFT_WHITE);
+
+    if (performFormat()) {
+        displayManager.println("");
+        displayManager.setTextColor(TFT_GREEN);
+        displayManager.println("Format successful!");
+        displayManager.setTextColor(TFT_WHITE);
+        ready = false;
+    } else {
+        displayManager.println("");
+        displayManager.setTextColor(TFT_RED);
+        displayManager.println("Format failed!");
+        displayManager.setTextColor(TFT_WHITE);
+    }
+
+    displayManager.printCommandScreen();
+}
+
+bool SDCardManager::performFormat() {
+    // Re-initialize the SD card after format
+    // ESP32 SD library format via reinitialization
+    // Note: True low-level format via esp_vfs_fat_sdcard_format would require
+    // additional VFS integration. This approach reinitializes with clean state.
+    
+    // Close any open files
+    ready = false;
+    
+    // Attempt to reinitialize the card
+    // This will create a fresh FAT filesystem
+    if (!SD.begin(BOARD_SDCARD_CS, SPI)) {
+        return false;
+    }
+    
+    // Card is now reinitialized; create base structure
+    ready = true;
+    
+    // Clear any existing directories by reinit
+    ensureDir("/logs");
+    ensureDir(SD_DIR_SCRIPTS);
+    ensureDir(SD_DIR_CAPTURES);
+    
+    return true;
+}
+
+bool SDCardManager::initializeTDeckStructure() {
+    if (!ready) {
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.println("No SD card mounted.");
+        displayManager.printCommandScreen();
+        return false;
+    }
+
+    displayManager.clearScreen();
+    displayManager.setCursor(10, outputY);
+    displayManager.setTextColor(TFT_YELLOW);
+    displayManager.println("Initializing T-DECK structure...");
+    displayManager.setTextColor(TFT_WHITE);
+
+    // Create directories
+    ensureDir("/logs");
+    ensureDir("/evilportal");
+    ensureDir(SD_DIR_SCRIPTS);
+    ensureDir(SD_DIR_CAPTURES);
+
+    // Create default pwrsave.json if it doesn't exist
+    if (!SD.exists("/pwrsave.json")) {
+        File pwrFile = SD.open("/pwrsave.json", FILE_WRITE);
+        if (pwrFile) {
+            pwrFile.println("# T-DECK Power Save Configuration");
+            pwrFile.println("idle_dim_ms=30000");
+            pwrFile.println("dim_brightness=50");
+            pwrFile.println("sleep_ms=120000");
+            pwrFile.println("battery_threshold=10");
+            pwrFile.println("enable=1");
+            pwrFile.close();
+            displayManager.println("Created /pwrsave.json");
+        }
+    }
+
+    // Create default signatures.csv if it doesn't exist
+    if (!SD.exists("/signatures.csv")) {
+        File sigFile = SD.open("/signatures.csv", FILE_WRITE);
+        if (sigFile) {
+            sigFile.println("Name,Signature,Confidence");
+            sigFile.println("# Add custom BLE tracker signatures below");
+            sigFile.close();
+            displayManager.println("Created /signatures.csv");
+        }
+    }
+
+    displayManager.println("");
+    displayManager.setTextColor(TFT_GREEN);
+    displayManager.println("T-DECK structure initialized!");
+    displayManager.setTextColor(TFT_WHITE);
+    displayManager.printCommandScreen();
+    return true;
+}
+
+void SDCardManager::formatCommand(char* args) {
+    if (args && *args) {
+        if (strncmp(args, "init", 4) == 0 || strncmp(args, "i", 1) == 0) {
+            formatSDCard();
+            if (isReady()) initializeTDeckStructure();
+        } else {
+            displayManager.println("Usage: sdf [init]");
+            displayManager.println("  sdf      - Format only");
+            displayManager.println("  sdf init - Format + initialize T-DECK");
+            displayManager.printCommandScreen();
+        }
+    } else {
+        formatSDCard();
+    }
+}

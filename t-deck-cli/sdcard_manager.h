@@ -25,6 +25,10 @@ public:
     bool removeFile(const char* path);
     bool appendLine(const char* path, const String& line);
     bool ensureDir(const char* path);
+    void formatSDCard();
+    bool performFormat();
+    bool initializeTDeckStructure();
+    void formatCommand(char* args);
 
 private:
     DisplayManager& displayManager;

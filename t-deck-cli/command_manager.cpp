@@ -178,6 +178,7 @@ void CommandManager::setupCommands() {
     registerCommand("sdls",        "ls",     [](char* a) { sdCardManager.listDirectory(a && *a ? a : "/"); },               "List SD directory [path]",                true,  "SD Card");
     registerCommand("sdread",      "sdr",    [](char* a) { if (a&&*a) sdCardManager.readFile(a); else displayManager.println("Usage: sdread <path>"); displayManager.printCommandScreen(); }, "Read file from SD",  true,  "SD Card");
     registerCommand("sdrm",        "srm",    [](char* a) { if (a&&*a) sdCardManager.removeFile(a); else displayManager.println("Usage: sdrm <path>");  displayManager.printCommandScreen(); }, "Delete file from SD", true, "SD Card");
+    registerCommand("sdformat",    "sdf",    [](char* a) { sdCardManager.formatCommand(a); },                                                   "Format SD to FAT: sdf [init]",            true,  "SD Card");
     // ── Diagnostics ───────────────────────────────────────────────────────────
     registerCommand("gpson",       "gon",    [](char* a) { runGpsOn(); },                                                   "GPS background task + live status",       false, "Diagnostics");
     registerCommand("gpsoff",      "gof",    [](char* a) { runGpsOff(); },                                                  "Stop GPS background task",                false, "Diagnostics");

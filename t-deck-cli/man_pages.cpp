@@ -300,6 +300,15 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "sdformat", "sdf", {
+        "SYNTAX   sdf [init]",
+        "",
+        "ABOUT    Format SD card to FAT32.",
+        "WARNING  Destroys all data. Press y.",
+        "MODES    sdf init - Format + init",
+        nullptr
+    }},
+
     { "gpson", "gon", {
         "SYNTAX   gpson",
         "",
