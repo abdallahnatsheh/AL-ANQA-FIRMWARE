@@ -14,10 +14,29 @@ bool SDCardManager::begin() {
         ready = false;
         return false;
     }
+
+    // Validate filesystem structure BEFORE marking ready
+    if (!ensureDir("/logs")) {
+        ready = false;
+        return false;
+    }
+
+    if (!ensureDir("/evilportal")) {
+        ready = false;
+        return false;
+    }
+
+    if (!ensureDir(SD_DIR_SCRIPTS)) {
+        ready = false;
+        return false;
+    }
+
+    if (!ensureDir(SD_DIR_CAPTURES)) {
+        ready = false;
+        return false;
+    }
+
     ready = true;
-    ensureDir("/logs");
-    ensureDir(SD_DIR_SCRIPTS);
-    ensureDir(SD_DIR_CAPTURES);
     return true;
 }
 
@@ -27,8 +46,18 @@ bool SDCardManager::isReady() const {
 
 bool SDCardManager::ensureDir(const char* path) {
     if (!ready) return false;
-    if (!SD.exists(path)) return SD.mkdir(path);
-    return true;
+
+    if (SD.exists(path)) {
+        File f = SD.open(path);
+        if (!f) return false;
+
+        bool isDir = f.isDirectory();
+        f.close();
+
+        return isDir;
+    }
+
+    return SD.mkdir(path);
 }
 
 void SDCardManager::printInfo() {
@@ -267,29 +296,46 @@ void SDCardManager::formatSDCard() {
     displayManager.printCommandScreen();
 }
 
+
+
 bool SDCardManager::performFormat() {
-    // Re-initialize the SD card after format
-    // ESP32 SD library format via reinitialization
-    // Note: True low-level format via esp_vfs_fat_sdcard_format would require
-    // additional VFS integration. This approach reinitializes with clean state.
-    
-    // Close any open files
     ready = false;
-    
-    // Attempt to reinitialize the card
-    // This will create a fresh FAT filesystem
-    if (!SD.begin(BOARD_SDCARD_CS, SPI)) {
+
+    // Unmount current filesystem
+    f_unmount("");
+
+    // Work buffer required by FatFs
+    BYTE work[FF_MAX_SS];
+
+    // Create FAT filesystem
+    FRESULT res = f_mkfs(
+        "",             // logical drive
+        FM_FAT32,       // FAT32
+        0,              // default allocation unit
+        work,
+        sizeof(work)
+    );
+
+    if (res != FR_OK) {
+        Serial.printf("Format failed: %d\n", res);
         return false;
     }
-    
-    // Card is now reinitialized; create base structure
+
+    // Remount SD
+    if (!SD.begin(BOARD_SDCARD_CS, SPI)) {
+        Serial.println("Remount failed");
+        return false;
+    }
+
     ready = true;
-    
-    // Clear any existing directories by reinit
-    ensureDir("/logs");
-    ensureDir(SD_DIR_SCRIPTS);
-    ensureDir(SD_DIR_CAPTURES);
-    
+
+    // Recreate required directories
+    if (!ensureDir("/logs")) return false;
+    if (!ensureDir(SD_DIR_SCRIPTS)) return false;
+    if (!ensureDir(SD_DIR_CAPTURES)) return false;
+
+    Serial.println("SD formatted successfully");
+
     return true;
 }
 
@@ -307,36 +353,62 @@ bool SDCardManager::initializeTDeckStructure() {
     displayManager.println("Initializing T-DECK structure...");
     displayManager.setTextColor(TFT_WHITE);
 
-    // Create directories
-    ensureDir("/logs");
-    ensureDir("/evilportal");
-    ensureDir(SD_DIR_SCRIPTS);
-    ensureDir(SD_DIR_CAPTURES);
-
-    // Create default pwrsave.json if it doesn't exist
-    if (!SD.exists("/pwrsave.json")) {
-        File pwrFile = SD.open("/pwrsave.json", FILE_WRITE);
-        if (pwrFile) {
-            pwrFile.println("# T-DECK Power Save Configuration");
-            pwrFile.println("idle_dim_ms=30000");
-            pwrFile.println("dim_brightness=50");
-            pwrFile.println("sleep_ms=120000");
-            pwrFile.println("battery_threshold=10");
-            pwrFile.println("enable=1");
-            pwrFile.close();
-            displayManager.println("Created /pwrsave.json");
-        }
+    // Create required directories
+    if (!ensureDir("/logs")) {
+        displayManager.println("Failed: /logs");
+        return false;
     }
 
-    // Create default signatures.csv if it doesn't exist
+    if (!ensureDir("/evilportal")) {
+        displayManager.println("Failed: /evilportal");
+        return false;
+    }
+
+    if (!ensureDir(SD_DIR_SCRIPTS)) {
+        displayManager.println("Failed: scripts");
+        return false;
+    }
+
+    if (!ensureDir(SD_DIR_CAPTURES)) {
+        displayManager.println("Failed: captures");
+        return false;
+    }
+
+    // Create pwrsave.json
+    if (!SD.exists("/pwrsave.json")) {
+        File pwrFile = SD.open("/pwrsave.json", FILE_WRITE);
+
+        if (!pwrFile) {
+            displayManager.println("Failed: /pwrsave.json");
+            return false;
+        }
+
+        pwrFile.println("{");
+        pwrFile.println("  \"idle_dim_ms\": 30000,");
+        pwrFile.println("  \"dim_brightness\": 50,");
+        pwrFile.println("  \"sleep_ms\": 120000,");
+        pwrFile.println("  \"battery_threshold\": 10,");
+        pwrFile.println("  \"enable\": 1");
+        pwrFile.println("}");
+
+        pwrFile.close();
+        displayManager.println("Created /pwrsave.json");
+    }
+
+    // Create signatures.csv
     if (!SD.exists("/signatures.csv")) {
         File sigFile = SD.open("/signatures.csv", FILE_WRITE);
-        if (sigFile) {
-            sigFile.println("Name,Signature,Confidence");
-            sigFile.println("# Add custom BLE tracker signatures below");
-            sigFile.close();
-            displayManager.println("Created /signatures.csv");
+
+        if (!sigFile) {
+            displayManager.println("Failed: /signatures.csv");
+            return false;
         }
+
+        sigFile.println("Name,Signature,Confidence");
+        sigFile.println("# Add custom BLE tracker signatures below");
+
+        sigFile.close();
+        displayManager.println("Created /signatures.csv");
     }
 
     displayManager.println("");
@@ -344,21 +416,27 @@ bool SDCardManager::initializeTDeckStructure() {
     displayManager.println("T-DECK structure initialized!");
     displayManager.setTextColor(TFT_WHITE);
     displayManager.printCommandScreen();
+
     return true;
 }
 
 void SDCardManager::formatCommand(char* args) {
     if (args && *args) {
-        if (strncmp(args, "init", 4) == 0 || strncmp(args, "i", 1) == 0) {
+        if (strcmp(args, "init") == 0) {
             formatSDCard();
-            if (isReady()) initializeTDeckStructure();
-        } else {
-            displayManager.println("Usage: sdf [init]");
-            displayManager.println("  sdf      - Format only");
-            displayManager.println("  sdf init - Format + initialize T-DECK");
+
+            if (isReady()) {
+                initializeTDeckStructure();
+            }
+        }
+        else {
+            displayManager.println("Usage:");
+            displayManager.println("  sdf        - Format SD card");
+            displayManager.println("  sdf init   - Format + initialize T-REX structure");
             displayManager.printCommandScreen();
         }
-    } else {
+    }
+    else {
         formatSDCard();
     }
 }

@@ -5,6 +5,8 @@
 #include <SD.h>
 #include <SPI.h>
 #include "display_manager.h"
+#include "ff.h"
+#include "diskio.h"
 
 #define SD_LOG_WIFI    "/logs/wifi.txt"
 #define SD_LOG_BT      "/logs/bt.txt"
