@@ -52,17 +52,41 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 
 ## Commands
 System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv`
-WiFi: `scanwifi/sw` `connectwifi/cw` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs`
+WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws`
 Network: `netdiscover/nd` `portscan/ps` `topscan/ts` `ping/pg`
 Bluetooth: `scanblue/sbl` `trackme/tm [silent]`
-SD: `sdinfo/sdi` `sdls/ls` `sdread/sdr` `sdrm/srm`
+SD: `sdinfo/sdi` `sdls/ls` `sdread/sdr` `sdrm/srm` `sdf/sdf`
 Diagnostics: `gpson/gon` `gpsoff/gof` `gpstest/gt` `spktest/st` `loratest/lt`
 
 ## SD Layout
-`/logs/` — eviltwin.csv · trackme.csv · trackme_known.csv · hidden_ssids.csv
+`/wpa_supplicant.conf` — saved WiFi credentials (Linux-compatible key=value)
+`/wpa_supplicant.bak` — auto-backup before first T-Rex modification
+`/wordlist.txt` — custom WPA crack wordlist (one password per line, ≥8 chars)
+`/pwrsave.conf` — power save config (key=value, NOT JSON)
+`/macchanger.conf` — MAC changer config (key=value)
+`/logs/` — eviltwin.csv · trackme.csv · trackme_known.csv · hidden_ssids.csv · cracked.csv
+`/logs/hs/` — WPA handshake pcap files (`<BSSID>.cap`, libpcap format, linktype 105)
 `/evilportal/` — custom HTML portal pages
 `/signatures.csv` — custom BLE tracker signatures
-`/pwrsave.json` — power save config
+
+## WiFi / SD — ESP32-S3 GDMA Rule
+**Never write to SD while WiFi is in APSTA or promiscuous mode** — WiFi and SPI share the GDMA controller on ESP32-S3; concurrent DMA corrupts FatFS.
+- Open SD files **before** `WiFi.mode(WIFI_MODE_APSTA)` / `esp_wifi_set_promiscuous(true)`
+- Do all SD writes **after** `WiFi.softAPdisconnect()` + `WiFi.mode(WIFI_STA)`
+- Never use `WiFi.disconnect(true)` — it calls `esp_wifi_stop()` which corrupts GDMA state; use `WiFi.disconnect(false)` instead
+- Never use `WiFi.mode(WIFI_OFF)` after attacks — use `WiFi.mode(WIFI_STA)` to leave WiFi initialized but idle
+
+**HandshakeCapture** (`handshake_capture.cpp/h`):
+- `ws <index|bssid> [ch]` — deauth + EAPOL sniff; stores M1+M2 in RAM (`g_whs`), writes pcap only after WiFi teardown
+- Promiscuous filter: `WIFI_PROMIS_FILTER_MASK_DATA` (EAPOL is a data frame)
+- On-device crack: PBKDF2(SSID,pass,4096,32) → PRF-512 → KCK → HMAC-SHA1 MIC verify
+- Wordlist: `/wordlist.txt` (SD, user choice) or built-in 100 passwords
+- Output: `/logs/hs/<BSSID>.cap` (aircrack-ng / hashcat hcxpcapngtool compatible) + `/logs/cracked.csv`
+
+**MACChanger** (`mac_changer.cpp/h`):
+- `applyIfEnabled()` only called in `scanWiFiNetworks()` and `connectToWiFiCommand()` — the two places where T-Rex's own MAC appears on the network
+- Never call in monitor/deauth/ws/hs — injected frames use spoofed SA, passive sniff doesn't transmit
+- Config: `/macchanger.conf` · Subcommands: `on|off|random|set <mac>|restore on|off|target wifi|bt|both|status`
 
 ## Coding Rules
 - New commands: one-liner in `setupCommands()`, assign a category
@@ -72,9 +96,9 @@ Diagnostics: `gpson/gon` `gpsoff/gof` `gpstest/gt` `spktest/st` `loratest/lt`
 - Poll `inputHandler.getKeyboardInput()` for `q` in every blocking loop
 - New modules: own `.cpp/.h` pair
 - Command buffer 128 bytes — keep syntax compact
+- SD + WiFi: follow the GDMA rule above — open files before WiFi, close after teardown
 
 ## Pending Features
-- WPA handshake capture (EAPOL → `.cap` on SD)
 - BadUSB / DuckyScript (TinyUSB)
 - BLE GATT enumeration (`bleinfo/bi <mac>`)
 - LoRa scanner / packet logger

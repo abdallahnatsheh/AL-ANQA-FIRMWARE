@@ -181,8 +181,13 @@ static void renderWpPage(const std::vector<WifiNetwork>& nets, int page, bool fr
     displayManager.setTextColor(0x7BEF);     displayManager.printText("::");
     displayManager.setTextColor(TFT_YELLOW); displayManager.printText("PASS");
     displayManager.setTextColor(0x7BEF);     displayManager.printText("|");
-    displayManager.setTextColor(fromSD ? TFT_GREEN : TFT_YELLOW);
-    displayManager.printText(fromSD ? "SD" : "NVS");
+    if (fromSD) {
+        displayManager.setTextColor(TFT_GREEN);  displayManager.printText("SD");
+        displayManager.setTextColor(0x7BEF);     displayManager.printText("+");
+        displayManager.setTextColor(TFT_YELLOW); displayManager.printText("NVS");
+    } else {
+        displayManager.setTextColor(TFT_YELLOW); displayManager.printText("NVS");
+    }
     displayManager.setTextColor(0x7BEF);     displayManager.printText("]  ");
     displayManager.setTextColor(0x7BEF);     displayManager.println(hdr);
     displayManager.printSeparator();
@@ -202,11 +207,16 @@ static void renderWpPage(const std::vector<WifiNetwork>& nets, int page, bool fr
             char idx[5]; snprintf(idx, sizeof(idx), "[%d]", i);
             displayManager.setTextColor(TFT_YELLOW);
             displayManager.printText(idx);
-            displayManager.printText(" ");
+            displayManager.setTextColor(0x7BEF);
+            displayManager.printText("[");
+            displayManager.setTextColor(n.fromSD ? TFT_GREEN : TFT_YELLOW);
+            displayManager.printText(n.fromSD ? "S" : "N");
+            displayManager.setTextColor(0x7BEF);
+            displayManager.printText("] ");
 
             // SSID — hidden networks get ~ prefix in cyan
-            char ssid[15];
-            snprintf(ssid, sizeof(ssid), "%s%.13s", n.hidden ? "~" : "", n.ssid.c_str());
+            char ssid[13];
+            snprintf(ssid, sizeof(ssid), "%s%.10s", n.hidden ? "~" : "", n.ssid.c_str());
             displayManager.setTextColor(n.hidden ? TFT_CYAN : TFT_WHITE);
             displayManager.printText(ssid);
             displayManager.printText(" ");
@@ -245,22 +255,99 @@ static void renderWpPage(const std::vector<WifiNetwork>& nets, int page, bool fr
     displayManager.setTextColor(TFT_WHITE);
 }
 
+// ── Export NVS → wpa_supplicant.conf ─────────────────────────────────────────
+
+void wifiExportCommand() {
+    displayManager.clearScreen();
+    displayManager.setCursor(10, outputY);
+    displayManager.setDefaultTextSize();
+
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("[");
+    displayManager.setTextColor(TFT_CYAN);   displayManager.printText("EXPORT");
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("::");
+    displayManager.setTextColor(TFT_YELLOW); displayManager.printText("WIFI");
+    displayManager.setTextColor(0x7BEF);     displayManager.println("]");
+    displayManager.printSeparator();
+
+    if (!sdCardManager.isReady()) {
+        displayManager.setTextColor(TFT_RED);
+        displayManager.println("No SD card.");
+        displayManager.setTextColor(TFT_WHITE);
+        displayManager.printCommandScreen();
+        return;
+    }
+
+    auto nets = loadNvsNetworks();
+    if (nets.empty()) {
+        displayManager.setTextColor(TFT_YELLOW);
+        displayManager.println("No NVS networks found.");
+        displayManager.setTextColor(TFT_WHITE);
+        displayManager.printCommandScreen();
+        return;
+    }
+
+    int ok = 0;
+    for (auto& n : nets) {
+        displayManager.setCursor(10, displayManager.getCursorY());
+        char label[18];
+        snprintf(label, sizeof(label), "%-16s", n.ssid.c_str());
+        displayManager.setTextColor(TFT_WHITE);
+        displayManager.printText(label);
+        int r = appendWpaNetwork(n);
+        if (r == 1) {
+            displayManager.setTextColor(TFT_GREEN);
+            displayManager.println("OK");
+            ok++;
+        } else if (r == 0) {
+            displayManager.setTextColor(0x7BEF);
+            displayManager.println("EXISTS");
+            ok++;
+        } else if (r == -2) {
+            displayManager.setTextColor(TFT_RED);
+            displayManager.println("WRITE ERR");
+        } else {
+            displayManager.setTextColor(TFT_RED);
+            displayManager.println("NO SD");
+        }
+        displayManager.setTextColor(TFT_WHITE);
+    }
+
+    displayManager.printSeparator();
+    displayManager.setCursor(10, displayManager.getCursorY());
+    char summary[32];
+    snprintf(summary, sizeof(summary), "%d/%d exported", ok, (int)nets.size());
+    displayManager.setTextColor(ok == (int)nets.size() ? TFT_GREEN : TFT_YELLOW);
+    displayManager.println(summary);
+    displayManager.setTextColor(TFT_WHITE);
+    displayManager.printCommandScreen();
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 void wifiPassCommand() {
-    auto nets  = parseWpaSupplicant();
-    bool fromSD = !nets.empty();
-    if (!fromSD) nets = loadNvsNetworks();
+    auto sdNets  = parseWpaSupplicant();
+    auto nvsNets = loadNvsNetworks();
 
+    for (auto& n : sdNets)  n.fromSD = true;
+
+    // merge: SD first, then NVS entries not already in SD (dedup by SSID)
+    std::vector<WifiNetwork> nets = sdNets;
+    for (auto& n : nvsNets) {
+        bool dup = false;
+        for (auto& s : sdNets) if (s.ssid == n.ssid) { dup = true; break; }
+        if (!dup) nets.push_back(n);
+    }
+
+    bool hasSD     = !sdNets.empty();
     int page       = 0;
     int totalPages = max(1, ((int)nets.size() + WP_PER_PAGE - 1) / WP_PER_PAGE);
-    renderWpPage(nets, page, fromSD);
+    renderWpPage(nets, page, hasSD);
 
     while (true) {
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
-        if ((k == 'l' || k == 'L') && page < totalPages - 1) { page++; renderWpPage(nets, page, fromSD); }
-        else if ((k == 'a' || k == 'A') && page > 0)          { page--; renderWpPage(nets, page, fromSD); }
+        if ((k == 'l' || k == 'L') && page < totalPages - 1) { page++; renderWpPage(nets, page, hasSD); }
+        else if ((k == 'a' || k == 'A') && page > 0)          { page--; renderWpPage(nets, page, hasSD); }
     }
     displayManager.tdeck_begin();
 }
@@ -298,11 +385,11 @@ static void ensureBackup() {
     if (dst) dst.close();
 }
 
-bool appendWpaNetwork(const WifiNetwork& net) {
+int appendWpaNetwork(const WifiNetwork& net) {
     // ── input validation ──────────────────────────────────────────────────────
-    if (net.ssid.isEmpty())                    return false;
-    if (!net.open && net.psk.isEmpty())        return false;
-    if (!sdCardManager.isReady())              return false;
+    if (net.ssid.isEmpty())                    return -1;
+    if (!net.open && net.psk.isEmpty())        return -1;
+    if (!sdCardManager.isReady())              return -1;
 
     String ssid = sanitize(net.ssid);
     String psk  = sanitize(net.psk);
@@ -317,13 +404,13 @@ bool appendWpaNetwork(const WifiNetwork& net) {
         for (const auto& n : existing) {
             if (n.ssid != net.ssid) continue;
             ssidInFile = true;
-            if (!n.isHashed) return true;   // plain PSK already saved — true duplicate
-            if (net.isHashed) return true;  // both hashed — nothing to improve
-            break;                           // existing hashed, we have plain — allow append
+            if (!n.isHashed) return 0;   // plain PSK already saved — true duplicate
+            if (net.isHashed) return 0;  // both hashed — nothing to improve
+            break;                        // existing hashed, we have plain — allow append
         }
         if (!ssidInFile && !net.bssid.isEmpty()) {
             for (const auto& n : existing)
-                if (n.bssid == net.bssid) return true;
+                if (n.bssid == net.bssid) return 0;
         }
     }
 
@@ -360,9 +447,18 @@ bool appendWpaNetwork(const WifiNetwork& net) {
     block += "}\n";
 
     // ── single write ──────────────────────────────────────────────────────────
-    File a = SD.open(WIFIPASS_PATH, FILE_APPEND);
-    if (!a) return false;
+    // FILE_APPEND silently fails when the file doesn't exist on a fresh FAT32
+    // card on some ESP32 SD library builds — use FILE_WRITE for new files only.
+    // Retry once: active WiFi connection keeps GDMA busy and can cause a
+    // transient SPI open failure even when the card is healthy.
+    auto openMode = isNew ? FILE_WRITE : FILE_APPEND;
+    File a = SD.open(WIFIPASS_PATH, openMode);
+    if (!a) {
+        delay(80);
+        a = SD.open(WIFIPASS_PATH, openMode);
+        if (!a) return -2;
+    }
     a.print(block);
     a.close();
-    return true;
+    return 1;
 }

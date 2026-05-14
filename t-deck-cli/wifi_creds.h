@@ -15,12 +15,14 @@ struct WifiNetwork {
     bool   isHashed = false;  // psk is 64-char hex PMK — cannot connect on ESP32
     bool   hidden   = false;  // scan_ssid=1
     bool   open     = false;  // key_mgmt=NONE
+    bool   fromSD   = false;  // display source tag [S] vs [N]
     int    priority = 0;
     String bssid;             // informational comment only, not a pin
 };
 
 void        wifiPassCommand();
+void        wifiExportCommand();
 WifiNetwork getWifiNetwork(const String& ssid);
-bool        appendWpaNetwork(const WifiNetwork& net);
+int         appendWpaNetwork(const WifiNetwork& net);  // 1=saved, 0=already exists, -1=no SD, -2=write failed
 
 #endif // WIFI_CREDS_H

@@ -178,6 +178,8 @@ static bool runAsyncScan(DisplayManager& dm, int& count, bool& done) {
 void WiFiFunctions::scanWiFiNetworks() {
     const int perPage = 10;
 
+    MacChanger::getInstance().applyIfEnabled();
+
     displayManager.clearScreen();
     displayManager.setCursor(10, outputY);
     displayManager.setTextColor(TFT_CYAN);
@@ -441,11 +443,17 @@ void WiFiFunctions::connectToWiFiCommand(char* args) {
                  bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
         newNet.bssid = String(bssidStr);
     }
-    bool sdSaved = appendWpaNetwork(newNet);
+    int sdResult = appendWpaNetwork(newNet);
     displayManager.setCursor(10, displayManager.getCursorY());
-    if (sdSaved) {
+    if (sdResult == 1) {
         displayManager.setTextColor(TFT_GREEN);
         displayManager.println("Saved to wpa_supplicant.conf");
+    } else if (sdResult == 0) {
+        displayManager.setTextColor(0x7BEF);
+        displayManager.println("Already in wpa_supplicant.conf");
+    } else if (sdResult == -2) {
+        displayManager.setTextColor(TFT_RED);
+        displayManager.println("SD write failed");
     } else {
         displayManager.setTextColor(0x7BEF);
         displayManager.println("NVS only (no SD card)");

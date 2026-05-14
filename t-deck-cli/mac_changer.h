@@ -14,13 +14,19 @@ public:
 
 private:
     MacChanger() = default;
-    bool    _enabled   = false;
-    bool    _useCustom = false;
-    uint8_t _customMac[6]  = {};
-    uint8_t _currentMac[6] = {};
+    bool    _enabled        = false;
+    bool    _useCustom      = false;
+    bool    _restoreOnExit  = true;
+    char    _target[8]      = "wifi";   // wifi | bt | both
+    uint8_t _customMac[6]    = {};
+    uint8_t _currentMac[6]   = {};
+    uint8_t _currentBleMac[6] = {};
 
     void randomMac(uint8_t* mac);
+    void randomBleMac(uint8_t* mac);
     void applyMac(const uint8_t* mac);
+    void applyBleMac(const uint8_t* mac);
+    void applyAll();
     void loadConfig();
     void saveConfig();
     void printStatus();
