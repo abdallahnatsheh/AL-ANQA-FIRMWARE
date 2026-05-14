@@ -88,17 +88,27 @@ static void drawBTIcon(LGFX& tft, int cx, int cy, bool active) {
     tft.drawLine(cx + 7, cy + 4, cx + 1, cy + 8, c);
 }
 
-static void drawBattery(LGFX& tft, int x, int y, int pct) {
-    // Each 20 % = one lit cell  (5 cells total, 2 px wide, 1 px gap)
-    int litCells = pct / 20;                              // 0-5
-    uint16_t c   = litCells > 2 ? TFT_GREEN
-                 : litCells > 1 ? TFT_YELLOW
-                 :                TFT_RED;
-    tft.drawRect(x, y, 18, 10, TFT_LIGHTGREY);           // outline
-    tft.fillRect(x + 18, y + 2, 3, 6, TFT_LIGHTGREY);   // nub
-    tft.fillRect(x + 1, y + 1, 16, 8, 0x000F);           // clear interior
-    for (int i = 0; i < 5; i++)
-        tft.fillRect(x + 2 + i * 3, y + 2, 2, 6, i < litCells ? c : 0x2104);
+static void drawBattery(LGFX& tft, int x, int y, int pct, bool charging) {
+    if (charging) {
+        tft.drawRect(x, y, 18, 10, TFT_CYAN);              // cyan outline = charging
+        tft.fillRect(x + 18, y + 2, 3, 6, TFT_CYAN);      // nub
+        tft.fillRect(x + 1, y + 1, 16, 8, 0x000F);         // clear interior
+        for (int i = 0; i < 5; i++)
+            tft.fillRect(x + 2 + i * 3, y + 2, 2, 6, TFT_CYAN);  // all cells lit
+        tft.setTextColor(TFT_CYAN);
+        tft.setCursor(x + 21, y + 1);
+        tft.print("+");
+    } else {
+        int litCells = pct / 20;                            // 0-5
+        uint16_t c   = litCells > 2 ? TFT_GREEN
+                     : litCells > 1 ? TFT_YELLOW
+                     :                TFT_RED;
+        tft.drawRect(x, y, 18, 10, TFT_LIGHTGREY);
+        tft.fillRect(x + 18, y + 2, 3, 6, TFT_LIGHTGREY);
+        tft.fillRect(x + 1, y + 1, 16, 8, 0x000F);
+        for (int i = 0; i < 5; i++)
+            tft.fillRect(x + 2 + i * 3, y + 2, 2, 6, i < litCells ? c : 0x2104);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -142,7 +152,7 @@ void DisplayManager::updateStatusBar() {
     drawBTIcon(tft, 255, promptY + 15, _btActive);
 
     // ── Battery ───────────────────────────────────────────────────────────────
-    drawBattery(tft, 275, promptY + 10, batteryManager.getPct());
+    drawBattery(tft, 275, promptY + 10, batteryManager.getPct(), batteryManager.isCharging());
 
     tft.setTextColor(TFT_WHITE);
 }

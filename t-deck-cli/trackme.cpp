@@ -117,7 +117,8 @@ bool TrackMeScanner::addToWhitelist(const uint8_t* mac, const char* label) {
     if (!sd.isReady()) return false;
     sd.ensureDir("/logs");
     String mac_str = macStr(mac);
-    sd.appendLine("/logs/trackme_known.csv", mac_str + "," + String(label));
+    if (sd.appendLine("/logs/trackme_known.csv", mac_str + "," + String(label)))
+        _sdNoticeMs = millis();
     return true;
 }
 
@@ -621,7 +622,8 @@ void TrackMeScanner::appendLog(const TrackedDev& d) {
         d.companyId, d.score,
         (unsigned long)((millis() - d.firstSeen) / 1000),
         d.rssiSmoothed);
-    sd.appendLine(SD_LOG_TRACKME, String(line));
+    if (sd.appendLine(SD_LOG_TRACKME, String(line)))
+        _sdNoticeMs = millis();
 }
 
 void TrackMeScanner::saveLog() {
@@ -637,6 +639,13 @@ void TrackMeScanner::drawHeader() {
         dm.printText("[MUTE][q]", 210, promptY + 9, TFT_YELLOW);
     else
         dm.printText("[q]quit",   250, promptY + 9, TFT_WHITE);
+}
+
+// ── SD save notice (drawn directly into the alert bar row) ───────────────────
+void TrackMeScanner::drawSdNotice(const char* msg) {
+    int alertY = outputY + LINE_HEIGHT * 10;
+    dm.fillRect(0, alertY, SCREEN_WIDTH, LINE_HEIGHT + 2, TFT_BLACK);
+    dm.printText(msg, 4, alertY + 1, TFT_GREEN);
 }
 
 // ── full screen redraw ────────────────────────────────────────────────────────
@@ -783,8 +792,14 @@ void TrackMeScanner::drawScreen(ThreatLevel highestLevel,
         alertBg = TFT_BLACK; alertFg = TFT_YELLOW;
         snprintf(alertText, sizeof(alertText), "[ ] NOTICE: %.29s", alertName);
     } else {
-        alertBg = TFT_BLACK; alertFg = 0x7BEF;
-        strcpy(alertText, "    No threats detected");
+        alertBg = TFT_BLACK;
+        if (_sdNoticeMs && millis() - _sdNoticeMs < 3000) {
+            alertFg = TFT_GREEN;
+            strcpy(alertText, "  Saved to SD: /logs/trackme.txt");
+        } else {
+            alertFg = 0x7BEF;
+            strcpy(alertText, "    No threats detected");
+        }
     }
 
     dm.fillRect(0, alertY, SCREEN_WIDTH, LINE_HEIGHT + 2, alertBg);
@@ -818,11 +833,12 @@ void TrackMeScanner::start(bool silent) {
     memset(k1, 0, sizeof(k1));
     memset(k2, 0, sizeof(k2));
     _rHead = 0; _rTail = 0;
-    page         = 0;
-    startMs      = millis();
-    _totalDistM  = 0.0f;
-    _gpsMoving   = false;
+    page          = 0;
+    startMs       = millis();
+    _totalDistM   = 0.0f;
+    _gpsMoving    = false;
     _baselineDone = false;
+    _sdNoticeMs   = 0;
     loadWhitelist();
 
     if (!s_bleInited) {
@@ -1108,7 +1124,17 @@ void TrackMeScanner::start(bool silent) {
             memset(k1, 0, sizeof(k1)); memset(k2, 0, sizeof(k2));
             page = 0; alertActive = false;
         }
-        if (k == 's' || k == 'S') saveLog();
+        if (k == 's' || k == 'S') {
+            uint32_t before = _sdNoticeMs;
+            saveLog();
+            if (_sdNoticeMs != before) {
+                char msg[48];
+                snprintf(msg, sizeof(msg), "  Saved %d devices to SD", tier1Count + tier2Count);
+                drawSdNotice(msg);
+            } else {
+                drawSdNotice("  No SD card - nothing saved");
+            }
+        }
         if (k == 'w' || k == 'W') {
             // Whitelist the highest-threat non-companion tier1 device
             int best = -1;
@@ -1129,7 +1155,11 @@ void TrackMeScanner::start(bool silent) {
                 tier1[best].isCompanion  = true;
                 tier1[best].alertLevel   = THREAT_NONE;
                 tier1[best].alertFired   = false;
+                uint32_t before = _sdNoticeMs;
                 addToWhitelist(tier1[best].mac, lbl);
+                drawSdNotice(_sdNoticeMs != before
+                    ? "  Device trusted + saved to whitelist"
+                    : "  Device trusted (no SD - session only)");
             }
         }
     }

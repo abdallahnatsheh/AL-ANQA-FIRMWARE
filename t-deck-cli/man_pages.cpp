@@ -59,7 +59,7 @@ static const ManEntry PAGES[] = {
         "         pwrsave set <option> <value>",
         "",
         "ABOUT    Dim on inactivity + battery level.",
-        "         Config saved to /pwrsave.json.",
+        "         Config saved to /pwrsave.conf.",
         "",
         "OPTIONS  dim_timeout <secs>  dim_lvl <0-255>",
         "         bat_threshold <%>  bat_dim_lvl <0-255>",
@@ -109,6 +109,29 @@ static const ManEntry PAGES[] = {
         "",
         "ABOUT    Erase all saved WiFi passwords.",
         "NOTE     Does not disconnect active session.",
+        nullptr
+    }},
+
+    { "wifipass", "wp", {
+        "SYNTAX   wifipass",
+        "",
+        "ABOUT    Browse saved WiFi passwords.",
+        "         Reads wpa_supplicant.conf from SD.",
+        "         Falls back to NVS if no SD card.",
+        "",
+        "KEYS     [a]prev [l]next [q]quit",
+        nullptr
+    }},
+
+    { "wifiexport", "wex", {
+        "SYNTAX   wifiexport",
+        "",
+        "ABOUT    Copy NVS networks to SD card.",
+        "         Writes to /wpa_supplicant.conf.",
+        "         Skips duplicates already on SD.",
+        "         File stays Linux-compatible.",
+        "",
+        "FILE     /wpa_supplicant.conf",
         nullptr
     }},
 
@@ -162,15 +185,17 @@ static const ManEntry PAGES[] = {
     }},
 
     { "macchanger", "mc", {
-        "SYNTAX   mc on|off|random|set <mac>",
+        "SYNTAX   mc [on|off|random|set <mac>]",
+        "         mc restore on|off",
+        "         mc target wifi|bt|both",
         "",
-        "ABOUT    Spoof STA MAC address. Auto-random",
+        "ABOUT    Spoof WiFi/BLE MAC. Auto-random",
         "         on scan/connect when enabled.",
-        "         Applied in deauth + wpasniff too.",
+        "         Config: /macchanger.conf",
         "",
-        "EXAMPLE  mc on",
+        "EXAMPLE  mc on  |  mc random  |  mc off",
         "         mc set 02:AB:CD:EF:12:34",
-        "         mc off      (restore real MAC)",
+        "         mc target bt",
         nullptr
     }},
 
@@ -286,7 +311,7 @@ static const ManEntry PAGES[] = {
         "         Long files are paginated.",
         "",
         "EXAMPLE  sdr /logs/cracked.csv",
-        "         sdr /pwrsave.json",
+        "         sdr /pwrsave.conf",
         nullptr
     }},
 
@@ -297,6 +322,15 @@ static const ManEntry PAGES[] = {
         "WARNING  No confirmation — immediate.",
         "",
         "EXAMPLE  srm /logs/eviltwin.csv",
+        nullptr
+    }},
+
+    { "sdformat", "sdf", {
+        "SYNTAX   sdf [init]",
+        "",
+        "ABOUT    Format SD card to FAT32.",
+        "WARNING  Destroys all data. Press y.",
+        "MODES    sdf init - Format + init",
         nullptr
     }},
 

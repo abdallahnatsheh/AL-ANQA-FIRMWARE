@@ -283,9 +283,16 @@ void WiFiMonitor::drawDisplay() {
 void WiFiMonitor::start(int fixedChannel) {
     resetStats();
 
-    // disconnect & switch to station mode to enable promiscuous
-    WiFi.disconnect(true);
+    // disconnect from AP without stopping WiFi — WiFi.disconnect(true) calls
+    // esp_wifi_stop() which corrupts GDMA state and breaks subsequent SD access.
+    // Explicitly reset the promiscuous filter: a prior ws/da session leaves it
+    // set to DATA-only, which would hide all beacon/management frames from wm.
+    WiFi.disconnect(false);
     WiFi.mode(WIFI_STA);
+    wifi_promiscuous_filter_t wmFilt = {
+        .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA
+    };
+    esp_wifi_set_promiscuous_filter(&wmFilt);
     esp_wifi_set_promiscuous(true);
     esp_wifi_set_promiscuous_rx_cb(rxCallback);
 

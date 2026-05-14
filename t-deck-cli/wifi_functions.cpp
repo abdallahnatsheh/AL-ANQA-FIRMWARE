@@ -3,6 +3,7 @@
 #include <SD.h>
 #include <esp_wifi.h>
 #include "wifi_functions.h"
+#include "wifi_creds.h"
 #include "sdcard_manager.h"
 #include "input_handling.h"
 #include "utils.h"
@@ -177,6 +178,8 @@ static bool runAsyncScan(DisplayManager& dm, int& count, bool& done) {
 void WiFiFunctions::scanWiFiNetworks() {
     const int perPage = 10;
 
+    MacChanger::getInstance().applyIfEnabled();
+
     displayManager.clearScreen();
     displayManager.setCursor(10, outputY);
     displayManager.setTextColor(TFT_CYAN);
@@ -290,34 +293,77 @@ String WiFiFunctions::readPassword() {
 // ── connect ───────────────────────────────────────────────────────────────────
 
 void WiFiFunctions::connectToWiFiCommand(char* args) {
-    if (!networkScanExecuted || scanCache.empty()) {
-        displayManager.println("Run scanwifi first.");
+    if (!args || !*args) {
+        displayManager.println("Usage: cw <index> or cw <ssid>");
         displayManager.printCommandScreen();
         return;
     }
 
+    String  ssid;
+    String  password  = "";
+    bool    isOpen    = false;
+    bool    isHidden  = false;
+    uint8_t bssid[6]  = {0};
+    bool    hasBssid  = false;
+
+    // ── resolve by scan index ─────────────────────────────────────────────────
     int idx = -1;
-    if (sscanf(args, "%d", &idx) != 1 || idx < 0 || idx >= numberOfNetworks) {
-        displayManager.println("Invalid index.");
-        displayManager.printCommandScreen();
-        return;
+    if (sscanf(args, "%d", &idx) == 1 && idx >= 0 && networkScanExecuted && idx < numberOfNetworks) {
+        const NetworkEntry& net = scanCache[idx];
+        ssid     = String(net.ssid);
+        isOpen   = net.isOpen;
+        memcpy(bssid, net.bssid, 6);
+        hasBssid = true;
+        // hidden network revealed by hiddenssid — ssid is "" in scan cache
+        if (ssid.isEmpty()) {
+            const char* resolved = lookupHidden(net.bssid);
+            if (resolved && resolved[0] != '\0') {
+                ssid = String(resolved); isHidden = true;
+            } else {
+                displayManager.println("Hidden SSID unknown.");
+                displayManager.println("Run hiddenssid first,");
+                displayManager.println("or: cw <ssid>");
+                displayManager.printCommandScreen();
+                return;
+            }
+        }
+
+    // ── resolve by SSID name (hidden / known, no scan needed) ─────────────────
+    } else {
+        ssid = String(args);
+        ssid.trim();
+        if (ssid.isEmpty()) {
+            displayManager.println("Usage: cw <index> or cw <ssid>");
+            displayManager.printCommandScreen();
+            return;
+        }
+        WifiNetwork saved = getWifiNetwork(ssid);
+        if (!saved.ssid.isEmpty()) {
+            isOpen   = saved.open;
+            isHidden = saved.hidden;
+        }
     }
 
-    const NetworkEntry& net = scanCache[idx];
-    String ssid(net.ssid);
-    String password = "";
-
+    // ── header ────────────────────────────────────────────────────────────────
     displayManager.clearScreen();
     displayManager.setCursor(10, outputY);
     displayManager.setTextColor(TFT_CYAN);
-    displayManager.println("-- Connect to WiFi --");
+    displayManager.println(isHidden ? "-- Connect (hidden) --" : "-- Connect to WiFi --");
     displayManager.setTextColor(TFT_WHITE);
     displayManager.setCursor(10, displayManager.getCursorY());
     displayManager.printText("SSID: ");
     displayManager.println(ssid);
 
-    if (!net.isOpen) {
+    // ── password resolution ───────────────────────────────────────────────────
+    if (!isOpen) {
         password = getWiFiPassword(ssid);
+        if (password.isEmpty()) {
+            WifiNetwork sdNet = getWifiNetwork(ssid);
+            if (!sdNet.ssid.isEmpty() && !sdNet.isHashed && !sdNet.open)  {
+                password = sdNet.psk;
+                storeWiFiCredentials(ssid, password);
+            }
+        }
         if (password.isEmpty()) {
             displayManager.setCursor(10, displayManager.getCursorY());
             displayManager.setTextColor(TFT_YELLOW);
@@ -346,6 +392,7 @@ void WiFiFunctions::connectToWiFiCommand(char* args) {
         }
     }
 
+    // ── connect ───────────────────────────────────────────────────────────────
     displayManager.setCursor(10, displayManager.getCursorY());
     displayManager.setTextColor(TFT_CYAN);
     displayManager.printText("Connecting");
@@ -356,7 +403,7 @@ void WiFiFunctions::connectToWiFiCommand(char* args) {
     WiFi.mode(WIFI_STA);
     MacChanger::getInstance().applyIfEnabled();
     WiFi.setHostname("T-DECK");
-    WiFi.begin(ssid.c_str(), net.isOpen ? nullptr : password.c_str());
+    WiFi.begin(ssid.c_str(), isOpen ? nullptr : password.c_str());
 
     unsigned long start = millis();
     while (WiFi.status() != WL_CONNECTED) {
@@ -375,6 +422,7 @@ void WiFiFunctions::connectToWiFiCommand(char* args) {
         displayManager.printText(".");
     }
 
+    // ── success ───────────────────────────────────────────────────────────────
     displayManager.println();
     displayManager.setCursor(10, displayManager.getCursorY());
     displayManager.setTextColor(TFT_GREEN);
@@ -383,6 +431,34 @@ void WiFiFunctions::connectToWiFiCommand(char* args) {
     displayManager.setCursor(10, displayManager.getCursorY());
     displayManager.printText("IP: ");
     displayManager.println(WiFi.localIP().toString());
+
+    WifiNetwork newNet;
+    newNet.ssid   = ssid;
+    newNet.psk    = password;
+    newNet.open   = isOpen;
+    newNet.hidden = isHidden;
+    if (hasBssid) {
+        char bssidStr[18];
+        snprintf(bssidStr, sizeof(bssidStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
+        newNet.bssid = String(bssidStr);
+    }
+    int sdResult = appendWpaNetwork(newNet);
+    displayManager.setCursor(10, displayManager.getCursorY());
+    if (sdResult == 1) {
+        displayManager.setTextColor(TFT_GREEN);
+        displayManager.println("Saved to wpa_supplicant.conf");
+    } else if (sdResult == 0) {
+        displayManager.setTextColor(0x7BEF);
+        displayManager.println("Already in wpa_supplicant.conf");
+    } else if (sdResult == -2) {
+        displayManager.setTextColor(TFT_RED);
+        displayManager.println("SD write failed");
+    } else {
+        displayManager.setTextColor(0x7BEF);
+        displayManager.println("NVS only (no SD card)");
+    }
+    displayManager.setTextColor(TFT_WHITE);
     delay(3000);
     displayManager.tdeck_begin();
 }

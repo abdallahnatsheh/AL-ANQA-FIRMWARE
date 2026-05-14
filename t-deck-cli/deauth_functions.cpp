@@ -9,7 +9,6 @@
 #include "deauth_functions.h"
 #include "input_handling.h"
 #include "task_manager.h"
-#include "mac_changer.h"
 
 extern InputHandling inputHandler;
 
@@ -177,7 +176,6 @@ void DeauthAttack::start(char* args) {
 void DeauthAttack::sendDeauthFrames(const uint8_t* bssid, const uint8_t* client,
                                      int channel, bool directed) {
     WiFi.mode(WIFI_MODE_APSTA);
-    MacChanger::getInstance().applyIfEnabled();
     WiFi.softAP("x", nullptr, channel, 1, 0, false);
     delay(100);
     esp_wifi_set_promiscuous(true);
@@ -254,7 +252,7 @@ void DeauthAttack::sendDeauthFrames(const uint8_t* bssid, const uint8_t* client,
     TaskManager::cleanup();
     esp_wifi_set_promiscuous(false);
     WiFi.softAPdisconnect(true);
-    WiFi.mode(WIFI_OFF);
+    WiFi.mode(WIFI_STA);
 
     displayManager.clearScreen();
     displayManager.setCursor(10, outputY);

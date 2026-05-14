@@ -17,6 +17,7 @@ public:
 
     int   getPct();
     float getVolts();
+    bool  isCharging();
 
 private:
     Pangodream_18650_CL bl;

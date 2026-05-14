@@ -39,6 +39,16 @@ type: project
 ## Session 2026-05-11 (continued)
 - WPS flag in `scanwifi` — reads `wifi_ap_record_t.wps` bit via `WiFi.getScanInfoByIndex(i)` cast; shows cyan ` WPS` tag after auth in scan table; zero extra scan overhead
 
+## Session 2026-05-12
+- `wifipass/wp` command — paginated saved credentials viewer; SD (wpa_supplicant.conf) with NVS fallback; shows SSID, plain password, `[open]`, `[hex-psk]`, hidden `~`, BSSID/priority sub-line; `l/a/q` navigation
+- Full Linux wpa_supplicant.conf bidirectional compatibility — new `wifi_creds` module (wifi_creds.h/cpp): `WifiNetwork` struct, `parseWpaSupplicant()`, `appendWpaNetwork()`, `getWifiNetwork()`
+- Parser handles all Linux formats: `psk="plain"`, `#psk="plain"` (wpa_passphrase recovery), `psk=hexhash` (marked unusable), `key_mgmt=NONE`, `scan_ssid=1`, `priority=`, global fields silently skipped
+- Auto-save credentials to SD on successful connect (after `WL_CONNECTED` only — wrong password never saved); backup-before-modify (`wpa_supplicant.bak`)
+- `connectwifi/cw` extended to accept SSID name in addition to scan index — enables hidden + offline network connections
+- Self-healing upgrade: when Linux `update_config=1` strips `#psk=` comment leaving hex-only entry, T-Rex prompts user once → appends plain entry → parser prefers plain over hashed on next read
+- `SD_LAYOUT.md` created — documents all SD files, auto-created vs manual, Linux sync workflow, limitations (hex SSID unsupported, EAP unsupported, update_config=1 caveat), desktop Linux migration steps (nmcli + wpa_passphrase)
+- Bugs fixed: NVS v5 iterator leak, empty SSID silent timeout on hidden index connect, duplicate entries from Linux-imported files (BSSID-only dedup → SSID-primary dedup), SD_LAYOUT.md false claim about update_config=1 preserving comments
+
 ## Not Yet Built
 - macwatch / mw — MAC proximity watchlist
 - BLE GATT enumeration (`bleinfo/bi`)

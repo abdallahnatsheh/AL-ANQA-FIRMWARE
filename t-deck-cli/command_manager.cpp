@@ -15,6 +15,7 @@
 #include "powersave_manager.h"
 #include "mac_changer.h"
 #include "man_pages.h"
+#include "wifi_creds.h"
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
 extern WiFiFunctions      wifiFunctions;
@@ -163,6 +164,8 @@ void CommandManager::setupCommands() {
     registerCommand("hiddenssid",  "hs",     [](char* a) { hiddenSSID.start(a); },                                          "Uncover hidden SSID: hs <idx|bssid> [ch] [silent]", true,  "WiFi");
     registerCommand("macchanger",  "mc",     [](char* a) { MacChanger::getInstance().handleCommand(a); },                   "MAC spoof: mc on/off/random/set <mac>",              true,  "WiFi");
     registerCommand("wpasniff",    "ws",     [](char* a) { handshakeCapture.start(a); },                                      "WPA2 handshake: ws <idx|bssid> [ch]",                true,  "WiFi");
+    registerCommand("wifipass",    "wp",     [](char* a) { wifiPassCommand(); },                                               "Saved WiFi passwords",                    false, "WiFi");
+    registerCommand("wifiexport",  "wex",    [](char* a) { wifiExportCommand(); },                                             "Export NVS networks to wpa_supplicant",   false, "WiFi");
     // ── Network ───────────────────────────────────────────────────────────────
     registerCommand("netdiscover", "nd",     [](char* a) { networkScanner.networkDiscovery(); },                             "ARP scan local subnet",                   false, "Network");
     registerCommand("portscan",    "ps",     [](char* a) { networkScanner.networkPortScan(a); },                            "Port scan: ps <ip|#> <start> <end>",      true,  "Network");
@@ -176,6 +179,7 @@ void CommandManager::setupCommands() {
     registerCommand("sdls",        "ls",     [](char* a) { sdCardManager.listDirectory(a && *a ? a : "/"); },               "List SD directory [path]",                true,  "SD Card");
     registerCommand("sdread",      "sdr",    [](char* a) { if (a&&*a) sdCardManager.readFile(a); else displayManager.println("Usage: sdread <path>"); displayManager.printCommandScreen(); }, "Read file from SD",  true,  "SD Card");
     registerCommand("sdrm",        "srm",    [](char* a) { if (a&&*a) sdCardManager.removeFile(a); else displayManager.println("Usage: sdrm <path>");  displayManager.printCommandScreen(); }, "Delete file from SD", true, "SD Card");
+    registerCommand("sdformat",    "sdf",    [](char* a) { sdCardManager.formatCommand(a); },                                                   "Format SD to FAT: sdf [init]",            true,  "SD Card");
     // ── Diagnostics ───────────────────────────────────────────────────────────
     registerCommand("gpson",       "gon",    [](char* a) { runGpsOn(); },                                                   "GPS background task + live status",       false, "Diagnostics");
     registerCommand("gpsoff",      "gof",    [](char* a) { runGpsOff(); },                                                  "Stop GPS background task",                false, "Diagnostics");

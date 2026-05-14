@@ -9,8 +9,9 @@ float BatteryManager::getVolts() {
 }
 
 void BatteryManager::printBatteryInfo() {
-    float volts = bl.getBatteryVolts();
-    int   pct   = (int)voltageToPercentage(volts);
+    float volts   = bl.getBatteryVolts();
+    bool  chg     = volts > 4.5f;
+    int   pct     = (int)voltageToPercentage(chg ? 4.2f : volts);  // clamp for display
     uint16_t color = pct >= 60 ? TFT_GREEN : (pct >= 30 ? TFT_YELLOW : TFT_RED);
 
     char buf[40];
@@ -18,9 +19,14 @@ void BatteryManager::printBatteryInfo() {
     displayManager.setTextColor(TFT_WHITE);
     displayManager.printText(buf);
 
-    snprintf(buf, sizeof(buf), "  %d%%", pct);
-    displayManager.setTextColor(color);
-    displayManager.println(buf);
+    if (chg) {
+        displayManager.setTextColor(TFT_CYAN);
+        displayManager.println("  CHG");
+    } else {
+        snprintf(buf, sizeof(buf), "  %d%%", pct);
+        displayManager.setTextColor(color);
+        displayManager.println(buf);
+    }
 }
 
 float BatteryManager::voltageToPercentage(float voltage) {
@@ -35,5 +41,9 @@ String BatteryManager::getBatteryChargeLevel(float volts) {
 
 int BatteryManager::getPct() {
     return (int)voltageToPercentage(bl.getBatteryVolts());
+}
+
+bool BatteryManager::isCharging() {
+    return bl.getBatteryVolts() > 4.5f;
 }
 
