@@ -21,6 +21,6 @@ struct WifiNetwork {
 
 void        wifiPassCommand();
 WifiNetwork getWifiNetwork(const String& ssid);
-void        appendWpaNetwork(const WifiNetwork& net);
+bool        appendWpaNetwork(const WifiNetwork& net);
 
 #endif // WIFI_CREDS_H

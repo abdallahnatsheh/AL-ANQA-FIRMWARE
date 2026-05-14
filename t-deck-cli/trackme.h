@@ -137,9 +137,11 @@ private:
     bool _silent;
 
     // -- SD --
-    void loadSignatures();
-    void saveLog();
-    void appendLog(const TrackedDev& d);
+    void     loadSignatures();
+    void     saveLog();
+    void     appendLog(const TrackedDev& d);
+    void     drawSdNotice(const char* msg);
+    uint32_t _sdNoticeMs;
 
     // -- helpers --
     String macStr(const uint8_t* m);

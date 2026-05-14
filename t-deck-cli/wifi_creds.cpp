@@ -5,14 +5,16 @@
 #include "wifi_creds.h"
 #include "display_manager.h"
 #include "input_handling.h"
+#include "sdcard_manager.h"
 #include <SD.h>
 #include <Preferences.h>
 #include <nvs.h>
 #include <esp_idf_version.h>
 #include <vector>
 
-extern DisplayManager displayManager;
-extern InputHandling  inputHandler;
+extern DisplayManager  displayManager;
+extern InputHandling   inputHandler;
+extern SDCardManager   sdCardManager;
 
 #define WP_PER_PAGE 5
 
@@ -296,10 +298,11 @@ static void ensureBackup() {
     if (dst) dst.close();
 }
 
-void appendWpaNetwork(const WifiNetwork& net) {
+bool appendWpaNetwork(const WifiNetwork& net) {
     // ── input validation ──────────────────────────────────────────────────────
-    if (net.ssid.isEmpty())                    return;
-    if (!net.open && net.psk.isEmpty())        return;
+    if (net.ssid.isEmpty())                    return false;
+    if (!net.open && net.psk.isEmpty())        return false;
+    if (!sdCardManager.isReady())              return false;
 
     String ssid = sanitize(net.ssid);
     String psk  = sanitize(net.psk);
@@ -314,13 +317,13 @@ void appendWpaNetwork(const WifiNetwork& net) {
         for (const auto& n : existing) {
             if (n.ssid != net.ssid) continue;
             ssidInFile = true;
-            if (!n.isHashed) return;    // plain PSK already saved — true duplicate
-            if (net.isHashed) return;   // both hashed — nothing to improve
-            break;                       // existing hashed, we have plain — allow append
+            if (!n.isHashed) return true;   // plain PSK already saved — true duplicate
+            if (net.isHashed) return true;  // both hashed — nothing to improve
+            break;                           // existing hashed, we have plain — allow append
         }
         if (!ssidInFile && !net.bssid.isEmpty()) {
             for (const auto& n : existing)
-                if (n.bssid == net.bssid) return;
+                if (n.bssid == net.bssid) return true;
         }
     }
 
@@ -358,7 +361,8 @@ void appendWpaNetwork(const WifiNetwork& net) {
 
     // ── single write ──────────────────────────────────────────────────────────
     File a = SD.open(WIFIPASS_PATH, FILE_APPEND);
-    if (!a) return;
+    if (!a) return false;
     a.print(block);
     a.close();
+    return true;
 }

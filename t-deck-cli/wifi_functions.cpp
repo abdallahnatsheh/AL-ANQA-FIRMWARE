@@ -441,7 +441,16 @@ void WiFiFunctions::connectToWiFiCommand(char* args) {
                  bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
         newNet.bssid = String(bssidStr);
     }
-    appendWpaNetwork(newNet);
+    bool sdSaved = appendWpaNetwork(newNet);
+    displayManager.setCursor(10, displayManager.getCursorY());
+    if (sdSaved) {
+        displayManager.setTextColor(TFT_GREEN);
+        displayManager.println("Saved to wpa_supplicant.conf");
+    } else {
+        displayManager.setTextColor(0x7BEF);
+        displayManager.println("NVS only (no SD card)");
+    }
+    displayManager.setTextColor(TFT_WHITE);
     delay(3000);
     displayManager.tdeck_begin();
 }
