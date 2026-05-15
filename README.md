@@ -55,6 +55,8 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 **🔵 Bluetooth** — [full guide](docs/bluetooth.md)
 - BLE device scanner (paginated, RSSI, name)
 - Anti-tracking detector — BLE + WiFi probe surveillance with 3-gate confirmation and GPS movement awareness
+- **Fast Pair attack** (`fp`) — scan for Fast Pair devices, flood Google FP advertisements with per-cycle MAC randomization, GATT probe (WhisperPair) to read anti-spoofing keys
+- **BLE notification spam** (`bs`) — Apple Continuity (Proximity Pairing + Nearby Info popups), Google Fast Pair flood, Microsoft Swift Pair, Samsung Galaxy accessory popups
 
 **💾 SD Card**
 - Browse, read, delete files; all attack logs saved automatically
@@ -121,6 +123,8 @@ git clone https://github.com/abdallahnatsheh/T-Rex
 | **Bluetooth** | | | |
 | `scanblue` | `sbl` | — | BLE device scan |
 | `trackme` | `tm` | `[silent]` | Anti-tracking detector |
+| `fastpair` | `fp` | `[scan\|spam\|h <idx>\|h all]` | Fast Pair: scan devices / flood ads / GATT hijack |
+| `blespam` | `bs` | `[apple\|android\|ms\|samsung\|all]` | BLE notification spam (popups on nearby devices) |
 | **SD Card** | | | |
 | `sdinfo` | `sdi` | — | SD card info |
 | `sdls` | `ls` | `[path]` | List directory |
@@ -160,8 +164,10 @@ Trackball: roll left/right to move the cursor mid-command, click to execute.
 /wordlist.txt         — custom WPA crack wordlist (one password per line, ≥8 chars)
 /pwrsave.conf         — power save config (key=value)
 /macchanger.conf      — MAC changer config (key=value)
-/logs/                — eviltwin.csv, trackme.csv, hidden_ssids.csv, cracked.csv
+/logs/                — eviltwin.csv, trackme.csv, hidden_ssids.csv, cracked.csv, fastpair.csv
 /logs/hs/             — WPA handshake captures (<BSSID>.cap, libpcap format)
+/fastpair_keys.csv    — cached Fast Pair anti-spoofing keys (modelId,name,key64hex)
+/fastpair_paired.csv  — log of devices successfully paired via GATT
 /evilportal/          — custom HTML portal templates
 /signatures.csv       — custom BLE tracker signatures
 ```
@@ -175,9 +181,10 @@ Trackball: roll left/right to move the cursor mid-command, click to execute.
 - [x] WiFi scan, connect, monitor, deauth, Evil Twin, hidden SSID, MAC spoof, WPA2 crack, WPS flag, saved credential manager, Linux wpa_supplicant.conf sync
 - [x] ARP discovery, port scan, ping, banner grabber, OS fingerprinting
 - [x] BLE scanner, anti-tracking detector
+- [x] Fast Pair attack — advertisement flood + GATT probe (WhisperPair)
+- [x] BLE notification spam — Apple / Android / Microsoft / Samsung
 - [x] SD file manager, man pages, help, power save, trackpad cursor
 - [x] LoRa diagnostic, GPS (T-Deck Plus)
-- [ ] BLE GATT enumeration
 - [ ] BadUSB / DuckyScript
 - [ ] LoRa packet logger
 - [ ] MAC proximity watchlist
@@ -196,7 +203,7 @@ Trackball: roll left/right to move the cursor mid-command, click to execute.
 ## Dependencies
 
 All install automatically via PlatformIO `lib_deps`:
-LovyanGFX · ESP32Ping · ESP32 BLE · Digital Rain Anim · Pangodream 18650CL · RadioLib · ArduinoJson · AceButton · TouchLib · TinyGPS++
+LovyanGFX · ESP32Ping · NimBLE-Arduino (h2zero) · Digital Rain Anim · Pangodream 18650CL · RadioLib · ArduinoJson · AceButton · TouchLib · TinyGPS++
 
 ---
 

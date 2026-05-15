@@ -474,16 +474,16 @@ void IRAM_ATTR TrackMeScanner::wifiCb(void* buf, wifi_promiscuous_pkt_type_t typ
 // ── BLE scan (~2 s blocking) ──────────────────────────────────────────────────
 void TrackMeScanner::doBLEScan(int seconds) {
     esp_wifi_set_promiscuous(false);
-    BLEScan* scan = BLEDevice::getScan();
+    NimBLEScan* scan = NimBLEDevice::getScan();
     scan->setAdvertisedDeviceCallbacks(nullptr);  // clear any stale callback from scanblue
     scan->setActiveScan(true);
     scan->setInterval(100);
     scan->setWindow(99);
     {
-        BLEScanResults results = scan->start(seconds, false);
+        NimBLEScanResults results = scan->start(seconds, false);
         int n = results.getCount();
         for (int i = 0; i < n; i++) {
-            BLEAdvertisedDevice dev = results.getDevice(i);
+            NimBLEAdvertisedDevice dev = results.getDevice(i);
             uint8_t  mac[6]    = {0};
             uint16_t companyId = 0;
             String   addr      = dev.getAddress().toString().c_str();
@@ -502,7 +502,7 @@ void TrackMeScanner::doBLEScan(int seconds) {
             String name = dev.getName().c_str();
             processDevice(mac, name.c_str(), companyId, mfrType, dev.getRSSI(), false, mfrLen);
         }
-    } // results destructs here — safe to clear scan state below
+    }
     scan->clearResults();
 }
 
@@ -825,6 +825,7 @@ float TrackMeScanner::gpsDistance(float lat1, float lon1, float lat2, float lon2
 static bool s_bleInited = false;
 
 void TrackMeScanner::start(bool silent) {
+
     _silent = silent;
     loadSignatures();
 
@@ -842,7 +843,7 @@ void TrackMeScanner::start(bool silent) {
     loadWhitelist();
 
     if (!s_bleInited) {
-        BLEDevice::init("");
+        NimBLEDevice::init("");
         s_bleInited = true;
     }
     dm.setBtActive(true);

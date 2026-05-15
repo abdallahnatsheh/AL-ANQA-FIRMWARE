@@ -286,6 +286,36 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "fastpair", "fp", {
+        "SYNTAX   fp [scan|spam|h <idx>|h all]",
+        "",
+        "ABOUT    Google Fast Pair attack suite.",
+        "         scan — BLE scan for FP devices.",
+        "         spam — flood Android pairing popups.",
+        "         h <idx> — GATT hijack CVE-2025-36911.",
+        "         h all  — test all scanned devices.",
+        "",
+        "KEYS     [h+#] hijack  [s] spam  [q] quit",
+        "FILES    /fastpair_keys.csv  /logs/fastpair.csv",
+        "NOTE     Put device in pairing mode for key read.",
+        nullptr
+    }},
+
+    { "blespam", "bs", {
+        "SYNTAX   bs [apple|android|ms|samsung|all]",
+        "",
+        "ABOUT    BLE notification spam suite.",
+        "         apple   — iOS pairing popups (AirPods etc)",
+        "         android — Google Fast Pair (Android popup)",
+        "         ms      — Windows Swift Pair popup",
+        "         samsung — Galaxy manufacturer data flood",
+        "         all     — cycle all four vendors",
+        "",
+        "KEYS     [l/a]=next/prev type  [q]=stop",
+        "NOTE     MAC randomized each advertisement cycle.",
+        nullptr
+    }},
+
     { "sdinfo", "sdi", {
         "SYNTAX   sdinfo",
         "",

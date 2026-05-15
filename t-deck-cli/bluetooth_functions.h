@@ -1,10 +1,7 @@
 #ifndef BLUETOOTH_FUNCTIONS_H
 #define BLUETOOTH_FUNCTIONS_H
 
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEScan.h>
-#include <BLEAdvertisedDevice.h>
+#include <NimBLEDevice.h>
 #include "display_manager.h"
 #include "task_manager.h"
 
@@ -15,11 +12,11 @@ public:
     void showBleResults();
 
 private:
-    BLEScan* pBLEScan;
-    BLEAdvertisedDeviceCallbacks* pScanCallbacks;
+    NimBLEScan*                       pBLEScan;
+    NimBLEAdvertisedDeviceCallbacks*  pScanCallbacks;
     bool bluetoothScanExecuted;
-    int numberOfDevices = 0;
-    const int scanTime = 5;
+    int  numberOfDevices = 0;
+    const int scanTime   = 5;
 };
 
 #endif // BLUETOOTH_FUNCTIONS_H

@@ -151,7 +151,7 @@ void EvilTwin::start(const char* ssid) {
     }
 
     // ── Start soft-AP ─────────────────────────────────────────────────────────
-    WiFi.disconnect(true);
+    WiFi.disconnect(false);
     delay(100);
     WiFi.mode(WIFI_AP);
 
@@ -242,7 +242,7 @@ void EvilTwin::start(const char* ssid) {
     dns.stop();
     if (_deauthEnabled) esp_wifi_set_promiscuous(false);
     WiFi.softAPdisconnect(true);
-    WiFi.mode(WIFI_OFF);
+    WiFi.mode(WIFI_STA);
     delay(100);
 
     dm.printCommandScreen();

@@ -398,7 +398,7 @@ void WiFiFunctions::connectToWiFiCommand(char* args) {
     displayManager.printText("Connecting");
     displayManager.setTextColor(TFT_WHITE);
 
-    WiFi.disconnect(true);
+    WiFi.disconnect(false);
     delay(100);
     WiFi.mode(WIFI_STA);
     MacChanger::getInstance().applyIfEnabled();
@@ -413,7 +413,7 @@ void WiFiFunctions::connectToWiFiCommand(char* args) {
             displayManager.setTextColor(TFT_RED);
             displayManager.println("Timed out. Check password.");
             displayManager.setTextColor(TFT_WHITE);
-            WiFi.disconnect(true);
+            WiFi.disconnect(false);
             delay(2000);
             displayManager.tdeck_begin();
             return;

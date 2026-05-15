@@ -282,7 +282,7 @@ void HiddenSSID::run(const uint8_t* bssid, int channel, bool silent) {
     esp_wifi_set_promiscuous_rx_cb(nullptr);
     esp_wifi_set_promiscuous(false);
     WiFi.softAPdisconnect(true);
-    WiFi.mode(WIFI_OFF);
+    WiFi.mode(WIFI_STA);
 
     // ── Result ───────────────────────────────────────────────────────────────
     _dm.clearScreen();

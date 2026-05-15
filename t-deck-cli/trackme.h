@@ -2,9 +2,7 @@
 #define TRACKME_H
 
 #include <Arduino.h>
-#include <BLEDevice.h>
-#include <BLEScan.h>
-#include <BLEAdvertisedDevice.h>
+#include <NimBLEDevice.h>
 #include "esp_wifi.h"
 #include "display_manager.h"
 #include "sdcard_manager.h"

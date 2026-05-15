@@ -6,7 +6,6 @@
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
-extern Utils utils;
 
 BluetoothFunctions::BluetoothFunctions()
     : pBLEScan(nullptr), pScanCallbacks(nullptr),
@@ -15,26 +14,25 @@ BluetoothFunctions::BluetoothFunctions()
 // ── BLE device cache ──────────────────────────────────────────────────────────
 
 struct BleEntry { char addr[18]; int rssi; char name[20]; };
-static BleEntry s_bleDevices[64];
-static volatile int s_bleCount = 0;
+static BleEntry      s_bleDevices[64];
+static volatile int  s_bleCount = 0;
 
-// Callback: runs in BLE stack context — pushes each device to result queue
-class BleQueueCallbacks : public BLEAdvertisedDeviceCallbacks {
-    void onResult(BLEAdvertisedDevice dev) override {
+// NimBLE callback — receives pointer, not reference
+class BleQueueCallbacks : public NimBLEAdvertisedDeviceCallbacks {
+    void onResult(NimBLEAdvertisedDevice* dev) override {
         if (!TaskManager::resultQueue) return;
         TaskResult r;
         r.type = TaskResult::INFO;
         snprintf(r.data, sizeof(r.data), "%s|%d|%.18s",
-                 dev.getAddress().toString().c_str(),
-                 dev.getRSSI(),
-                 dev.getName().c_str());
+                 dev->getAddress().toString().c_str(),
+                 dev->getRSSI(),
+                 dev->getName().c_str());
         xQueueSend(TaskManager::resultQueue, &r, 0);
     }
 };
 
-// Task: runs blocking BLE scan on core 0, signals DONE when finished
 static void bleScanTaskFn(void* param) {
-    BLEScan* scan = static_cast<BLEScan*>(param);
+    NimBLEScan* scan = static_cast<NimBLEScan*>(param);
     scan->start(5, false);
     TaskResult done;
     done.type = TaskResult::DONE;
@@ -69,36 +67,19 @@ static void renderBlePage(int page, int perPage, int total) {
     int end   = min(start + perPage, total);
     for (int i = start; i < end; i++) {
         displayManager.setCursor(10, displayManager.getCursorY());
-
-        // [idx] in yellow
-        char idx[5];
-        snprintf(idx, sizeof(idx), "[%d]", i);
-        displayManager.setTextColor(TFT_YELLOW);
-        displayManager.printText(idx);
-
-        // MAC address in white
+        char idx[5]; snprintf(idx, sizeof(idx), "[%d]", i);
+        displayManager.setTextColor(TFT_YELLOW); displayManager.printText(idx);
         displayManager.setTextColor(TFT_WHITE);
-        char mac[20];
-        snprintf(mac, sizeof(mac), " %s", s_bleDevices[i].addr);
+        char mac[20]; snprintf(mac, sizeof(mac), " %s", s_bleDevices[i].addr);
         displayManager.printText(mac);
-
-        // RSSI color-coded
-        char rssiStr[8];
-        snprintf(rssiStr, sizeof(rssiStr), " %4d", s_bleDevices[i].rssi);
+        char rssiStr[8]; snprintf(rssiStr, sizeof(rssiStr), " %4d", s_bleDevices[i].rssi);
         displayManager.setTextColor(bleRssiColor(s_bleDevices[i].rssi));
         displayManager.printText(rssiStr);
-
-        // name in yellow if present
         if (s_bleDevices[i].name[0]) {
-            char name[22];
-            snprintf(name, sizeof(name), " %.9s", s_bleDevices[i].name);
-            displayManager.setTextColor(TFT_YELLOW);
-            displayManager.println(name);
-        } else {
-            displayManager.println();
-        }
+            char name[22]; snprintf(name, sizeof(name), " %.9s", s_bleDevices[i].name);
+            displayManager.setTextColor(TFT_YELLOW); displayManager.println(name);
+        } else { displayManager.println(); }
     }
-
     displayManager.printSeparator();
     displayManager.setCursor(10, displayManager.getCursorY());
     displayManager.printDefaultTableHelpInstructions();
@@ -111,10 +92,10 @@ void BluetoothFunctions::showBleResults() {
         displayManager.printCommandScreen();
         return;
     }
-    const int perPage  = 10;
-    int total          = s_bleCount;
-    int totalPages     = max(1, (total + perPage - 1) / perPage);
-    int currentPage    = 0;
+    const int perPage = 10;
+    int total         = s_bleCount;
+    int totalPages    = max(1, (total + perPage - 1) / perPage);
+    int currentPage   = 0;
     while (true) {
         renderBlePage(currentPage, perPage, total);
         while (true) {
@@ -131,10 +112,10 @@ void BluetoothFunctions::scanBluetoothDevices() {
     int currentPage   = 0;
     bool needScan     = true;
 
-    BLEDevice::init("");
+    NimBLEDevice::init("");
     displayManager.setBtActive(true);
     displayManager.updateStatusBar();
-    pBLEScan = BLEDevice::getScan();
+    pBLEScan = NimBLEDevice::getScan();
     pBLEScan->setActiveScan(true);
     pBLEScan->setInterval(100);
     pBLEScan->setWindow(99);
@@ -166,7 +147,6 @@ void BluetoothFunctions::scanBluetoothDevices() {
                 TaskResult r;
                 while (xQueueReceive(TaskManager::resultQueue, &r, 0) == pdTRUE) {
                     if (r.type == TaskResult::INFO && s_bleCount < 64) {
-                        // parse "addr|rssi|name"
                         char tmp[sizeof(r.data)];
                         strncpy(tmp, r.data, sizeof(tmp));
                         char* p1 = strchr(tmp, '|');
@@ -182,7 +162,6 @@ void BluetoothFunctions::scanBluetoothDevices() {
                         }
                     }
                 }
-
                 char buf[28];
                 snprintf(buf, sizeof(buf), "Scanning BLE... %c  found:%d",
                          spinner[frame++ % 4], (int)s_bleCount);
@@ -190,9 +169,7 @@ void BluetoothFunctions::scanBluetoothDevices() {
                 displayManager.setCursor(10, outputY);
                 displayManager.setTextColor(TFT_CYAN);
                 displayManager.printText(buf);
-
                 vTaskDelay(pdMS_TO_TICKS(100));
-
                 if (inputHandler.getKeyboardInput() == 'q') {
                     pBLEScan->stop();
                     TaskManager::requestStop();
@@ -201,7 +178,6 @@ void BluetoothFunctions::scanBluetoothDevices() {
                 }
             }
 
-            // drain any remaining queue items
             if (!aborted && TaskManager::resultQueue) {
                 TaskResult r;
                 while (xQueueReceive(TaskManager::resultQueue, &r, 0) == pdTRUE) {
