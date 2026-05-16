@@ -18,6 +18,7 @@
 #include "handshake_capture.h"
 #include "mac_changer.h"
 #include "man_pages.h"
+#include "usb_manager.h"
 
 LGFX tft;
 DisplayManager   displayManager(tft);
@@ -50,6 +51,7 @@ void setup() {
 
     MacChanger::getInstance().begin();
     PowerSaveManager::getInstance().init(&batteryManager);
+    usbManager.begin();
 
     commandManager.setupCommands();
 }

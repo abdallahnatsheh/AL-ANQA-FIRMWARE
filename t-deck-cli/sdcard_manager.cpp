@@ -21,12 +21,12 @@ bool SDCardManager::begin() {
     return true;
 }
 
-bool SDCardManager::isReady() const {
-    return ready;
-}
+bool SDCardManager::isReady() const { return ready; }
+void SDCardManager::lockSD(bool lock) { _sdLocked = lock; }
+bool SDCardManager::canAccessSD() const { return ready && !_sdLocked; }
 
 bool SDCardManager::ensureDir(const char* path) {
-    if (!ready) return false;
+    if (!canAccessSD()) return false;
     if (SD.exists(path)) {
         File f = SD.open(path);
         if (!f) return false;
@@ -97,7 +97,7 @@ void SDCardManager::listDirRecursive(File dir, int depth) {
 }
 
 void SDCardManager::listDirectory(const char* path) {
-    if (!ready) {
+    if (!canAccessSD()) {
         displayManager.setCursor(10, displayManager.getCursorY());
         displayManager.println("No SD card mounted.");
         displayManager.printCommandScreen();
@@ -126,7 +126,7 @@ void SDCardManager::listDirectory(const char* path) {
 }
 
 void SDCardManager::readFile(const char* path) {
-    if (!ready) {
+    if (!canAccessSD()) {
         displayManager.setCursor(10, displayManager.getCursorY());
         displayManager.println("No SD card mounted.");
         displayManager.printCommandScreen();
@@ -185,7 +185,7 @@ void SDCardManager::readFile(const char* path) {
 }
 
 bool SDCardManager::removeFile(const char* path) {
-    if (!ready) {
+    if (!canAccessSD()) {
         displayManager.setCursor(10, displayManager.getCursorY());
         displayManager.println("No SD card mounted.");
         displayManager.printCommandScreen();
@@ -210,7 +210,7 @@ bool SDCardManager::removeFile(const char* path) {
 }
 
 bool SDCardManager::appendLine(const char* path, const String& line) {
-    if (!ready) return false;
+    if (!canAccessSD()) return false;
     File file = SD.open(path, FILE_APPEND);
     if (!file) return false;
     file.println(line);
@@ -259,7 +259,7 @@ bool SDCardManager::performFormat() {
 }
 
 bool SDCardManager::formatSDCard() {
-    if (!ready) {
+    if (!canAccessSD()) {
         displayManager.clearScreen();
         displayManager.setCursor(10, outputY);
         displayManager.setTextColor(TFT_RED);

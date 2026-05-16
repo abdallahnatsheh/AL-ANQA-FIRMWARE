@@ -20,6 +20,8 @@ public:
     SDCardManager(DisplayManager& displayManager);
     bool begin();
     bool isReady() const;
+    bool canAccessSD() const;   // false while USB MSC/HID is active
+    void lockSD(bool lock);     // called by USBManager
     void printInfo();
     void listDirectory(const char* path);
     void readFile(const char* path);
@@ -34,6 +36,7 @@ public:
 private:
     DisplayManager& displayManager;
     bool ready;
+    bool _sdLocked = false;
     void listDirRecursive(File dir, int depth);
 };
 

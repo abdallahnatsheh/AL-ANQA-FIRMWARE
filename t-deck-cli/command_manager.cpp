@@ -18,6 +18,7 @@
 #include "wifi_creds.h"
 #include "fast_pair.h"
 #include "ble_spam.h"
+#include "usb_manager.h"
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
 extern WiFiFunctions      wifiFunctions;
@@ -184,6 +185,9 @@ void CommandManager::setupCommands() {
     registerCommand("sdread",      "sdr",    [](char* a) { if (a&&*a) sdCardManager.readFile(a); else displayManager.println("Usage: sdread <path>"); displayManager.printCommandScreen(); }, "Read file from SD",  true,  "SD Card");
     registerCommand("sdrm",        "srm",    [](char* a) { if (a&&*a) sdCardManager.removeFile(a); else displayManager.println("Usage: sdrm <path>");  displayManager.printCommandScreen(); }, "Delete file from SD", true, "SD Card");
     registerCommand("sdformat",    "sdf",    [](char* a) { sdCardManager.formatCommand(a); },                                                   "Format SD to FAT: sdf [init]",            true,  "SD Card");
+    // ── USB ───────────────────────────────────────────────────────────────────
+    registerCommand("usbmsc",      "um",     [](char* a) { usbManager.startMSC(); },                                                              "Expose SD card as USB drive",             false, "USB");
+    registerCommand("usbhid",      "uh",     [](char* a) { usbManager.startHID(); },                                                              "USB HID keyboard test",                   false, "USB");
     // ── Diagnostics ───────────────────────────────────────────────────────────
     registerCommand("gpson",       "gon",    [](char* a) { runGpsOn(); },                                                   "GPS background task + live status",       false, "Diagnostics");
     registerCommand("gpsoff",      "gof",    [](char* a) { runGpsOff(); },                                                  "Stop GPS background task",                false, "Diagnostics");

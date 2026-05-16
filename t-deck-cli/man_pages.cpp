@@ -316,6 +316,30 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "usbmsc", "um", {
+        "SYNTAX   usbmsc",
+        "",
+        "ABOUT    Expose SD card as USB mass storage.",
+        "         SD card mounts on the connected PC.",
+        "         All SD access on T-Rex is blocked",
+        "         while drive is active.",
+        "",
+        "KEYS     [q] eject and return to normal mode",
+        "NOTE     Eject on PC before pressing q.",
+        nullptr
+    }},
+
+    { "usbhid", "uh", {
+        "SYNTAX   usbhid",
+        "",
+        "ABOUT    USB HID keyboard test.",
+        "         Types a test string into the focused",
+        "         text field on the connected PC.",
+        "",
+        "KEYS     [any] send keystroke  [q] cancel",
+        nullptr
+    }},
+
     { "sdinfo", "sdi", {
         "SYNTAX   sdinfo",
         "",
