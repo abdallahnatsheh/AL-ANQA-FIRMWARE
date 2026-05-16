@@ -15,8 +15,6 @@
 #include <SD.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/queue.h"
-#include "freertos/semphr.h"
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
@@ -29,68 +27,38 @@ static USBHIDKeyboard s_keyboard;
 static volatile bool  s_usbReady  = false;
 static volatile bool  s_mscActive = false;
 
-// ── Queue-based SD handoff ────────────────────────────────────────────────────
-// TinyUSB callbacks run on the TinyUSB task. SD.readRAW/writeRAW share SPI2
-// with LovyanGFX. Running SD I/O from the TinyUSB task causes SPI conflicts.
-// Fix: callbacks post work to a queue and block on a semaphore; the main task
-// drains the queue and does all SD I/O, then signals completion.
+// DMA-safe buffer in internal DRAM for SD sector I/O
+static uint8_t DRAM_ATTR s_secBuf[512];
 
-struct MscOp {
-    bool     isRead;
-    uint32_t lba;
-    uint8_t* buf;
-    uint32_t size;
-    int32_t  result;
-};
-
-static QueueHandle_t     s_opQueue = nullptr;
-static SemaphoreHandle_t s_opDone  = nullptr;
-
-static int32_t dispatchOp(bool isRead, uint32_t lba, uint8_t* buf, uint32_t size) {
-    if (!s_mscActive || !s_opQueue || !s_opDone) return -1;
-    MscOp op = {isRead, lba, buf, size, -1};
-    MscOp* p = &op;
-    if (xQueueSend(s_opQueue, &p, pdMS_TO_TICKS(500)) != pdTRUE) return -1;
-    xSemaphoreTake(s_opDone, portMAX_DELAY);
-    return op.result;
-}
+// ── MSC callbacks — run on TinyUSB task ──────────────────────────────────────
+// ESP-IDF SPI master driver is thread-safe; SD.readRAW/writeRAW can be called
+// from any task — the driver serialises access to SPI2 internally.
 
 static int32_t onMscRead(uint32_t lba, uint32_t offset, void* buf, uint32_t bufsize) {
-    return dispatchOp(true, lba, (uint8_t*)buf, bufsize);
+    if (!s_mscActive) return -1;
+    const uint32_t n = bufsize / 512;
+    for (uint32_t i = 0; i < n; i++) {
+        if (!SD.readRAW(s_secBuf, lba + i) && !SD.readRAW(s_secBuf, lba + i))
+            return -1;
+        memcpy((uint8_t*)buf + i * 512, s_secBuf, 512);
+    }
+    return bufsize;
 }
 
 static int32_t onMscWrite(uint32_t lba, uint32_t offset, uint8_t* buf, uint32_t bufsize) {
-    return dispatchOp(false, lba, buf, bufsize);
+    if (!s_mscActive) return -1;
+    const uint32_t n = bufsize / 512;
+    for (uint32_t i = 0; i < n; i++) {
+        memcpy(s_secBuf, buf + i * 512, 512);
+        if (!SD.writeRAW(s_secBuf, lba + i) && !SD.writeRAW(s_secBuf, lba + i))
+            return -1;
+    }
+    return bufsize;
 }
 
 static bool onMscStartStop(uint8_t power_condition, bool start, bool load_eject) {
-    if (!start && load_eject)
-        s_mscActive = false;   // host ejected — break main loop
+    if (!start && load_eject) s_mscActive = false;
     return true;
-}
-
-// DMA-safe sector buffer in internal DRAM — avoids any PSRAM/alignment issues
-static uint8_t DRAM_ATTR s_secBuf[512];
-
-// ── Execute one pending SD operation from the main task ───────────────────────
-static void processMscOp(MscOp* op) {
-    const uint32_t n = op->size / 512;
-    int32_t  r = (int32_t)op->size;
-    if (op->isRead) {
-        for (uint32_t i = 0; i < n; i++) {
-            // one immediate retry for transient SPI glitches
-            if (!SD.readRAW(s_secBuf, op->lba + i) &&
-                !SD.readRAW(s_secBuf, op->lba + i)) { r = -1; break; }
-            memcpy(op->buf + i * 512, s_secBuf, 512);
-        }
-    } else {
-        for (uint32_t i = 0; i < n; i++) {
-            memcpy(s_secBuf, op->buf + i * 512, 512);
-            if (!SD.writeRAW(s_secBuf, op->lba + i) &&
-                !SD.writeRAW(s_secBuf, op->lba + i)) { r = -1; break; }
-        }
-    }
-    op->result = r;
 }
 
 // ── begin() ───────────────────────────────────────────────────────────────────
@@ -158,24 +126,15 @@ void USBManager::startMSC() {
     dm.setTextColor(0x7BEF);    dm.println("Eject on PC first, then [q]");
     dm.setTextColor(TFT_WHITE);
 
-    // ── Setup queue and enable MSC ─────────────────────────────────────────────
+    // ── Enable MSC ────────────────────────────────────────────────────────────
     sdCardManager.lockSD(true);
-    s_opQueue  = xQueueCreate(1, sizeof(MscOp*));
-    s_opDone   = xSemaphoreCreateBinary();
     s_mscActive = true;
-
     s_msc.mediaPresent(true);
 
-    // ── Main loop: drain SD ops from main task to avoid SPI2 conflict ─────────
-    // Keyboard polled at most every 200 ms — prevents I2C overhead from
-    // starving the SD op queue and triggering the task watchdog.
+    // ── Main loop: just poll keyboard; SD I/O handled in TinyUSB callbacks ────
     uint32_t lastKeyMs = millis();
     while (s_mscActive) {
-        MscOp* op;
-        if (xQueueReceive(s_opQueue, &op, pdMS_TO_TICKS(10)) == pdTRUE) {
-            processMscOp(op);
-            xSemaphoreGive(s_opDone);
-        }
+        vTaskDelay(pdMS_TO_TICKS(20));
         if (millis() - lastKeyMs >= 200) {
             lastKeyMs = millis();
             char k = inputHandler.getKeyboardInput();
@@ -186,23 +145,11 @@ void USBManager::startMSC() {
     // ── Teardown ──────────────────────────────────────────────────────────────
     s_mscActive = false;
     s_msc.mediaPresent(false);
-
-    // Drain any op that arrived just before we set mediaPresent(false)
-    MscOp* op;
-    while (xQueueReceive(s_opQueue, &op, pdMS_TO_TICKS(200)) == pdTRUE) {
-        op->result = -1;
-        xSemaphoreGive(s_opDone);
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(300));
-    vQueueDelete(s_opQueue);  s_opQueue = nullptr;
-    vSemaphoreDelete(s_opDone); s_opDone = nullptr;
-
+    vTaskDelay(pdMS_TO_TICKS(500));
     sdCardManager.lockSD(false);
 
-    // Remount FatFS — use sdCardManager.begin() so ready flag is updated
     SD.end();
-    vTaskDelay(pdMS_TO_TICKS(500));
+    vTaskDelay(pdMS_TO_TICKS(200));
     sdCardManager.begin();
 
     dm.clearScreen(); dm.setCursor(10, outputY);
