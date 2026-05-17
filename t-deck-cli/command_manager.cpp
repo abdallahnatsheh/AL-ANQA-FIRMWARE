@@ -19,6 +19,7 @@
 #include "fast_pair.h"
 #include "ble_spam.h"
 #include "usb_manager.h"
+#include "buddy.h"
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
 extern WiFiFunctions      wifiFunctions;
@@ -179,6 +180,7 @@ void CommandManager::setupCommands() {
     registerCommand("trackme",     "tm",     [](char* a) { trackMe.start(a && (strncmp(a,"s",1)==0||strncmp(a,"silent",6)==0)); }, "[EXP] Anti-tracking: tm [silent]",   true, "Bluetooth");
     registerCommand("fastpair",    "fp",     [](char* a) { fastPair.command(a); },                                                "Fast Pair attack: fp [scan|spam|h <idx>]", true, "Bluetooth");
     registerCommand("blespam",    "bs",     [](char* a) { bleSpam.command(a); },                                                 "BLE spam: bs [apple|android|ms|samsung|all]", true, "Bluetooth");
+    registerCommand("buddy",      "bd",     [](char* a) { buddyCommand(a); },                                                        "Claude Desktop remote: bd [name]",            true,  "Bluetooth");
     // ── SD Card ───────────────────────────────────────────────────────────────
     registerCommand("sdinfo",      "sdi",    [](char* a) { sdCardManager.printInfo(); },                                    "SD card type and size",                   false, "SD Card");
     registerCommand("sdls",        "ls",     [](char* a) { sdCardManager.listDirectory(a && *a ? a : "/"); },               "List SD directory [path]",                true,  "SD Card");
