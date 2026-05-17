@@ -261,6 +261,21 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "buddy", "bd", {
+        "SYNTAX   bd [name]",
+        "",
+        "ABOUT    Claude Desktop remote via BLE NUS.",
+        "         Shows live stats + ASCII pet.",
+        "         Approve/deny permission prompts",
+        "         from the T-DECK keyboard.",
+        "",
+        "KEYS     [y] approve  [n] deny",
+        "         [spc] pet  [q] quit",
+        "NOTE     Claude Desktop > Developer >",
+        "         Hardware Buddy. Stats in NVS.",
+        nullptr
+    }},
+
     { "scanblue", "sbl", {
         "SYNTAX   scanblue",
         "",

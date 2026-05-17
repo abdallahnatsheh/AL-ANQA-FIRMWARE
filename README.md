@@ -58,6 +58,11 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 - **Fast Pair attack** (`fp`) — scan for Fast Pair devices, flood Google FP advertisements with per-cycle MAC randomization, GATT probe (WhisperPair) to read anti-spoofing keys
 - **BLE notification spam** (`bs`) — Apple Continuity (Proximity Pairing + Nearby Info popups), Google Fast Pair flood, Microsoft Swift Pair, Samsung Galaxy accessory popups
 
+**🤖 Claude Desktop Buddy** — [full guide](docs/buddy.md)
+- **BLE remote** (`bd`) — approve/deny Claude Desktop permission prompts from the T-Deck keyboard
+- Live session stats: tokens, level, mood, energy — all persisted to NVS
+- 18 ASCII pet species with 7-state animation at 5 fps
+
 **💾 SD Card**
 - Browse, read, delete files; all attack logs saved automatically
 
@@ -129,6 +134,7 @@ git clone https://github.com/abdallahnatsheh/T-Rex
 | `trackme` | `tm` | `[silent]` | Anti-tracking detector |
 | `fastpair` | `fp` | `[scan\|spam\|h <idx>\|h all]` | Fast Pair: scan devices / flood ads / GATT hijack |
 | `blespam` | `bs` | `[apple\|android\|ms\|samsung\|all]` | BLE notification spam (popups on nearby devices) |
+| `buddy` | `bd` | `[name]` | Claude Desktop remote — approve prompts, ASCII pet, NVS stats |
 | **SD Card** | | | |
 | `sdinfo` | `sdi` | — | SD card info |
 | `sdls` | `ls` | `[path]` | List directory |
@@ -194,6 +200,7 @@ Trackball: roll left/right to move the cursor mid-command, click to execute.
 - [x] LoRa diagnostic, GPS (T-Deck Plus)
 - [x] USB Mass Storage — expose SD card as USB drive (read + write, 2MB file tested)
 - [x] USB HID keyboard — type payloads into host PC
+- [x] Claude Desktop Buddy — BLE remote, permission prompts, ASCII pet, NVS stats
 - [ ] BadUSB / DuckyScript
 - [ ] LoRa packet logger
 - [ ] MAC proximity watchlist

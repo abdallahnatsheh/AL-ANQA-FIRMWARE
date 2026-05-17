@@ -11,7 +11,9 @@ metadata:
 
 Goal: add this as a `buddy/bd [name]` command in T-DECK-CLI so the T-DECK keyboard can remotely approve Claude Code permission prompts.
 
-**Status:** Not yet implemented. Planned 2026-05-17.
+**Status:** Working — implemented 2026-05-17. Commit `9b48de8` on `feature/pentest-enhancements`.
+
+**Security note:** `setSecurityAuth`/`setSecurityIOCap`/`setSecurityPasskey` called before `pSvc->start()` crashes NimBLE 1.4.x on ESP32-S3. Currently no passkey — plain NUS GATT server. Claude Desktop connects fine without it. If bonding is needed later, set security AFTER `pSvc->start()`.
 
 **Why:** Claude Desktop's BLE Maker API is opt-in. Requires developer mode on desktop: `Help → Troubleshooting → Enable Developer Mode`.
 
