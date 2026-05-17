@@ -50,6 +50,7 @@ public:
     void setTextSize(float size);
     void setBtActive(bool active);
     void redrawCommandLine(const char* cmd, int cursorPos);
+    void flushSPI();   // Drain any pending LovyanGFX DMA and release SPI2 bus
 private:
     LGFX& tft;
     bool    _btActive  = false;

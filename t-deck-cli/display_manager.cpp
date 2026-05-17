@@ -30,6 +30,15 @@ void DisplayManager::init() {
     // tdeck_begin() called by main after splash so CMD screen never shows before it
 }
 
+// Force LovyanGFX to drain its DMA queue and release SPI2.
+// Call this before any other task starts SD sector I/O — both use SPI2 on T-DECK
+// and their locking mechanisms (spi_device_acquire_bus vs spi->lock semaphore)
+// don't coordinate, so we must ensure LGFX has fully released the bus first.
+void DisplayManager::flushSPI() {
+    tft.startWrite();  // Acquire the bus (increments transaction counter)
+    tft.endWrite();    // Release: waits for DMA completion, calls spi_device_release_bus()
+}
+
 // ── Status bar icon helpers ───────────────────────────────────────────────────
 
 // WiFi: 3 states — off (grey+X), on-no-IP (grey bars), connected (green bars by RSSI)
