@@ -60,8 +60,9 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 
 **🤖 Claude Desktop Buddy** — [full guide](docs/buddy.md)
 - **BLE remote** (`bd`) — approve/deny Claude Desktop permission prompts from the T-Deck keyboard
+- Full-screen terminal popup for long commands — full text wrapped across multiple lines, no truncation
 - Live session stats: tokens, level, mood, energy — all persisted to NVS
-- 18 ASCII pet species with 7-state animation at 5 fps
+- 19 ASCII pet species with 7-state animation at 5 fps
 
 **💾 SD Card**
 - Browse, read, delete files; all attack logs saved automatically

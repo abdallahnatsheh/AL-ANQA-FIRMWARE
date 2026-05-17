@@ -301,7 +301,7 @@ struct TamaState {
     uint16_t lineGen;
     char     promptId[40];
     char     promptTool[20];
-    char     promptHint[44];
+    char     promptHint[256];
 };
 
 // ── BLE write ─────────────────────────────────────────────────────────────────
@@ -428,6 +428,8 @@ static uint8_t personaState(const TamaState& t, bool bleConn, uint32_t approvedM
 
 // Prompt arrival time — file-scope so drawStatus can show the "approve? Ns" timer
 static uint32_t s_promptArrivedMs = 0;
+static bool     s_popupOpen   = false;
+static uint32_t s_popupDrawMs = 0;
 
 // Tiny heart matching original main.cpp tinyHeart(), drawn to tft (left panel direct)
 static void tinyHeart(int x, int y, bool filled, uint16_t col) {
@@ -613,6 +615,72 @@ static void drawStatus(const TamaState& t, bool bleConn, const char* name) {
     }
 }
 
+// ── Terminal popup (full-screen overlay for long permission prompts) ──────────
+static void drawPopup(const TamaState& t) {
+    const int PX  = 4,  PY  = outputY + 2;
+    const int PW  = 312, PH = SCREEN_HEIGHT - outputY - 4;
+    const int IX  = PX + 8;          // text left margin
+    const int CPL = (PW - 16) / 6;   // chars per line at textSize=1
+
+    tft.fillRect(PX, PY, PW, PH, 0x0000);
+    tft.drawRect(PX,   PY,   PW,   PH,   BUDDY_CYAN);
+    tft.drawRect(PX+1, PY+1, PW-2, PH-2, BUDDY_CYAN);
+
+    int y = PY + 6;
+    tft.setTextSize(1);
+    tft.setTextColor(BUDDY_CYAN, 0x0000);
+    tft.setCursor(IX, y); tft.print("PERMISSION REQUEST");
+    y += 12;
+    tft.drawFastHLine(PX + 2, y, PW - 4, BUDDY_CYAN);
+    y += 6;
+
+    // Tool name — size 2 if short enough
+    tft.setTextColor(BUDDY_WHITE, 0x0000);
+    if ((int)strlen(t.promptTool) <= 13 && y + 16 < SCREEN_HEIGHT - 24) {
+        tft.setTextSize(2);
+        tft.setCursor(IX, y); tft.print(t.promptTool);
+        tft.setTextSize(1);
+        y += 18;
+    } else {
+        tft.setCursor(IX, y); tft.print(t.promptTool);
+        y += 10;
+    }
+    y += 2;
+
+    // Hint — char-wrapped
+    tft.setTextColor(BUDDY_YEL, 0x0000);
+    const char* h   = t.promptHint;
+    int         hlen = (int)strlen(h);
+    int         pos  = 0;
+    while (pos < hlen && y <= SCREEN_HEIGHT - 24) {
+        int end = pos + CPL;
+        if (end > hlen) end = hlen;
+        tft.setCursor(IX, y);
+        for (int i = pos; i < end; i++) tft.print(h[i]);
+        y  += 10;
+        pos = end;
+    }
+    if (pos < hlen) {
+        tft.setTextColor(HOT, 0x0000);
+        tft.setCursor(IX + (CPL - 3) * 6, y - 10);
+        tft.print("...");
+    }
+
+    // Timer line
+    uint32_t waited = s_promptArrivedMs ? (millis() - s_promptArrivedMs) / 1000 : 0;
+    tft.setTextColor(waited >= 10 ? HOT : DIM, 0x0000);
+    tft.setCursor(IX, SCREEN_HEIGHT - 22);
+    tft.printf("waiting %lus", (unsigned long)waited);
+
+    // Approve / deny buttons
+    tft.setTextColor(GREEN, 0x0000);
+    tft.setCursor(IX, SCREEN_HEIGHT - 10);
+    tft.print("[y] approve");
+    tft.setTextColor(HOT, 0x0000);
+    tft.setCursor(PX + PW - 9 * 6 - 4, SCREEN_HEIGHT - 10);
+    tft.print("[n] deny");
+}
+
 // ── Command entry point ───────────────────────────────────────────────────────
 void buddyCommand(char* args) {
     // Build BLE device name
@@ -640,6 +708,8 @@ void buddyCommand(char* args) {
     s_lineLen = 0;
     s_connected = false; s_secure = false;
     s_lastLiveMs = 0;
+    s_popupOpen   = false;
+    s_popupDrawMs = 0;
     TamaState tama = {};
     uint32_t sessionStartMs = millis();
 
@@ -700,44 +770,60 @@ void buddyCommand(char* args) {
             tama.promptId[0] = 0;
             approvedMs = millis();
             s_promptArrivedMs = 0;
-            lastPid[0] = '\1';   // force redraw
+            s_popupOpen = false;
+            lastPid[0] = '\1';   // force status redraw
         }
         if ((k == 'n' || k == 'N') && tama.promptId[0] && s_connected) {
             statsOnDenial();
             sendPermission(tama.promptId, "deny");
             tama.promptId[0] = 0;
             s_promptArrivedMs = 0;
+            s_popupOpen = false;
             lastPid[0] = '\1';
         }
-        // Cycle species with spacebar
-        if (k == ' ') {
+        // Cycle species with spacebar (not while popup is open)
+        if (k == ' ' && !s_popupOpen) {
             s_speciesIdx = (s_speciesIdx + 1) % N_SPECIES;
             s_petDirty = true;
         }
 
-        // Track when a new prompt arrives (for velocity calculation + "approve? Ns" timer)
-        if (tama.promptId[0] && strcmp(tama.promptId, lastPid) != 0 && s_promptArrivedMs == 0)
-            s_promptArrivedMs = millis();
+        // Track prompt arrival; open popup on new prompt
+        if (tama.promptId[0] && strcmp(tama.promptId, lastPid) != 0) {
+            if (s_promptArrivedMs == 0) s_promptArrivedMs = millis();
+            if (!s_popupOpen) { s_popupOpen = true; s_popupDrawMs = 0; }
+        }
+        // Auto-close popup if desktop cleared the prompt
+        if (s_popupOpen && !tama.promptId[0]) { s_popupOpen = false; lastPid[0] = '\1'; }
 
         // Level-up → celebrate animation
-        if (statsPollLevelUp()) approvedMs = millis();   // reuse heart timer for celebrate
+        if (statsPollLevelUp()) approvedMs = millis();
 
-        bool changed = (s_connected          != lastConn)
-                    || (strcmp(tama.promptId, lastPid) != 0)
-                    || (tama.sessionsWaiting  != lastWait)
-                    || (tama.lineGen          != lastGen);
-        if (changed) {
-            drawStatus(tama, s_connected, btName);
-            s_petDirty = true;
-            lastConn = s_connected;
+        if (s_popupOpen) {
+            // Redraw popup every second to update the "waiting Ns" timer
+            if (millis() - s_popupDrawMs >= 1000) {
+                drawPopup(tama);
+                s_popupDrawMs = millis();
+            }
+            // Keep lastPid in sync so we don't re-trigger on the same prompt
             strncpy(lastPid, tama.promptId, sizeof(lastPid)-1);
             lastPid[sizeof(lastPid)-1] = 0;
-            lastWait = tama.sessionsWaiting;
-            lastGen  = tama.lineGen;
+        } else {
+            bool changed = (s_connected          != lastConn)
+                        || (strcmp(tama.promptId, lastPid) != 0)
+                        || (tama.sessionsWaiting  != lastWait)
+                        || (tama.lineGen          != lastGen);
+            if (changed) {
+                drawStatus(tama, s_connected, btName);
+                s_petDirty = true;
+                lastConn = s_connected;
+                strncpy(lastPid, tama.promptId, sizeof(lastPid)-1);
+                lastPid[sizeof(lastPid)-1] = 0;
+                lastWait = tama.sessionsWaiting;
+                lastGen  = tama.lineGen;
+            }
+            uint8_t ps = personaState(tama, s_connected, approvedMs);
+            petTick(ps);
         }
-
-        uint8_t ps = personaState(tama, s_connected, approvedMs);
-        petTick(ps);
 
         delay(50);
     }

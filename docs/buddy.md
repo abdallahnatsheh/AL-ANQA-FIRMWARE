@@ -51,7 +51,7 @@ The display splits into two panels:
 | today | Tokens used in the current Claude Desktop session |
 | HUD | Approval prompt **or** idle status message |
 
-**Right panel:** One of 18 ASCII animal species, animating at 5 fps. Species changes based on what Claude is doing (sleeping, busy, attention, celebrating, etc.).
+**Right panel:** One of 19 ASCII animal species, animating at 5 fps. Species changes based on what Claude is doing (sleeping, busy, attention, celebrating, etc.).
 
 ---
 
@@ -61,23 +61,32 @@ The display splits into two panels:
 |-----|--------|
 | `y` | Approve the pending permission prompt |
 | `n` | Deny the pending permission prompt |
-| `space` | Cycle to the next animal species |
+| `space` | Cycle to the next animal species (disabled while popup is open) |
 | `q` | Quit and return to the CLI |
 
 ---
 
 ## Approval Flow
 
-When Claude Desktop needs permission (file write, bash command, etc.) the HUD area shows:
+When Claude Desktop needs permission (file write, bash command, etc.) the display switches to a full-screen terminal popup:
 
 ```
-approve? 8s          ← timer; turns red after 10s
-read_file            ← tool name (large if short)
-/path/to/file        ← hint
-[y] approve   [n] deny
+╔══════════════════════════════════════════╗
+║  PERMISSION REQUEST                      ║
+╠══════════════════════════════════════════╣
+║  BashTool                                ║
+║                                          ║
+║  ping -c 4 192.168.1.1 && traceroute     ║
+║  192.168.1.1 --max-hops 30              ║
+║                                          ║
+║  waiting 8s                              ║
+║  [y] approve                   [n] deny  ║
+╚══════════════════════════════════════════╝
 ```
 
-The timer counts up from when the prompt arrived. If you take longer than 10 seconds it turns red — same as the original M5StickCPlus behavior. Pressing `y` or `n` sends the decision to Claude Desktop instantly over BLE.
+The tool name is displayed at double size if it is 13 chars or shorter. The full command/hint is char-wrapped across as many lines as needed — no truncation. The timer turns red after 10 seconds. Pressing `y` or `n` sends the decision to Claude Desktop instantly over BLE and the popup closes, restoring the normal pet view.
+
+> **Note:** The hint text shown in the popup is what Claude Desktop's bridge sends in the `hint` JSON field. The bridge may truncate very long commands on the desktop side before transmitting — this is outside the T-Deck's control.
 
 ---
 
@@ -146,7 +155,7 @@ Stats save immediately on significant events (approval, denial, level-up) and on
 
 ## Animal Species
 
-18 species port from the official [claude-desktop-buddy](https://github.com/anthropics/claude-desktop-buddy) project. Each has 7 animated states:
+19 species port from the official [claude-desktop-buddy](https://github.com/anthropics/claude-desktop-buddy) project. Each has 7 animated states:
 
 | State | Trigger |
 |-------|---------|
@@ -158,9 +167,9 @@ Stats save immediately on significant events (approval, denial, level-up) and on
 | dizzy | (reserved) |
 | heart | Just approved a prompt within 5s |
 
-Press `space` to cycle through all 18 species. The starting species is random on each `bd` launch.
+Press `space` to cycle through all 19 species. The starting species is random on each `bd` launch.
 
-**Species list:** axolotl · blob · cactus · capybara · cat · chonk · dragon · duck · ghost · goose · mushroom · octopus · owl · penguin · rabbit · robot · snail · turtle
+**Species list:** axolotl · blob · cactus · capybara · cat · chonk · dragon · duck · ghost · goose · mushroom · octopus · owl · penguin · rabbit · robot · snail · trex · turtle
 
 ---
 
@@ -198,4 +207,4 @@ The T-Deck advertises continuously. Claude Desktop reconnects automatically afte
 | `t-deck-cli/buddy.h` | Command declaration |
 | `t-deck-cli/buddy_common.h` | Shared geometry, colors, Species struct for species files |
 | `t-deck-cli/M5StickCPlus.h` | Compatibility shim (`typedef LGFX_Sprite TFT_eSprite`) |
-| `t-deck-cli/buddies/*.cpp` | 18 species animation files (ported unchanged from official repo) |
+| `t-deck-cli/buddies/*.cpp` | 19 species animation files (ported unchanged from official repo) |
