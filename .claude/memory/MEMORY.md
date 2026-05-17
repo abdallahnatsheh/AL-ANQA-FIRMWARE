@@ -6,3 +6,4 @@
 - [Next Steps](next_steps.md) — priority ordered: Input(0a,0b)→WiFi(1-13)→BT→GPS→Other→LowPri — 31 items; new: LAN MITM(#5)+AP Bridge(#6); T-Deck=433MHz/Plus=915MHz LoRa; BT relay=inter-device channel
 - [macwatch spec](project_macwatch_idea.md) — WiFi probe + BLE MAC watchlist, proximity alert
 - [Future peripherals](project_future_peripherals.md) — ES7210 mic, trackpad, GT911 touch — pins + priority
+- [Buddy port plan](project_buddy_port.md) — full self-contained spec: NimBLE GATT server port, wire protocol, TamaState struct, exact API mapping, T-DECK UI, impl order
