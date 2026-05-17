@@ -3,6 +3,52 @@
 
 ---
 
+## Implementation Status (2026-05-17)
+
+**SHIPPED — USB MSC + HID working** (`usb_manager.cpp`, commit `392a3f9`)
+
+### What was actually implemented (differs from plan below)
+
+The plan below describes `f_unmount()` + `sdmmc_read_sectors()` for raw sector access.
+What actually works on T-Deck is simpler: **`SD.readRAW()` / `SD.writeRAW()`** via the
+Arduino SD library, routed through a FreeRTOS queue so all SPI2 access is serialized
+to the main Arduino task (the same task that owns LovyanGFX).
+
+### Root causes found during implementation
+
+1. **RADIO_CS_PIN (GPIO9) not held HIGH** — the LoRa SX1262 shares SPI2 (same
+   SCK/MOSI/MISO as SD). If its CS floats or is LOW during SD reads, the radio
+   drives MISO and corrupts every transfer. Fix: `digitalWrite(RADIO_CS_PIN, HIGH)`
+   before every MSC session. Confirmed by LilyGO UnitTest.ino.
+
+2. **SPI2 shared by three devices** — display (CS=12), SD (CS=39), radio (CS=9).
+   LovyanGFX uses `spi_device_acquire_bus()` (ESP-IDF); Arduino SD uses an
+   internal FreeRTOS semaphore. These don't coordinate. Fix: queue all SD I/O
+   through the main task so only one SPI context runs at a time.
+
+3. **Insufficient write retries** — SD cards stall during wear-levelling. Fix:
+   reads 10×20ms, writes 15×100ms back-off.
+
+4. **SD remount after MSC** — After `SD.end()`, send 80 SPI clocks with CS HIGH
+   (SD spec reset), then retry `SD.begin()` up to 8 times at 500ms intervals.
+
+### Commands shipped
+- `usbmsc` / `um` — Mass Storage (expose SD card to PC)
+- `usbhid` / `uh` — HID keyboard test (types "T-Rex HID Test")
+
+### Tested
+- Read files from SD via USB MSC ✓
+- Write 2 MB image to SD via USB MSC ✓
+- Cable unplug → Q → `ls` (SD remounts) ✓
+- HID keyboard types into Notepad ✓
+
+### Still pending
+- BadUSB / DuckyScript engine (see plan below)
+
+---
+
+---
+
 ## What Both Plans Get WRONG
 
 ### 1. Hot-switching USB modes at runtime is not possible on ESP32-S3
