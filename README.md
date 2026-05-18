@@ -70,6 +70,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 **🔌 USB Gadget** — [full guide](docs/usb.md)
 - **Mass Storage** (`um`) — expose SD card as a USB drive; read and write files from any PC with no drivers
 - **USB Keyboard + Mouse** (`uk`) — T-Deck becomes a full USB input device; physical keyboard types into host, trackball moves the mouse cursor with hardware acceleration; tap = left click, hold = right click, hold 1.5s = exit
+- **BadUSB / DuckyScript** (`ux`) — execute keystroke injection payloads; Flipper Zero DuckyScript v1 compatible; built-in T-Rex demo; scripts in `/badusb/` on SD
 
 **🖥️ System** — [full guide](docs/system.md)
 - Man pages on-device (`man <cmd>`), paginated help, power save, Matrix animation
@@ -144,6 +145,7 @@ git clone https://github.com/abdallahnatsheh/T-Rex
 | **USB** | | | |
 | `usbmsc` | `um` | — | Expose SD card as USB Mass Storage drive |
 | `usbkbd` | `uk` | — | T-Deck as USB keyboard + mouse (trackball = cursor, tap = left click, hold = right click) |
+| `usbexec` | `ux` | `demo\|<path>` | BadUSB — execute DuckyScript payload (Flipper Zero compatible) |
 | **Diagnostics** | | | |
 | `gpson` | `gon` | — | Start GPS task (T-Deck Plus) |
 | `gpsoff` | `gof` | — | Stop GPS task |
@@ -202,7 +204,7 @@ Trackball: roll left/right to move the cursor mid-command, click to execute.
 - [x] USB Mass Storage — expose SD card as USB drive (read + write, 2MB file tested)
 - [x] USB Keyboard + Mouse — T-Deck physical keyboard + trackball as full USB HID input device
 - [x] Claude Desktop Buddy — BLE remote, permission prompts, ASCII pet, NVS stats
-- [ ] BadUSB / DuckyScript
+- [x] BadUSB / DuckyScript — Flipper Zero DuckyScript v1 compatible, hyphenated combos, REPEAT, built-in demo
 - [ ] LoRa packet logger
 - [ ] MAC proximity watchlist
 - [ ] DNS enumeration
