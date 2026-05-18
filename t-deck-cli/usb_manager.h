@@ -9,9 +9,9 @@
 
 class USBManager {
 public:
-    void begin();      // Call in setup() — configures MSC callbacks, registers HID
-    void startMSC();   // usbmsc command — expose SD as USB drive, blocks until q
-    void startHID();   // usbhid command — type test keystroke, returns immediately
+    void begin();              // Call in setup() — registers HID + MSC with TinyUSB, starts USB
+    void startMSC();           // usbmsc/um — expose SD as USB drive, blocks until q
+    bool isConnected() const;  // true when USB host is connected and active
 };
 
 extern USBManager usbManager;

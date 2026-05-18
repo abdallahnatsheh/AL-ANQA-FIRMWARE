@@ -28,9 +28,10 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 | [WiFi Attacks](wifi-attacks) | scanwifi, connectwifi, wifimon, deauth, eviltwin, hiddenssid, wpasniff, macchanger |
 | [WiFi Credentials](wifi-credentials) | wifipass, saved passwords, Linux wpa_supplicant.conf sync, desktop migration |
 | [Network Recon](network) | netdiscover, portscan, topscan, ping, banner grabber, OS fingerprinting |
-| [Bluetooth](bluetooth) | scanblue, trackme |
+| [Bluetooth](bluetooth) | scanblue, trackme, fastpair, blespam |
 | [Claude Desktop Buddy](buddy) | bd — BLE remote, permission approval, ASCII pet, stats |
 | [Anti-Tracking](trackme) | Full trackme algorithm guide — baseline, gates, GPS, alerts |
+| [USB Gadget](usb) | usbmsc — SD as USB drive · usbkbd — T-Deck as keyboard+mouse |
 | [System](system) | Trackpad, help, man pages, pwrsave, SD commands, diagnostics |
 | [SD Card](sdcard) | File layout, auto-created files, optional files, quick-start checklist |
 

@@ -67,9 +67,9 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 **💾 SD Card**
 - Browse, read, delete files; all attack logs saved automatically
 
-**🔌 USB Gadget**
+**🔌 USB Gadget** — [full guide](docs/usb.md)
 - **Mass Storage** (`um`) — expose SD card as a USB drive; read and write files from any PC with no drivers
-- **HID Keyboard** (`uh`) — act as a USB keyboard, type payloads directly into the host
+- **USB Keyboard + Mouse** (`uk`) — T-Deck becomes a full USB input device; physical keyboard types into host, trackball moves the mouse cursor with hardware acceleration; tap = left click, hold = right click, hold 1.5s = exit
 
 **🖥️ System** — [full guide](docs/system.md)
 - Man pages on-device (`man <cmd>`), paginated help, power save, Matrix animation
@@ -143,7 +143,7 @@ git clone https://github.com/abdallahnatsheh/T-Rex
 | `sdrm` | `srm` | `<path>` | Delete file |
 | **USB** | | | |
 | `usbmsc` | `um` | — | Expose SD card as USB Mass Storage drive |
-| `usbhid` | `uh` | — | USB HID keyboard — type payload into host |
+| `usbkbd` | `uk` | — | T-Deck as USB keyboard + mouse (trackball = cursor, tap = left click, hold = right click) |
 | **Diagnostics** | | | |
 | `gpson` | `gon` | — | Start GPS task (T-Deck Plus) |
 | `gpsoff` | `gof` | — | Stop GPS task |
@@ -200,7 +200,7 @@ Trackball: roll left/right to move the cursor mid-command, click to execute.
 - [x] SD file manager, man pages, help, power save, trackpad cursor
 - [x] LoRa diagnostic, GPS (T-Deck Plus)
 - [x] USB Mass Storage — expose SD card as USB drive (read + write, 2MB file tested)
-- [x] USB HID keyboard — type payloads into host PC
+- [x] USB Keyboard + Mouse — T-Deck physical keyboard + trackball as full USB HID input device
 - [x] Claude Desktop Buddy — BLE remote, permission prompts, ASCII pet, NVS stats
 - [ ] BadUSB / DuckyScript
 - [ ] LoRa packet logger

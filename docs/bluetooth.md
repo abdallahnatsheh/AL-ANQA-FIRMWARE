@@ -51,3 +51,64 @@ Passive BLE + WiFi probe scanner that detects devices that may be physically fol
 | ALERT | Gate 3 confirmed, known tracker or score ≥ 80 | 3 beeps / 30s |
 
 → [Full guide: How trackme works](trackme.md)
+
+---
+
+## `fastpair` / `fp` — Google Fast Pair Attack Suite
+
+```
+CMD> fp             # interactive menu
+CMD> fp scan        # BLE scan for nearby Fast Pair devices
+CMD> fp spam        # flood Android pairing popups
+CMD> fp h <index>   # GATT hijack a specific device
+CMD> fp h all       # attempt GATT hijack on all scanned devices
+```
+
+Three-mode attack suite targeting Google Fast Pair.
+
+### `fp scan`
+
+Scans for BLE devices advertising Google Fast Pair service data (UUID `0xFE2C`). Shows device index, model ID, name, MAC, and RSSI in a paginated table.
+
+| Key | Action |
+|-----|--------|
+| `h <n>` | Attempt GATT hijack on device at index n |
+| `s` | Switch to spam mode |
+| `q` | Quit |
+
+### `fp spam`
+
+Floods the air with Fast Pair advertisement packets. Each advertisement cycle uses a freshly randomized MAC. Nearby Android devices show Google Fast Pair pairing popups.
+
+Press `q` to stop.
+
+### `fp h <index>` — GATT Hijack (WhisperPair)
+
+Connects to the target device via GATT and reads its anti-spoofing public key. The key is cached in `/fastpair_keys.csv` and logged to `/logs/fastpair.csv`. Put the target in pairing mode for best results — devices in pairing mode expose the anti-spoofing key directly.
+
+---
+
+## `blespam` / `bs` — BLE Notification Spam
+
+```
+CMD> bs             # cycle all vendors
+CMD> bs apple       # iOS Continuity popups (AirPods, etc.)
+CMD> bs android     # Google Fast Pair (Android popup)
+CMD> bs ms          # Windows Swift Pair popup
+CMD> bs samsung     # Samsung Galaxy accessory data flood
+CMD> bs all         # cycle through all four vendors
+```
+
+Floods the air with BLE advertisements that trigger pairing or notification popups on nearby devices. Each advertisement cycle randomizes the source MAC to bypass filters.
+
+| Vendor | What appears on target |
+|--------|----------------------|
+| `apple` | iOS Continuity — AirPods / Apple TV pairing popup |
+| `android` | Google Fast Pair — "Headphones found nearby" popup |
+| `ms` | Windows — Swift Pair notification toast |
+| `samsung` | Samsung Galaxy accessory pairing popup |
+
+| Key | Action |
+|-----|--------|
+| `l` / `a` | Next / previous vendor |
+| `q` | Stop |

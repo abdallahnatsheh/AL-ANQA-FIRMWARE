@@ -8,17 +8,30 @@ SDCardManager::SDCardManager(DisplayManager& displayManager)
     : displayManager(displayManager), ready(false) {}
 
 bool SDCardManager::begin() {
-    if (!SD.begin(BOARD_SDCARD_CS, SPI, 4000000)) {
-        ready = false;
-        return false;
+    // RADIO_CS_PIN (GPIO9) shares SPI2 with the SD card (GPIO39).
+    // If the LoRa radio CS is low or floating it drives MISO simultaneously,
+    // corrupting every SD transaction and causing mount to fail.
+    pinMode(RADIO_CS_PIN, OUTPUT);
+    digitalWrite(RADIO_CS_PIN, HIGH);
+    delay(10);
+
+    // Retry up to 3 times — transient failures are common after heavy WiFi/BLE
+    // ops (GDMA shared with SPI2 on ESP32-S3) or after any interrupted SPI transaction.
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (SD.begin(BOARD_SDCARD_CS, SPI, 4000000)) {
+            // Set ready BEFORE ensureDir — ensureDir gates on this flag
+            ready = true;
+            ensureDir("/logs");
+            ensureDir("/evilportal");
+            ensureDir(SD_DIR_SCRIPTS);
+            ensureDir(SD_DIR_CAPTURES);
+            return true;
+        }
+        SD.end();
+        delay(200);
     }
-    // Set ready BEFORE ensureDir — ensureDir gates on this flag
-    ready = true;
-    ensureDir("/logs");
-    ensureDir("/evilportal");
-    ensureDir(SD_DIR_SCRIPTS);
-    ensureDir(SD_DIR_CAPTURES);
-    return true;
+    ready = false;
+    return false;
 }
 
 bool SDCardManager::isReady() const { return ready; }

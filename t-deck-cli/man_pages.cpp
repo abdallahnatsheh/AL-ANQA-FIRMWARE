@@ -344,14 +344,15 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
-    { "usbhid", "uh", {
-        "SYNTAX   usbhid",
+    { "usbkbd", "uk", {
+        "SYNTAX   usbkbd",
         "",
-        "ABOUT    USB HID keyboard test.",
-        "         Types a test string into the focused",
-        "         text field on the connected PC.",
+        "ABOUT    T-Deck as USB keyboard + mouse.",
+        "         Keyboard types into host. Trackball",
+        "         moves cursor (accelerated).",
         "",
-        "KEYS     [any] send keystroke  [q] cancel",
+        "CLICK    tap=left  hold=right  1.5s=exit",
+        "NOTE     BS auto-repeats after 500ms hold.",
         nullptr
     }},
 

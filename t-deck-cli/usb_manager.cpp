@@ -11,7 +11,7 @@
 
 #include <USB.h>
 #include <USBMSC.h>
-#include <USBHIDKeyboard.h>
+#include "usb_keyboard.h"
 #include <SD.h>
 #include <SPI.h>
 #include <WiFi.h>
@@ -26,10 +26,9 @@ extern SDCardManager  sdCardManager;
 
 USBManager usbManager;
 
-static USBMSC         s_msc;
-static USBHIDKeyboard s_keyboard;
-static volatile bool  s_usbReady  = false;
-static volatile bool  s_mscActive = false;
+static USBMSC        s_msc;
+static volatile bool s_usbReady  = false;
+static volatile bool s_mscActive = false;
 
 // DMA-safe sector scratch buffer — DRAM + 4-byte alignment for ESP32-S3 SPI DMA
 static uint8_t DRAM_ATTR __attribute__((aligned(4))) s_secBuf[512];
@@ -147,7 +146,7 @@ void USBManager::begin() {
     uint32_t ss = SD.sectorSize();
     s_msc.begin(ns ? ns : 2048, ss ? ss : 512);
 
-    s_keyboard.begin();
+    usbKeyboard.begin();
     USB.begin();
 }
 
@@ -282,49 +281,7 @@ void USBManager::startMSC() {
     dm.printCommandScreen();
 }
 
-// ── startHID() ────────────────────────────────────────────────────────────────
-void USBManager::startHID() {
-    DisplayManager& dm = displayManager;
-
-    dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
-    dm.setTextColor(0x7BEF);    dm.printText("[");
-    dm.setTextColor(TFT_CYAN);  dm.printText("USB");
-    dm.setTextColor(0x7BEF);    dm.printText("::");
-    dm.setTextColor(TFT_YELLOW);dm.printText("HID");
-    dm.setTextColor(0x7BEF);    dm.println("]");
-    dm.printSeparator();
-
-    if (!s_usbReady) {
-        dm.setCursor(10, dm.getCursorY());
-        dm.setTextColor(TFT_RED); dm.println("Not connected to PC.");
-        dm.setCursor(10, dm.getCursorY());
-        dm.setTextColor(0x7BEF); dm.println("Plug in USB cable first.");
-        vTaskDelay(pdMS_TO_TICKS(2500));
-        dm.printCommandScreen(); return;
-    }
-
-    dm.setCursor(10, dm.getCursorY());
-    dm.setTextColor(TFT_WHITE); dm.println("Click a text field on PC.");
-    dm.setCursor(10, dm.getCursorY());
-    dm.setTextColor(0x7BEF);    dm.println("[any key] send  [q] cancel");
-    dm.setTextColor(TFT_WHITE);
-
-    char k = 0;
-    while (k == 0) { k = inputHandler.getKeyboardInput(); vTaskDelay(pdMS_TO_TICKS(50)); }
-    if (k == 'q' || k == 'Q') { dm.printCommandScreen(); return; }
-
-    dm.setCursor(10, dm.getCursorY());
-    dm.setTextColor(TFT_YELLOW); dm.println("Sending...");
-
-    s_keyboard.print("T-Rex HID Test");
-    s_keyboard.press(KEY_RETURN);
-    vTaskDelay(pdMS_TO_TICKS(50));
-    s_keyboard.release(KEY_RETURN);
-    vTaskDelay(pdMS_TO_TICKS(50));
-    s_keyboard.releaseAll();
-
-    dm.setCursor(10, dm.getCursorY());
-    dm.setTextColor(TFT_GREEN); dm.println("Sent!");
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    dm.printCommandScreen();
+// ── isConnected() ─────────────────────────────────────────────────────────────
+bool USBManager::isConnected() const {
+    return s_usbReady;
 }

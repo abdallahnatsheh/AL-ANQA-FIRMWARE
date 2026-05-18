@@ -138,7 +138,10 @@ CMD> sdinfo                  # SD card type and capacity
 CMD> sdls [path]             # list directory (default: /)
 CMD> sdread <path>           # print file contents
 CMD> sdrm <path>             # delete a file
+CMD> sdformat [init]         # format SD card to FAT32 (WARNING: destroys all data)
 ```
+
+`sdformat` prompts for confirmation before formatting. Use `sdf init` to format and re-initialise the directory structure in one step.
 
 ### SD Layout
 

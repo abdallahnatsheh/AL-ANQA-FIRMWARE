@@ -19,6 +19,7 @@
 #include "fast_pair.h"
 #include "ble_spam.h"
 #include "usb_manager.h"
+#include "usb_keyboard.h"
 #include "buddy.h"
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
@@ -189,7 +190,7 @@ void CommandManager::setupCommands() {
     registerCommand("sdformat",    "sdf",    [](char* a) { sdCardManager.formatCommand(a); },                                                   "Format SD to FAT: sdf [init]",            true,  "SD Card");
     // ── USB ───────────────────────────────────────────────────────────────────
     registerCommand("usbmsc",      "um",     [](char* a) { usbManager.startMSC(); },                                                              "Expose SD card as USB drive",             false, "USB");
-    registerCommand("usbhid",      "uh",     [](char* a) { usbManager.startHID(); },                                                              "USB HID keyboard test",                   false, "USB");
+    registerCommand("usbkbd",      "uk",     [](char* a) { usbKeyboard.start(); },                                                               "T-DECK as USB keyboard+mouse",            false, "USB");
     // ── Diagnostics ───────────────────────────────────────────────────────────
     registerCommand("gpson",       "gon",    [](char* a) { runGpsOn(); },                                                   "GPS background task + live status",       false, "Diagnostics");
     registerCommand("gpsoff",      "gof",    [](char* a) { runGpsOff(); },                                                  "Stop GPS background task",                false, "Diagnostics");
