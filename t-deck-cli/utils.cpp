@@ -14,6 +14,11 @@ bool Utils::startsWith(const char* str, const char* prefix) {
     return strncmp(str, prefix, strlen(prefix)) == 0;
 }
 
+bool Utils::matchesCmd(const char* str, const char* prefix) {
+    size_t n = strlen(prefix);
+    return strncmp(str, prefix, n) == 0 && (str[n] == '\0' || str[n] == ' ');
+}
+
 void Utils::printHelp(char* args) {
     // ── specific command lookup ───────────────────────────────────────────────
     if (args && args[0] != '\0') {

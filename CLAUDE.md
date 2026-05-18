@@ -11,7 +11,11 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 
 ## Architecture
 
-**Command system** (`command_manager.cpp/h`): `registerCommand(name, shortName, fn, desc, hasArgs, category)` — max 64, all one-liners in `setupCommands()`. Categories: System · WiFi · Network · Bluetooth · SD Card · Diagnostics.
+**Command system** (`command_manager.cpp/h`): `registerCommand(name, shortName, fn, desc, hasArgs, category, compType=COMP_NONE)` — max 64, all one-liners in `setupCommands()`. Categories: System · WiFi · Network · Bluetooth · SD Card · Diagnostics.
+- Dispatch uses `Utils::matchesCmd(cmd, prefix)` — requires space or NUL after prefix (not bare `startsWith`). Critical: prevents `sdrm` matching `sdr`.
+- `CompType`: `COMP_NONE` (no file args) · `COMP_ANY` (ls) · `COMP_DIR` (cd) · `COMP_FILE` (sdr/srm/ux)
+- History: 16-entry ring buffer in `_hist`; trackpad UP/DOWN navigates; `_histSaved` preserves in-progress line
+- Autocomplete: `'` key (Sym+K = 0x27, defined `KEY_AUTOCOMPLETE` in `input_handling.h`); fills common prefix, single match adds space, multiple lists up to 8
 
 **Display** (`display_manager.cpp/h`): all output via `displayManager` — never `tft` directly. `clearScreen()` = below header only. `tdeck_begin()` = full reset.
 
@@ -55,7 +59,7 @@ System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv`
 WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws`
 Network: `netdiscover/nd` `portscan/ps` `topscan/ts` `ping/pg`
 Bluetooth: `scanblue/sbl` `trackme/tm [silent]`
-SD: `sdinfo/sdi` `sdls/ls` `sdread/sdr` `sdrm/srm` `sdf/sdf`
+SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `sdread/sdr` `sdrm/srm` `sdf/sdf`
 Diagnostics: `gpson/gon` `gpsoff/gof` `gpstest/gt` `spktest/st` `loratest/lt`
 
 ## SD Layout
@@ -99,7 +103,6 @@ Diagnostics: `gpson/gon` `gpsoff/gof` `gpstest/gt` `spktest/st` `loratest/lt`
 - SD + WiFi: follow the GDMA rule above — open files before WiFi, close after teardown
 
 ## Pending Features
-- BadUSB / DuckyScript (TinyUSB)
 - BLE GATT enumeration (`bleinfo/bi <mac>`)
 - LoRa scanner / packet logger
 - macwatch — MAC watchlist with proximity alert

@@ -49,9 +49,14 @@ type: project
 - `SD_LAYOUT.md` created — documents all SD files, auto-created vs manual, Linux sync workflow, limitations (hex SSID unsupported, EAP unsupported, update_config=1 caveat), desktop Linux migration steps (nmcli + wpa_passphrase)
 - Bugs fixed: NVS v5 iterator leak, empty SSID silent timeout on hidden index connect, duplicate entries from Linux-imported files (BSSID-only dedup → SSID-primary dedup), SD_LAYOUT.md false claim about update_config=1 preserving comments
 
+## Session 2026-05-18
+- `cd` command + CWD in SDCardManager — `resolvePath()` normalizes `..`, absolute/relative
+- `ls` rewritten — non-recursive, shows CWD at top, dirs in cyan with `/`, files with size
+- `sdr`, `srm`, `ux` resolve relative paths via `resolvePath()` before calling their functions
+- Command history — 16-entry ring buffer in CommandManager; trackpad UP = older, DOWN = newer; saves current input before navigating, restores on DOWN past newest
+
 ## Not Yet Built
 - macwatch / mw — MAC proximity watchlist
 - BLE GATT enumeration (`bleinfo/bi`)
 - LoRa scanner (`lorascan/ls`)
-- BadUSB / DuckyScript (`badusb/bu`)
 - Touchscreen, microphone

@@ -77,35 +77,114 @@ void SDCardManager::printInfo() {
     displayManager.printCommandScreen();
 }
 
+void SDCardManager::resolvePath(const char* input, char* out, size_t outLen) const {
+    if (!input || !*input) {
+        strncpy(out, _cwd, outLen - 1);
+        out[outLen - 1] = '\0';
+        return;
+    }
+    char tmp[256];
+    if (input[0] == '/') {
+        strncpy(tmp, input, sizeof(tmp) - 1);
+    } else {
+        if (_cwd[1] == '\0')  // _cwd is "/"
+            snprintf(tmp, sizeof(tmp), "/%s", input);
+        else
+            snprintf(tmp, sizeof(tmp), "%s/%s", _cwd, input);
+    }
+    tmp[sizeof(tmp) - 1] = '\0';
+
+    // Normalize ".." and "." segments
+    char parts[12][64];
+    int  n = 0;
+    char* tok = strtok(tmp, "/");
+    while (tok) {
+        if (strcmp(tok, "..") == 0) {
+            if (n > 0) n--;
+        } else if (strcmp(tok, ".") != 0 && *tok) {
+            if (n < 12) { strncpy(parts[n++], tok, 63); parts[n-1][63] = '\0'; }
+        }
+        tok = strtok(nullptr, "/");
+    }
+    if (n == 0) {
+        strncpy(out, "/", outLen - 1);
+    } else {
+        out[0] = '\0';
+        for (int i = 0; i < n; i++) {
+            strncat(out, "/", outLen - strlen(out) - 1);
+            strncat(out, parts[i], outLen - strlen(out) - 1);
+        }
+    }
+    out[outLen - 1] = '\0';
+}
+
+void SDCardManager::cdCommand(const char* path) {
+    if (!canAccessSD()) {
+        displayManager.println("No SD card mounted.");
+        displayManager.printCommandScreen();
+        return;
+    }
+    char resolved[128];
+    if (!path || !*path || strcmp(path, "/") == 0) {
+        strncpy(resolved, "/", sizeof(resolved) - 1);
+    } else {
+        resolvePath(path, resolved, sizeof(resolved));
+    }
+    File f = SD.open(resolved);
+    if (!f || !f.isDirectory()) {
+        if (f) f.close();
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.setTextColor(TFT_RED);
+        displayManager.printText("Not a dir: ");
+        displayManager.println(resolved);
+        displayManager.setTextColor(TFT_WHITE);
+        displayManager.printCommandScreen();
+        return;
+    }
+    f.close();
+    strncpy(_cwd, resolved, sizeof(_cwd) - 1);
+    _cwd[sizeof(_cwd) - 1] = '\0';
+    displayManager.setCursor(10, displayManager.getCursorY());
+    displayManager.setTextColor(TFT_CYAN);
+    displayManager.println(_cwd);
+    displayManager.setTextColor(TFT_WHITE);
+    displayManager.printCommandScreen();
+}
+
+int SDCardManager::listCompletions(const char* searchDir, const char* filePrefix,
+                                   char out[][64], int maxCount,
+                                   bool dirsOnly, bool filesOnly) {
+    if (!canAccessSD()) return 0;
+    File dir = SD.open(searchDir);
+    if (!dir || !dir.isDirectory()) { if (dir) dir.close(); return 0; }
+    int count  = 0;
+    size_t fpLen = strlen(filePrefix);
+    while (count < maxCount) {
+        File entry = dir.openNextFile();
+        if (!entry) break;
+        const char* ename = entry.name();
+        bool entryIsDir = entry.isDirectory();
+        // Apply type filter
+        if (dirsOnly  && !entryIsDir) { entry.close(); continue; }
+        if (filesOnly &&  entryIsDir) { entry.close(); continue; }
+        if (fpLen == 0 || strncmp(ename, filePrefix, fpLen) == 0) {
+            strncpy(out[count], ename, 63);
+            out[count][63] = '\0';
+            if (entryIsDir) strncat(out[count], "/", 63 - strlen(out[count]));
+            count++;
+        }
+        entry.close();
+    }
+    dir.close();
+    return count;
+}
+
 void SDCardManager::listDirRecursive(File dir, int depth) {
+    // kept for internal use only — listDirectory no longer calls this
     while (true) {
         File entry = dir.openNextFile();
         if (!entry) break;
-
-        displayManager.setCursor(10, displayManager.getCursorY());
-        for (int i = 0; i < depth; i++) displayManager.printText("  ");
-
-        if (entry.isDirectory()) {
-            displayManager.setTextColor(TFT_CYAN);
-            displayManager.printText("[");
-            displayManager.printText(entry.name());
-            displayManager.println("]");
-            displayManager.setTextColor(TFT_WHITE);
-            listDirRecursive(entry, depth + 1);
-        } else {
-            displayManager.printText(entry.name());
-            displayManager.printText("  ");
-            uint32_t sz = entry.size();
-            if (sz < 1024) {
-                displayManager.printText((int)sz); displayManager.println("B");
-            } else {
-                displayManager.printText((int)(sz / 1024)); displayManager.println("KB");
-            }
-        }
         entry.close();
-
-        char k = inputHandler.getKeyboardInput();
-        if (k == 'q' || k == 'Q') break;
     }
 }
 
@@ -117,24 +196,103 @@ void SDCardManager::listDirectory(const char* path) {
         return;
     }
 
-    File root = SD.open(path);
+    // Resolve path
+    char resolved[128];
+    if (!path || !*path) {
+        strncpy(resolved, _cwd, sizeof(resolved) - 1);
+    } else {
+        resolvePath(path, resolved, sizeof(resolved));
+    }
+    resolved[sizeof(resolved) - 1] = '\0';
+
+    File root = SD.open(resolved);
     if (!root || !root.isDirectory()) {
+        if (root) root.close();
         displayManager.setCursor(10, displayManager.getCursorY());
         displayManager.printText("Not found: ");
-        displayManager.println(path);
+        displayManager.println(resolved);
         displayManager.printCommandScreen();
         return;
     }
 
+    // Header
+    displayManager.clearScreen();
+    displayManager.setCursor(10, outputY);
+    displayManager.setTextColor(0x7BEF);    displayManager.printText("[");
+    displayManager.setTextColor(TFT_CYAN);  displayManager.printText("SD");
+    displayManager.setTextColor(0x7BEF);    displayManager.printText("::");
+    displayManager.setTextColor(TFT_YELLOW);displayManager.printText("LS");
+    displayManager.setTextColor(0x7BEF);    displayManager.println("]");
+    displayManager.printSeparator();
+
     displayManager.setCursor(10, displayManager.getCursorY());
     displayManager.setTextColor(TFT_YELLOW);
-    displayManager.printText("SD: ");
-    displayManager.println(path);
+    displayManager.println(resolved);
     displayManager.setTextColor(TFT_WHITE);
-    displayManager.println("--------------------");
-    listDirRecursive(root, 0);
+    displayManager.printSeparator();
+
+    // List one level (non-recursive), paginated
+    const int perPage = 8;
+    int lineOnPage = 0;
+    bool quit = false;
+
+    while (!quit) {
+        File entry = root.openNextFile();
+        if (!entry) break;
+
+        const char* ename = entry.name();
+        bool isDir = entry.isDirectory();
+
+        // Page break before printing if page is full
+        if (lineOnPage == perPage) {
+            displayManager.setCursor(10, displayManager.getCursorY());
+            displayManager.setTextColor(0x4208);
+            displayManager.println("-- any key / q --");
+            displayManager.setTextColor(TFT_WHITE);
+            char k = 0;
+            while (k == 0) k = inputHandler.getKeyboardInput();
+            if (k == 'q' || k == 'Q') { entry.close(); quit = true; break; }
+            // Redraw header for next page
+            displayManager.clearScreen();
+            displayManager.setCursor(10, outputY);
+            displayManager.setTextColor(0x7BEF);    displayManager.printText("[");
+            displayManager.setTextColor(TFT_CYAN);  displayManager.printText("SD");
+            displayManager.setTextColor(0x7BEF);    displayManager.printText("::");
+            displayManager.setTextColor(TFT_YELLOW);displayManager.printText("LS");
+            displayManager.setTextColor(0x7BEF);    displayManager.println("]");
+            displayManager.printSeparator();
+            displayManager.setCursor(10, displayManager.getCursorY());
+            displayManager.setTextColor(TFT_YELLOW); displayManager.println(resolved);
+            displayManager.setTextColor(TFT_WHITE);
+            displayManager.printSeparator();
+            lineOnPage = 0;
+        }
+
+        displayManager.setCursor(10, displayManager.getCursorY());
+        if (isDir) {
+            displayManager.setTextColor(TFT_CYAN);
+            displayManager.printText(ename);
+            displayManager.println("/");
+            displayManager.setTextColor(TFT_WHITE);
+        } else {
+            uint32_t sz = entry.size();
+            char line[48];
+            if (sz < 1024)
+                snprintf(line, sizeof(line), "%-24s %uB", ename, (unsigned)sz);
+            else
+                snprintf(line, sizeof(line), "%-24s %uKB", ename, (unsigned)(sz / 1024));
+            displayManager.println(line);
+        }
+        entry.close();
+        lineOnPage++;
+    }
     root.close();
-    displayManager.println("--------------------");
+    if (!quit) {
+        displayManager.printSeparator();
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.setTextColor(0x4208); displayManager.println("[q] back");
+        displayManager.setTextColor(TFT_WHITE);
+    }
     displayManager.printCommandScreen();
 }
 
@@ -145,6 +303,10 @@ void SDCardManager::readFile(const char* path) {
         displayManager.printCommandScreen();
         return;
     }
+
+    char resolved[128];
+    resolvePath(path, resolved, sizeof(resolved));
+    path = resolved;
 
     File file = SD.open(path);
     if (!file) {
@@ -204,6 +366,10 @@ bool SDCardManager::removeFile(const char* path) {
         displayManager.printCommandScreen();
         return false;
     }
+
+    char resolved[128];
+    resolvePath(path, resolved, sizeof(resolved));
+    path = resolved;
 
     if (!SD.exists(path)) {
         displayManager.setCursor(10, displayManager.getCursorY());

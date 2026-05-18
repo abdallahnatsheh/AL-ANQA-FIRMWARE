@@ -139,9 +139,10 @@ git clone https://github.com/abdallahnatsheh/T-Rex
 | `buddy` | `bd` | `[name]` | Claude Desktop remote — approve prompts, ASCII pet, NVS stats |
 | **SD Card** | | | |
 | `sdinfo` | `sdi` | — | SD card info |
-| `sdls` | `ls` | `[path]` | List directory |
-| `sdread` | `sdr` | `<path>` | Read file |
-| `sdrm` | `srm` | `<path>` | Delete file |
+| `sdls` | `ls` | `[path]` | List directory (CWD if no path, paginated, dirs in cyan) |
+| `cd` | `cd` | `<dir\|..>` | Change working directory — `cd badusb`, `cd ..`, `cd /` |
+| `sdread` | `sdr` | `<path>` | Read file (relative to CWD) |
+| `sdrm` | `srm` | `<path>` | Delete file (relative to CWD) |
 | **USB** | | | |
 | `usbmsc` | `um` | — | Expose SD card as USB Mass Storage drive |
 | `usbkbd` | `uk` | — | T-Deck as USB keyboard + mouse (trackball = cursor, tap = left click, hold = right click) |
@@ -168,7 +169,19 @@ All scan tables share the same keys:
 | `u` | Re-run scan |
 | `q` | Quit |
 
-Trackball: roll left/right to move the cursor mid-command, click to execute.
+**Trackball (command line):**
+
+| Direction | Action |
+|-----------|--------|
+| Left / Right | Move cursor within the current command |
+| Up / Down | Scroll through command history (16 entries) |
+| Click | Execute command |
+
+**Autocomplete:** Press `'` (Sym+K) at any point in a command.
+- At the start → completes command names (`scan` + `'` shows `scanwifi`, `scanblue`)
+- After a command name → completes file/dir paths from the current working directory
+- Smart filtering: `cd` suggests dirs only, `sdr`/`srm`/`ux` suggest files only, `ls` suggests both
+- Fills common prefix automatically (Linux-style); single match adds a trailing space
 
 ---
 
@@ -201,7 +214,8 @@ Trackball: roll left/right to move the cursor mid-command, click to execute.
 - [x] BLE scanner, anti-tracking detector
 - [x] Fast Pair attack — advertisement flood + GATT probe (WhisperPair)
 - [x] BLE notification spam — Apple / Android / Microsoft / Samsung
-- [x] SD file manager, man pages, help, power save, trackpad cursor
+- [x] SD file manager — `ls` (paginated, dirs in cyan), `cd` CWD navigation (relative paths for all SD commands), man pages, help, power save, trackpad cursor
+- [x] Command history (16-entry ring buffer, trackpad UP/DOWN), tab autocomplete with smart per-command filtering (Sym+K)
 - [x] LoRa diagnostic, GPS (T-Deck Plus)
 - [x] USB Mass Storage — expose SD card as USB drive (read + write, 2MB file tested)
 - [x] USB Keyboard + Mouse — T-Deck physical keyboard + trackball as full USB HID input device

@@ -33,10 +33,22 @@ public:
     bool initializeTDeckStructure();
     void formatCommand(char* args);
 
+    // CWD / path resolution
+    const char* getCwd() const { return _cwd; }
+    void resolvePath(const char* input, char* out, size_t outLen) const;
+    void cdCommand(const char* path);
+
+    // Autocomplete: list entries in searchDir whose names start with filePrefix.
+    // Directories get a trailing '/'. Returns the number of matches written to out.
+    int listCompletions(const char* searchDir, const char* filePrefix,
+                        char out[][64], int maxCount,
+                        bool dirsOnly = false, bool filesOnly = false);
+
 private:
     DisplayManager& displayManager;
     bool ready;
     bool _sdLocked = false;
+    char _cwd[128]  = {'/'};
     void listDirRecursive(File dir, int depth);
 };
 

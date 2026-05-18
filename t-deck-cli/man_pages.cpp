@@ -381,11 +381,29 @@ static const ManEntry PAGES[] = {
     { "sdls", "ls", {
         "SYNTAX   ls [path]",
         "",
-        "ABOUT    List files in SD directory.",
-        "         Default path is root /.",
+        "ABOUT    List SD directory (non-recursive).",
+        "         No arg = current directory (cwd).",
+        "         Dirs shown in cyan with trailing /.",
+        "         Relative paths resolve from cwd.",
         "",
-        "EXAMPLE  ls /logs",
-        "         ls /evilportal",
+        "EXAMPLE  ls",
+        "         ls /logs",
+        "         ls badusb",
+        nullptr
+    }},
+
+    { "cd", "cd", {
+        "SYNTAX   cd <dir|..>",
+        "         cd /",
+        "",
+        "ABOUT    Change the current working directory.",
+        "         Affects ls, sdr, srm, ux path lookup.",
+        "         Relative and absolute paths supported.",
+        "         cd with no arg or / returns to root.",
+        "",
+        "EXAMPLE  cd badusb",
+        "         cd /logs",
+        "         cd ..",
         nullptr
     }},
 
