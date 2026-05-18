@@ -43,48 +43,94 @@ const int BadUsb::COMBOS_COUNT = sizeof(BadUsb::COMBOS) / sizeof(BadUsb::COMBOS[
 // Flipper Zero / standard DuckyScript v1.0 compatible format.
 static const char* const DEMO_LINES[] = {
     "REM T-Rex BadUSB Demo",
-    "REM Opens Notepad and draws ASCII art",
-    "DEFAULT_DELAY 80",
+    "DEFAULT_DELAY 50",
     "GUI r",
     "DELAY 700",
     "STRING notepad",
     "ENTER",
-    "DELAY 1200",
-    "STRING =====================================",
-    "ENTER",
-    "STRING    T-REX  -  LilyGo T-Deck",
-    "ENTER",
-    "STRING =====================================",
+    "DELAY 2000",
+    // art lines — blank lines use ENTER only, content lines use STRING + ENTER
     "ENTER",
     "ENTER",
-    "STRING            __",
     "ENTER",
-    "STRING           / _)",
+    "STRING                                                                .",
     "ENTER",
-    "STRING   _.----._/ /",
+    "STRING                                                            =#+.:*##==#-",
     "ENTER",
-    "STRING  /         /",
+    "STRING                                                         -#*##. #*  -*#*#######.",
     "ENTER",
-    "STRING __/ (  | (  |",
+    "STRING                                                       .##++#=.:-: .--*######*##.",
     "ENTER",
-    "STRING /__.-|_|--|_|",
+    "STRING                                                       ##-+######+#############+:",
+    "ENTER",
+    "STRING                                                      .#+=+-+#####=:+####+-.##**=",
+    "ENTER",
+    "STRING                                                      ##:+##      .  --==#=-.  -",
+    "ENTER",
+    "STRING                                                    =##- +###.....        .",
+    "ENTER",
+    "STRING                                               #######+:..####+:.        .",
+    "ENTER",
+    "STRING                                             ########=..  .*==.+# ..    .",
+    "ENTER",
+    "STRING                                            ####*##*:.. ..   ...-#:-... .-",
+    "ENTER",
+    "STRING                          =:            .*#*#**+-##+.  ..       .+#=+-.. +",
+    "ENTER",
+    "STRING                         #.            ###*.-:...###+.. ..    .: .###=+*:-*",
+    "ENTER",
+    "STRING                        **           -#####-.... ###:....    ..#.  .#+#=:=-",
+    "ENTER",
+    "STRING                        -#-        +#-#####:    +#+    ...  ...-:     ..",
+    "ENTER",
+    "STRING                         -*##***####::=###*:.   #=-        .. .-",
+    "ENTER",
+    "STRING                          ..-=+==-:. .=*##+:.    . #+#.     . ..-##:",
+    "ENTER",
+    "STRING                               . .    .+#+..       .# *     ..   :.=:",
+    "ENTER",
+    "STRING                                 .  *#- .. .               ...",
+    "ENTER",
+    "STRING                                   :+...  .            .. .. .",
+    "ENTER",
+    "STRING                                   :+.  .              ..",
+    "ENTER",
+    "STRING                                  -*.                 .",
+    "ENTER",
+    "STRING                                  +=: .                .. :.",
+    "ENTER",
+    "STRING                                  #.*= .               ..=.=-",
+    "ENTER",
+    "STRING                               -=#-:#+=.#+.              -#=.-==-.",
+    "ENTER",
+    "STRING                            ... . . -- .   ............. ..+.  ..  ....... .",
     "ENTER",
     "ENTER",
-    "STRING   DISCOVER. ENUMERATE. COMPROMISE.",
+    "STRING                      *##########          .##########.  :##########:  ###=   +###",
+    "ENTER",
+    "STRING                          *##:             .###    ###:  :##*           #### ####",
+    "ENTER",
+    "STRING                          *##:    :######  .##########:  :########:      =#####-",
+    "ENTER",
+    "STRING                          *##:     ......  .########:    :###.....      -#######.",
+    "ENTER",
+    "STRING                          *##:             .###  .####.  :##########:  ####  :####",
+    "ENTER",
+    "STRING                          =##.              ##*    ###.  .##########.  ###    .###",
     "ENTER",
     "ENTER",
-    "STRING   T-Rex was here.",
+    "STRING                       +-+.*:=:+-+-*-=.. .*.+++=:-*-=-+=- *:.  =:++*+=.*+==++=-=**-.",
     "ENTER",
-    "STRING =====================================",
+    "ENTER",
+    "ENTER",
     "ENTER",
     nullptr
 };
 static const int DEMO_COUNT = (sizeof(DEMO_LINES) / sizeof(DEMO_LINES[0])) - 1;
 
 // ── begin() ───────────────────────────────────────────────────────────────────
-void BadUsb::begin() {
-    _keyboard.begin();
-}
+// g_hid_keyboard is already registered by usbKeyboard.begin() — nothing to do here.
+void BadUsb::begin() {}
 
 // ── start() ───────────────────────────────────────────────────────────────────
 void BadUsb::start(char* args) {
@@ -119,6 +165,10 @@ void BadUsb::start(char* args) {
         dm.printCommandScreen(); return;
     }
 
+    // Flush any stale HID state from a previous run before sending new keystrokes
+    g_hid_keyboard.releaseAll();
+    vTaskDelay(pdMS_TO_TICKS(500));
+
     _aborted          = false;
     _defaultCharDelay = 8;
     _nextCharDelay    = -1;
@@ -139,7 +189,7 @@ void BadUsb::start(char* args) {
         runFile(args);
     }
 
-    _keyboard.releaseAll();
+    g_hid_keyboard.releaseAll();
 
     dm.clearScreen(); dm.setCursor(10, outputY);
     dm.setTextColor(_aborted ? TFT_YELLOW : TFT_GREEN);
@@ -311,15 +361,15 @@ bool BadUsb::executeLine(const char* rawLine, int& defaultDelay) {
     // (Bruce's implementation has a bug where the arg key is not sent for combos).
     const HyphenCombo* hc = findHyphenCombo(tokens[0]);
     if (hc) {
-        _keyboard.press(hc->k1);
-        _keyboard.press(hc->k2);
-        if (hc->k3) _keyboard.press(hc->k3);
+        g_hid_keyboard.press(hc->k1);
+        g_hid_keyboard.press(hc->k2);
+        if (hc->k3) g_hid_keyboard.press(hc->k3);
         if (nTok > 1) {
             uint8_t argKey = resolveSpecialKey(tokens[1]);
-            if (argKey) _keyboard.press(argKey);
+            if (argKey) g_hid_keyboard.press(argKey);
         }
         vTaskDelay(pdMS_TO_TICKS(50));
-        _keyboard.releaseAll();
+        g_hid_keyboard.releaseAll();
         return true;
     }
 
@@ -358,11 +408,11 @@ void BadUsb::typeString(const char* s) {
     while (*s) {
         uint8_t c = (uint8_t)*s++;
         if (c >= 0x20 && c < 0x7F) {
-            _keyboard.print((char)c);
+            g_hid_keyboard.print((char)c);
         } else if (c == '\n') {
-            _keyboard.press(KEY_RETURN);
+            g_hid_keyboard.press(KEY_RETURN);
             vTaskDelay(pdMS_TO_TICKS(20));
-            _keyboard.releaseAll();
+            g_hid_keyboard.releaseAll();
         }
         if (charDelay > 0) vTaskDelay(pdMS_TO_TICKS(charDelay));
     }
@@ -370,17 +420,17 @@ void BadUsb::typeString(const char* s) {
 
 // ── pressSpecialKey() ─────────────────────────────────────────────────────────
 void BadUsb::pressSpecialKey(uint8_t keyCode) {
-    _keyboard.press(keyCode);
+    g_hid_keyboard.press(keyCode);
     vTaskDelay(pdMS_TO_TICKS(30));
-    _keyboard.releaseAll();
+    g_hid_keyboard.releaseAll();
 }
 
 // ── pressCombo() ──────────────────────────────────────────────────────────────
 void BadUsb::pressCombo(uint8_t mods[], int nMods, uint8_t key) {
-    for (int i = 0; i < nMods; i++) _keyboard.press(mods[i]);
-    if (key) _keyboard.press(key);
+    for (int i = 0; i < nMods; i++) g_hid_keyboard.press(mods[i]);
+    if (key) g_hid_keyboard.press(key);
     vTaskDelay(pdMS_TO_TICKS(50));
-    _keyboard.releaseAll();
+    g_hid_keyboard.releaseAll();
 }
 
 // ── findHyphenCombo() ─────────────────────────────────────────────────────────

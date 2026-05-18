@@ -6,16 +6,14 @@
 #define BAD_USB_H
 
 #include <Arduino.h>
-#include <USBHIDKeyboard.h>
+#include "usb_keyboard.h"  // provides g_hid_keyboard shared instance
 
 class BadUsb {
 public:
-    void begin();           // register HID keyboard with TinyUSB — call before USB.begin()
+    void begin();           // no-op — g_hid_keyboard already registered by usbKeyboard.begin()
     void start(char* args); // usbexec/ux — run demo or SD script
 
 private:
-    USBHIDKeyboard _keyboard;
-
     bool _aborted;
     int  _defaultCharDelay; // ms between characters in STRING (DEFAULT_STRING_DELAY)
     int  _nextCharDelay;    // one-shot override for next STRING (-1 = use default)

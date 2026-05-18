@@ -14,24 +14,25 @@
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
 
-UsbKeyboard usbKeyboard;
+UsbKeyboard    usbKeyboard;
+USBHIDKeyboard g_hid_keyboard;
 
 // ── begin() ───────────────────────────────────────────────────────────────────
 void UsbKeyboard::begin() {
-    _keyboard.begin();
+    g_hid_keyboard.begin();
     _mouse.begin();
 }
 
 // ── sendKey() ─────────────────────────────────────────────────────────────────
 void UsbKeyboard::sendKey(char k) {
     switch ((uint8_t)k) {
-        case 0x08: _keyboard.press(KEY_BACKSPACE); vTaskDelay(1); _keyboard.release(KEY_BACKSPACE); break;
-        case 0x09: _keyboard.press(KEY_TAB);       vTaskDelay(1); _keyboard.release(KEY_TAB);       break;
-        case 0x0D: _keyboard.press(KEY_RETURN);    vTaskDelay(1); _keyboard.release(KEY_RETURN);    break;
-        case 0x1B: _keyboard.press(KEY_ESC);       vTaskDelay(1); _keyboard.release(KEY_ESC);       break;
-        case 0x7F: _keyboard.press(KEY_DELETE);    vTaskDelay(1); _keyboard.release(KEY_DELETE);    break;
+        case 0x08: g_hid_keyboard.press(KEY_BACKSPACE); vTaskDelay(1); g_hid_keyboard.release(KEY_BACKSPACE); break;
+        case 0x09: g_hid_keyboard.press(KEY_TAB);       vTaskDelay(1); g_hid_keyboard.release(KEY_TAB);       break;
+        case 0x0D: g_hid_keyboard.press(KEY_RETURN);    vTaskDelay(1); g_hid_keyboard.release(KEY_RETURN);    break;
+        case 0x1B: g_hid_keyboard.press(KEY_ESC);       vTaskDelay(1); g_hid_keyboard.release(KEY_ESC);       break;
+        case 0x7F: g_hid_keyboard.press(KEY_DELETE);    vTaskDelay(1); g_hid_keyboard.release(KEY_DELETE);    break;
         default:
-            if ((uint8_t)k >= 0x20 && (uint8_t)k < 0x7F) _keyboard.print(k);
+            if ((uint8_t)k >= 0x20 && (uint8_t)k < 0x7F) g_hid_keyboard.print(k);
             break;
     }
 }
@@ -76,6 +77,10 @@ void UsbKeyboard::start() {
         dm.printCommandScreen(); return;
     }
 
+    // Flush any stale HID state from a previous BadUSB or KBD session
+    g_hid_keyboard.releaseAll();
+    vTaskDelay(pdMS_TO_TICKS(500));
+
     dm.setCursor(10, dm.getCursorY());
     dm.setTextColor(TFT_WHITE); dm.println("Keyboard + Mouse active.");
     dm.setCursor(10, dm.getCursorY());
@@ -94,11 +99,11 @@ void UsbKeyboard::start() {
     char     lastKey         = 0;
     uint32_t lastKeyMs       = 0;
     bool     bsRepeatActive  = false;
-    uint32_t lastBsRepeatMs  = 0;
     uint32_t bsRepeatStartMs = 0;
-    static const uint32_t BS_DELAY    = 500;   // ms before repeat starts
-    static const uint32_t BS_RATE     = 60;    // ms between repeat events
-    static const uint32_t BS_MAX_TIME = 2000;  // ms max repeat duration (press BS again for more)
+    uint32_t lastBsRepeatMs  = 0;
+    static const uint32_t BS_HOLD_DELAY = 1000; // hold 1s before repeat starts
+    static const uint32_t BS_RATE       = 60;   // ms between repeat keystrokes
+    static const uint32_t BS_MAX_TIME   = 2000; // repeat for max 2s then stop
 
     uint32_t    lastDisplayMs = 0;
     char        lastKeyBuf[8] = "---    ";
@@ -108,19 +113,19 @@ void UsbKeyboard::start() {
     while (running) {
         uint32_t now = millis();
 
-        // ── Keyboard passthrough + backspace auto-repeat ──────────────────────
+        // ── Keyboard passthrough + hold-to-repeat backspace ──────────────────
         char k = inputHandler.getKeyboardInput();
         if (k != 0) {
             sendKey(k);
             lastKey        = k;
             lastKeyMs      = now;
-            bsRepeatActive = false;
+            bsRepeatActive = false; // any key cancels repeat
             if ((uint8_t)k >= 0x20 && (uint8_t)k < 0x7F)
                 snprintf(lastKeyBuf, sizeof(lastKeyBuf), "'%c'    ", k);
             else
                 snprintf(lastKeyBuf, sizeof(lastKeyBuf), "0x%02X  ", (uint8_t)k);
         } else if (lastKey == '\x08') {
-            if (!bsRepeatActive && (now - lastKeyMs >= BS_DELAY)) {
+            if (!bsRepeatActive && (now - lastKeyMs >= BS_HOLD_DELAY)) {
                 bsRepeatActive  = true;
                 bsRepeatStartMs = now;
                 lastBsRepeatMs  = now;
@@ -187,7 +192,7 @@ void UsbKeyboard::start() {
         vTaskDelay(pdMS_TO_TICKS(4));
     }
 
-    _keyboard.releaseAll();
+    g_hid_keyboard.releaseAll();
     _mouse.release(MOUSE_LEFT);
 
     dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();

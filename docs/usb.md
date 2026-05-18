@@ -60,7 +60,7 @@ Special keys:
 | ESC | Escape |
 | DEL | Delete |
 
-**Backspace auto-repeat:** Hold Backspace — after 500 ms it starts deleting at 60 ms intervals (≈16 chars/sec) for up to 2 seconds. Press Backspace again to continue deleting.
+**Backspace auto-repeat:** Hold Backspace for 1 second — repeat starts at ~16 chars/sec for up to 2 seconds, then stops. Press any other key to cancel repeat early.
 
 ### Mouse
 

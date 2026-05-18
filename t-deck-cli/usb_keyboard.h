@@ -9,14 +9,16 @@
 #include <USBHIDKeyboard.h>
 #include <USBHIDMouse.h>
 
+// Shared HID keyboard — one instance registered with TinyUSB; used by both UsbKeyboard and BadUsb
+extern USBHIDKeyboard g_hid_keyboard;
+
 class UsbKeyboard {
 public:
     void begin();  // Register HID descriptors with TinyUSB — must be called before USB.begin()
     void start();  // usbkbd/uk — T-DECK keyboard+trackball as USB keyboard+mouse, blocks until exit
 
 private:
-    USBHIDKeyboard _keyboard;
-    USBHIDMouse    _mouse;
+    USBHIDMouse _mouse;
 
     void    sendKey(char k);
     int8_t  mouseStep(uint32_t elapsedMs);
