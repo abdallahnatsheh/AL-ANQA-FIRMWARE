@@ -13,7 +13,7 @@ Format the card as **FAT32**. Insert before power-on.
 
 - [ ] FAT32 formatted microSD (any size)
 - [ ] Insert card before powering on
-- [ ] Boot — `/logs/`, `/scripts/`, `/captures/` auto-created
+- [ ] Boot — `/logs/`, `/badusb/`, `/captures/` auto-created
 - [ ] Run `sdinfo` to confirm card is detected
 - [ ] Run `sdls /` to verify directory structure
 
@@ -26,7 +26,7 @@ Everything else is created automatically as you use features.
 | Path | Created by |
 |------|-----------|
 | `/logs/` | SDCardManager on init |
-| `/scripts/` | SDCardManager on init |
+| `/badusb/` | SDCardManager on init |
 | `/captures/` | SDCardManager on init |
 | `/logs/hs/` | `wpasniff` on first capture |
 

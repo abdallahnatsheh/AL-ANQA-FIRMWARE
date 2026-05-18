@@ -354,7 +354,7 @@ bool SDCardManager::initializeTDeckStructure() {
     bool ok = true;
     if (!ensureDir("/logs"))          { displayManager.println("Failed: /logs");      ok = false; }
     if (!ensureDir("/evilportal"))    { displayManager.println("Failed: /evilportal");ok = false; }
-    if (!ensureDir(SD_DIR_SCRIPTS))  { displayManager.println("Failed: /scripts");   ok = false; }
+    if (!ensureDir(SD_DIR_SCRIPTS))  { displayManager.println("Failed: /badusb");    ok = false; }
     if (!ensureDir(SD_DIR_CAPTURES)) { displayManager.println("Failed: /captures");  ok = false; }
 
     if (!ok) {

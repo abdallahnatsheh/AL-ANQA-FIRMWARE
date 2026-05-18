@@ -11,7 +11,7 @@
 #define SD_LOG_BT           "/logs/bt.txt"
 #define SD_LOG_PORTS        "/logs/ports.txt"
 #define SD_LOG_PACKETS      "/logs/packets.txt"
-#define SD_DIR_SCRIPTS      "/scripts"
+#define SD_DIR_SCRIPTS      "/badusb"
 #define SD_DIR_CAPTURES     "/captures"
 #define SD_LOG_HIDDEN_SSIDS "/logs/hidden_ssids.csv"
 

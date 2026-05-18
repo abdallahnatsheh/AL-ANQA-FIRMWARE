@@ -12,6 +12,7 @@
 #include <USB.h>
 #include <USBMSC.h>
 #include "usb_keyboard.h"
+#include "bad_usb.h"
 #include <SD.h>
 #include <SPI.h>
 #include <WiFi.h>
@@ -147,6 +148,7 @@ void USBManager::begin() {
     s_msc.begin(ns ? ns : 2048, ss ? ss : 512);
 
     usbKeyboard.begin();
+    badUsb.begin();
     USB.begin();
 }
 

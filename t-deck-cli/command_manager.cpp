@@ -20,6 +20,7 @@
 #include "ble_spam.h"
 #include "usb_manager.h"
 #include "usb_keyboard.h"
+#include "bad_usb.h"
 #include "buddy.h"
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
@@ -191,6 +192,7 @@ void CommandManager::setupCommands() {
     // ── USB ───────────────────────────────────────────────────────────────────
     registerCommand("usbmsc",      "um",     [](char* a) { usbManager.startMSC(); },                                                              "Expose SD card as USB drive",             false, "USB");
     registerCommand("usbkbd",      "uk",     [](char* a) { usbKeyboard.start(); },                                                               "T-DECK as USB keyboard+mouse",            false, "USB");
+    registerCommand("usbexec",     "ux",     [](char* a) { badUsb.start(a); },                                                                    "BadUSB/DuckyScript executor",             true,  "USB");
     // ── Diagnostics ───────────────────────────────────────────────────────────
     registerCommand("gpson",       "gon",    [](char* a) { runGpsOn(); },                                                   "GPS background task + live status",       false, "Diagnostics");
     registerCommand("gpsoff",      "gof",    [](char* a) { runGpsOff(); },                                                  "Stop GPS background task",                false, "Diagnostics");

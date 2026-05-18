@@ -356,6 +356,21 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "usbexec", "ux", {
+        "SYNTAX   usbexec demo",
+        "         usbexec <path>",
+        "",
+        "ABOUT    BadUSB / DuckyScript executor.",
+        "         demo=Notepad T-Rex art.",
+        "         Scripts in /badusb/ on SD.",
+        "",
+        "CMDS     REM // DELAY DEFAULT_DELAY",
+        "         STRING STRINGLN REPEAT F1-F24",
+        "         CTRL-ALT GUI-SHIFT (hyphen ok)",
+        "         WAIT_FOR_BUTTON_PRESS",
+        nullptr
+    }},
+
     { "sdinfo", "sdi", {
         "SYNTAX   sdinfo",
         "",
