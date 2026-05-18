@@ -180,12 +180,14 @@ Trackball: roll left/right to move the cursor mid-command, click to execute.
 /wordlist.txt         — custom WPA crack wordlist (one password per line, ≥8 chars)
 /pwrsave.conf         — power save config (key=value)
 /macchanger.conf      — MAC changer config (key=value)
+/signatures.csv       — custom BLE tracker signatures
 /logs/                — eviltwin.csv, trackme.csv, hidden_ssids.csv, cracked.csv, fastpair.csv
 /logs/hs/             — WPA handshake captures (<BSSID>.cap, libpcap format)
 /fastpair_keys.csv    — cached Fast Pair anti-spoofing keys (modelId,name,key64hex)
 /fastpair_paired.csv  — log of devices successfully paired via GATT
 /evilportal/          — custom HTML portal templates
-/signatures.csv       — custom BLE tracker signatures
+/badusb/              — DuckyScript payload files (auto-created on boot)
+/captures/            — misc capture output (auto-created on boot)
 ```
 
 > See the [SD Card guide](docs/sdcard.md) for the full file reference and quick-start checklist.
