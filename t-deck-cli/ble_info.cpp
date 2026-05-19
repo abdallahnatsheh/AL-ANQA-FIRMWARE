@@ -754,45 +754,76 @@ static void runReplay(const char* macStr, uint8_t addrType) {
 // Prompt already shown by caller. Input: "DE AD BE EF" or "DEADBEEF" or "hello"
 static int readHexInput(uint8_t* buf, size_t bufLen) {
     char line[48] = {};
-    int  pos = 0;
+    int  len       = 0;   // total chars in buffer
+    int  cur       = 0;   // cursor position (0..len)
 
-    int inputY = displayManager.getCursorY();   // pin Y before drawing prompt
-    displayManager.setCursor(4, inputY);
-    displayManager.setTextColor(TFT_WHITE);
-    displayManager.printText("> ");
+    int inputY = displayManager.getCursorY();
+
+    // Redraw the full input line with cursor block at `cur`
+    auto redrawInput = [&]() {
+        displayManager.fillRect(4, inputY, SCREEN_WIDTH - 4, LINE_HEIGHT, TFT_BLACK);
+        displayManager.setCursor(4, inputY);
+        displayManager.setTextColor(TFT_WHITE);
+        // Print "> " + text before cursor + "_" + text after cursor
+        char pre[50] = "> ";
+        strncat(pre, line, cur);
+        displayManager.printText(pre);
+        displayManager.setTextColor(TFT_CYAN);
+        displayManager.printText("_");          // cursor block
+        displayManager.setTextColor(TFT_WHITE);
+        if (cur < len) displayManager.printText(line + cur);
+    };
+    redrawInput();
 
     while (true) {
+        // Check trackball for cursor movement
+        TrackballEvent tb = inputHandler.getTrackballEvent();
+        if (tb == TBALL_LEFT  && cur > 0)   { cur--; redrawInput(); }
+        if (tb == TBALL_RIGHT && cur < len) { cur++; redrawInput(); }
+
         char k = inputHandler.getKeyboardInput();
         if (!k) { vTaskDelay(pdMS_TO_TICKS(20)); continue; }
+
         if (k == '\r' || k == '\n') break;
+
         if (k == '\b' || k == 0x7F) {
-            if (pos > 0) {
-                line[--pos] = '\0';
-                // Redraw only the input line using the pinned Y
-                displayManager.fillRect(4, inputY, SCREEN_WIDTH - 4, LINE_HEIGHT, TFT_BLACK);
-                displayManager.setCursor(4, inputY);
-                displayManager.setTextColor(TFT_WHITE);
-                char redraw[52]; snprintf(redraw, sizeof(redraw), "> %s", line);
-                displayManager.printText(redraw);
+            if (cur > 0) {
+                // Delete char to the left of cursor
+                memmove(line + cur - 1, line + cur, len - cur);
+                len--; cur--;
+                line[len] = '\0';
+                redrawInput();
             }
             continue;
         }
+
         if (k == 'q' || k == 'Q') return -1;
-        if (pos < (int)sizeof(line) - 1) {
-            line[pos++] = k; line[pos] = '\0';
-            char ch[2] = { k, '\0' };
-            displayManager.setTextColor(TFT_WHITE);
-            displayManager.printText(ch);
+
+        if (len < (int)sizeof(line) - 1) {
+            // Insert char at cursor position
+            memmove(line + cur + 1, line + cur, len - cur);
+            line[cur++] = k;
+            len++;
+            line[len] = '\0';
+            redrawInput();
         }
     }
 
+    // Remove cursor, finalise display
+    displayManager.fillRect(4, inputY, SCREEN_WIDTH - 4, LINE_HEIGHT, TFT_BLACK);
+    displayManager.setCursor(4, inputY);
+    displayManager.setTextColor(TFT_WHITE);
+    char final[52]; snprintf(final, sizeof(final), "> %s", line);
+    displayManager.printText(final);
+    displayManager.println("");
+
     // Try to decode: if all printable ASCII, treat as raw string
-    bool allPrint = (pos > 0);
-    for (int i = 0; i < pos; i++) if (!isprint((unsigned char)line[i])) { allPrint = false; break; }
+    bool allPrint = (len > 0);
+    for (int i = 0; i < len; i++) if (!isprint((unsigned char)line[i])) { allPrint = false; break; }
 
     // Strip spaces and try hex decode
     char hex[48] = {}; int hi = 0;
-    for (int i = 0; i < pos; i++) if (line[i] != ' ') hex[hi++] = line[i];
+    for (int i = 0; i < len; i++) if (line[i] != ' ') hex[hi++] = line[i];
 
     bool isHex = (hi > 0 && hi % 2 == 0);
     for (int i = 0; i < hi && isHex; i++)
@@ -808,7 +839,7 @@ static int readHexInput(uint8_t* buf, size_t bufLen) {
         return n;
     }
     // Fall back: raw ASCII bytes
-    int n = pos < (int)bufLen ? pos : (int)bufLen;
+    int n = len < (int)bufLen ? len : (int)bufLen;
     memcpy(buf, line, n);
     return n;
 }
@@ -877,11 +908,10 @@ static void runWrite(const char* macStr, uint8_t addrType) {
     }
 
     // Reconnect and write
-    displayManager.setCursor(4, displayManager.getCursorY());
     displayManager.setTextColor(TFT_YELLOW);
     displayManager.println("Connecting...");
 
-    NimBLEDevice::init("");
+    // Do NOT call NimBLEDevice::init() — stack is already up
     NimBLEClient* client = NimBLEDevice::createClient();
     client->setConnectTimeout(5);
     if (!client->connect(NimBLEAddress(macStr, addrType))) {
@@ -893,7 +923,8 @@ static void runWrite(const char* macStr, uint8_t addrType) {
     }
     applyPairing(client);
 
-    // Find the characteristic by UUID
+    // Find the characteristic by UUID and write
+    // Try with-response first; fall back to without-response (e.g. Da Fit 0xffd1)
     bool sent = false;
     auto* svcs = client->getServices(true);
     if (svcs) {
@@ -902,8 +933,11 @@ static void runWrite(const char* macStr, uint8_t addrType) {
             if (!chars) continue;
             for (auto* chr : *chars) {
                 char uuidBuf[12]; shortUuid(chr->getUUID().toString(), uuidBuf, sizeof(uuidBuf));
-                if (strcmp(uuidBuf, bc.uuid) == 0 && chr->canWrite()) {
-                    sent = chr->writeValue(payload, payLen, true);
+                if (strcmp(uuidBuf, bc.uuid) == 0) {
+                    if (chr->canWrite())
+                        sent = chr->writeValue(payload, payLen, true);
+                    if (!sent && chr->canWriteNoResponse())
+                        sent = chr->writeValue(payload, payLen, false);
                     break;
                 }
             }
@@ -914,7 +948,6 @@ static void runWrite(const char* macStr, uint8_t addrType) {
     client->disconnect();
     NimBLEDevice::deleteClient(client);
 
-    displayManager.setCursor(4, displayManager.getCursorY());
     displayManager.setTextColor(sent ? TFT_GREEN : TFT_RED);
     displayManager.println(sent ? "Write OK." : "Write failed.");
     vTaskDelay(pdMS_TO_TICKS(1200));
@@ -1316,7 +1349,6 @@ static void runSniff(const char* macStr, uint8_t addrType) {
     displayManager.setTextColor(TFT_CYAN);
     displayManager.println("Reconnecting for sniff...");
 
-    NimBLEDevice::init("");
     NimBLEClient* client = NimBLEDevice::createClient();
     client->setConnectTimeout(5);
 
@@ -1367,9 +1399,6 @@ static void runSniff(const char* macStr, uint8_t addrType) {
     uint32_t lastDraw = 0;
 
     while (client->isConnected() && millis() - s_sniffT0 < BI_SNIFF_MS) {
-        char k = inputHandler.getKeyboardInput();
-        if (k == 'q' || k == 'Q') break;
-
         if (s_nfFlag || needDraw || millis() - lastDraw > 500) {
             s_nfFlag  = false;
             needDraw  = false;
@@ -1415,12 +1444,93 @@ static void runSniff(const char* macStr, uint8_t addrType) {
             displayManager.printSeparator();
             displayManager.setCursor(4, displayManager.getCursorY());
             displayManager.setTextColor(0x7BEF);
-            char foot[48];
-            snprintf(foot, sizeof(foot), "subs:%d  total:%lu  [q]stop",
+            char foot[64];
+            snprintf(foot, sizeof(foot), "subs:%d total:%lu [w]write [q]stop",
                      subCount, (unsigned long)s_nfTotal);
             displayManager.println(foot);
         }
         vTaskDelay(pdMS_TO_TICKS(50));
+
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') break;
+
+        // [w] — write to a char while staying connected and subscribed
+        if ((k == 'w' || k == 'W') && s_hasWrite && s_writableCount > 0) {
+            // Show char picker
+            displayManager.clearScreen();
+            displayManager.setDefaultTextSize();
+            displayManager.setCursor(4, outputY);
+            displayManager.setTextColor(0x7BEF);
+            displayManager.println("[WRITE] select char:");
+            displayManager.printSeparator();
+            for (uint8_t i = 0; i < s_writableCount; i++) {
+                BiChar& bc = s_svcs[s_writable[i].svc].chars[s_writable[i].chr];
+                char buf[52];
+                snprintf(buf, sizeof(buf), "[%d] %-9s [%s]", i, bc.uuid, bc.props);
+                displayManager.setCursor(4, displayManager.getCursorY());
+                displayManager.setTextColor(TFT_WHITE);
+                displayManager.println(buf);
+            }
+            displayManager.printSeparator();
+            displayManager.setCursor(4, displayManager.getCursorY());
+            displayManager.setTextColor(0x7BEF);
+            displayManager.println("num=select  q=cancel");
+
+            int sel = -1;
+            while (sel < 0) {
+                char sk = inputHandler.getKeyboardInput();
+                if (sk == 'q' || sk == 'Q') { sel = -2; break; }
+                if (sk >= '0' && sk <= '9') {
+                    int n = sk - '0';
+                    if (n < s_writableCount) sel = n;
+                }
+                vTaskDelay(pdMS_TO_TICKS(20));
+            }
+            if (sel >= 0) {
+                BiChar& bc = s_svcs[s_writable[sel].svc].chars[s_writable[sel].chr];
+                displayManager.clearScreen();
+                displayManager.setDefaultTextSize();
+                displayManager.setCursor(4, outputY);
+                displayManager.setTextColor(TFT_CYAN);
+                char hdr[48]; snprintf(hdr, sizeof(hdr), "Write to %s", bc.uuid);
+                displayManager.println(hdr);
+                displayManager.printSeparator();
+                displayManager.setCursor(4, displayManager.getCursorY());
+                displayManager.setTextColor(0x7BEF);
+                displayManager.println("Hex or ASCII. q=cancel");
+                displayManager.printSeparator();
+
+                uint8_t payload[20]; int payLen = readHexInput(payload, sizeof(payload));
+                if (payLen > 0) {
+                    // Write using the existing connected client — no reconnect
+                    bool sent = false;
+                    auto* svcs2 = client->getServices(false); // cached, no re-discover
+                    if (svcs2) {
+                        for (auto* svc : *svcs2) {
+                            auto* chars2 = svc->getCharacteristics(false);
+                            if (!chars2) continue;
+                            for (auto* chr : *chars2) {
+                                char uuidBuf[12];
+                                shortUuid(chr->getUUID().toString(), uuidBuf, sizeof(uuidBuf));
+                                if (strcmp(uuidBuf, bc.uuid) == 0) {
+                                    if (chr->canWrite())
+                                        sent = chr->writeValue(payload, payLen, true);
+                                    if (!sent && chr->canWriteNoResponse())
+                                        sent = chr->writeValue(payload, payLen, false);
+                                    break;
+                                }
+                            }
+                            if (sent) break;
+                        }
+                    }
+                    displayManager.setTextColor(sent ? TFT_GREEN : TFT_RED);
+                    displayManager.println(sent ? "Sent! Watch sniff for reply." : "Write failed.");
+                    vTaskDelay(pdMS_TO_TICKS(800));
+                }
+            }
+            // Resume sniff display
+            needDraw = true;
+        }
     }
 
     client->disconnect();

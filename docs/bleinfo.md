@@ -26,17 +26,26 @@ bi all            # enumerate every device from last sbl scan
 
 ## Navigation Keys
 
+**GATT view:**
+
 | Key | Action |
 |-----|--------|
 | `a` / `l` | Previous / next page |
 | `n` | Start notify/indicate sniff (30 s) |
-| `r` | Write-cap (`[r]wcap`) — replay a captured notification value back to the device |
-| `w` | Write to a writable characteristic |
+| `r` | Write-cap — replay a captured notification value back to the device |
+| `w` | Write to a writable characteristic (reconnects, then writes) |
 | `f` | Fuzz a writable characteristic |
 | `b` | Auth leak audit — show only flagged/suspicious characteristics |
 | `p` | Toggle pairing / bonding mode |
 | `s` | Save GATT tree to SD card |
 | `q` | Quit |
+
+**Sniff screen (during `[n]`):**
+
+| Key | Action |
+|-----|--------|
+| `w` | Write to a char **without disconnecting** — response appears in sniff stream |
+| `q` | Stop sniff, save log, return to GATT view |
 
 > Keys only appear in the footer when relevant: `[n]` if notify/indicate chars exist, `[r]` if a `.ble` capture file exists, `[b]` if any characteristic was flagged as suspicious.
 
@@ -118,12 +127,12 @@ values for 30 seconds.
 ```
 [SNIFF] aa:bb:cc:dd:ee:ff  00:24
 ────────────────────────────────
-  1.2s 0xfb005~  48 00 00 00..
-  2.4s 0xfb005~  49 00 00 00..
-  3.6s 0xfb005~  47 00 00 00..
+  1.2s 0xfb005~  48 00 00 00 1A 2B
+  2.4s 0xfb005~  49 00 00 00 1A 2C
+  3.6s 0xfb005~  47 00 00 00 1A 2B
   4.8s 0x2a37    49 00
 ────────────────────────────────
-subs:2  total:4  [q]stop
+subs:2 total:4 [w]write [q]stop
 ```
 
 - **Notify** — device pushes without acknowledgement (fire and forget)
@@ -133,6 +142,21 @@ Both are captured in the same ring buffer. After the session ends, the log is
 automatically saved to `/logs/bleinfo/<mac>_sniff.txt` if SD is present.
 
 **Stop early:** press `q`. The partial log is still saved.
+
+### Write during sniff (`[w]` inside sniff screen)
+
+Press `[w]` while sniff is running to send a command **without disconnecting**.
+The subscription stays active — any response the device sends appears immediately
+in the sniff stream. This is the correct way to probe request/response protocols:
+
+```
+[n]   → subscribe to all notify chars
+[w]   → pick char → type payload → Enter → "Sent! Watch sniff for reply."
+      → response appears on screen within milliseconds
+[q]   → stop sniff, auto-save log
+```
+
+This avoids the reconnect delay that a separate `[w]` from the GATT view would require.
 
 ---
 
@@ -146,13 +170,15 @@ Sends bytes to a writable characteristic. Use for:
 **Flow:**
 1. Press `[w]` — select target char from numbered list
 2. Enter payload as hex (`DE AD BE EF`) or ASCII (`hello`) then Enter
-3. `bi` reconnects, finds the char by UUID, sends with ACK request
+3. `bi` connects, finds the char by UUID, tries write-with-response then falls back to write-without-response automatically
 4. Shows `Write OK.` or `Write failed.`
 
 Hex input rules:
 - Spaces optional: `DEADBEEF` and `DE AD BE EF` both work
 - If input is not valid hex, treated as raw ASCII bytes
 - Max 20 bytes
+- **Trackpad left/right** moves the cursor within the input — fix a typo without deleting everything
+- **Backspace** deletes the character to the left of the cursor
 
 ---
 
@@ -181,9 +207,7 @@ Writes are sent every 80 ms. `[q]` stops early.
 
 ---
 
-## Auth Leak Audit (`[b]`) ⚠️ Not yet tested on hardware
-
-> **Implemented and compiling. Field testing pending.**
+## Auth Leak Audit (`[b]`)
 
 Displays only characteristics that scored a risk flag — a filtered view for rapid triage without scrolling through all services.
 
@@ -214,9 +238,7 @@ Press `q` to return to the main GATT view.
 
 ---
 
-## Write-Cap (`[r]wcap`) ⚠️ Not yet tested on hardware
-
-> **Implemented and compiling. Field testing pending.**
+## Write-Cap (`[r]wcap`)
 
 Write-cap lets you take a value captured during `[n]` sniff and write it back to a writable characteristic on the same (or a different) device. It is the BLE equivalent of packet replay at the GATT value layer.
 
@@ -432,23 +454,62 @@ address (resolvable private address). Run `sbl` again to get the current address
 
 ```
 sbl                    # scan — find watch at index 2
-bi 2                   # connect and enumerate
-                       # read: Manufacturer, FirmwareRev, SerialNum from DeviceInfo
-                       # note: 3 writable chars in proprietary service
+bi 2                   # connect and enumerate full GATT tree
+                       # DeviceInfo: Manufacturer, Model, FirmwareRev
+                       # proprietary services show [W][N] chars
                        # footer shows [b]audit → suspicious values flagged
-[b]                    # audit view — see only flagged chars at a glance
-[n]                    # sniff — catch heart rate, step count, battery pushes
-                       # auto-saves _sniff.txt + _replay.ble to SD
-[s]                    # save GATT tree to SD
-[w]                    # write — test the control characteristic with known command
+[b]                    # audit view — see only risk-flagged chars at a glance
+[s]                    # save full GATT tree to SD
+[n]                    # sniff — all notify/indicate chars subscribed simultaneously
+                       # live stream: heart rate, steps, battery, sensor data
+  [w]                  # (inside sniff) pick command char → type payload → Enter
+                       # response appears in sniff stream within milliseconds
+                       # this is how you probe request/response protocols
+[q]                    # stop sniff — auto-saves _sniff.txt + _replay.ble to SD
+[r]                    # write-cap — load captured packet, replay to writable char
 [f] → mode 3           # boundary fuzz the control char
-                       # watch for disconnect = crash found
+                       # "Device disconnected!" = crash found, note the payload
 [p] → [n]             # enable pairing, sniff again — more services visible?
-[r]                    # write-cap — select a captured notification, write it back
 q
 ```
 
 Results in `/logs/bleinfo/`:
-- `aa-bb-cc-dd-ee-ff.txt` — full GATT map
-- `aa-bb-cc-dd-ee-ff_sniff.txt` — captured sensor data streams
-- `aa-bb-cc-dd-ee-ff_replay.ble` — write-cap packet archive (⚠️ not yet tested)
+- `aa-bb-cc-dd-ee-ff.txt` — full GATT map with complete hex values and full UUIDs
+- `aa-bb-cc-dd-ee-ff_sniff.txt` — captured notification stream with full raw bytes
+- `aa-bb-cc-dd-ee-ff_replay.ble` — packet archive for write-cap replay
+
+---
+
+## Protocol Reverse Engineering
+
+`bi` is particularly useful for understanding proprietary BLE protocols with no
+public documentation. The sniff+write flow lets you map a device's command
+structure without any app or source code.
+
+**Approach:**
+
+1. `[n]` sniff while the device is idle — note baseline packets (keep-alives, sensor polls)
+2. Interact with the device physically (press a button, set an alarm, change a setting)
+3. Note any new packet that appeared — that packet encodes the action you just took
+4. Try sending that packet back on a writable char using `[w]` inside sniff
+5. Watch for a response — if the device reacts, you've found the command channel
+
+**Decoding packets:**
+
+Most proprietary BLE protocols follow a pattern:
+```
+[START] [CMD] [BRAND/SYNC] [LENGTH] [DATA...] [CHECKSUM?]
+```
+
+- Fixed bytes that appear in every packet = protocol header/sync bytes
+- Bytes that change with physical actions = the meaningful payload
+- `0x57` in a health sensor packet at a consistent position = likely a sensor value (e.g. 87 bpm)
+- Alternating `00`/`FD` = signed delta or idle/active flag
+
+**Write-without-response:** Many proprietary command chars use write-without-response
+(no BLE ACK). `bi` tries both automatically — `Write OK.` means the bytes were
+delivered regardless of write type.
+
+**Multiple response channels:** Some devices respond on a different char than the
+one you wrote to. If `[w]` shows `Write OK.` but you see a new packet type appear
+in the sniff stream on a different UUID, that's the response channel.
