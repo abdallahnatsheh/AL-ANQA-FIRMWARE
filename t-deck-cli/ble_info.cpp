@@ -756,7 +756,8 @@ static int readHexInput(uint8_t* buf, size_t bufLen) {
     char line[48] = {};
     int  pos = 0;
 
-    displayManager.setCursor(4, displayManager.getCursorY());
+    int inputY = displayManager.getCursorY();   // pin Y before drawing prompt
+    displayManager.setCursor(4, inputY);
     displayManager.setTextColor(TFT_WHITE);
     displayManager.printText("> ");
 
@@ -767,10 +768,9 @@ static int readHexInput(uint8_t* buf, size_t bufLen) {
         if (k == '\b' || k == 0x7F) {
             if (pos > 0) {
                 line[--pos] = '\0';
-                // Redraw input line
-                displayManager.fillRect(4, displayManager.getCursorY() - LINE_HEIGHT,
-                                        SCREEN_WIDTH - 4, LINE_HEIGHT, TFT_BLACK);
-                displayManager.setCursor(4, displayManager.getCursorY() - LINE_HEIGHT);
+                // Redraw only the input line using the pinned Y
+                displayManager.fillRect(4, inputY, SCREEN_WIDTH - 4, LINE_HEIGHT, TFT_BLACK);
+                displayManager.setCursor(4, inputY);
                 displayManager.setTextColor(TFT_WHITE);
                 char redraw[52]; snprintf(redraw, sizeof(redraw), "> %s", line);
                 displayManager.printText(redraw);
