@@ -23,18 +23,22 @@ extern SDCardManager   sdCardManager;
 #define BI_SNIFF_MS   30000
 
 struct BiChar {
-    char    uuid[12];
-    char    props[6];    // R/W/N/I/- flags
-    char    value[22];
-    char    udesc[14];   // 0x2901 User Description
-    uint8_t fmtType;     // 0x2904 format type (0=unknown)
-    int8_t  fmtExp;      // 0x2904 exponent
-    uint8_t risk;        // 0=none 1=low 2=med 3=high (auth leak score)
+    char    uuid[12];       // truncated for display
+    char    fullUuid[40];   // full UUID for SD save
+    char    props[6];       // R/W/N/I/- flags
+    char    value[22];      // truncated display string
+    uint8_t rawVal[20];     // raw bytes for full hex dump
+    uint8_t rawLen;
+    char    udesc[14];      // 0x2901 User Description
+    uint8_t fmtType;        // 0x2904 format type (0=unknown)
+    int8_t  fmtExp;         // 0x2904 exponent
+    uint8_t risk;           // 0=none 1=low 2=med 3=high (auth leak score)
     char    riskReason[16]; // short reason label
 };
 
 struct BiSvc {
-    char    uuid[12];
+    char    uuid[12];       // truncated for display
+    char    fullUuid[40];   // full UUID for SD save
     char    name[16];
     BiChar  chars[BI_MAX_CHARS];
     uint8_t nChars;
@@ -59,10 +63,11 @@ static int    s_lineCount;
 
 // Notification ring buffer (written from NimBLE task, read from main task)
 struct BiNotif {
-    char    uuid[12];
-    char    value[22];   // formatted display string
+    char    uuid[12];       // truncated for display
+    char    fullUuid[40];   // full UUID for SD save
+    char    value[22];      // formatted display string
     uint32_t elapsed;
-    uint8_t raw[20];     // raw bytes for replay
+    uint8_t raw[20];        // raw bytes for replay
     uint8_t rawLen;
 };
 static BiNotif           s_notifs[BI_NOTIF_MAX];
@@ -171,6 +176,8 @@ static void onNotify(NimBLERemoteCharacteristic* chr,
                      uint8_t* data, size_t len, bool /*isNotify*/) {
     uint8_t idx = s_nfWrite;
     shortUuid(chr->getUUID().toString(), s_notifs[idx].uuid, sizeof(s_notifs[idx].uuid));
+    strncpy(s_notifs[idx].fullUuid, chr->getUUID().toString().c_str(), sizeof(s_notifs[idx].fullUuid) - 1);
+    s_notifs[idx].fullUuid[sizeof(s_notifs[idx].fullUuid) - 1] = '\0';
     uint8_t rlen = len < 20 ? (uint8_t)len : 20;
     memcpy(s_notifs[idx].raw, data, rlen);
     s_notifs[idx].rawLen = rlen;
@@ -244,6 +251,8 @@ static void enumerate(NimBLEClient* client) {
         memset(&bs, 0, sizeof(bs));
 
         shortUuid(svc->getUUID().toString(), bs.uuid, sizeof(bs.uuid));
+        strncpy(bs.fullUuid, svc->getUUID().toString().c_str(), sizeof(bs.fullUuid) - 1);
+        bs.fullUuid[sizeof(bs.fullUuid) - 1] = '\0';
         uint16_t su = (svc->getUUID().bitSize() == 16)
                       ? svc->getUUID().getNative()->u16.value : 0;
         const char* sn = su ? svcName(su) : nullptr;
@@ -258,6 +267,8 @@ static void enumerate(NimBLEClient* client) {
             memset(&bc, 0, sizeof(bc));
 
             shortUuid(chr->getUUID().toString(), bc.uuid, sizeof(bc.uuid));
+            strncpy(bc.fullUuid, chr->getUUID().toString().c_str(), sizeof(bc.fullUuid) - 1);
+            bc.fullUuid[sizeof(bc.fullUuid) - 1] = '\0';
 
             uint8_t pi = 0;
             if (chr->canRead())     bc.props[pi++] = 'R';
@@ -290,6 +301,9 @@ static void enumerate(NimBLEClient* client) {
             // Read value for readable chars
             if (chr->canRead() && client->isConnected()) {
                 std::string val = chr->readValue();
+                // Store raw bytes for full hex dump in saved files
+                bc.rawLen = (uint8_t)(val.size() < sizeof(bc.rawVal) ? val.size() : sizeof(bc.rawVal));
+                memcpy(bc.rawVal, val.data(), bc.rawLen);
                 // Score risk on raw bytes before formatting
                 bc.risk = scoreRisk(val, bc.props, bc.riskReason, sizeof(bc.riskReason));
                 if (bc.risk >= 2) s_hasRisk = true;
@@ -1104,17 +1118,30 @@ static bool saveGattToSd(const char* macStr) {
     f.print("MAC: "); f.println(macStr);
     for (int i = 0; i < s_svcCount; i++) {
         f.println();
+        // Use full UUID in saved file (display uses short/truncated version)
+        const char* sUuid = s_svcs[i].fullUuid[0] ? s_svcs[i].fullUuid : s_svcs[i].uuid;
         if (s_svcs[i].name[0]) {
-            f.print("SVC "); f.print(s_svcs[i].uuid);
+            f.print("SVC "); f.print(sUuid);
             f.print("  "); f.println(s_svcs[i].name);
         } else {
-            f.print("SVC "); f.println(s_svcs[i].uuid);
+            f.print("SVC "); f.println(sUuid);
         }
         for (int j = 0; j < s_svcs[i].nChars; j++) {
             BiChar& c = s_svcs[i].chars[j];
-            f.print("  "); f.print(c.uuid);
+            const char* cUuid = c.fullUuid[0] ? c.fullUuid : c.uuid;
+            f.print("  "); f.print(cUuid);
             f.print(" ["); f.print(c.props); f.print("] ");
-            if (c.value[0])      f.println(c.value);
+            // Write full hex dump if we have raw bytes, otherwise fall back to display value
+            if (c.rawLen > 0) {
+                for (int b = 0; b < c.rawLen; b++) {
+                    char hx[4]; snprintf(hx, sizeof(hx), "%02X", c.rawVal[b]);
+                    f.print(hx);
+                    if (b < c.rawLen - 1) f.print(" ");
+                }
+                // Also show decoded label if we have one (e.g. DeviceName:"Polar")
+                if (c.value[0]) { f.print("  // "); f.print(c.value); }
+                f.println();
+            } else if (c.value[0])      { f.println(c.value); }
             else if (c.udesc[0]) { f.print("("); f.print(c.udesc); f.println(")"); }
             else                 f.println();
         }
@@ -1145,11 +1172,18 @@ static bool saveSniffToSd(const char* macStr) {
     for (uint8_t i = 0; i < actual; i++) {
         uint8_t idx = (oldest + i) % BI_NOTIF_MAX;
         uint32_t e  = s_notifs[idx].elapsed;
-        char line[52];
-        snprintf(line, sizeof(line), "  %2lu.%1lus %-9s %s",
-                 e / 1000, (e % 1000) / 100,
-                 s_notifs[idx].uuid, s_notifs[idx].value);
-        f.println(line);
+        const char* uid = s_notifs[idx].fullUuid[0] ? s_notifs[idx].fullUuid : s_notifs[idx].uuid;
+        // Write timestamp + UUID
+        char hdr[64];
+        snprintf(hdr, sizeof(hdr), "  %2lu.%1lus %s  ", e / 1000, (e % 1000) / 100, uid);
+        f.print(hdr);
+        // Write full raw hex bytes
+        for (int b = 0; b < s_notifs[idx].rawLen; b++) {
+            char hx[4]; snprintf(hx, sizeof(hx), "%02X", s_notifs[idx].raw[b]);
+            f.print(hx);
+            if (b < s_notifs[idx].rawLen - 1) f.print(" ");
+        }
+        f.println();
     }
     f.println();
     f.close();
