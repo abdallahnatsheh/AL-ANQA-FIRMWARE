@@ -233,6 +233,8 @@ All scan tables share the same keys:
 - [ ] LoRa packet logger
 - [ ] MAC proximity watchlist
 - [ ] DNS enumeration
+- [ ] `wguard` — WiFi IDS: deauth flood, evil twin, handshake harvest attempt, PMKID grab, auth flood, beacon flood detection — pocket guardian for your own network
+- [ ] `bmon` — passive BLE advertisement sniffer: cleartext detector, iBeacon/Eddystone parser, PCAP export to SD (Wireshark compatible)
 
 ---
 
