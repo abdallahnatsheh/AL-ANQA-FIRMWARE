@@ -29,6 +29,8 @@ struct BiChar {
     char    udesc[14];   // 0x2901 User Description
     uint8_t fmtType;     // 0x2904 format type (0=unknown)
     int8_t  fmtExp;      // 0x2904 exponent
+    uint8_t risk;        // 0=none 1=low 2=med 3=high (auth leak score)
+    char    riskReason[16]; // short reason label
 };
 
 struct BiSvc {
@@ -42,6 +44,8 @@ static BiSvc   s_svcs[BI_MAX_SVCS];
 static uint8_t s_svcCount;
 static bool    s_hasNotify;
 static bool    s_hasWrite;
+static bool    s_hasRisk    = false;    // any char scored risk >= 2
+static bool    s_hasReplay  = false;    // sniff buffer has captured packets
 static bool    s_pairEnabled = false;   // [p] toggles; persists for session
 
 // Writable char index table: (svc, chr) pairs, max 16
@@ -54,12 +58,24 @@ static BiLine s_lines[BI_MAX_LINES];
 static int    s_lineCount;
 
 // Notification ring buffer (written from NimBLE task, read from main task)
-struct BiNotif { char uuid[12]; char value[22]; uint32_t elapsed; };
+struct BiNotif {
+    char    uuid[12];
+    char    value[22];   // formatted display string
+    uint32_t elapsed;
+    uint8_t raw[20];     // raw bytes for replay
+    uint8_t rawLen;
+};
 static BiNotif           s_notifs[BI_NOTIF_MAX];
 static volatile uint16_t s_nfTotal = 0;
 static volatile uint8_t  s_nfWrite = 0;
 static volatile bool     s_nfFlag  = false;
 static uint32_t          s_sniffT0 = 0;
+
+// Packet buffer for loaded .ble replay files
+static BiNotif  s_loadedPkts[BI_NOTIF_MAX];
+static uint8_t  s_loadedCount = 0;
+static char     s_loadedMac[18] = {};
+static uint8_t  s_loadedType   = BLE_ADDR_RANDOM;
 
 // ── Known UUID names ──────────────────────────────────────────────────────────
 
@@ -155,12 +171,60 @@ static void onNotify(NimBLERemoteCharacteristic* chr,
                      uint8_t* data, size_t len, bool /*isNotify*/) {
     uint8_t idx = s_nfWrite;
     shortUuid(chr->getUUID().toString(), s_notifs[idx].uuid, sizeof(s_notifs[idx].uuid));
-    std::string val((char*)data, len < 20 ? len : 20);
+    uint8_t rlen = len < 20 ? (uint8_t)len : 20;
+    memcpy(s_notifs[idx].raw, data, rlen);
+    s_notifs[idx].rawLen = rlen;
+    std::string val((char*)data, rlen);
     fmtVal(val, s_notifs[idx].value, sizeof(s_notifs[idx].value));
     s_notifs[idx].elapsed = millis() - s_sniffT0;
     s_nfWrite = (s_nfWrite + 1) % BI_NOTIF_MAX;
     s_nfTotal++;
     s_nfFlag = true;
+}
+
+// ── Risk scoring ──────────────────────────────────────────────────────────────
+
+// Returns 0–3 and writes a short reason label.
+// Operates on the raw read value (before display formatting).
+static uint8_t scoreRisk(const std::string& val, const char* props,
+                         char* reason, size_t reasonLen) {
+    reason[0] = '\0';
+    if (val.empty()) return 0;
+
+    size_t len = val.size();
+    bool allPrint = true;
+    for (unsigned char c : val) if (c < 0x20 || c > 0x7E) { allPrint = false; break; }
+
+    uint8_t score = 0;
+
+    if (!allPrint) {
+        // Binary data — check for cryptographic key sizes
+        if (len == 16)      { score += 3; strncpy(reason, "16B key?",  reasonLen); }
+        else if (len == 32) { score += 3; strncpy(reason, "32B key?",  reasonLen); }
+        else if (len == 20) { score += 2; strncpy(reason, "SHA1/HMAC", reasonLen); }
+        else if (len >= 8)  { score += 1; strncpy(reason, "bin>=8B",   reasonLen); }
+    } else {
+        // Printable — check for encoded secrets
+        bool isHex = (len >= 8 && len % 2 == 0);
+        for (unsigned char c : val) if (!isxdigit(c)) { isHex = false; break; }
+        if (isHex) { score += 2; strncpy(reason, "hex str",   reasonLen); }
+
+        bool isDigits = !val.empty();
+        for (unsigned char c : val) if (!isdigit(c)) { isDigits = false; break; }
+        if (isDigits && len >= 4 && len <= 8)
+            { score += 2; strncpy(reason, "PIN/code",  reasonLen); }
+
+        if (len >= 20 && !isHex && !isDigits)
+            { score += 1; strncpy(reason, "long str",  reasonLen); }
+    }
+
+    // Writable secrets are more severe
+    if (score > 0 && strchr(props, 'W')) score++;
+
+    if (score >= 4) return 3;
+    if (score >= 2) return 2;
+    if (score >= 1) return 1;
+    return 0;
 }
 
 // ── Enumeration ───────────────────────────────────────────────────────────────
@@ -169,6 +233,7 @@ static void enumerate(NimBLEClient* client) {
     s_svcCount      = 0;
     s_hasNotify     = false;
     s_hasWrite      = false;
+    s_hasRisk       = false;
     s_writableCount = 0;
     auto* services = client->getServices(true);
     if (!services) return;
@@ -200,7 +265,7 @@ static void enumerate(NimBLEClient* client) {
                 bc.props[pi++] = 'W'; s_hasWrite = true;
                 if (s_writableCount < 16) {
                     s_writable[s_writableCount++] = { (uint8_t)(s_svcCount - 1),
-                                                       bs.nChars };
+                                                       (uint8_t)(bs.nChars - 1) };
                 }
             }
             if (chr->canNotify())   { bc.props[pi++] = 'N'; s_hasNotify = true; }
@@ -225,6 +290,9 @@ static void enumerate(NimBLEClient* client) {
             // Read value for readable chars
             if (chr->canRead() && client->isConnected()) {
                 std::string val = chr->readValue();
+                // Score risk on raw bytes before formatting
+                bc.risk = scoreRisk(val, bc.props, bc.riskReason, sizeof(bc.riskReason));
+                if (bc.risk >= 2) s_hasRisk = true;
                 if (cn) {
                     char vbuf[14] = {};
                     if (bc.fmtType) decodeVal(val, bc.fmtType, bc.fmtExp, vbuf, sizeof(vbuf));
@@ -296,6 +364,374 @@ static void applyPairing(NimBLEClient* client) {
     NimBLEDevice::setSecurityIOCap(BLE_HS_IO_KEYBOARD_DISPLAY);
     client->setClientCallbacks(&s_secCallbacks, false);
     client->secureConnection();
+}
+
+// ── Replay file load helpers (needed by runReplay) ───────────────────────────
+
+static bool loadReplayFromSd(const char* path) {
+    if (!sdCardManager.canAccessSD()) return false;
+    File f = SD.open(path, FILE_READ);
+    if (!f) return false;
+
+    s_loadedCount = 0;
+    s_loadedMac[0] = '\0';
+
+    String hdr = f.readStringUntil('\n'); hdr.trim();
+    if (!hdr.equals("TREX_BLE_REPLAY")) { f.close(); return false; }
+
+    while (f.available() && s_loadedCount < BI_NOTIF_MAX) {
+        String line = f.readStringUntil('\n'); line.trim();
+        if (line.startsWith("MAC ")) {
+            strncpy(s_loadedMac, line.c_str() + 4, 17);
+            s_loadedMac[17] = '\0';
+        } else if (line.startsWith("TYPE ")) {
+            s_loadedType = (uint8_t)line.substring(5).toInt();
+        } else if (line.startsWith("PKT ")) {
+            String body = line.substring(4);
+            int sp1 = body.indexOf(' ');
+            int sp2 = sp1 >= 0 ? body.indexOf(' ', sp1 + 1) : -1;
+            if (sp1 < 0 || sp2 < 0) continue;
+            BiNotif& pkt = s_loadedPkts[s_loadedCount];
+            memset(&pkt, 0, sizeof(pkt));
+            strncpy(pkt.uuid, body.substring(0, sp1).c_str(), 11);
+            pkt.elapsed = (uint32_t)body.substring(sp1 + 1, sp2).toInt();
+            String hexStr = body.substring(sp2 + 1); hexStr.trim();
+            uint8_t bi = 0;
+            for (int h = 0; h + 1 < (int)hexStr.length() && bi < 20; h += 2) {
+                char hx[3] = { hexStr[h], hexStr[h+1], '\0' };
+                pkt.raw[bi++] = (uint8_t)strtoul(hx, nullptr, 16);
+            }
+            pkt.rawLen = bi;
+            std::string rawStr((char*)pkt.raw, pkt.rawLen);
+            fmtVal(rawStr, pkt.value, sizeof(pkt.value));
+            s_loadedCount++;
+        }
+    }
+    f.close();
+    return s_loadedCount > 0;
+}
+
+static int listReplayFiles(char names[][48], int maxFiles) {
+    if (!sdCardManager.canAccessSD()) return 0;
+    File dir = SD.open("/logs/bleinfo");
+    if (!dir || !dir.isDirectory()) { if (dir) dir.close(); return 0; }
+    int count = 0;
+    while (count < maxFiles) {
+        File entry = dir.openNextFile();
+        if (!entry) break;
+        const char* nm = entry.name();
+        size_t len = strlen(nm);
+        if (len > 11 && strcmp(nm + len - 11, "_replay.ble") == 0) {
+            snprintf(names[count], 48, "/logs/bleinfo/%s", nm);
+            count++;
+        }
+        entry.close();
+    }
+    dir.close();
+    return count;
+}
+
+// ── Auth leak audit view ──────────────────────────────────────────────────────
+
+static void runAudit() {
+    displayManager.clearScreen();
+    displayManager.setDefaultTextSize();
+    displayManager.setCursor(4, outputY);
+    displayManager.setTextColor(0x7BEF);
+    displayManager.println("[AUDIT] BLE Auth Leak Report");
+    displayManager.printSeparator();
+
+    int found = 0;
+    for (int i = 0; i < s_svcCount; i++) {
+        for (int j = 0; j < s_svcs[i].nChars; j++) {
+            BiChar& c = s_svcs[i].chars[j];
+            if (c.risk == 0) continue;
+            found++;
+
+            const char* lvl = (c.risk >= 3) ? "HIGH" :
+                              (c.risk == 2) ? "MED " : "LOW ";
+            uint16_t col    = (c.risk >= 3) ? TFT_RED :
+                              (c.risk == 2) ? TFT_YELLOW : 0xFD20;
+
+            char svcBuf[10]; strncpy(svcBuf, s_svcs[i].uuid, 9); svcBuf[9] = '\0';
+            char line[52];
+            snprintf(line, sizeof(line), "[%s] %-9s %-9s", lvl, svcBuf, c.uuid);
+            displayManager.setCursor(4, displayManager.getCursorY());
+            displayManager.setTextColor(col);
+            displayManager.println(line);
+
+            // Reason + value on next line
+            char detail[52];
+            snprintf(detail, sizeof(detail), "     %-10s %s",
+                     c.riskReason[0] ? c.riskReason : "?",
+                     c.value[0]      ? c.value      : "(no value)");
+            displayManager.setCursor(4, displayManager.getCursorY());
+            displayManager.setTextColor(TFT_WHITE);
+            displayManager.println(detail);
+        }
+    }
+
+    if (found == 0) {
+        displayManager.setCursor(4, displayManager.getCursorY());
+        displayManager.setTextColor(TFT_GREEN);
+        displayManager.println("No suspicious chars found.");
+    }
+
+    displayManager.printSeparator();
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.setTextColor(0x7BEF);
+    char sum[40]; snprintf(sum, sizeof(sum), "%d flagged  [q] back", found);
+    displayManager.println(sum);
+
+    while (true) {
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') return;
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
+
+// ── Replay ────────────────────────────────────────────────────────────────────
+
+static void runReplay(const char* macStr, uint8_t addrType) {
+    // Determine packet source: live ring buffer or loaded file
+    const BiNotif* pkts    = nullptr;
+    uint8_t        pktCount = 0;
+    const char*    replayMac  = macStr;
+    uint8_t        replayType = addrType;
+
+    // Always offer load-from-SD option if SD available
+    bool wantLoad = (s_nfTotal == 0);   // force load if no live packets
+    if (!wantLoad && sdCardManager.canAccessSD()) {
+        displayManager.clearScreen();
+        displayManager.setDefaultTextSize();
+        displayManager.setCursor(4, outputY);
+        displayManager.setTextColor(0x7BEF);
+        displayManager.println("[WRITE-CAP] source:");
+        displayManager.printSeparator();
+        displayManager.setCursor(4, displayManager.getCursorY());
+        displayManager.setTextColor(TFT_WHITE);
+        char liveLine[40];
+        snprintf(liveLine, sizeof(liveLine), "[1] live capture (%lu pkts)",
+                 (unsigned long)s_nfTotal);
+        displayManager.println(liveLine);
+        displayManager.println("[2] load from SD (.ble file)");
+        displayManager.println("[q] cancel");
+        while (true) {
+            char k = inputHandler.getKeyboardInput();
+            if (k == '1') { wantLoad = false; break; }
+            if (k == '2') { wantLoad = true;  break; }
+            if (k == 'q' || k == 'Q') return;
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+    }
+
+    if (wantLoad) {
+        // Show file picker
+        char fileNames[8][48];
+        int  fileCount = listReplayFiles(fileNames, 8);
+
+        displayManager.clearScreen();
+        displayManager.setDefaultTextSize();
+        displayManager.setCursor(4, outputY);
+        displayManager.setTextColor(0x7BEF);
+        displayManager.println("[WRITE-CAP] load file:");
+        displayManager.printSeparator();
+
+        if (fileCount == 0) {
+            displayManager.setCursor(4, displayManager.getCursorY());
+            displayManager.setTextColor(TFT_RED);
+            displayManager.println("No .ble files in /logs/bleinfo/");
+            vTaskDelay(pdMS_TO_TICKS(1500));
+            return;
+        }
+        for (int i = 0; i < fileCount; i++) {
+            // Show just filename portion
+            const char* nm = strrchr(fileNames[i], '/');
+            nm = nm ? nm + 1 : fileNames[i];
+            char buf[48]; snprintf(buf, sizeof(buf), "[%d] %s", i, nm);
+            displayManager.setCursor(4, displayManager.getCursorY());
+            displayManager.setTextColor(TFT_WHITE);
+            displayManager.println(buf);
+        }
+        displayManager.printSeparator();
+        displayManager.setCursor(4, displayManager.getCursorY());
+        displayManager.setTextColor(0x7BEF);
+        displayManager.println("num=select  q=cancel");
+
+        int fileSel = -1;
+        while (fileSel < 0) {
+            char k = inputHandler.getKeyboardInput();
+            if (k == 'q' || k == 'Q') return;
+            if (k >= '0' && k <= '9') {
+                int n = k - '0';
+                if (n < fileCount) fileSel = n;
+            }
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+
+        displayManager.setCursor(4, displayManager.getCursorY());
+        displayManager.setTextColor(TFT_YELLOW);
+        displayManager.println("Loading...");
+
+        if (!loadReplayFromSd(fileNames[fileSel])) {
+            displayManager.setTextColor(TFT_RED);
+            displayManager.println("Load failed.");
+            vTaskDelay(pdMS_TO_TICKS(1500));
+            return;
+        }
+
+        pkts       = s_loadedPkts;
+        pktCount   = s_loadedCount;
+        replayMac  = s_loadedMac[0] ? s_loadedMac : macStr;
+        replayType = s_loadedType;
+    } else {
+        // Use live ring buffer
+        uint16_t tot    = s_nfTotal;
+        uint8_t  actual = tot < BI_NOTIF_MAX ? (uint8_t)tot : BI_NOTIF_MAX;
+        uint8_t  oldest = (s_nfWrite - actual + BI_NOTIF_MAX) % BI_NOTIF_MAX;
+        // Copy ring buffer slice into loadedPkts for uniform access
+        s_loadedCount = 0;
+        for (uint8_t i = 0; i < actual; i++) {
+            s_loadedPkts[s_loadedCount++] = s_notifs[(oldest + i) % BI_NOTIF_MAX];
+        }
+        pkts     = s_loadedPkts;
+        pktCount = s_loadedCount;
+    }
+
+    if (pktCount == 0) return;
+
+    // Show packet list
+    displayManager.clearScreen();
+    displayManager.setDefaultTextSize();
+    displayManager.setCursor(4, outputY);
+    displayManager.setTextColor(0x7BEF);
+    char hdr[40]; snprintf(hdr, sizeof(hdr), "[WRITE-CAP] %.17s", replayMac);
+    displayManager.println(hdr);
+    displayManager.printSeparator();
+
+    for (uint8_t i = 0; i < pktCount && i < 9; i++) {
+        char line[52];
+        uint32_t e = pkts[i].elapsed;
+        snprintf(line, sizeof(line), "[%d] %2lu.%1lus %-9s %s",
+                 i, e / 1000, (e % 1000) / 100,
+                 pkts[i].uuid, pkts[i].value);
+        displayManager.setCursor(4, displayManager.getCursorY());
+        displayManager.setTextColor(TFT_WHITE);
+        displayManager.println(line);
+    }
+
+    displayManager.printSeparator();
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.setTextColor(0x7BEF);
+    displayManager.println("num=pick packet  q=cancel");
+
+    int pktSel = -1;
+    while (pktSel < 0) {
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') return;
+        if (k >= '0' && k <= '9') {
+            int n = k - '0';
+            if (n < (int)pktCount) pktSel = n;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+
+    const BiNotif& selectedPkt = pkts[pktSel];
+
+    // Show writable char list for target selection
+    if (s_writableCount == 0) {
+        displayManager.clearScreen();
+        displayManager.setDefaultTextSize();
+        displayManager.setCursor(4, outputY);
+        displayManager.setTextColor(TFT_RED);
+        displayManager.println("No writable chars to replay to.");
+        vTaskDelay(pdMS_TO_TICKS(1500));
+        return;
+    }
+
+    displayManager.clearScreen();
+    displayManager.setDefaultTextSize();
+    displayManager.setCursor(4, outputY);
+    displayManager.setTextColor(0x7BEF);
+    displayManager.println("[WRITE-CAP] target char:");
+    displayManager.printSeparator();
+
+    for (uint8_t i = 0; i < s_writableCount; i++) {
+        BiChar& bc = s_svcs[s_writable[i].svc].chars[s_writable[i].chr];
+        bool match = strcmp(bc.uuid, selectedPkt.uuid) == 0;
+        char buf[48];
+        snprintf(buf, sizeof(buf), "[%d] %-9s [%s]%s", i, bc.uuid, bc.props, match ? " <--" : "");
+        displayManager.setCursor(4, displayManager.getCursorY());
+        displayManager.setTextColor(match ? TFT_GREEN : TFT_WHITE);
+        displayManager.println(buf);
+    }
+
+    displayManager.printSeparator();
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.setTextColor(0x7BEF);
+    displayManager.println("num=select  q=cancel");
+
+    int chrSel = -1;
+    while (chrSel < 0) {
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') return;
+        if (k >= '0' && k <= '9') {
+            int n = k - '0';
+            if (n < s_writableCount) chrSel = n;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+
+    BiChar& target = s_svcs[s_writable[chrSel].svc].chars[s_writable[chrSel].chr];
+
+    // Reconnect and write
+    displayManager.clearScreen();
+    displayManager.setDefaultTextSize();
+    displayManager.setCursor(4, outputY);
+    displayManager.setTextColor(TFT_YELLOW);
+    char info[52];
+    snprintf(info, sizeof(info), "Writing %dB → %s", selectedPkt.rawLen, target.uuid);
+    displayManager.println(info);
+    snprintf(info, sizeof(info), "Target: %.17s", replayMac);
+    displayManager.println(info);
+
+    NimBLEDevice::init("");
+    NimBLEClient* client = NimBLEDevice::createClient();
+    client->setConnectTimeout(5);
+    if (!client->connect(NimBLEAddress(replayMac, replayType))) {
+        displayManager.setTextColor(TFT_RED);
+        displayManager.println("Connect failed.");
+        NimBLEDevice::deleteClient(client);
+        vTaskDelay(pdMS_TO_TICKS(1500));
+        return;
+    }
+    applyPairing(client);
+
+    bool sent = false;
+    auto* svcs = client->getServices(true);
+    if (svcs) {
+        for (auto* svc : *svcs) {
+            auto* chars = svc->getCharacteristics(true);
+            if (!chars) continue;
+            for (auto* chr : *chars) {
+                char uuidBuf[12];
+                shortUuid(chr->getUUID().toString(), uuidBuf, sizeof(uuidBuf));
+                if (strcmp(uuidBuf, target.uuid) == 0 && chr->canWrite()) {
+                    sent = chr->writeValue(selectedPkt.raw, selectedPkt.rawLen, true);
+                    break;
+                }
+            }
+            if (sent) break;
+        }
+    }
+
+    client->disconnect();
+    NimBLEDevice::deleteClient(client);
+
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.setTextColor(sent ? TFT_GREEN : TFT_RED);
+    displayManager.println(sent ? "Write OK." : "Write failed.");
+    vTaskDelay(pdMS_TO_TICKS(1200));
 }
 
 // ── Write support ─────────────────────────────────────────────────────────────
@@ -720,6 +1156,48 @@ static bool saveSniffToSd(const char* macStr) {
     return true;
 }
 
+// Replay file format (.ble):
+//   TREX_BLE_REPLAY
+//   MAC aa:bb:cc:dd:ee:ff
+//   TYPE 1
+//   PKT <uuid> <elapsed_ms> <HEXBYTES>
+static bool saveReplayToSd(const char* macStr, uint8_t addrType) {
+    if (!sdCardManager.canAccessSD() || s_nfTotal == 0) return false;
+    sdCardManager.ensureDir("/logs/bleinfo");
+
+    char fname[46], stem[18];
+    macToFilename(macStr, stem, sizeof(stem));
+    snprintf(fname, sizeof(fname), "/logs/bleinfo/%s_replay.ble", stem);
+
+    File f = SD.open(fname, FILE_WRITE);
+    if (!f) return false;
+
+    f.println("TREX_BLE_REPLAY");
+    f.print("MAC "); f.println(macStr);
+    f.print("TYPE "); f.println(addrType);
+
+    uint16_t tot    = s_nfTotal;
+    uint8_t  actual = tot < BI_NOTIF_MAX ? (uint8_t)tot : BI_NOTIF_MAX;
+    uint8_t  oldest = (s_nfWrite - actual + BI_NOTIF_MAX) % BI_NOTIF_MAX;
+
+    for (uint8_t i = 0; i < actual; i++) {
+        uint8_t  idx = (oldest + i) % BI_NOTIF_MAX;
+        BiNotif& n   = s_notifs[idx];
+        f.print("PKT ");
+        f.print(n.uuid);
+        f.print(" ");
+        f.print(n.elapsed);
+        f.print(" ");
+        for (uint8_t b = 0; b < n.rawLen; b++) {
+            char hx[3]; snprintf(hx, sizeof(hx), "%02X", n.raw[b]);
+            f.print(hx);
+        }
+        f.println();
+    }
+    f.close();
+    return true;
+}
+
 // ── Display ───────────────────────────────────────────────────────────────────
 
 static void addLine(const char* text, uint16_t color) {
@@ -741,13 +1219,18 @@ static void buildLines() {
 
         for (int j = 0; j < s_svcs[i].nChars; j++) {
             BiChar& c = s_svcs[i].chars[j];
+            const char* pfx = (c.risk >= 3) ? "! " : (c.risk == 2) ? "~ " : "  ";
             if (c.value[0])
-                snprintf(buf, sizeof(buf), "  %-9s [%-3s] %s", c.uuid, c.props, c.value);
+                snprintf(buf, sizeof(buf), "%s%-9s [%-3s] %s", pfx, c.uuid, c.props, c.value);
             else if (c.udesc[0])
-                snprintf(buf, sizeof(buf), "  %-9s [%-3s] (%s)", c.uuid, c.props, c.udesc);
+                snprintf(buf, sizeof(buf), "%s%-9s [%-3s] (%s)", pfx, c.uuid, c.props, c.udesc);
             else
-                snprintf(buf, sizeof(buf), "  %-9s [%-3s]", c.uuid, c.props);
-            addLine(buf, TFT_WHITE);
+                snprintf(buf, sizeof(buf), "%s%-9s [%-3s]", pfx, c.uuid, c.props);
+            uint16_t col = (c.risk >= 3) ? TFT_RED :
+                           (c.risk == 2) ? TFT_YELLOW :
+                           (c.risk == 1) ? 0xFD20 :   // orange
+                                           TFT_WHITE;
+            addLine(buf, col);
         }
     }
 }
@@ -779,9 +1262,11 @@ static void renderPage(const char* mac, int page) {
     displayManager.setTextColor(0x7BEF);
     bool sdReady = sdCardManager.canAccessSD();
     // Build footer from available capabilities
-    char foot[64] = "[q]qt [a/l]pg";
-    if (s_hasNotify)   strncat(foot, " [n]sniff",  sizeof(foot) - strlen(foot) - 1);
+    char foot[72] = "[q]qt [a/l]pg";
+    if (s_hasNotify)   strncat(foot, " [n]sniff",   sizeof(foot) - strlen(foot) - 1);
+    if (s_hasReplay)   strncat(foot, " [r]wcap",    sizeof(foot) - strlen(foot) - 1);
     if (s_hasWrite)    strncat(foot, " [w]wr[f]fz", sizeof(foot) - strlen(foot) - 1);
+    if (s_hasRisk)     strncat(foot, " [b]audit",   sizeof(foot) - strlen(foot) - 1);
     if (sdReady)       strncat(foot, " [s]save",    sizeof(foot) - strlen(foot) - 1);
     if (s_pairEnabled) strncat(foot, " [p]PAIR ON", sizeof(foot) - strlen(foot) - 1);
     else               strncat(foot, " [p]pair",    sizeof(foot) - strlen(foot) - 1);
@@ -907,15 +1392,21 @@ static void runSniff(const char* macStr, uint8_t addrType) {
     client->disconnect();
     NimBLEDevice::deleteClient(client);
 
-    // Auto-save sniff log to SD if any notifications were captured
+    if (s_nfTotal > 0) s_hasReplay = true;
+
+    // Auto-save sniff log + replay file to SD if any notifications were captured
     if (s_nfTotal > 0 && sdCardManager.canAccessSD()) {
-        saveSniffToSd(macStr);
+        bool ok1 = saveSniffToSd(macStr);
+        bool ok2 = saveReplayToSd(macStr, addrType);
         displayManager.setCursor(4, displayManager.getCursorY());
         displayManager.setTextColor(TFT_GREEN);
         char sfn[22]; macToFilename(macStr, sfn, sizeof(sfn));
-        char msg[48]; snprintf(msg, sizeof(msg), "Saved: %s_sniff.txt", sfn);
-        displayManager.println(msg);
-        vTaskDelay(pdMS_TO_TICKS(1200));
+        char msg[52];
+        snprintf(msg, sizeof(msg), "Saved: %s_sniff.txt", sfn);
+        if (ok1) displayManager.println(msg);
+        snprintf(msg, sizeof(msg), "Saved: %s_replay.ble", sfn);
+        if (ok2) displayManager.println(msg);
+        vTaskDelay(pdMS_TO_TICKS(1400));
     }
 }
 
@@ -1067,6 +1558,14 @@ void runBleInfo(char* arg) {
             if (k == 'a' || k == 'A') { if (page > 0)              { page--; break; } }
             if ((k == 'n' || k == 'N') && s_hasNotify) {
                 runSniff(macStr, addrType);
+                break;
+            }
+            if ((k == 'r' || k == 'R') && s_hasReplay) {
+                runReplay(macStr, addrType);
+                break;
+            }
+            if ((k == 'b' || k == 'B') && s_hasRisk) {
+                runAudit();
                 break;
             }
             if ((k == 'w' || k == 'W') && s_hasWrite) {

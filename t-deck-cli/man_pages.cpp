@@ -290,15 +290,15 @@ static const ManEntry PAGES[] = {
     { "bleinfo", "bi", {
         "SYNTAX   bi <index|mac|all>",
         "",
-        "ABOUT    GATT enum+interact. Reads values,",
-        "         0x2904 type decode, 0x2901 desc.",
-        "         [n]sniff notify/indicate 30s.",
-        "         [w]write hex/ASCII to W chars.",
-        "         [f]fuzz seq/rand/boundary modes.",
-        "         [p]pair bonding+MITM toggle.",
-        "         [s]save GATT+sniff to SD.",
+        "ABOUT    GATT enum+interact. Auto-flags",
+        "         suspicious values (keys/PINs).",
+        "         [n]sniff saves _replay.ble to SD.",
+        "         [r]wcap: write a captured value",
+        "         [w]write  [f]fuzz  [b]audit view",
+        "         [p]pair bonding+MITM  [s]save SD",
         "",
-        "KEYS     [n][w][f][p][s] [a/l]pg [q]qt",
+        "RISK     !=high ~=med orange=low",
+        "KEYS     [n][r=wcap][w][f][b][p][s][q]",
         nullptr
     }},
 

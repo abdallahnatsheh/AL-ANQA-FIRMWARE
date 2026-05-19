@@ -55,6 +55,8 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 **🔵 Bluetooth** — [full guide](docs/bluetooth.md)
 - BLE device scanner (paginated, RSSI, name)
 - **BLE GATT enumeration** (`bi`) — connect to any BLE device and read its full service/characteristic tree; 0x2901 user descriptions, 0x2904 type auto-decode (uint8/16/32, int8/16, UTF-8); interactive write, fuzz (seq/rand/boundary), notify/indicate sniff with 30 s live stream, pairing/bonding support; `bi all` sweeps every scanned device; results saved to SD — [full guide](docs/bleinfo.md)
+  - **Auth leak detector** (`[b]` audit) — inline risk scoring flags AES-sized binary blobs, hex-encoded secrets, and PIN-shaped values; `[b]` key shows filtered triage view *(compiled, not yet field-tested)*
+  - **Write-cap** (`[r]wcap`) — take any value captured during sniff and write it back to a writable char; sniff auto-saves `.ble` packet archives to SD; load previous captures from file *(compiled, not yet field-tested)*
 - Anti-tracking detector — BLE + WiFi probe surveillance with 3-gate confirmation and GPS movement awareness
 - **Fast Pair attack** (`fp`) — scan for Fast Pair devices, flood Google FP advertisements with per-cycle MAC randomization, GATT probe (WhisperPair) to read anti-spoofing keys
 - **BLE notification spam** (`bs`) — Apple Continuity (Proximity Pairing + Nearby Info popups), Google Fast Pair flood, Microsoft Swift Pair, Samsung Galaxy accessory popups
@@ -198,7 +200,7 @@ All scan tables share the same keys:
 /signatures.csv       — custom BLE tracker signatures
 /logs/                — eviltwin.csv, trackme.csv, hidden_ssids.csv, cracked.csv, fastpair.csv
 /logs/hs/             — WPA handshake captures (<BSSID>.cap, libpcap format)
-/logs/bleinfo/        — GATT dumps (<mac>.txt) and notify sniff logs (<mac>_sniff.txt)
+/logs/bleinfo/        — GATT dumps (<mac>.txt), sniff logs (<mac>_sniff.txt), write-cap archives (<mac>_replay.ble)
 /fastpair_keys.csv    — cached Fast Pair anti-spoofing keys (modelId,name,key64hex)
 /fastpair_paired.csv  — log of devices successfully paired via GATT
 /evilportal/          — custom HTML portal templates
@@ -216,6 +218,8 @@ All scan tables share the same keys:
 - [x] ARP discovery, port scan, ping, banner grabber, OS fingerprinting
 - [x] BLE scanner, anti-tracking detector
 - [x] BLE GATT enumeration (`bi`) — full service/char tree, 0x2904 auto-decode, write, fuzz (seq/rand/boundary), notify/indicate sniff, pairing/bonding, `bi all` multi-device sweep, SD save
+- [x] BLE auth leak detector (`[b]` audit view) — inline risk scoring for AES blobs / hex secrets / PINs *(compiled, not yet field-tested)*
+- [x] BLE write-cap (`[r]wcap`) — replay captured notification values back to writable chars; `.ble` SD archive *(compiled, not yet field-tested)*
 - [x] Fast Pair attack — advertisement flood + GATT probe (WhisperPair)
 - [x] BLE notification spam — Apple / Android / Microsoft / Samsung
 - [x] SD file manager — `ls` (paginated, dirs in cyan), `cd` CWD navigation (relative paths for all SD commands), man pages, help, power save, trackpad cursor

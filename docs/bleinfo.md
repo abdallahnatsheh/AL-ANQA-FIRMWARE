@@ -30,11 +30,15 @@ bi all            # enumerate every device from last sbl scan
 |-----|--------|
 | `a` / `l` | Previous / next page |
 | `n` | Start notify/indicate sniff (30 s) |
+| `r` | Write-cap (`[r]wcap`) — replay a captured notification value back to the device |
 | `w` | Write to a writable characteristic |
 | `f` | Fuzz a writable characteristic |
+| `b` | Auth leak audit — show only flagged/suspicious characteristics |
 | `p` | Toggle pairing / bonding mode |
 | `s` | Save GATT tree to SD card |
 | `q` | Quit |
+
+> Keys only appear in the footer when relevant: `[n]` if notify/indicate chars exist, `[r]` if a `.ble` capture file exists, `[b]` if any characteristic was flagged as suspicious.
 
 ---
 
@@ -54,10 +58,16 @@ SVC 0x180f   Battery
   0x2a19  [R  ] BattLevel:87
 SVC 0xfb005c~ [RWN]
   0xfb005c~  [RWN] 12 00 ..
-  0xfb005d~  [W  ] (Control Point)
+!0xfb005d~  [W  ] (UnlockKey)
 ────────────────────────────────
-[q]qt [a/l]pg [n]sniff [w]wr[f]fz [s]save [p]pair
+[q]qt [a/l]pg [n]sniff [w]wr[f]fz [b]audit [s]save [p]pair
 ```
+
+**Risk colour coding** (inline, on every line):
+- `!` prefix — HIGH risk (binary 16 or 32 bytes = AES key size, or base64-looking blob)
+- `~` prefix — MED risk (hex string ≥ 8 chars = encoded secret, or 4–8 digit value = PIN)
+- orange line — LOW risk (writable + sensitive-looking user description)
+- white / normal — no flag
 
 **Column breakdown:**
 
@@ -171,6 +181,86 @@ Writes are sent every 80 ms. `[q]` stops early.
 
 ---
 
+## Auth Leak Audit (`[b]`) ⚠️ Not yet tested on hardware
+
+> **Implemented and compiling. Field testing pending.**
+
+Displays only characteristics that scored a risk flag — a filtered view for rapid triage without scrolling through all services.
+
+```
+[AUDIT] aa:bb:cc:dd:ee:ff
+────────────────────────────────
+! 0xfb005d~ [W  ] (UnlockKey)
+  RISK: binary 16B (AES key size?)
+~ 0xfb005e~ [RW ] 31 32 33 34 35 36
+  RISK: 6-digit value (PIN?)
+────────────────────────────────
+[q]back
+```
+
+**Risk scoring logic:**
+
+| Flag | Condition | Meaning |
+|------|-----------|---------|
+| `!` HIGH | Value is exactly 16 or 32 bytes of binary | Matches AES-128 / AES-256 key size |
+| `!` HIGH | Value looks like a base64-encoded blob (≥16 chars, trailing `=`) | Encoded secret or key material |
+| `~` MED | Hex string ≥ 8 hex chars | Could be a key/token in hex encoding |
+| `~` MED | 4–8 digit numeric string | Looks like a PIN code |
+| LOW | Writable char with a sensitive-sounding User Description | Direct write access to a sensitive control |
+
+Risk is scored at enumeration time. If the footer shows `[b]audit` at least one char was flagged.
+
+Press `q` to return to the main GATT view.
+
+---
+
+## Write-Cap (`[r]wcap`) ⚠️ Not yet tested on hardware
+
+> **Implemented and compiling. Field testing pending.**
+
+Write-cap lets you take a value captured during `[n]` sniff and write it back to a writable characteristic on the same (or a different) device. It is the BLE equivalent of packet replay at the GATT value layer.
+
+**When this works:**
+- Custom/proprietary IoT devices that use the same characteristic for both output (notify) and input (write) — e.g., write a target heart-rate zone to the same char the watch uses to push readings
+- Devices with simple command protocols where commands are sent as characteristic writes and acknowledged as notifications on the same char
+
+**When this does NOT work:**
+- Standard GATT profiles: notify-only chars can't be written (connection will reject the write)
+- Challenge-response authentication: even if you replay the right bytes, the server changes its nonce each session
+- Devices that validate sequence numbers or timestamps embedded in the payload
+
+**Saved captures:** `[n]` sniff auto-saves a `.ble` file to `/logs/bleinfo/<mac>_replay.ble` after each session. Write-cap reads from this file or from the current in-memory sniff buffer.
+
+**Flow:**
+1. Press `[r]` — source picker appears:
+   - `[1]` Use current sniff session (in memory)
+   - `[2]` Load from SD — lists `.ble` files in `/logs/bleinfo/`
+2. Packet picker — shows captured packets, select one
+3. Char picker — shows writable characteristics, select target
+4. `bi` reconnects and writes the selected bytes to the selected char
+
+---
+
+## `.ble` Capture File Format
+
+Sniff sessions are saved as plain-text `.ble` files:
+
+```
+TREX_BLE_REPLAY
+MAC aa:bb:cc:dd:ee:ff
+TYPE 1
+PKT 0x2a37 1234 4800
+PKT 0xfb005~ 2500 DEADBEEF01020304
+```
+
+- `MAC` — device MAC address
+- `TYPE` — address type (0=public, 1=random)
+- `PKT <uuid> <elapsed_ms> <hex_bytes>` — one captured notification per line; hex bytes are concatenated without spaces
+
+These files can be loaded back into write-cap on the same or a different T-Deck.
+
+---
+
 ## Pairing (`[p]`)
 
 Toggles bonding + MITM + Secure Connections for subsequent reconnects.
@@ -247,6 +337,17 @@ MAC: aa:bb:cc:dd:ee:ff
 --- notify sniff ---
    1.2s 0xfb005~  48 00 00 00..
    2.4s 0xfb005~  49 00 00 00..
+```
+
+### Write-cap capture — `/logs/bleinfo/<mac>_replay.ble` ⚠️ Not yet tested
+Auto-saved alongside the sniff log. Contains raw bytes for every captured notification.
+Can be loaded into `[r]wcap` on any T-Deck to replay the packets:
+```
+TREX_BLE_REPLAY
+MAC aa:bb:cc:dd:ee:ff
+TYPE 1
+PKT 0x2a37 1234 4800
+PKT 0xfb005~ 2500 DEADBEEF01020304
 ```
 
 ---
@@ -334,15 +435,20 @@ sbl                    # scan — find watch at index 2
 bi 2                   # connect and enumerate
                        # read: Manufacturer, FirmwareRev, SerialNum from DeviceInfo
                        # note: 3 writable chars in proprietary service
+                       # footer shows [b]audit → suspicious values flagged
+[b]                    # audit view — see only flagged chars at a glance
 [n]                    # sniff — catch heart rate, step count, battery pushes
+                       # auto-saves _sniff.txt + _replay.ble to SD
 [s]                    # save GATT tree to SD
 [w]                    # write — test the control characteristic with known command
 [f] → mode 3           # boundary fuzz the control char
                        # watch for disconnect = crash found
 [p] → [n]             # enable pairing, sniff again — more services visible?
+[r]                    # write-cap — select a captured notification, write it back
 q
 ```
 
 Results in `/logs/bleinfo/`:
 - `aa-bb-cc-dd-ee-ff.txt` — full GATT map
 - `aa-bb-cc-dd-ee-ff_sniff.txt` — captured sensor data streams
+- `aa-bb-cc-dd-ee-ff_replay.ble` — write-cap packet archive (⚠️ not yet tested)
