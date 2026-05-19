@@ -48,7 +48,9 @@ public:
     void enableScreenOff()  { screenOffEnabled = true; }
     void disableScreenOff() { screenOffEnabled = false; }
     bool isScreenOff() const { return isScreenOffState; }
-    void updateActivity();  // Called when user provides input
+    bool isManualOff() const { return _manualOff; }
+    void updateActivity();    // Called when user provides input
+    void toggleManualOff();  // Double-click: toggle screen off/on
 
     // Settings modification
     void setTimeoutMs(uint32_t ms);
@@ -96,6 +98,7 @@ private:
     bool isScreenOffState;
     bool batteryAwareDimEnabled;
     bool screenOffEnabled;
+    bool _manualOff;
     
     // Tracking
     uint32_t lastActivityTime;

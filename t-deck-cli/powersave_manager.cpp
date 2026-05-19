@@ -28,6 +28,7 @@ PowerSaveManager::PowerSaveManager()
       isScreenOffState(false),
       batteryAwareDimEnabled(DEFAULT_BATTERY_MODE_ENABLED),
       screenOffEnabled(DEFAULT_SCREEN_OFF_ENABLED),
+      _manualOff(false),
       lastActivityTime(millis()),
       lastBatteryPercent(-1),
       batteryModeActive(false),
@@ -45,7 +46,7 @@ void PowerSaveManager::init(void* batteryManagerPtr) {
 }
 
 void PowerSaveManager::update() {
-    if (!enabled) return;
+    if (!enabled || _manualOff) return;
     
     uint32_t now = millis();
     
@@ -113,8 +114,29 @@ void PowerSaveManager::wakeUp() {
 
 void PowerSaveManager::updateActivity() {
     lastActivityTime = millis();
+    if (_manualOff) {
+        _manualOff = false;
+        wakeUp();
+        return;
+    }
     if ((isDimState || isScreenOffState) && !batteryModeActive) {
         wakeUp();
+    }
+}
+
+void PowerSaveManager::toggleManualOff() {
+    if (_manualOff) {
+        // Already off — turn back on
+        _manualOff = false;
+        lastActivityTime = millis();
+        wakeUp();
+    } else {
+        // Turn screen off immediately
+        _manualOff = true;
+        extern LGFX tft;
+        tft.setBrightness(0);
+        isDimState       = true;
+        isScreenOffState = true;
     }
 }
 

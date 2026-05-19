@@ -32,7 +32,9 @@ TrackballEvent InputHandling::getTrackballEvent() {
         if (cur != _tballLast[i]) {
             _tballLast[i] = cur;
             updateActivity();
-            PowerSaveManager::getInstance().updateActivity();
+            // Don't wake screen on movement when manually turned off
+            if (!PowerSaveManager::getInstance().isManualOff())
+                PowerSaveManager::getInstance().updateActivity();
             return evts[i];
         }
     }
@@ -42,7 +44,9 @@ TrackballEvent InputHandling::getTrackballEvent() {
     if (!clickCur && _tballLast[4]) {
         _tballLast[4] = false;
         updateActivity();
-        PowerSaveManager::getInstance().updateActivity();
+        // Don't wake screen on click when manually turned off (double-click handles it)
+        if (!PowerSaveManager::getInstance().isManualOff())
+            PowerSaveManager::getInstance().updateActivity();
         return TBALL_CLICK;
     }
     _tballLast[4] = clickCur;

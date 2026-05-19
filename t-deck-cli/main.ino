@@ -59,5 +59,20 @@ void setup() {
 void loop() {
     char input = inputHandler.getKeyboardInput();
     commandManager.processInput(input);
-    commandManager.processTrackball(inputHandler.getTrackballEvent());
+
+    TrackballEvent evt = inputHandler.getTrackballEvent();
+
+    // Double-click detection: two clicks within 400 ms → toggle screen off
+    static uint32_t lastClickTime = 0;
+    if (evt == TBALL_CLICK) {
+        uint32_t now = millis();
+        if (now - lastClickTime < 400) {
+            PowerSaveManager::getInstance().toggleManualOff();
+            lastClickTime = 0;  // reset so triple-click doesn't re-trigger
+            return;             // don't pass click to command manager
+        }
+        lastClickTime = now;
+    }
+
+    commandManager.processTrackball(evt);
 }
