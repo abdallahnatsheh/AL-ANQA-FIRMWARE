@@ -54,6 +54,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 
 **🔵 Bluetooth** — [full guide](docs/bluetooth.md)
 - BLE device scanner (paginated, RSSI, name)
+- **BLE GATT enumeration** (`bi`) — connect to any BLE device and read its full service/characteristic tree; 0x2901 user descriptions, 0x2904 type auto-decode (uint8/16/32, int8/16, UTF-8); interactive write, fuzz (seq/rand/boundary), notify/indicate sniff with 30 s live stream, pairing/bonding support; `bi all` sweeps every scanned device; results saved to SD — [full guide](docs/bleinfo.md)
 - Anti-tracking detector — BLE + WiFi probe surveillance with 3-gate confirmation and GPS movement awareness
 - **Fast Pair attack** (`fp`) — scan for Fast Pair devices, flood Google FP advertisements with per-cycle MAC randomization, GATT probe (WhisperPair) to read anti-spoofing keys
 - **BLE notification spam** (`bs`) — Apple Continuity (Proximity Pairing + Nearby Info popups), Google Fast Pair flood, Microsoft Swift Pair, Samsung Galaxy accessory popups
@@ -133,6 +134,7 @@ git clone https://github.com/abdallahnatsheh/T-Rex
 | `ping` | `pg` | `<ip\|hostname>` | ICMP ping |
 | **Bluetooth** | | | |
 | `scanblue` | `sbl` | — | BLE device scan |
+| `bleinfo` | `bi` | `<index\|mac\|all>` | GATT enum: services, chars, values, write, fuzz, sniff, pair |
 | `trackme` | `tm` | `[silent]` | Anti-tracking detector |
 | `fastpair` | `fp` | `[scan\|spam\|h <idx>\|h all]` | Fast Pair: scan devices / flood ads / GATT hijack |
 | `blespam` | `bs` | `[apple\|android\|ms\|samsung\|all]` | BLE notification spam (popups on nearby devices) |
@@ -196,6 +198,7 @@ All scan tables share the same keys:
 /signatures.csv       — custom BLE tracker signatures
 /logs/                — eviltwin.csv, trackme.csv, hidden_ssids.csv, cracked.csv, fastpair.csv
 /logs/hs/             — WPA handshake captures (<BSSID>.cap, libpcap format)
+/logs/bleinfo/        — GATT dumps (<mac>.txt) and notify sniff logs (<mac>_sniff.txt)
 /fastpair_keys.csv    — cached Fast Pair anti-spoofing keys (modelId,name,key64hex)
 /fastpair_paired.csv  — log of devices successfully paired via GATT
 /evilportal/          — custom HTML portal templates
@@ -212,6 +215,7 @@ All scan tables share the same keys:
 - [x] WiFi scan, connect, monitor, deauth, Evil Twin, hidden SSID, MAC spoof, WPA2 crack, WPS flag, saved credential manager, Linux wpa_supplicant.conf sync
 - [x] ARP discovery, port scan, ping, banner grabber, OS fingerprinting
 - [x] BLE scanner, anti-tracking detector
+- [x] BLE GATT enumeration (`bi`) — full service/char tree, 0x2904 auto-decode, write, fuzz (seq/rand/boundary), notify/indicate sniff, pairing/bonding, `bi all` multi-device sweep, SD save
 - [x] Fast Pair attack — advertisement flood + GATT probe (WhisperPair)
 - [x] BLE notification spam — Apple / Android / Microsoft / Samsung
 - [x] SD file manager — `ls` (paginated, dirs in cyan), `cd` CWD navigation (relative paths for all SD commands), man pages, help, power save, trackpad cursor

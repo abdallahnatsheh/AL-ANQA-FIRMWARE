@@ -1,6 +1,7 @@
 #include "gps_manager.h"
 #include "display_manager.h"
 #include "input_handling.h"
+#include <Preferences.h>
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
@@ -24,6 +25,10 @@ void GpsManager::gpsTask(void* pv) {
             self->_lat   = (float)self->_gps.location.lat();
             self->_lon   = (float)self->_gps.location.lng();
             self->_valid = true;
+            if (!self->_fixSaved) {
+                self->saveGpsFixFlag();
+                self->_fixSaved = true;
+            }
         }
         if (self->_gps.satellites.isValid())
             self->_sats = self->_gps.satellites.value();
@@ -86,9 +91,15 @@ bool GpsManager::initL76K() {
         _serial->setTimeout(200);
         String ver = _serial->readStringUntil('\n');
         if (ver.startsWith("$GPTXT,01,01,02")) {
-            _serial->write("$PCAS04,5*1C\r\n");  delay(250);
+            _serial->write("$PCAS04,7*1E\r\n");  delay(250);  // GPS+GLONASS+BDS
+            _serial->write("$PMTK313,1*2E\r\n"); delay(100);  // enable SBAS search
+            _serial->write("$PMTK301,2*2E\r\n"); delay(100);  // use SBAS corrections
             _serial->write("$PCAS03,1,1,1,1,1,1,1,1,1,1,,,0,0*02\r\n"); delay(250);
             _serial->write("$PCAS11,3*1E\r\n");  delay(100);
+            _serial->write("$PCAS00*01\r\n");    delay(400);  // persist config to flash
+            if (_nvsCachedFix) {
+                _serial->write("$PCAS10,0*1C\r\n"); delay(800); // hot start from BBR
+            }
             return true;
         }
         delay(500);
@@ -120,7 +131,7 @@ void GpsManager::initModule() {
     displayManager.setTextColor(0x7BEF);
     displayManager.println("Trying L76K at 9600 baud");
     if (initL76K()) {
-        strncpy(_module, "L76K (GPS+GLONASS)", sizeof(_module) - 1);
+        strncpy(_module, _nvsCachedFix ? "L76K +BDS+SBAS warm" : "L76K +BDS+SBAS", sizeof(_module) - 1);
         return;
     }
 
@@ -128,7 +139,8 @@ void GpsManager::initModule() {
     displayManager.println("Trying u-blox at 38400 baud");
     _serial->begin(38400, SERIAL_8N1, BOARD_GPS_RX_PIN, BOARD_GPS_TX_PIN);
     if (recoverUblox()) {
-        strncpy(_module, "u-blox M10Q @38400", sizeof(_module) - 1);
+        applyUbloxHotStart();
+        strncpy(_module, _nvsCachedFix ? "M10Q @38400 warm" : "M10Q @38400", sizeof(_module) - 1);
         return;
     }
 
@@ -136,7 +148,8 @@ void GpsManager::initModule() {
     displayManager.println("Trying u-blox at 9600 baud");
     _serial->updateBaudRate(9600);
     if (recoverUblox()) {
-        strncpy(_module, "u-blox M10Q @9600", sizeof(_module) - 1);
+        applyUbloxHotStart();
+        strncpy(_module, _nvsCachedFix ? "M10Q @9600 warm" : "M10Q @9600", sizeof(_module) - 1);
         return;
     }
 
@@ -149,6 +162,8 @@ void GpsManager::start() {
     _valid = false; _lat = 0; _lon = 0; _sats = 0;
     _timeValid = false; _hour = 0; _minute = 0; _second = 0; _chars = 0;
     _stop = false;
+    _fixSaved     = false;
+    _nvsCachedFix = loadGpsNvsFlag();
 
     _serial = new HardwareSerial(1);
     _serial->setRxBufferSize(1024);
@@ -267,6 +282,68 @@ void runGpsOff() {
     } else {
         displayManager.println("GPS background task not running.");
     }
+}
+
+// ── NVS warm-start helpers ────────────────────────────────────────────────────
+bool GpsManager::loadGpsNvsFlag() {
+    Preferences prefs;
+    prefs.begin("gps", true);
+    bool v = prefs.getBool("fix", false);
+    if (v) {
+        _nvsLat = prefs.getInt("lat", 0);
+        _nvsLon = prefs.getInt("lon", 0);
+    }
+    prefs.end();
+    return v;
+}
+
+void GpsManager::saveGpsFixFlag() {
+    Preferences prefs;
+    prefs.begin("gps", false);
+    prefs.putBool("fix", true);
+    prefs.putInt("lat", (int32_t)(_lat * 1.0e7f));
+    prefs.putInt("lon", (int32_t)(_lon * 1.0e7f));
+    prefs.end();
+}
+
+// Computes UBX Fletcher-8 checksum and sends a complete UBX frame.
+static void sendUbxMsg(HardwareSerial* s, uint8_t cls, uint8_t id,
+                       const uint8_t* payload, uint16_t plen) {
+    uint8_t cka = 0, ckb = 0;
+    s->write(0xB5); s->write(0x62);
+    uint8_t hdr[4] = { cls, id, (uint8_t)(plen & 0xFF), (uint8_t)(plen >> 8) };
+    for (int i = 0; i < 4; i++) { s->write(hdr[i]); cka += hdr[i]; ckb += cka; }
+    for (uint16_t i = 0; i < plen; i++) { s->write(payload[i]); cka += payload[i]; ckb += cka; }
+    s->write(cka); s->write(ckb);
+}
+
+// Inject last known position then do a GNSS-only hot start from BBR.
+// Position uses UBX-MGA-INI-POS_LLH (0x13/0x40) — supported on M8/M9/M10.
+// UBX-CFG-RST resetMode=0x09 restarts only the GNSS engine (no CPU reset).
+void GpsManager::applyUbloxHotStart() {
+    if (!_nvsCachedFix) return;
+
+    if (_nvsLat != 0 || _nvsLon != 0) {
+        uint8_t mga[20] = {};
+        mga[0] = 0x01;                           // sub-type: LLH position
+        int32_t posAcc = 5000000;                // 50 km in cm — loose hint
+        memcpy(mga + 4,  &_nvsLat, 4);
+        memcpy(mga + 8,  &_nvsLon, 4);
+        // mga[12..15] alt = 0 cm (unknown, but posAcc is large so the module ignores it)
+        memcpy(mga + 16, &posAcc, 4);
+        sendUbxMsg(_serial, 0x13, 0x40, mga, sizeof(mga));
+        delay(200);
+    }
+
+    // UBX-CFG-RST: navBbrMask=0x0000 (hot start from BBR), resetMode=0x09
+    // Checksum pre-computed for {cls=0x06,id=0x04,len=4,payload={0,0,9,0}}: 0x17 0x76
+    static const uint8_t HOTRST[] = {
+        0xB5, 0x62, 0x06, 0x04, 0x04, 0x00,
+        0x00, 0x00, 0x09, 0x00,
+        0x17, 0x76
+    };
+    _serial->write(HOTRST, sizeof(HOTRST));
+    delay(600);
 }
 
 #else  // non-Plus stub

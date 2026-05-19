@@ -287,6 +287,21 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "bleinfo", "bi", {
+        "SYNTAX   bi <index|mac|all>",
+        "",
+        "ABOUT    GATT enum+interact. Reads values,",
+        "         0x2904 type decode, 0x2901 desc.",
+        "         [n]sniff notify/indicate 30s.",
+        "         [w]write hex/ASCII to W chars.",
+        "         [f]fuzz seq/rand/boundary modes.",
+        "         [p]pair bonding+MITM toggle.",
+        "         [s]save GATT+sniff to SD.",
+        "",
+        "KEYS     [n][w][f][p][s] [a/l]pg [q]qt",
+        nullptr
+    }},
+
     { "trackme", "tm", {
         "SYNTAX   tm [silent]",
         "",

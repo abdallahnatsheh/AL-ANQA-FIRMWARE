@@ -11,11 +11,9 @@ BluetoothFunctions::BluetoothFunctions()
     : pBLEScan(nullptr), pScanCallbacks(nullptr),
       bluetoothScanExecuted(false), numberOfDevices(0) {}
 
-// ── BLE device cache ──────────────────────────────────────────────────────────
-
-struct BleEntry { char addr[18]; int rssi; char name[20]; };
-static BleEntry      s_bleDevices[64];
-static volatile int  s_bleCount = 0;
+// ── BLE device cache (shared with bleinfo) ────────────────────────────────────
+BleEntry     s_bleDevices[64];
+volatile int s_bleCount = 0;
 
 // NimBLE callback — receives pointer, not reference
 class BleQueueCallbacks : public NimBLEAdvertisedDeviceCallbacks {
@@ -23,10 +21,11 @@ class BleQueueCallbacks : public NimBLEAdvertisedDeviceCallbacks {
         if (!TaskManager::resultQueue) return;
         TaskResult r;
         r.type = TaskResult::INFO;
-        snprintf(r.data, sizeof(r.data), "%s|%d|%.18s",
+        snprintf(r.data, sizeof(r.data), "%s|%d|%.18s|%d",
                  dev->getAddress().toString().c_str(),
                  dev->getRSSI(),
-                 dev->getName().c_str());
+                 dev->getName().c_str(),
+                 (int)dev->getAddress().getType());
         xQueueSend(TaskManager::resultQueue, &r, 0);
     }
 };
@@ -151,14 +150,17 @@ void BluetoothFunctions::scanBluetoothDevices() {
                         strncpy(tmp, r.data, sizeof(tmp));
                         char* p1 = strchr(tmp, '|');
                         char* p2 = p1 ? strchr(p1 + 1, '|') : nullptr;
+                        char* p3 = p2 ? strchr(p2 + 1, '|') : nullptr;
                         if (p1 && p2) {
                             *p1 = '\0'; *p2 = '\0';
+                            if (p3) *p3 = '\0';
                             int idx = s_bleCount++;
                             strncpy(s_bleDevices[idx].addr, tmp, 17);
                             s_bleDevices[idx].addr[17] = '\0';
                             s_bleDevices[idx].rssi = atoi(p1 + 1);
                             strncpy(s_bleDevices[idx].name, p2 + 1, 19);
                             s_bleDevices[idx].name[19] = '\0';
+                            s_bleDevices[idx].addrType = p3 ? (uint8_t)atoi(p3 + 1) : 0;
                         }
                     }
                 }
@@ -186,14 +188,17 @@ void BluetoothFunctions::scanBluetoothDevices() {
                         strncpy(tmp, r.data, sizeof(tmp));
                         char* p1 = strchr(tmp, '|');
                         char* p2 = p1 ? strchr(p1 + 1, '|') : nullptr;
+                        char* p3 = p2 ? strchr(p2 + 1, '|') : nullptr;
                         if (p1 && p2) {
                             *p1 = '\0'; *p2 = '\0';
+                            if (p3) *p3 = '\0';
                             int idx = s_bleCount++;
                             strncpy(s_bleDevices[idx].addr, tmp, 17);
                             s_bleDevices[idx].addr[17] = '\0';
                             s_bleDevices[idx].rssi = atoi(p1 + 1);
                             strncpy(s_bleDevices[idx].name, p2 + 1, 19);
                             s_bleDevices[idx].name[19] = '\0';
+                            s_bleDevices[idx].addrType = p3 ? (uint8_t)atoi(p3 + 1) : 0;
                         }
                     }
                 }

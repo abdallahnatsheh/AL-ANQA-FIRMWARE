@@ -33,6 +33,9 @@ private:
     bool        initL76K();
     bool        recoverUblox();
     int         getUbloxAck(uint8_t cls, uint8_t id);
+    bool        loadGpsNvsFlag();
+    void        saveGpsFixFlag();
+    void        applyUbloxHotStart();
 
     HardwareSerial* _serial    = nullptr;
     TinyGPSPlus     _gps;
@@ -51,6 +54,10 @@ private:
     volatile uint8_t  _second    = 0;
     volatile uint32_t _chars     = 0;
     char              _module[24] = "Unknown";
+    bool              _nvsCachedFix = false; // true if a GPS fix was ever saved to NVS
+    bool              _fixSaved     = false; // true after first fix saved this session
+    int32_t           _nvsLat       = 0;     // last fix lat × 1e7 (loaded from NVS)
+    int32_t           _nvsLon       = 0;     // last fix lon × 1e7 (loaded from NVS)
 };
 
 #endif // BOARD_TDECK_PLUS

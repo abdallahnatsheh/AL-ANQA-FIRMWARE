@@ -861,7 +861,7 @@ void TrackMeScanner::start(bool silent) {
         // is overkill — just call the static helpers via a local GpsManager that we immediately discard.
         // Instead: delegate module init to GpsManager's public helpers by starting it, then handing
         // the serial over.  Simplest: just re-implement the quick init inline here (same 3 lines).
-        gpsSerial->write("$PCAS04,5*1C\r\n");  delay(250);
+        gpsSerial->write("$PCAS04,7*1E\r\n");  delay(250);  // GPS+GLONASS+BDS
         gpsSerial->write("$PCAS03,1,0,0,0,1,0,0,0,0,0,,,0,0*02\r\n"); delay(250);
         gpsSerial->write("$PCAS11,3*1E\r\n");  delay(100);
     }
