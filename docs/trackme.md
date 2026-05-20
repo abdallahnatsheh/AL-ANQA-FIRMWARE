@@ -63,6 +63,8 @@ WiFi probe sniffing detects phones and laptops that broadcast probe requests. Be
 
 WiFi probe sniffing is disabled on the standard T-Deck (no GPS) because without movement data every WiFi detection would be a false positive.
 
+> **wguard compatibility** — If `wguard` is running in background mode, the WiFi probe-sniff phase is automatically skipped for that `trackme` session. BLE scanning continues normally. Run `wg stop` first if you need full `trackme` WiFi detection.
+
 ---
 
 ## GPS status

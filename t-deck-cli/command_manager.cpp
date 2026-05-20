@@ -23,6 +23,8 @@
 #include "bad_usb.h"
 #include "buddy.h"
 #include "ble_info.h"
+#include "notification_manager.h"
+#include "wguard.h"
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
 extern WiFiFunctions      wifiFunctions;
@@ -35,6 +37,7 @@ extern TrackMeScanner     trackMe;
 extern EvilTwin           evilTwin;
 extern HiddenSSID         hiddenSSID;
 extern HandshakeCapture   handshakeCapture;
+extern WGuard             wGuard;
 extern ManPages           manPages;
 
 // Forward declarations for standalone command functions
@@ -183,6 +186,20 @@ void CommandManager::executeCommand() {
                     args = NULL;
                 }
             }
+            // Block WiFi commands while wguard is running in background
+            if (wGuard.isBackground() &&
+                strcmp(commands[i].category, "WiFi") == 0 &&
+                strcmp(commands[i].name, "wguard") != 0) {
+                displayManager.setTextColor(TFT_YELLOW);
+                displayManager.println("WGUARD bg active — WiFi locked.");
+                displayManager.setTextColor(0x4208);
+                displayManager.println("Run 'wg stop' first.");
+                displayManager.setTextColor(TFT_WHITE);
+                displayManager.printCommandScreen();
+                resetCommand();
+                return;
+            }
+
             commands[i].function(args);
             resetCommand();
             return;
@@ -391,21 +408,62 @@ void CommandManager::doAutocomplete() {
     displayManager.redrawCommandLine(command, _cursorPos);
 }
 
+static void handleShowCmd(char* a) {
+    if      (!a || !*a)              { displayManager.println("Usage: show <wifi|ble|hosts>"); displayManager.printCommandScreen(); }
+    else if (strcmp(a, "wifi")  == 0) wifiFunctions.showWiFiResults();
+    else if (strcmp(a, "ble")   == 0) bluetoothFunctions.showBleResults();
+    else if (strcmp(a, "hosts") == 0) networkScanner.showHostResults();
+    else                             { displayManager.println("Usage: show <wifi|ble|hosts>"); displayManager.printCommandScreen(); }
+}
+
+static void handleUsbExecCmd(char* a) {
+    if (a && *a && strcmp(a, "demo") != 0) {
+        char path[128]; sdCardManager.resolvePath(a, path, sizeof(path));
+        badUsb.start(path);
+    } else { badUsb.start(a); }
+}
+
+static void handleVolumeCmd(char* a) {
+    static uint8_t s_vol = 70;
+    if (a && *a) {
+        if      (strcmp(a, "up")   == 0) s_vol = min(100, (int)s_vol + 10);
+        else if (strcmp(a, "down") == 0) s_vol = s_vol > 10 ? s_vol - 10 : 0;
+        else if (strcmp(a, "off")  == 0) s_vol = 0;
+        else { int v = atoi(a); if (v >= 0 && v <= 100) s_vol = (uint8_t)v; }
+    }
+    displayManager.setTextColor(0x7BEF); displayManager.printText("Volume  ");
+    displayManager.setTextColor(TFT_WHITE);
+    char b[16]; snprintf(b, sizeof(b), "%d%%", s_vol); displayManager.println(b);
+    displayManager.printCommandScreen();
+}
+
+static void handleWGuardCmd(char* a) {
+    if (!a || !*a) {
+        // No args: if bg active enter live view, else show usage
+        if (wGuard.isBackground()) { wGuard.enterView(); return; }
+        displayManager.println("Usage: wg <idx|bssid> [ch] [bg]  |  wg stop");
+        displayManager.printCommandScreen();
+        return;
+    }
+    if (strcmp(a, "stop") == 0) { wGuard.stopBackground(); return; }
+    // Strip trailing " bg" if present
+    char buf[64]; strncpy(buf, a, 63); buf[63] = '\0';
+    char* last = strrchr(buf, ' ');
+    if (last && strcmp(last + 1, "bg") == 0) { *last = '\0'; wGuard.beginBackground(buf); }
+    else wGuard.start(a);
+}
+
 void CommandManager::setupCommands() {
     // ── System ────────────────────────────────────────────────────────────────
-    registerCommand("show",        "sh",     [](char* a) {
-        if      (!a || !*a)              { displayManager.println("Usage: show <wifi|ble|hosts>"); displayManager.printCommandScreen(); }
-        else if (strcmp(a,"wifi")  == 0) { wifiFunctions.showWiFiResults(); }
-        else if (strcmp(a,"ble")   == 0) { bluetoothFunctions.showBleResults(); }
-        else if (strcmp(a,"hosts") == 0) { networkScanner.showHostResults(); }
-        else                             { displayManager.println("Usage: show <wifi|ble|hosts>"); displayManager.printCommandScreen(); }
-    },                                                                                                 "Show last scan: wifi|ble|hosts",          true,  "System");
+    registerCommand("show",        "sh",     [](char* a) { handleShowCmd(a); },                                                "Show last scan: wifi|ble|hosts",          true,  "System");
     registerCommand("help",        "hlp",    [](char* a) { Utils::printHelp(a); },                                          "Help [cmd]",                              true,  "System");
     registerCommand("man",         "mn",     [](char* a) { manPages.show(a); },                                               "Manual: man <command>",                   true,  "System");
     registerCommand("info",        "inf",    [](char* a) { espInfoPrinter.printESPInfo(); },                                 "Device info (IP, MAC, battery)",          false, "System");
     registerCommand("clear",       "clr",    [](char* a) { displayManager.tdeck_begin(); },                                  "Clear screen",                            false, "System");
     registerCommand("MATRIX",      "matrix", [](char* a) { displayManager.launchMatrixAnimation(); },                       "Matrix rain animation",                   false, "System");
     registerCommand("pwrsave",     "psv",    [](char* a) { PowerSaveManager::handleCommand(a); },                         "Power save: on/off/set/status",  true,  "System");
+    registerCommand("volume",      "vol",    [](char* a) { handleVolumeCmd(a); },                                             "General volume: vol [0-100|up|down|off]",   true,  "System");
+    registerCommand("notif",       "nf",     [](char* a) { NotificationManager::handleNotifCmd(a); },                        "Notifications: nf [on|off|vol <n>|<lvl> on|off|file <f>]", true, "System");
     // ── WiFi ──────────────────────────────────────────────────────────────────
     registerCommand("scanwifi",    "sw",     [](char* a) { wifiFunctions.scanWiFiNetworks(); },                              "Scan WiFi networks",                      false, "WiFi");
     registerCommand("connectwifi", "cw",     [](char* a) { wifiFunctions.connectToWiFiCommand(a); },                        "Connect to WiFi: cw <index>",             true,  "WiFi");
@@ -416,6 +474,7 @@ void CommandManager::setupCommands() {
     registerCommand("hiddenssid",  "hs",     [](char* a) { hiddenSSID.start(a); },                                          "Uncover hidden SSID: hs <idx|bssid> [ch] [silent]", true,  "WiFi");
     registerCommand("macchanger",  "mc",     [](char* a) { MacChanger::getInstance().handleCommand(a); },                   "MAC spoof: mc on/off/random/set <mac>",              true,  "WiFi");
     registerCommand("wpasniff",    "ws",     [](char* a) { handshakeCapture.start(a); },                                      "WPA2 handshake: ws <idx|bssid> [ch]",                true,  "WiFi");
+    registerCommand("wguard",      "wg",     [](char* a) { handleWGuardCmd(a); },                                           "WiFi IDS: wg <idx> [bg|stop]",                       true,  "WiFi");
     registerCommand("wifipass",    "wp",     [](char* a) { wifiPassCommand(); },                                               "Saved WiFi passwords",                    false, "WiFi");
     registerCommand("wifiexport",  "wex",    [](char* a) { wifiExportCommand(); },                                             "Export NVS networks to wpa_supplicant",   false, "WiFi");
     // ── Network ───────────────────────────────────────────────────────────────
@@ -440,12 +499,7 @@ void CommandManager::setupCommands() {
     // ── USB ───────────────────────────────────────────────────────────────────
     registerCommand("usbmsc",      "um",     [](char* a) { usbManager.startMSC(); },                                                              "Expose SD card as USB drive",             false, "USB");
     registerCommand("usbkbd",      "uk",     [](char* a) { usbKeyboard.start(); },                                                               "T-DECK as USB keyboard+mouse",            false, "USB");
-    registerCommand("usbexec",     "ux",     [](char* a) {
-        if (a && *a && strcmp(a, "demo") != 0) {
-            char path[128]; sdCardManager.resolvePath(a, path, sizeof(path));
-            badUsb.start(path);
-        } else { badUsb.start(a); }
-    },                                                                                                                       "BadUSB/DuckyScript executor",             true,  "USB",  COMP_FILE);
+    registerCommand("usbexec",     "ux",     [](char* a) { handleUsbExecCmd(a); },                                              "BadUSB/DuckyScript executor",             true,  "USB",  COMP_FILE);
     // ── Diagnostics ───────────────────────────────────────────────────────────
     registerCommand("gpson",       "gon",    [](char* a) { runGpsOn(); },                                                   "GPS background task + live status",       false, "Diagnostics");
     registerCommand("gpsoff",      "gof",    [](char* a) { runGpsOff(); },                                                  "Stop GPS background task",                false, "Diagnostics");

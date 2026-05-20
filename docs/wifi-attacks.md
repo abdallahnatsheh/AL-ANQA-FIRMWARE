@@ -189,3 +189,68 @@ Spoofs the STA MAC address at the driver level. The spoofed MAC is a locally-adm
 - `wpasniff` / `ws`
 
 Config is saved to `/macchanger.cfg` on the SD card and restored on boot.
+
+---
+
+## `wguard` / `wg` — WiFi IDS (Intrusion Detection)
+
+`wguard` is a passive WiFi intrusion-detection system. It locks onto one AP and monitors all 802.11 management and data frames on that channel, alerting on deauth storms, auth floods, PMKID harvests, Evil Twin beacons, probe storms, beacon floods, and WPA handshake harvesting attempts.
+
+```
+CMD> sw                 # scan to get AP index
+CMD> wg 2              # interactive monitor on AP index 2
+CMD> wg 2 bg           # start in background (returns to prompt)
+CMD> wg                 # enter live view of running bg session
+CMD> wg stop            # stop background session
+```
+
+You can also target by BSSID directly:
+```
+CMD> wg AA:BB:CC:DD:EE:FF 6
+```
+
+### Interactive mode keys
+
+| Key | Action |
+|-----|--------|
+| `s` | Save event log to `/logs/wguard.csv` |
+| `q` | Quit |
+
+The screen shows live STATUS (OK / WARNING / CRITICAL), frame counters (Beacons / Probes / Auths / Deauths / EAPOLs), and the 5 most recent events with timestamps.
+
+### Background mode
+
+`wg <idx> bg` returns to the command prompt immediately. The shield icon in the status bar shows the current state:
+
+| Icon colour | Meaning |
+|-------------|---------|
+| Grey | wguard not running |
+| Green ✓ | Running, no threats detected |
+| Yellow | Running, warnings detected |
+| Red | Running, critical alert |
+
+When a new event fires in background mode:
+- The shield colour updates immediately
+- A coloured bar appears at the bottom of the screen with the alert message
+- A notification sound plays (WARNING or ALERT level)
+- The bar auto-clears after 4 seconds
+
+**WiFi lock** — while wguard is in background, all other WiFi commands are blocked. Run `wg stop` first, or enter the live view with `wg` and press `q` to exit without stopping monitoring.
+
+**TrackMe note** — `tm` BLE scanning works normally alongside wguard bg. On T-Deck Plus, the WiFi probe-sniff phase of `tm` is automatically skipped to avoid overwriting wguard's promiscuous callback.
+
+### Detections
+
+| Event | Trigger | Severity |
+|-------|---------|----------|
+| DEAUTH storm | 5 deauths from same MAC in 10 s | CRITICAL |
+| AUTH flood | 32 unique MACs authenticating in 10 s | WARNING |
+| PROBE storm | 50 probes from same MAC in 5 s | WARNING |
+| PMKID harvest | 5 assoc requests from same MAC in 5 s | WARNING |
+| Evil Twin | Same SSID, different OUI (same OUI = mesh AP, INFO only) | WARNING |
+| Beacon flood | 100 unique APs seen in 30 s | WARNING |
+| Handshake harvest | EAPOL M1/M2 seen after recent deauth burst | CRITICAL |
+
+### Log
+
+Events are saved to `/logs/wguard.csv` when you press `[s]` in interactive or live-view mode. Format: `timestamp_s,severity,message`.

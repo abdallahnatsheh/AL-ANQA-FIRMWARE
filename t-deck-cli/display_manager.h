@@ -49,11 +49,14 @@ public:
     void launchMatrixAnimation();
     void setTextSize(float size);
     void setBtActive(bool active);
+    void setWGuardState(bool active, uint8_t maxSev);
     void redrawCommandLine(const char* cmd, int cursorPos);
     void flushSPI();   // Drain any pending LovyanGFX DMA and release SPI2 bus
 private:
     LGFX& tft;
-    bool    _btActive  = false;
+    bool    _btActive      = false;
+    bool    _wgActive      = false;
+    uint8_t _wgMaxSev      = 0;
     int32_t _cmdLineY  = outputY;
     DigitalRainAnimation<LGFX> matrix_effect = DigitalRainAnimation<LGFX>();
     void scrollIfNeeded();

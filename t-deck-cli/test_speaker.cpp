@@ -1,5 +1,6 @@
 #include "display_manager.h"
 #include "input_handling.h"
+#include "notification_manager.h"
 #include "utilities.h"
 #include <Arduino.h>
 #include <driver/i2s.h>
@@ -100,10 +101,8 @@ static void drawSpeakerMenu(bool i2sOk, const char* lastPlayed) {
     displayManager.println(i2sOk ? "I2S: OK" : "I2S: INIT FAILED");
 
     displayManager.setCursor(4, displayManager.getCursorY());
-    displayManager.setTextColor(0x7BEF);
-    displayManager.println("");
-
-    const struct { char key; const char* label; } items[] = {
+    displayManager.setTextColor(TFT_WHITE);
+    const struct { char key; const char* label; } toneItems[] = {
         { '1', "[1] 220 Hz   low bass" },
         { '2', "[2] 440 Hz   A4 concert" },
         { '3', "[3] 880 Hz   high" },
@@ -111,13 +110,28 @@ static void drawSpeakerMenu(bool i2sOk, const char* lastPlayed) {
         { '5', "[5] 2000 Hz  alert" },
         { '6', "[6] 4000 Hz  sharp" },
         { 's', "[s] C major scale" },
-        { 'q', "[q] quit" },
     };
-    for (auto& item : items) {
+    for (auto& item : toneItems) {
         displayManager.setCursor(4, displayManager.getCursorY());
-        displayManager.setTextColor(item.key == 'q' ? 0x7BEF : TFT_WHITE);
         displayManager.println(item.label);
     }
+
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.setTextColor(0x4208);
+    displayManager.println("── Notif test (uses nf vol) ──");
+
+    NotificationManager& nm = NotificationManager::getInstance();
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.setTextColor(TFT_WHITE);
+    char volBuf[32];
+    snprintf(volBuf, sizeof(volBuf), "[a]lert [w]arning [c]success");
+    displayManager.println(volBuf);
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.println("[i]nfo  [p]ing");
+
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.setTextColor(0x7BEF);
+    displayManager.println("[q] quit");
 
     if (lastPlayed[0]) {
         displayManager.setCursor(4, displayManager.getCursorY());
@@ -143,6 +157,14 @@ void runSpeakerTest() {
         { '6', "4000 Hz sharp",     4000,  300 },
     };
 
+    const struct { char key; NotifLevel level; const char* label; } notifTones[] = {
+        { 'a', NOTIF_ALERT,   "notif: alert"   },
+        { 'w', NOTIF_WARNING, "notif: warning" },
+        { 'c', NOTIF_SUCCESS, "notif: success" },
+        { 'i', NOTIF_INFO,    "notif: info"    },
+        { 'p', NOTIF_PING,    "notif: ping"    },
+    };
+
     while (true) {
         char k = inputHandler.getKeyboardInput();
         if (!k) continue;
@@ -155,11 +177,26 @@ void runSpeakerTest() {
             continue;
         }
 
+        bool handled = false;
         for (auto& t : tones) {
             if (k == t.key) {
                 strncpy(lastPlayed, t.label, 31);
                 drawSpeakerMenu(i2sOk, lastPlayed);
                 playTone(t.freq, t.dur);
+                handled = true;
+                break;
+            }
+        }
+        if (handled) continue;
+
+        for (auto& n : notifTones) {
+            if (k == n.key) {
+                strncpy(lastPlayed, n.label, 31);
+                drawSpeakerMenu(i2sOk, lastPlayed);
+                // NotificationManager installs/uninstalls I2S itself — stop ours first
+                stopI2S();
+                NotificationManager::getInstance().notify(n.level);
+                i2sOk = startI2S();
                 break;
             }
         }

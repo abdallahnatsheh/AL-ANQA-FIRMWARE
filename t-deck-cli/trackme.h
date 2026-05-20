@@ -126,12 +126,6 @@ private:
     void drawScreen(ThreatLevel highestLevel, const char* alertName, uint32_t alertSec);
     void drawHeader();
 
-    // -- audio --
-    void beep(ThreatLevel lvl);
-    void startI2S();
-    void stopI2S();
-    void playTone(int freq, int durationMs);
-    bool _i2sReady;
     bool _silent;
 
     // -- SD --

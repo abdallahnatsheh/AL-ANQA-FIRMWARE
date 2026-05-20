@@ -18,7 +18,7 @@ public:
 
 private:
     uint32_t lastActivityTime = 0;
-    bool     _tballLast[5]    = { true, true, true, true, true };
+    bool     _tballLast[4]   = { true, true, true, true };
 };
 
 #endif // INPUT_HANDLING_H

@@ -111,6 +111,46 @@ Config is saved to `/pwrsave.json` on the SD card and restored on boot.
 
 ---
 
+## `volume` / `vol` — General Volume
+
+```
+CMD> vol          # show current level
+CMD> vol 80       # set to 80%
+CMD> vol up       # +10%
+CMD> vol down     # -10%
+CMD> vol off      # mute
+```
+
+General audio volume for future music/voice features. This is **separate** from notification volume — use `nf vol` to control notification sounds.
+
+---
+
+## `notif` / `nf` — Notification Manager
+
+```
+CMD> nf                        # show status
+CMD> nf on                     # enable all
+CMD> nf off                    # disable all
+CMD> nf vol 70                 # set notif volume (0-100)
+CMD> nf alert on|off           # enable/disable a level
+CMD> nf alert file alert.mp3   # set custom MP3 for a level
+CMD> nf alert file             # clear custom MP3 (back to tone)
+```
+
+Five notification levels used internally by T-REX:
+
+| Level | Used by |
+|-------|---------|
+| `alert` | Deauth storm, Evil Twin, PMKID, cracked password |
+| `warning` | Auth flood, probe storm, beacon flood |
+| `success` | Handshake captured, hidden SSID found |
+| `info` | General one-shot beep |
+| `ping` | BLE buddy prompt arrived |
+
+Config saved to `/notif.conf`. Custom MP3 files live in `/notification/` on the SD card. See [`docs/audio.md`](audio.md) for full setup.
+
+---
+
 ## `clear` / `clr` — Clear Screen
 
 ```
@@ -167,7 +207,7 @@ CMD> sdformat [init]         # format SD card to FAT32 (WARNING: destroys all da
 CMD> gpson    # start GPS background task with live status (T-Deck Plus)
 CMD> gpsoff   # stop GPS task
 CMD> gpstest  # one-shot GPS coordinate read (T-Deck Plus)
-CMD> spktest  # I2S speaker tone test
+CMD> spktest  # I2S speaker tone test + notif level test
 CMD> loratest # LoRa SX1262 init, TX test, RX monitor
 ```
 
@@ -175,5 +215,17 @@ GPS status is shown in the status bar:
 - Grey satellite icon — GPS off
 - Yellow — searching for fix (~4 min cold start)
 - Green — fix acquired
+
+### Status bar icons
+
+| Icon | Colours | Meaning |
+|------|---------|---------|
+| Shield | Grey | wguard not running |
+| Shield | Green ✓ | wguard bg — no threats |
+| Shield | Yellow | wguard bg — warnings |
+| Shield | Red | wguard bg — critical alert |
+| Satellite | Grey / Yellow / Green | GPS off / searching / fixed |
+| ᛒ | Grey / Cyan | Bluetooth off / active |
+| Battery | Red / Yellow / Green | Charge level |
 
 > **Note:** `tone()` does not work on this hardware. All audio uses `i2s_driver_install()`.

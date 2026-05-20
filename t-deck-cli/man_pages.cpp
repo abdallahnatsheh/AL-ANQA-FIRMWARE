@@ -67,6 +67,34 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "volume", "vol", {
+        "SYNTAX   vol [0-100|up|down|off]",
+        "",
+        "ABOUT    General audio volume for future",
+        "         music player / voice recorder.",
+        "         vol alone shows current level.",
+        "",
+        "OPTIONS  up  +10%   down  -10%",
+        "         off mute   0-100 exact value",
+        "NOTE     Does not affect notification vol.",
+        "         Use: nf vol <n> for that.",
+        nullptr
+    }},
+
+    { "notif", "nf", {
+        "SYNTAX   notif [on|off|status]",
+        "         notif vol <0-100>",
+        "         notif <level> on|off",
+        "         notif <level> file <path>",
+        "",
+        "LEVELS   alert  warning  success  info  ping",
+        "ABOUT    Per-level audio notifications.",
+        "         Custom MP3 per level from /notification/",
+        "         Config saved to /notif.conf",
+        "FILES    /notification/*.mp3",
+        nullptr
+    }},
+
     { "show", "sh", {
         "SYNTAX   show <wifi|ble|hosts>",
         "",
@@ -211,6 +239,20 @@ static const ManEntry PAGES[] = {
         "FILES    /wordlist.txt  (SD wordlist)",
         "         /logs/cracked.csv  (results)",
         "NOTE     Built-in 100 pwds if no SD card.",
+        nullptr
+    }},
+
+    { "wguard", "wg", {
+        "SYNTAX   wg <idx>       — interactive mode",
+        "         wg <idx> bg    — background mode",
+        "         wg stop        — stop background",
+        "",
+        "ABOUT    Passive WiFi IDS. Detects deauth,",
+        "         Evil Twin, PMKID, handshake harvest,",
+        "         auth/probe/beacon flood.",
+        "NOTE     bg blocks other WiFi commands.",
+        "         Run wg stop before deauth/ws/et etc.",
+        "FILES    /logs/wguard.csv",
         nullptr
     }},
 
@@ -485,8 +527,14 @@ static const ManEntry PAGES[] = {
     { "spktest", "st", {
         "SYNTAX   spktest",
         "",
-        "ABOUT    Play tone sequence via I2S speaker",
-        "         to verify audio hardware.",
+        "ABOUT    I2S speaker hardware test.",
+        "         Raw tones at full volume + notif",
+        "         level test using your nf settings.",
+        "",
+        "KEYS     [1]-[6] raw tones  [s] C scale",
+        "         [a]lert [w]arning [c]success",
+        "         [i]nfo  [p]ing    [q] quit",
+        "NOTE     notif keys honour nf vol + MP3.",
         nullptr
     }},
 

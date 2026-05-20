@@ -2,13 +2,12 @@
 #include "gps_manager.h"
 #include "input_handling.h"
 #include "utilities.h"
+#include "notification_manager.h"
+#include "wguard.h"
 #include <WiFi.h>
 #include <SD.h>
-#include <math.h>
-#include <driver/i2s.h>
 
-#define TM_I2S_PORT   I2S_NUM_0
-#define TM_SAMPLE_RATE 22050
+extern WGuard wGuard;
 
 extern InputHandling inputHandler;
 
@@ -56,7 +55,7 @@ static void fillBuiltinSigs(TrackerSig* sigs, int& count) {
 TrackMeScanner::TrackMeScanner(DisplayManager& dm, SDCardManager& sd)
     : dm(dm), sd(sd), sigCount(0),
       tier1Count(0), tier2Count(0),
-      page(0), startMs(0), _i2sReady(false), _silent(false),
+      page(0), startMs(0), _silent(false),
       _totalDistM(0.0f), _gpsMoving(false),
       _baselineDone(false), _knownCount(0)
 {
@@ -508,6 +507,9 @@ void TrackMeScanner::doBLEScan(int seconds) {
 
 // ── WiFi probe sniff (500 ms, non-blocking loop) ──────────────────────────────
 void TrackMeScanner::doWiFiSniff(uint32_t durationMs) {
+    // Skip if wguard owns the promiscuous callback — replacing it would blind wguard
+    if (wGuard.isBackground()) return;
+
     if (WiFi.getMode() == WIFI_MODE_NULL) {
         WiFi.mode(WIFI_STA);
         WiFi.disconnect();
@@ -531,76 +533,6 @@ void TrackMeScanner::doWiFiSniff(uint32_t durationMs) {
     esp_wifi_set_promiscuous(false);
 }
 
-// ── I2S audio (same driver approach as test_speaker.cpp) ─────────────────────
-void TrackMeScanner::startI2S() {
-    if (_i2sReady) return;
-
-    i2s_config_t cfg = {};
-    cfg.mode                 = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX);
-    cfg.sample_rate          = TM_SAMPLE_RATE;
-    cfg.bits_per_sample      = I2S_BITS_PER_SAMPLE_16BIT;
-    cfg.channel_format       = I2S_CHANNEL_FMT_RIGHT_LEFT;
-    cfg.communication_format = I2S_COMM_FORMAT_STAND_I2S;
-    cfg.intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1;
-    cfg.dma_buf_count        = 8;
-    cfg.dma_buf_len          = 128;
-    cfg.use_apll             = false;
-    cfg.tx_desc_auto_clear   = true;
-
-    if (i2s_driver_install(TM_I2S_PORT, &cfg, 0, NULL) != ESP_OK) return;
-
-    i2s_pin_config_t pins = {};
-    pins.mck_io_num   = I2S_PIN_NO_CHANGE;
-    pins.bck_io_num   = BOARD_I2S_BCK;
-    pins.ws_io_num    = BOARD_I2S_WS;
-    pins.data_out_num = BOARD_I2S_DOUT;
-    pins.data_in_num  = I2S_PIN_NO_CHANGE;
-
-    if (i2s_set_pin(TM_I2S_PORT, &pins) != ESP_OK) {
-        i2s_driver_uninstall(TM_I2S_PORT);
-        return;
-    }
-    i2s_zero_dma_buffer(TM_I2S_PORT);
-    _i2sReady = true;
-}
-
-void TrackMeScanner::stopI2S() {
-    if (!_i2sReady) return;
-    i2s_zero_dma_buffer(TM_I2S_PORT);
-    i2s_driver_uninstall(TM_I2S_PORT);
-    _i2sReady = false;
-}
-
-void TrackMeScanner::playTone(int freq, int durationMs) {
-    if (!_i2sReady) return;
-    int cycLen = TM_SAMPLE_RATE / freq;
-    if (cycLen > 256) cycLen = 256;
-    int16_t buf[512]; // 256 stereo samples max
-    for (int i = 0; i < cycLen; i++) {
-        int16_t v = (int16_t)(22000 * sinf(2.0f * M_PI * i / cycLen));
-        buf[i * 2]     = v;
-        buf[i * 2 + 1] = v;
-    }
-    size_t written;
-    size_t blockBytes = (size_t)cycLen * 4;
-    uint32_t t0 = millis();
-    while ((int32_t)(millis() - t0) < durationMs) {
-        i2s_write(TM_I2S_PORT, buf, blockBytes, &written, pdMS_TO_TICKS(500));
-    }
-    i2s_zero_dma_buffer(TM_I2S_PORT);
-}
-
-void TrackMeScanner::beep(ThreatLevel lvl) {
-    if (_silent || !_i2sReady) return;
-    if (lvl == THREAT_WARNING) {
-        playTone(1000, 200);
-    } else if (lvl == THREAT_ALERT) {
-        for (int i = 0; i < 3; i++) {
-            playTone(2000, 200);
-            delay(200);
-        }
-    }
-}
 
 // ── SD logging ────────────────────────────────────────────────────────────────
 void TrackMeScanner::appendLog(const TrackedDev& d) {
@@ -847,7 +779,6 @@ void TrackMeScanner::start(bool silent) {
         s_bleInited = true;
     }
     dm.setBtActive(true);
-    startI2S();
 
 #ifdef BOARD_TDECK_PLUS
     GpsManager& gpsMgr = GpsManager::instance();
@@ -1093,11 +1024,11 @@ void TrackMeScanner::start(bool silent) {
         uint32_t now = millis();
         if (highestLevel == THREAT_ALERT) {
             if (!alertActive || now - lastBeepMs >= 30000) {
-                beep(THREAT_ALERT);
+                if (!_silent) NotificationManager::getInstance().notify(NOTIF_ALERT);
                 lastBeepMs = now; alertActive = true;
             }
         } else if (highestLevel == THREAT_WARNING && !alertActive) {
-            beep(THREAT_WARNING);
+            if (!_silent) NotificationManager::getInstance().notify(NOTIF_WARNING);
             lastBeepMs = now; alertActive = true;
         } else if (highestLevel < THREAT_WARNING) {
             alertActive = false;
@@ -1168,7 +1099,6 @@ void TrackMeScanner::start(bool silent) {
     // Cleanup
     esp_wifi_set_promiscuous(false);
     // BLE stack stays resident to avoid double-init crash on re-entry
-    stopI2S();
     dm.setBtActive(false);
 
 #ifdef BOARD_TDECK_PLUS

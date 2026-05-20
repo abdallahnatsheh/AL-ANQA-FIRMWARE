@@ -83,6 +83,23 @@ static void drawGPSIcon(LGFX& tft, int cx, int cy, bool active, bool fixed) {
     }
 }
 
+// WGuard shield icon: 11×14px shield, color = off/green/yellow/red by severity
+static void drawWGuardIcon(LGFX& tft, int cx, int cy, bool active, uint8_t maxSev) {
+    uint16_t bg = 0x000F;
+    uint16_t c  = !active  ? 0x2104      // off  = dark grey
+                : maxSev == 0 ? TFT_GREEN   // clean= green
+                : maxSev == 1 ? TFT_YELLOW  // warn = yellow
+                :               TFT_RED;    // crit = red
+    tft.fillRect(cx - 6, cy - 8, 13, 16, bg);          // clear area
+    tft.fillRect(cx - 5, cy - 7, 11, 9, c);             // shield top rect
+    tft.fillTriangle(cx - 5, cy + 2, cx + 5, cy + 2, cx, cy + 7, c);  // pointed bottom
+    // White inner check mark when clean (maxSev==0 and active)
+    if (active && maxSev == 0) {
+        tft.drawLine(cx - 2, cy - 1, cx, cy + 2, TFT_WHITE);
+        tft.drawLine(cx, cy + 2, cx + 3, cy - 3, TFT_WHITE);
+    }
+}
+
 // BT icon: classic ᛒ rune, 2-px thick spine, 7-px right reach, 16-px tall
 static void drawBTIcon(LGFX& tft, int cx, int cy, bool active) {
     uint16_t c  = active ? 0x07FF : 0x2104;   // cyan : dark grey
@@ -149,6 +166,9 @@ void DisplayManager::updateStatusBar() {
         tft.print(WiFi.localIP().toString());
     }
 
+    // ── WGuard shield icon ────────────────────────────────────────────────────
+    drawWGuardIcon(tft, 215, promptY + 15, _wgActive, _wgMaxSev);
+
     // ── GPS icon (T-Deck Plus only) ───────────────────────────────────────────
 #ifdef BOARD_TDECK_PLUS
     {
@@ -168,6 +188,13 @@ void DisplayManager::updateStatusBar() {
 
 void DisplayManager::setBtActive(bool active) {
     _btActive = active;
+}
+
+void DisplayManager::setWGuardState(bool active, uint8_t maxSev) {
+    _wgActive = active;
+    _wgMaxSev = maxSev;
+    // Redraw just the shield without a full status bar repaint
+    drawWGuardIcon(tft, 215, promptY + 15, _wgActive, _wgMaxSev);
 }
 
 void DisplayManager::tdeck_begin() {
