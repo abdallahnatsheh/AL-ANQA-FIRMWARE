@@ -41,6 +41,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 - Evil Twin AP with adaptive deauth + captive portal
 - Hidden SSID reveal, WPA2 handshake capture + on-device crack
 - MAC spoofer, WPS flag detection
+- **WiFi IDS** (`wguard`) — passive intrusion detection: deauth flood, evil twin, handshake harvest, PMKID grab, auth flood, probe storm, beacon flood, BSSID cloning, Karma attack; background mode with shield icon + popup alerts; session CSV logs with session-relative timestamps
 
 **🔑 WiFi Credentials** — [full guide](docs/wifi-credentials.md)
 - Saved credential manager (`wifipass`) — view all saved passwords
@@ -130,6 +131,7 @@ git clone https://github.com/abdallahnatsheh/T-Rex
 | `hiddenssid` | `hs` | `<idx\|bssid> [ch] [silent]` | Reveal hidden SSID |
 | `macchanger` | `mc` | `on\|off\|random\|set <mac>` | Spoof STA MAC |
 | `wpasniff` | `ws` | `<idx\|bssid> [ch]` | Capture + crack WPA2 handshake |
+| `wguard` | `wg` | `<idx\|bssid> [ch] [bg]` | WiFi IDS — passive intrusion detection; `wg stop` / `wg view` |
 | **Network** | | | |
 | `netdiscover` | `nd` | — | ARP scan local /24 |
 | `portscan` | `ps` | `<ip\|#> <start> <end>` | TCP port scan |
@@ -200,6 +202,7 @@ All scan tables share the same keys:
 /macchanger.conf      — MAC changer config (key=value)
 /signatures.csv       — custom BLE tracker signatures
 /logs/                — eviltwin.csv, trackme.csv, hidden_ssids.csv, cracked.csv, fastpair.csv
+/logs/wguard/         — wguard session files (001.csv, 002.csv … — never overwritten)
 /logs/hs/             — WPA handshake captures (<BSSID>.cap, libpcap format)
 /logs/bleinfo/        — GATT dumps (<mac>.txt), sniff logs (<mac>_sniff.txt), write-cap archives (<mac>_replay.ble)
 /fastpair_keys.csv    — cached Fast Pair anti-spoofing keys (modelId,name,key64hex)
@@ -230,12 +233,12 @@ All scan tables share the same keys:
 - [x] USB Keyboard + Mouse — T-Deck physical keyboard + trackball as full USB HID input device
 - [x] Claude Desktop Buddy — BLE remote, permission prompts, ASCII pet, NVS stats
 - [x] BadUSB / DuckyScript — Flipper Zero DuckyScript v1 compatible, hyphenated combos, REPEAT, built-in demo
+- [x] `wguard` WiFi IDS — deauth flood, evil twin (two-tier RSSI-filtered detection), handshake harvest, PMKID grab, auth flood, probe storm, beacon flood, BSSID cloning, Karma attack; background mode with shield icon + popup bars; session CSV logs (session-relative timestamps, no duplicate events across save blocks)
+- [x] Notification manager — I2S WAV playback from SD, per-level volume, screen wake callback; wired into Buddy, TrackMe, wguard
 - [ ] LoRa packet logger
 - [ ] MAC proximity watchlist
 - [ ] DNS enumeration
-- [ ] `wguard` — WiFi IDS: deauth flood, evil twin, handshake harvest attempt, PMKID grab, auth flood, beacon flood detection — pocket guardian for your own network
 - [ ] `bmon` — passive BLE advertisement sniffer: cleartext detector, iBeacon/Eddystone parser, PCAP export to SD (Wireshark compatible)
-- [ ] Notification manager — standalone reusable module: I2S tones (no SD required), volume control (`vol`), per-level toggle (`notif`), screen wake callback; integrated into Buddy (popup alerts), TrackMe (gate-level sounds), wguard (threat alarms)
 
 ---
 
