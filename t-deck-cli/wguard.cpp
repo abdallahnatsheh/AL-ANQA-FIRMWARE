@@ -25,6 +25,8 @@ volatile uint8_t  WGuard::s_bssidSeen[WG_BSSID_MAX][6] = {};
 volatile uint8_t  WGuard::s_bssidSeenN      = 0;
 volatile uint32_t WGuard::s_bssidFloodStart = 0;
 volatile bool     WGuard::s_bssidFloodFired = false;
+volatile uint64_t WGuard::s_lastTargetTs    = 0;
+volatile bool     WGuard::s_targetTsSeen    = false;
 
 // ── ISR helpers ───────────────────────────────────────────────────────────────
 
@@ -77,7 +79,20 @@ void IRAM_ATTR WGuard::rxCallback(void* buf, wifi_promiscuous_pkt_type_t pktType
 
         if (subtype == 8) {
             s_isrBeacons++;
-            // Beacon flood: track unique BSSIDs in 30s window
+
+            // ── Cloned BSSID: BSS timestamp backward jump ─────────────────────
+            // Two physical radios can't stay in sync — one will have a lower timestamp.
+            if (memcmp(addr2, (const void*)s_bssid, 6) == 0 && len >= 32) {
+                uint64_t bssTs = 0;
+                for (uint8_t ti = 0; ti < 8; ti++) bssTs |= (uint64_t)d[24 + ti] << (ti * 8);
+                if (s_targetTsSeen && bssTs < s_lastTargetTs) {
+                    enqueue(0xFD, addr2, addr1, "", 0, rssi);
+                }
+                s_lastTargetTs = bssTs;
+                s_targetTsSeen = true;
+            }
+
+            // ── Beacon flood: track unique BSSIDs in 30s window ──────────────
             uint32_t now = millis();
             if (now - s_bssidFloodStart > 30000) {
                 s_bssidFloodStart = now;
@@ -117,6 +132,16 @@ void IRAM_ATTR WGuard::rxCallback(void* buf, wifi_promiscuous_pkt_type_t pktType
             extractSSID(d, len, subtype, ssid);
             if (ssid[0] == '\0' || strcmp(ssid, (const char*)s_ssid) == 0)
                 enqueue(4, addr2, addr1, ssid, 0, rssi);
+        }
+        else if (subtype == 5) {
+            // Probe response from a foreign BSSID — track for Karma detection.
+            // Karma APs respond to ANY probe with whatever SSID was requested,
+            // so the same BSSID shows up in probe responses for many different SSIDs.
+            if (memcmp(addr2, (const void*)s_bssid, 6) != 0) {
+                char ssid[33] = {};
+                extractSSID(d, len, subtype, ssid);
+                if (ssid[0]) enqueue(5, addr2, addr1, ssid, 0, rssi);
+            }
         }
 
     } else if (ftype == 2 && len >= 28) {
@@ -158,6 +183,12 @@ WGuard::WGuard(DisplayManager& dm, WiFiFunctions& wf) : _dm(dm), _wf(wf) {}
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
 
+static bool isNumeric(const char* s) {
+    if (!s || !*s) return false;
+    for (const char* p = s; *p; p++) if (*p < '0' || *p > '9') return false;
+    return true;
+}
+
 void WGuard::start(char* args) {
     if (!args || !*args) {
         _dm.println("Usage: wg <index|bssid> [ch]");
@@ -169,23 +200,45 @@ void WGuard::start(char* args) {
     char* first  = strtok(buf, " ");
     char* second = strtok(nullptr, " ");
 
+    if (!first) { _dm.println("Usage: wg <index|bssid> [ch]"); _dm.printCommandScreen(); return; }
+
     uint8_t bssid[6]; int channel = 6; char ssid[33] = {};
 
-    if (!strchr(first, ':')) {
+    if (strchr(first, ':')) {
+        if (sscanf(first, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                   &bssid[0], &bssid[1], &bssid[2], &bssid[3], &bssid[4], &bssid[5]) != 6) {
+            _dm.println("Bad BSSID."); _dm.printCommandScreen(); return;
+        }
+        if (second) { int ch = atoi(second); if (ch >= 1 && ch <= 13) channel = ch; }
+    } else {
+        if (!isNumeric(first)) {
+            _dm.println("Usage: wg <index|bssid> [ch]"); _dm.printCommandScreen(); return;
+        }
         int idx = atoi(first);
         if (!_wf.isScanDone()) { _dm.println("Run scanwifi first."); _dm.printCommandScreen(); return; }
         if (!_wf.getNetworkInfo(idx, bssid, &channel)) {
             _dm.println("Invalid index."); _dm.printCommandScreen(); return;
         }
         _wf.getNetworkSSID(idx, ssid);
-    } else {
-        if (sscanf(first, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-                   &bssid[0], &bssid[1], &bssid[2], &bssid[3], &bssid[4], &bssid[5]) != 6) {
-            _dm.println("Bad BSSID."); _dm.printCommandScreen(); return;
-        }
-        if (second) { int ch = atoi(second); if (ch >= 1 && ch <= 13) channel = ch; }
     }
     run(bssid, channel, ssid);
+}
+
+// ── Notification throttle ─────────────────────────────────────────────────────
+// Prevents sound spam when a single attack triggers dozens of events per second.
+// Background mode skips this — pollBackground() already coalesces events.
+
+void WGuard::notifyThrottled(NotifLevel level, uint32_t now) {
+    if (_bgMode) return;
+    if (level >= NOTIF_ALERT) {
+        if (now - _lastAlertNotifTs < 5000) return;   // max 1 alert sound per 5 s
+        _lastAlertNotifTs = now;
+        _lastWarnNotifTs  = now;   // alert also resets warning clock
+    } else {
+        if (now - _lastWarnNotifTs < 10000) return;   // max 1 warning sound per 10 s
+        _lastWarnNotifTs = now;
+    }
+    NotificationManager::getInstance().notify(level);
 }
 
 // ── Threat detection ──────────────────────────────────────────────────────────
@@ -194,17 +247,78 @@ void WGuard::processFrame(const WgFrame& f) {
     uint32_t now = millis();
 
     switch (f.subtype) {
-    case 12: {   // Deauth
+    case 12: {   // Deauth / Disassoc
         _cntDeauths++;
-        WgCounter* ctr = findOrAdd(_deauthCtr, _deauthCtrN, f.src);
-        if (ctr && rollCount(ctr, 10000, now) == 5) {
-            char msg[44];
-            snprintf(msg, sizeof(msg), "DEAUTH storm %02X:%02X:%02X...", f.src[0], f.src[1], f.src[2]);
-            addEvent(2, msg);
-            if (!_bgMode) NotificationManager::getInstance().notify(NOTIF_ALERT);
-        }
         if (now - _deauthBurstStart > 30000) { _deauthBurstStart = now; _deauthBurstCount = 0; }
         _deauthBurstCount++;
+
+        bool isBcast = (f.dst[0] == 0xFF && f.dst[1] == 0xFF && f.dst[2] == 0xFF);
+
+        if (isBcast) {
+            // Broadcast deauth — always malicious (legit APs only deauth specific clients).
+            // Tracked in _bcastCtr, separate from targeted _deauthCtr so they don't pollute
+            // each other's rolling windows.  Rate-limited to once per 30 s per source MAC.
+            WgCounter* ctr = findOrAdd(_bcastCtr, _bcastCtrN, f.src);
+            if (ctr) {
+                uint32_t cnt = rollCount(ctr, 5000, now);
+                if (cnt >= 5) {
+                    ctr->count = 0; ctr->winStart = now;   // always reset so next 5 accumulate
+                    if (now - ctr->lastFired >= 30000) {
+                        ctr->lastFired = now;
+                        char msg[44];
+                        snprintf(msg, sizeof(msg), "BCAST DEAUTH %02X:%02X:%02X:%02X:%02X:%02X",
+                                 f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
+                        addEvent(1, msg, f.rssi);
+                        _threatDeauthStorm++;
+                        notifyThrottled(NOTIF_WARNING, now);
+                    }
+                }
+            }
+        } else {
+            // Targeted deauth storm: 15/5 s = 3/sec — filters normal band steering (1-3 frames).
+            // Rate-limited to once per 30 s per source MAC.
+            WgCounter* ctr = findOrAdd(_deauthCtr, _deauthCtrN, f.src);
+            if (ctr) {
+                uint32_t cnt = rollCount(ctr, 5000, now);
+                if (cnt >= 15 && now - ctr->lastFired >= 30000) {
+                    ctr->lastFired = now;
+                    char msg[44];
+                    snprintf(msg, sizeof(msg), "DEAUTH storm %02X:%02X:%02X:%02X:%02X:%02X",
+                             f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
+                    addEvent(2, msg, f.rssi);
+                    _threatDeauthStorm++;
+                    notifyThrottled(NOTIF_ALERT, now);
+                }
+            }
+        }
+
+        // At deauth threshold 3: upgrade any pending foreign APs to evil twin WARNING.
+        // Evil twin tools (Bruce, airbase-ng) start the rogue AP BEFORE deauthing,
+        // so the beacon is seen first and lands in _pendingForeign with no deauths yet.
+        if (_deauthBurstCount == 3 && _pendingForeignN > 0) {
+            for (int i = 0; i < _pendingForeignN; i++) {
+                // Require AP to be within 60 s AND signal strong enough to actually lure clients.
+                // Legitimate far-away APs (< -82 dBm) are too weak to be an effective evil twin
+                // and are almost certainly a pre-existing co-channel AP or extender on a different subnet.
+                bool fresh  = (now - _pendingForeignTs[i] < 60000);
+                bool strong = (_pendingForeignRssi[i] > -82);
+                if (fresh && strong) {
+                    char msg[44];
+                    snprintf(msg, sizeof(msg), "EVIL TWIN+DTH %02X:%02X:%02X:%02X:%02X:%02X",
+                             _pendingForeign[i][0], _pendingForeign[i][1], _pendingForeign[i][2],
+                             _pendingForeign[i][3], _pendingForeign[i][4], _pendingForeign[i][5]);
+                    addEvent(1, msg, _pendingForeignRssi[i]);  // use AP beacon RSSI, not deauth RSSI
+                    _threatEvilTwin++;
+                    notifyThrottled(NOTIF_WARNING, now);
+                    if (_evilTwinN < 8) {
+                        memcpy(_evilTwinSeen[_evilTwinN], _pendingForeign[i], 6);
+                        _evilTwinSeenTs[_evilTwinN] = now;
+                        _evilTwinN++;
+                    }
+                }
+            }
+            _pendingForeignN = 0;
+        }
         break;
     }
     case 11: {   // Auth
@@ -215,8 +329,8 @@ void WGuard::processFrame(const WgFrame& f) {
         if (!seen && _authMacN < 32) memcpy(_authMacs[_authMacN++], f.src, 6);
         if (_authMacN == 32) {
             char msg[44]; snprintf(msg, sizeof(msg), "AUTH flood: 32+ unique MACs/10s");
-            addEvent(1, msg);
-            if (!_bgMode) NotificationManager::getInstance().notify(NOTIF_WARNING);
+            addEvent(1, msg, f.rssi);
+            notifyThrottled(NOTIF_WARNING, now);
             _authMacN = 33;  // prevent re-fire until window resets
         }
         break;
@@ -230,9 +344,11 @@ void WGuard::processFrame(const WgFrame& f) {
 
         WgCounter* ctr = findOrAdd(_probeCtr, _probeCtrN, f.src);
         if (ctr && rollCount(ctr, 5000, now) == 50) {
-            char msg[44]; snprintf(msg, sizeof(msg), "PROBE storm %02X:%02X:%02X... 50/5s", f.src[0], f.src[1], f.src[2]);
-            addEvent(1, msg);
-            if (!_bgMode) NotificationManager::getInstance().notify(NOTIF_WARNING);
+            char msg[44];
+            snprintf(msg, sizeof(msg), "PROBE storm %02X:%02X:%02X:%02X:%02X:%02X 50/5s",
+                     f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
+            addEvent(1, msg, f.rssi);
+            notifyThrottled(NOTIF_WARNING, now);
         }
         break;
     }
@@ -241,44 +357,142 @@ void WGuard::processFrame(const WgFrame& f) {
         // Normal reconnects: 1 assoc, possibly no prior probe — not suspicious.
         WgCounter* ctr = findOrAdd(_deauthCtr, _deauthCtrN, f.src);
         if (ctr && rollCount(ctr, 5000, now) == 5) {
-            char msg[44]; snprintf(msg, sizeof(msg), "PMKID harvest? assoc x5 %02X:%02X:%02X", f.src[0], f.src[1], f.src[2]);
-            addEvent(1, msg);
-            if (!_bgMode) NotificationManager::getInstance().notify(NOTIF_WARNING);
+            char msg[44];
+            snprintf(msg, sizeof(msg), "PMKID? rapid assoc %02X:%02X:%02X:%02X:%02X:%02X",
+                     f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
+            addEvent(1, msg, f.rssi);
+            notifyThrottled(NOTIF_WARNING, now);
         }
         break;
     }
-    case 8: {    // Evil Twin beacon — alert once per unique rogue BSSID
+    case 5: {   // Probe response from foreign BSSID — Karma attack detection
+        // Karma APs respond to ANY probe request claiming whatever SSID was asked for.
+        // Signature: one BSSID sends probe responses for 3+ different SSIDs in 60 s.
+        WgKarmaEntry* ke = nullptr;
+        for (int i = 0; i < _karmaN; i++)
+            if (memcmp(_karma[i].bssid, f.src, 6) == 0) { ke = &_karma[i]; break; }
+        if (!ke && _karmaN < WG_CTR_MAX) {
+            ke = &_karma[_karmaN++];
+            memcpy(ke->bssid, f.src, 6);
+            ke->ssidCount = 0;
+            ke->firstSeen = now;
+        }
+        if (!ke) break;
+        if (now - ke->firstSeen > 60000) { ke->ssidCount = 0; ke->firstSeen = now; }
+        bool kSeen = false;
+        for (uint8_t i = 0; i < ke->ssidCount && i < 4; i++)
+            if (strcmp(ke->ssids[i], f.ssid) == 0) { kSeen = true; break; }
+        if (!kSeen && ke->ssidCount < 4) {
+            strncpy(ke->ssids[ke->ssidCount], f.ssid, 32);
+            ke->ssids[ke->ssidCount][32] = '\0';
+            ke->ssidCount++;
+        }
+        if (ke->ssidCount == 3) {
+            char msg[44];
+            snprintf(msg, sizeof(msg), "KARMA %02X:%02X:%02X:%02X:%02X:%02X 3+SSIDs",
+                     f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
+            addEvent(1, msg, f.rssi);   // WARNING
+            _threatKarma++;
+            notifyThrottled(NOTIF_WARNING, now);
+            ke->ssidCount = 4;  // mark fired — won't re-trigger at count 3
+        }
+        break;
+    }
+    case 8: {   // Foreign AP with same SSID — evil twin check
+        // Prune dedup entries whose rogue AP stopped beaconing (>3 s silence = AP gone).
+        // Evil twin tools beacon every ~100 ms; 3 s >> 500 ms poll so a running AP is
+        // never pruned, but a stopped-then-relaunched one re-enters detection cleanly.
+        for (int i = (int)_evilTwinN - 1; i >= 0; i--) {
+            if (now - _evilTwinSeenTs[i] > 3000) {
+                memcpy(_evilTwinSeen[i], _evilTwinSeen[_evilTwinN - 1], 6);
+                _evilTwinSeenTs[i] = _evilTwinSeenTs[_evilTwinN - 1];
+                _evilTwinN--;
+            }
+        }
+        // Check dedup — refresh last-seen so a still-running AP never expires
         for (int i = 0; i < _evilTwinN; i++)
-            if (memcmp(_evilTwinSeen[i], f.src, 6) == 0) goto evil_done;
-        if (_evilTwinN < 8) memcpy(_evilTwinSeen[_evilTwinN++], f.src, 6);
+            if (memcmp(_evilTwinSeen[i], f.src, 6) == 0) {
+                _evilTwinSeenTs[i] = now;   // AP still active — reset expiry clock
+                goto evil_done;
+            }
+        // Skip if already in pending INFO list
+        for (int i = 0; i < _pendingForeignN; i++)
+            if (memcmp(_pendingForeign[i], f.src, 6) == 0) goto evil_done;
         {
-            bool sameOui = (f.src[0] == _bssid[0] && f.src[1] == _bssid[1] && f.src[2] == _bssid[2]);
+            bool sameOui      = (f.src[0] == _bssid[0] && f.src[1] == _bssid[1] && f.src[2] == _bssid[2]);
+            bool laMac        = (f.src[0] & 0x02) != 0;
+            bool recentDeauth = (_deauthBurstCount >= 3 && (now - _deauthBurstStart) < 30000);
             char msg[44];
             if (sameOui) {
-                // Same vendor — likely mesh/enterprise co-AP, not a real Evil Twin
-                snprintf(msg, sizeof(msg), "CO-AP %02X:%02X:%02X:%02X:%02X:%02X (same OUI)",
+                snprintf(msg, sizeof(msg), "CO-AP %02X:%02X:%02X:%02X:%02X:%02X same OUI",
                          f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
-                addEvent(0, msg);   // INFO only, no beep
+                addEvent(0, msg, f.rssi);
+                if (_evilTwinN < 8) {
+                    memcpy(_evilTwinSeen[_evilTwinN], f.src, 6);
+                    _evilTwinSeenTs[_evilTwinN] = now;
+                    _evilTwinN++;
+                }
+            } else if (recentDeauth && f.rssi > -82) {
+                // Only fire immediately if AP is close enough to be a real threat.
+                // Weak far-away APs (< -82 dBm) go to pending instead — avoids false
+                // positives from legitimate extenders/routers that appear during an attack.
+                snprintf(msg, sizeof(msg), "EVIL TWIN+DTH %02X:%02X:%02X:%02X:%02X:%02X",
+                         f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
+                addEvent(1, msg, f.rssi);
+                _threatEvilTwin++;
+                notifyThrottled(NOTIF_WARNING, now);
+                if (_evilTwinN < 8) {
+                    memcpy(_evilTwinSeen[_evilTwinN], f.src, 6);
+                    _evilTwinSeenTs[_evilTwinN] = now;
+                    _evilTwinN++;
+                }
             } else {
-                snprintf(msg, sizeof(msg), "EVIL TWIN? %02X:%02X:%02X:%02X:%02X:%02X diff OUI",
-                         f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
-                addEvent(1, msg);   // WARNING, not CRITICAL
-                if (!_bgMode) NotificationManager::getInstance().notify(NOTIF_WARNING);
+                snprintf(msg, sizeof(msg), laMac
+                    ? "FOREIGN AP (LA) %02X:%02X:%02X:%02X:%02X:%02X"
+                    : "FOREIGN AP %02X:%02X:%02X:%02X:%02X:%02X",
+                    f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
+                addEvent(0, msg, f.rssi);
+                if (_pendingForeignN < 4) {
+                    memcpy(_pendingForeign[_pendingForeignN], f.src, 6);
+                    _pendingForeignTs[_pendingForeignN]   = now;
+                    _pendingForeignRssi[_pendingForeignN] = f.rssi;  // AP's own beacon RSSI
+                    _pendingForeignN++;
+                }
             }
         }
         evil_done:;
         break;
     }
+    case 0xFD: {  // Cloned BSSID — BSS timestamp went backward (two radios, same MAC)
+        // OPEN-mode evil twins clone the exact BSSID; their beacon timestamps diverge from
+        // the real AP's monotonically-increasing counter, producing a backward jump.
+        if (!_cloneFired) {
+            _cloneFired = true;
+            char msg[44];
+            snprintf(msg, sizeof(msg), "BSSID CLONED %02X:%02X:%02X:%02X:%02X:%02X ts-jump",
+                     f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
+            addEvent(2, msg, f.rssi);   // CRITICAL
+            _threatClone++;
+            notifyThrottled(NOTIF_ALERT, now);
+        }
+        break;
+    }
     case 0xFE:   // Beacon flood trigger from ISR
-        addEvent(1, "BEACON FLOOD >50 APs/30s");
-        NotificationManager::getInstance().notify(NOTIF_WARNING);
+        addEvent(1, "BEACON FLOOD >50 APs/30s");   // no single-frame RSSI for flood
+        _threatBeaconFlood++;
+        notifyThrottled(NOTIF_WARNING, now);
         break;
     case 0xFF: { // EAPOL
         _cntEapols++;
         if (_deauthBurstCount >= 3 && (now - _deauthBurstStart) < 30000) {
-            char msg[44]; snprintf(msg, sizeof(msg), "HANDSHAKE harvest M%u", f.eapolMsg);
-            addEvent(2, msg);
-            if (!_bgMode) NotificationManager::getInstance().notify(NOTIF_ALERT);
+            // Rate-limit harvest events to once per 30 s — during a continuous deauth+ET
+            // attack, M1s arrive every reconnect attempt; logging each one fills the ring fast.
+            if (now - _harvestFiredTs >= 30000) {
+                _harvestFiredTs = now;
+                char msg[44]; snprintf(msg, sizeof(msg), "HANDSHAKE harvest M%u", f.eapolMsg);
+                addEvent(2, msg, f.rssi);
+                notifyThrottled(NOTIF_ALERT, now);
+            }
             _deauthBurstCount = 0;
         }
         break;
@@ -286,26 +500,154 @@ void WGuard::processFrame(const WgFrame& f) {
     }
 }
 
-void WGuard::addEvent(uint8_t sev, const char* msg) {
+void WGuard::addEvent(uint8_t sev, const char* msg, int8_t rssi) {
     WgEvent& e = _events[_evHead];
-    e.ts  = millis();
-    e.sev = sev;
+    e.ts   = millis();
+    e.sev  = sev;
+    e.rssi = rssi;
     strncpy(e.msg, msg, sizeof(e.msg) - 1); e.msg[sizeof(e.msg) - 1] = '\0';
     _evHead = (_evHead + 1) % WG_EVENT_MAX;
     if (_evCount < WG_EVENT_MAX) _evCount++;
     if (sev > _maxSev) _maxSev = sev;
+    _totalEvents++;
+    // Ring is full — request flush on next safe opportunity
+    if (_evCount >= WG_EVENT_MAX) _autoSaveNeeded = true;
 }
 
-static void saveEventsToFile(const WgEvent* events, uint8_t evHead, uint8_t evCount, File& f) {
-    for (uint8_t i = 0; i < evCount; i++) {
+// Writes events[skipCount..evCount) to file — only NEW events since last save.
+// Timestamps are session-relative (sessionStartMs = millis() at session start).
+static void saveEventsToFile(const WgEvent* events, uint8_t evHead, uint8_t evCount,
+                             uint8_t skipCount, uint32_t sessionStartMs, File& f) {
+    for (uint8_t i = skipCount; i < evCount; i++) {
         uint8_t idx = (uint8_t)((evHead - evCount + i + WG_EVENT_MAX) % WG_EVENT_MAX);
         const WgEvent& e = events[idx];
-        f.printf("%u,%s,%s\n",
-                 e.ts / 1000,
+        uint32_t ms  = (e.ts >= sessionStartMs) ? (e.ts - sessionStartMs) : 0;
+        uint32_t sec = ms / 1000;
+        f.printf("%02u:%02u:%02u,%s,%d,%s\n",
+                 (sec / 3600) % 24, (sec / 60) % 60, sec % 60,
                  e.sev == 2 ? "CRITICAL" : (e.sev == 1 ? "WARNING" : "INFO"),
+                 (int)e.rssi,
                  e.msg);
     }
     f.flush();
+}
+
+// ── Session file management ───────────────────────────────────────────────────
+
+void WGuard::initSession() {
+    // Find next available session number — scans SD so we never overwrite across reboots.
+    uint16_t sessionNum = 1;
+    if (sdCardManager.canAccessSD()) {
+        sdCardManager.ensureDir("/logs/wguard");
+        char probe[48];
+        while (sessionNum < 999) {
+            snprintf(probe, sizeof(probe), "/logs/wguard/%03u.csv", sessionNum);
+            if (!SD.exists(probe)) break;
+            sessionNum++;
+        }
+    }
+    snprintf(_sessionFile, sizeof(_sessionFile), "/logs/wguard/%03u.csv", sessionNum);
+    _autoSaveNeeded    = false;
+    _totalEvents       = 0;
+    _saveCount         = 0;
+    _savedEvCount      = 0;
+    _sessionStartMs    = millis();
+    _lastCheckpointMs  = _sessionStartMs;
+
+    if (!sdCardManager.canAccessSD()) return;
+    sdCardManager.ensureDir("/logs/wguard");
+    File f = SD.open(_sessionFile, FILE_WRITE);   // create / truncate
+    if (!f) return;
+    char hdr[128];
+    snprintf(hdr, sizeof(hdr),
+             "# SESSION %u  wguard \"%s\"  bssid=%02X:%02X:%02X:%02X:%02X:%02X  ch%d  uptime=%lus\n",
+             sessionNum, _ssid,
+             _bssid[0], _bssid[1], _bssid[2], _bssid[3], _bssid[4], _bssid[5],
+             _channel, (unsigned long)(_sessionStartMs / 1000));
+    f.print(hdr);
+    f.print("time,severity,rssi_dbm,message\n");   // CSV column header
+    f.close();
+}
+
+void WGuard::doAutoSave() {
+    _autoSaveNeeded = false;
+    if (!sdCardManager.canAccessSD() || _evCount == 0) { _evHead = _evCount = _savedEvCount = 0; return; }
+    File f = SD.open(_sessionFile, FILE_APPEND);
+    if (f) {
+        // Only write events not yet written by a prior checkpoint/manual save
+        uint8_t newEvents = _evCount - _savedEvCount;
+        char hdr[128];
+        snprintf(hdr, sizeof(hdr),
+                 "# AUTO-SAVE %u (events %lu-%lu)  Bcn=%lu Prb=%lu Ath=%lu Dth=%lu EAP=%lu\n",
+                 ++_saveCount,
+                 (unsigned long)(_totalEvents - newEvents + 1),
+                 (unsigned long)_totalEvents,
+                 (unsigned long)_cntBeacons, (unsigned long)_cntProbes,
+                 (unsigned long)_cntAuths,   (unsigned long)_cntDeauths,
+                 (unsigned long)_cntEapols);
+        f.print(hdr);
+        if (newEvents > 0) {
+            f.print("time,severity,rssi_dbm,message\n");
+            saveEventsToFile(_events, _evHead, _evCount, _savedEvCount, _sessionStartMs, f);
+        }
+        f.close();
+    }
+    _evHead = _evCount = _savedEvCount = 0;   // clear ring, keep _maxSev and _totalEvents
+}
+
+void WGuard::doCheckpoint() {
+    // Time-based checkpoint: append only NEW events (since last save) to file.
+    // Ring is NOT cleared — events stay in memory so the display is unchanged.
+    _lastCheckpointMs = millis();
+    if (!sdCardManager.canAccessSD() || _savedEvCount >= _evCount) return;  // nothing new
+    File f = SD.open(_sessionFile, FILE_APPEND);
+    if (!f) return;
+    char hdr[128];
+    snprintf(hdr, sizeof(hdr),
+             "# CHECKPOINT %u  Bcn=%lu Prb=%lu Ath=%lu Dth=%lu EAP=%lu\n",
+             ++_saveCount,
+             (unsigned long)_cntBeacons, (unsigned long)_cntProbes,
+             (unsigned long)_cntAuths,   (unsigned long)_cntDeauths,
+             (unsigned long)_cntEapols);
+    f.print(hdr);
+    f.print("time,severity,rssi_dbm,message\n");
+    saveEventsToFile(_events, _evHead, _evCount, _savedEvCount, _sessionStartMs, f);
+    _savedEvCount = _evCount;   // mark all current events as written
+    f.close();
+}
+
+void WGuard::finalizeSession() {
+    // Called after promiscuous is off — safe to write SD.
+    if (!sdCardManager.canAccessSD()) return;
+    File f = SD.open(_sessionFile, FILE_APPEND);
+    if (!f) return;
+    if (_savedEvCount < _evCount) {
+        // There are unsaved events since the last checkpoint/manual save
+        char hdr[128];
+        snprintf(hdr, sizeof(hdr),
+                 "# FINAL SAVE %u  Bcn=%lu Prb=%lu Ath=%lu Dth=%lu EAP=%lu\n",
+                 ++_saveCount,
+                 (unsigned long)_cntBeacons, (unsigned long)_cntProbes,
+                 (unsigned long)_cntAuths,   (unsigned long)_cntDeauths,
+                 (unsigned long)_cntEapols);
+        f.print(hdr);
+        f.print("time,severity,rssi_dbm,message\n");
+        saveEventsToFile(_events, _evHead, _evCount, _savedEvCount, _sessionStartMs, f);
+    }
+    uint32_t durS = (millis() - _sessionStartMs) / 1000;
+    f.printf("# SESSION END  total=%lu events  maxSev=%s  ch=%d  duration=%um%02us"
+             "  Bcn=%lu Prb=%lu Ath=%lu Dth=%lu EAP=%lu\n",
+             (unsigned long)_totalEvents,
+             _maxSev == 2 ? "CRITICAL" : (_maxSev == 1 ? "WARNING" : "OK"),
+             _channel, durS / 60, durS % 60,
+             (unsigned long)_cntBeacons, (unsigned long)_cntProbes,
+             (unsigned long)_cntAuths,   (unsigned long)_cntDeauths,
+             (unsigned long)_cntEapols);
+    f.printf("# THREATS  evil_twin=%u  deauth_storm=%u  karma=%u  clone=%u  beacon_flood=%u\n",
+             _threatEvilTwin, _threatDeauthStorm, _threatKarma,
+             _threatClone,    _threatBeaconFlood);
+    f.close();
+    _evHead = _evCount = _savedEvCount = 0;
 }
 
 // ── Counter helpers ───────────────────────────────────────────────────────────
@@ -314,12 +656,12 @@ WgCounter* WGuard::findOrAdd(WgCounter* table, uint8_t& cnt, const uint8_t* mac)
     for (int i = 0; i < cnt; i++) if (memcmp(table[i].mac, mac, 6) == 0) return &table[i];
     if (cnt < WG_CTR_MAX) {
         WgCounter* c = &table[cnt++];
-        memcpy(c->mac, mac, 6); c->count = 0; c->winStart = millis();
+        memcpy(c->mac, mac, 6); c->count = 0; c->winStart = millis(); c->lastFired = 0;
         return c;
     }
     WgCounter* oldest = &table[0];
     for (int i = 1; i < cnt; i++) if (table[i].winStart < oldest->winStart) oldest = &table[i];
-    memcpy(oldest->mac, mac, 6); oldest->count = 0; oldest->winStart = millis();
+    memcpy(oldest->mac, mac, 6); oldest->count = 0; oldest->winStart = millis(); oldest->lastFired = 0;
     return oldest;
 }
 
@@ -342,32 +684,46 @@ void WGuard::beginBackground(char* args) {
     char* first  = strtok(buf, " ");
     char* second = strtok(nullptr, " ");
 
+    if (!first) { _dm.println("Usage: wg <index|bssid> [ch] bg"); _dm.printCommandScreen(); return; }
+
     uint8_t bssid[6]; int channel = 6; char ssid[33] = {};
-    if (!strchr(first, ':')) {
-        int idx = atoi(first);
-        if (!_wf.isScanDone()) { _dm.println("Run scanwifi first."); _dm.printCommandScreen(); return; }
-        if (!_wf.getNetworkInfo(idx, bssid, &channel)) { _dm.println("Invalid index."); _dm.printCommandScreen(); return; }
-        _wf.getNetworkSSID(idx, ssid);
-    } else {
+    if (strchr(first, ':')) {
         if (sscanf(first, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
                    &bssid[0], &bssid[1], &bssid[2], &bssid[3], &bssid[4], &bssid[5]) != 6) {
             _dm.println("Bad BSSID."); _dm.printCommandScreen(); return;
         }
         if (second) { int ch = atoi(second); if (ch >= 1 && ch <= 13) channel = ch; }
+    } else {
+        if (!isNumeric(first)) {
+            _dm.println("Usage: wg <index|bssid> [ch] bg"); _dm.printCommandScreen(); return;
+        }
+        int idx = atoi(first);
+        if (!_wf.isScanDone()) { _dm.println("Run scanwifi first."); _dm.printCommandScreen(); return; }
+        if (!_wf.getNetworkInfo(idx, bssid, &channel)) { _dm.println("Invalid index."); _dm.printCommandScreen(); return; }
+        _wf.getNetworkSSID(idx, ssid);
     }
 
     memcpy(_bssid, bssid, 6);
     strncpy(_ssid, ssid, 32); _ssid[32] = '\0';
     _channel = channel;
     _cntBeacons = _cntProbes = _cntAuths = _cntDeauths = _cntEapols = 0;
-    _maxSev = 0; _evHead = _evCount = 0; _lastBgHead = 0;
+    _maxSev = 0; _evHead = _evCount = _savedEvCount = 0; _lastBgHead = 0;
     _deauthCtrN = _probeCtrN = 0;
     _authFloodStart = 0; _authMacN = 0;
     _deauthBurstStart = 0; _deauthBurstCount = 0;
     _recentProberN = 0; _recentProberWindow = millis();
     _evilTwinN = 0;
+    _pendingForeignN = 0;
+    _karmaN = 0;
+    _cloneFired = false;
+    _threatEvilTwin = _threatDeauthStorm = _threatKarma = _threatClone = _threatBeaconFlood = 0;
+    _harvestFiredTs = _lastWarnNotifTs = _lastAlertNotifTs = 0;
+    _bcastCtrN = 0;
     _popupUntil = 0; _lastBgPoll = 0;
     s_head = s_tail = 0;
+    s_targetTsSeen = false;
+    s_lastTargetTs = 0;
+    initSession();   // create session file before promiscuous starts
     s_isrBeacons = 0;
     s_bssidSeenN = 0; s_bssidFloodStart = millis(); s_bssidFloodFired = false;
     memcpy((void*)s_bssid, bssid, 6);
@@ -402,6 +758,7 @@ void WGuard::stopBackground() {
     esp_wifi_set_promiscuous_rx_cb(nullptr);
     esp_wifi_set_promiscuous(false);
     WiFi.mode(WIFI_STA);
+    finalizeSession();   // flush remaining events + SESSION END
     _dm.setWGuardState(false, 0);
     _dm.setTextColor(TFT_RED); _dm.println("WGUARD stopped.");
     _dm.setTextColor(TFT_WHITE);
@@ -411,6 +768,29 @@ void WGuard::stopBackground() {
 void WGuard::pollBackground() {
     if (!_bgMode) return;
     uint32_t now = millis();
+
+    // Auto-save in background: ring full — flush, clear, continue
+    if (_autoSaveNeeded) {
+        s_active = false;
+        esp_wifi_set_promiscuous_rx_cb(nullptr);
+        esp_wifi_set_promiscuous(false);
+        doAutoSave();
+        esp_wifi_set_promiscuous_rx_cb(rxCallback);
+        esp_wifi_set_promiscuous(true);
+        s_active = true;
+        _lastCheckpointMs = millis();
+    }
+
+    // Time-based checkpoint every 2 min (background mode) — only if there are new events
+    if (_savedEvCount < _evCount && (now - _lastCheckpointMs) >= 120000) {
+        s_active = false;
+        esp_wifi_set_promiscuous_rx_cb(nullptr);
+        esp_wifi_set_promiscuous(false);
+        doCheckpoint();
+        esp_wifi_set_promiscuous_rx_cb(rxCallback);
+        esp_wifi_set_promiscuous(true);
+        s_active = true;
+    }
 
     // Drain ring at most every 200 ms
     if (now - _lastBgPoll >= 200) {
@@ -465,62 +845,85 @@ void WGuard::runUI() {
     // ── Draw static layout ────────────────────────────────────────────────────
     _dm.clearScreen();
     _dm.setDefaultTextSize();
+
+    // Header — cyberpunk style: [WGUARD::MONITOR]  ch6 . YourNetwork . monitoring
     _dm.setCursor(4, outputY);
-    _dm.setTextColor(0x7BEF);    _dm.printText("[");
-    _dm.setTextColor(TFT_CYAN);  _dm.printText("WGUARD");
-    _dm.setTextColor(0x7BEF);    _dm.printText("] ch");
+    _dm.setTextColor(0x7BEF);     _dm.printText("[");
+    _dm.setTextColor(TFT_CYAN);   _dm.printText("WGUARD");
+    _dm.setTextColor(0x7BEF);     _dm.printText("::");
+    _dm.setTextColor(TFT_YELLOW); _dm.printText("MONITOR");
+    _dm.setTextColor(0x7BEF);     _dm.printText("]  ch");
     char chBuf[4]; snprintf(chBuf, sizeof(chBuf), "%d", _channel);
-    _dm.setTextColor(TFT_WHITE); _dm.printText(chBuf); _dm.printText(" ");
-    char ssidShort[18]; strncpy(ssidShort, _ssid[0] ? _ssid : "<?>", 17); ssidShort[17] = '\0';
-    _dm.setTextColor(TFT_YELLOW); _dm.println(ssidShort);
+    _dm.setTextColor(TFT_WHITE);  _dm.printText(chBuf);
+    _dm.setTextColor(0x4208);     _dm.printText(" . ");
+    char ssidShort[14]; strncpy(ssidShort, _ssid[0] ? _ssid : "<?>", 13); ssidShort[13] = '\0';
+    _dm.setTextColor(TFT_WHITE);  _dm.printText(ssidShort);
+    _dm.setTextColor(0x4208);     _dm.println(" . monitoring");
     _dm.printSeparator();
 
     int32_t statusY = _dm.getCursorY();
     int32_t statsY  = statusY + LINE_HEIGHT;
-    int32_t evSepY  = statsY  + LINE_HEIGHT;
-    int32_t evY     = evSepY  + LINE_HEIGHT;
+    int32_t evSepY  = statsY  + LINE_HEIGHT;   // EVENTS header row
+    int32_t evY     = evSepY  + LINE_HEIGHT;   // first event row
 
-    _dm.setCursor(4, evSepY);
-    _dm.setTextColor(0x4208);
-    _dm.println("── Events ──────────────────────");
+    // Footer is redrawn every refresh so save notes can appear/expire
 
-    _dm.setCursor(4, evY + LINE_HEIGHT * 5);
-    _dm.setTextColor(0x4208);
-    _dm.println("[q]quit  [s]save log");
-    _dm.setTextColor(TFT_WHITE);
-
+    int      viewOffset  = 0;   // 0 = newest events; positive = scroll into history
     uint32_t lastRefresh = 0;
+    bool     forceRedraw = false;
+    char     saveNote[48] = {};   // temporary footer message after [s]
+    uint32_t saveNoteUntil = 0;  // millis() when note expires
 
     while (true) {
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
 
         if (k == 's' || k == 'S') {
-            // Pause promiscuous for safe SD write (GDMA rule)
+            // Manual save — append only NEW events to session file (GDMA: pause promisc)
             s_active = false;
             esp_wifi_set_promiscuous_rx_cb(nullptr);
             esp_wifi_set_promiscuous(false);
-            if (sdCardManager.canAccessSD()) {
-                sdCardManager.ensureDir("/logs");
-                File f = SD.open("/logs/wguard.csv", FILE_APPEND);
-                if (f) {
-                    char hdr[64]; snprintf(hdr, sizeof(hdr), "# wguard %s ch%d\n", _ssid, _channel);
-                    f.print(hdr); f.flush();
-                    saveEventsToFile(_events, _evHead, _evCount, f);
-                    f.close();
-                    addEvent(0, "Log saved to SD");
-                } else {
-                    addEvent(0, "SD open failed");
-                }
+            if (!sdCardManager.canAccessSD()) {
+                strncpy(saveNote, "No SD card", sizeof(saveNote));
+            } else if (_savedEvCount >= _evCount) {
+                strncpy(saveNote, "Nothing new to save", sizeof(saveNote));
             } else {
-                addEvent(0, "No SD card");
+                File f = SD.open(_sessionFile, FILE_APPEND);
+                if (f) {
+                    uint8_t newEvts = _evCount - _savedEvCount;
+                    char hdr[128];
+                    snprintf(hdr, sizeof(hdr),
+                             "# MANUAL SAVE %u  Bcn=%lu Prb=%lu Ath=%lu Dth=%lu EAP=%lu\n",
+                             ++_saveCount,
+                             (unsigned long)_cntBeacons, (unsigned long)_cntProbes,
+                             (unsigned long)_cntAuths,   (unsigned long)_cntDeauths,
+                             (unsigned long)_cntEapols);
+                    f.print(hdr);
+                    f.print("time,severity,rssi_dbm,message\n");
+                    saveEventsToFile(_events, _evHead, _evCount, _savedEvCount, _sessionStartMs, f);
+                    _savedEvCount = _evCount;   // mark all current events as written
+                    f.close();
+                    snprintf(saveNote, sizeof(saveNote), "Saved %u events", newEvts);
+                } else {
+                    strncpy(saveNote, "SD open failed", sizeof(saveNote));
+                }
             }
+            saveNoteUntil = millis() + 2500;
+            forceRedraw   = true;
             esp_wifi_set_promiscuous_rx_cb(rxCallback);
             esp_wifi_set_promiscuous(true);
             s_active = true;
         }
 
-        // Drain ring
+        // Trackball scroll — up = older events, down = newer events
+        TrackballEvent tEvt = inputHandler.getTrackballEvent();
+        if (tEvt == TBALL_UP) {
+            if (viewOffset + 5 < (int)_evCount) { viewOffset += 5; forceRedraw = true; }
+        } else if (tEvt == TBALL_DOWN) {
+            if (viewOffset > 0) { viewOffset -= 5; if (viewOffset < 0) viewOffset = 0; forceRedraw = true; }
+        }
+
+        // Drain frame ring
         while (s_tail != s_head) {
             WgFrame f;
             memcpy(&f, (const void*)&s_ring[s_tail], sizeof(WgFrame));
@@ -529,45 +932,126 @@ void WGuard::runUI() {
         }
         _cntBeacons = s_isrBeacons;
 
-        uint32_t now = millis();
-        if (now - lastRefresh >= 500) {
-            lastRefresh = now;
+        // Auto-save when ring is full (GDMA: pause promisc)
+        if (_autoSaveNeeded) {
+            s_active = false;
+            esp_wifi_set_promiscuous_rx_cb(nullptr);
+            esp_wifi_set_promiscuous(false);
+            doAutoSave();                   // flushes ring → file, clears ring
+            esp_wifi_set_promiscuous_rx_cb(rxCallback);
+            esp_wifi_set_promiscuous(true);
+            s_active = true;
+            viewOffset  = 0;               // jump back to newest after clear
+            forceRedraw = true;
+            _lastCheckpointMs = millis();  // reset checkpoint clock after a full flush
+            addEvent(0, "Auto-saved, buffer cleared");
+        }
 
-            // Status
+        // Time-based checkpoint every 2 min — append new events to file, keep ring
+        uint32_t now2 = millis();
+        if (_savedEvCount < _evCount && (now2 - _lastCheckpointMs) >= 120000) {
+            s_active = false;
+            esp_wifi_set_promiscuous_rx_cb(nullptr);
+            esp_wifi_set_promiscuous(false);
+            doCheckpoint();
+            esp_wifi_set_promiscuous_rx_cb(rxCallback);
+            esp_wifi_set_promiscuous(true);
+            s_active = true;
+            forceRedraw = true;
+        }
+
+        uint32_t now = millis();
+        if (forceRedraw || now - lastRefresh >= 500) {
+            lastRefresh = now;
+            forceRedraw = false;
+
+            // Session-elapsed HH:MM:SS for the live clock
+            uint32_t upMs  = (now >= _sessionStartMs) ? (now - _sessionStartMs) : 0;
+            uint32_t upSec = upMs / 1000;
+            char timeBuf[10];
+            snprintf(timeBuf, sizeof(timeBuf), "%02u:%02u:%02u",
+                     (upSec / 3600) % 24, (upSec / 60) % 60, upSec % 60);
+
+            // ── Status line ───────────────────────────────────────────────────
             _dm.fillRect(4, statusY, 312, LINE_HEIGHT, TFT_BLACK);
             _dm.setCursor(4, statusY);
-            _dm.printText("STATUS: ");
-            if      (_maxSev == 2) { _dm.setTextColor(TFT_RED);    _dm.println("!! CRITICAL"); }
-            else if (_maxSev == 1) { _dm.setTextColor(TFT_YELLOW); _dm.println("WARNING"); }
-            else                   { _dm.setTextColor(TFT_GREEN);  _dm.println("OK"); }
+            _dm.setTextColor(0x7BEF); _dm.printText("STATUS: ");
+            if      (_maxSev == 2) { _dm.setTextColor(TFT_RED);    _dm.printText("!! CRITICAL"); }
+            else if (_maxSev == 1) { _dm.setTextColor(TFT_YELLOW); _dm.printText("WARNING    "); }
+            else                   { _dm.setTextColor(TFT_GREEN);  _dm.printText("OK         "); }
+            _dm.setCursor(268, statusY);
+            _dm.setTextColor(0x4208); _dm.printText(timeBuf);
             _dm.setTextColor(TFT_WHITE);
 
-            // Stats
+            // ── Stats row ─────────────────────────────────────────────────────
             _dm.fillRect(4, statsY, 312, LINE_HEIGHT, TFT_BLACK);
             _dm.setCursor(4, statsY);
-            _dm.setTextColor(0x7BEF);
-            char stat[48];
-            snprintf(stat, sizeof(stat), "B:%-4u P:%-3u A:%-3u D:%-3u E:%-3u",
-                     _cntBeacons, _cntProbes, _cntAuths, _cntDeauths, _cntEapols);
-            _dm.println(stat);
+            _dm.setTextColor(0x4208); _dm.printText("Bcn:");
+            _dm.setTextColor(TFT_WHITE);
+            char n1[6]; snprintf(n1, sizeof(n1), "%-4u", _cntBeacons);  _dm.printText(n1);
+            _dm.setTextColor(0x4208); _dm.printText(" Prb:");
+            _dm.setTextColor(TFT_WHITE);
+            char n2[5]; snprintf(n2, sizeof(n2), "%-3u", _cntProbes);   _dm.printText(n2);
+            _dm.setTextColor(0x4208); _dm.printText(" Ath:");
+            _dm.setTextColor(TFT_WHITE);
+            char n3[5]; snprintf(n3, sizeof(n3), "%-3u", _cntAuths);    _dm.printText(n3);
+            _dm.setTextColor(0x4208); _dm.printText(" Dth:");
+            _dm.setTextColor(TFT_WHITE);
+            char n4[5]; snprintf(n4, sizeof(n4), "%-3u", _cntDeauths);  _dm.printText(n4);
+            _dm.setTextColor(0x4208); _dm.printText(" EAP:");
+            _dm.setTextColor(TFT_WHITE);
+            char n5[5]; snprintf(n5, sizeof(n5), "%-3u", _cntEapols);   _dm.println(n5);
 
-            // Events (5 lines, most recent first)
+            // ── EVENTS header — shows page position ───────────────────────────
+            _dm.fillRect(4, evSepY, 312, LINE_HEIGHT, TFT_BLACK);
+            _dm.setCursor(4, evSepY);
+            _dm.setTextColor(0x7BEF);
+            if (_evCount > 5) {
+                int totalPages = ((int)_evCount + 4) / 5;
+                int curPage    = viewOffset / 5 + 1;
+                char evHdr[32];
+                snprintf(evHdr, sizeof(evHdr), "EVENTS  [%d/%d]", curPage, totalPages);
+                _dm.println(evHdr);
+            } else {
+                _dm.println("EVENTS");
+            }
+
+            // ── Events (5 lines, with scroll offset) ──────────────────────────
             _dm.fillRect(4, evY, 312, LINE_HEIGHT * 5, TFT_BLACK);
-            uint8_t show = _evCount < 5 ? _evCount : 5;
-            for (uint8_t i = 0; i < show; i++) {
-                uint8_t idx = (uint8_t)((_evHead - 1 - i + WG_EVENT_MAX) % WG_EVENT_MAX);
+            int show = (int)_evCount - viewOffset;
+            if (show > 5) show = 5;
+            for (int i = 0; i < show; i++) {
+                int slot = viewOffset + i;   // 0 = most recent
+                if (slot >= (int)_evCount) break;
+                uint8_t idx = (uint8_t)((_evHead - 1 - slot + WG_EVENT_MAX * 2) % WG_EVENT_MAX);
                 const WgEvent& e = _events[idx];
                 _dm.setCursor(4, evY + i * LINE_HEIGHT);
-                uint32_t s = e.ts / 1000;
-                char tbuf[8]; snprintf(tbuf, sizeof(tbuf), "%02u:%02u", (s / 60) % 60, s % 60);
+                uint32_t ms = (e.ts >= _sessionStartMs) ? (e.ts - _sessionStartMs) : 0;
+                uint32_t es = ms / 1000;
+                char tbuf[10];
+                snprintf(tbuf, sizeof(tbuf), "%02u:%02u:%02u",
+                         (es / 3600) % 24, (es / 60) % 60, es % 60);
                 _dm.setTextColor(0x4208); _dm.printText(tbuf); _dm.printText(" ");
                 if      (e.sev == 2) { _dm.setTextColor(TFT_RED);    _dm.printText("!! "); }
                 else if (e.sev == 1) { _dm.setTextColor(TFT_YELLOW); _dm.printText("W  "); }
                 else                  { _dm.setTextColor(0x7BEF);    _dm.printText("i  "); }
                 _dm.setTextColor(TFT_WHITE);
-                char trunc[28]; strncpy(trunc, e.msg, 27); trunc[27] = '\0';
+                char trunc[40]; strncpy(trunc, e.msg, 39); trunc[39] = '\0';
                 _dm.println(trunc);
             }
+
+            // ── Footer — show save note briefly, then revert to key hint ─────
+            int32_t footerY = evY + LINE_HEIGHT * 5;
+            _dm.fillRect(4, footerY, 312, LINE_HEIGHT, TFT_BLACK);
+            _dm.setCursor(4, footerY);
+            if (now < saveNoteUntil && saveNote[0]) {
+                _dm.setTextColor(TFT_GREEN);
+                _dm.println(saveNote);
+            } else {
+                _dm.setTextColor(0x4208);
+                _dm.println("[q]quit  [s]save  [^v]scroll");
+            }
+            _dm.setTextColor(TFT_WHITE);
         }
     }
 }
@@ -594,18 +1078,28 @@ void WGuard::run(const uint8_t* bssid, int channel, const char* ssid) {
     strncpy(_ssid, ssid, 32); _ssid[32] = '\0';
     _channel = channel;
     _cntBeacons = _cntProbes = _cntAuths = _cntDeauths = _cntEapols = 0;
-    _maxSev = 0; _evHead = _evCount = 0;
+    _maxSev = 0; _evHead = _evCount = _savedEvCount = 0;
     _deauthCtrN = _probeCtrN = 0;
     _authFloodStart = 0; _authMacN = 0;
     _deauthBurstStart = 0; _deauthBurstCount = 0;
     _recentProberN = 0; _recentProberWindow = millis();
     _evilTwinN = 0;
+    _pendingForeignN = 0;
+    _karmaN = 0;
+    _cloneFired = false;
+    _threatEvilTwin = _threatDeauthStorm = _threatKarma = _threatClone = _threatBeaconFlood = 0;
+    _harvestFiredTs = _lastWarnNotifTs = _lastAlertNotifTs = 0;
+    _bcastCtrN = 0;
     _bgMode = false;   // explicitly — interactive mode, not bg
     s_head = s_tail = 0;
+    s_targetTsSeen = false;
+    s_lastTargetTs = 0;
     s_isrBeacons = 0;
     s_bssidSeenN = 0; s_bssidFloodStart = millis(); s_bssidFloodFired = false;
     memcpy((void*)s_bssid, bssid, 6);
     strncpy((char*)s_ssid, ssid, 32); ((char*)s_ssid)[32] = '\0';
+
+    initSession();   // create /logs/wguard_NNN.csv — SD safe before promiscuous
 
     WiFi.mode(WIFI_STA);
     delay(100);
@@ -627,6 +1121,7 @@ void WGuard::run(const uint8_t* bssid, int channel, const char* ssid) {
     esp_wifi_set_promiscuous_rx_cb(nullptr);
     esp_wifi_set_promiscuous(false);
     WiFi.mode(WIFI_STA);
+    finalizeSession();   // write remaining events + SESSION END — promiscuous off, SD safe
     _dm.clearScreen();
     _dm.printFirstCommandScreen("");
 }

@@ -194,63 +194,100 @@ Config is saved to `/macchanger.cfg` on the SD card and restored on boot.
 
 ## `wguard` / `wg` — WiFi IDS (Intrusion Detection)
 
-`wguard` is a passive WiFi intrusion-detection system. It locks onto one AP and monitors all 802.11 management and data frames on that channel, alerting on deauth storms, auth floods, PMKID harvests, Evil Twin beacons, probe storms, beacon floods, and WPA handshake harvesting attempts.
+`wguard` is a passive WiFi intrusion-detection system. It locks onto one AP and monitors all 802.11 management and data frames on that channel, detecting deauth floods, evil twin APs, handshake harvesting, Karma attacks, PMKID grabs, auth floods, probe storms, beacon floods, and BSSID cloning.
 
 ```
-CMD> sw                 # scan to get AP index
-CMD> wg 2              # interactive monitor on AP index 2
-CMD> wg 2 bg           # start in background (returns to prompt)
-CMD> wg                 # enter live view of running bg session
-CMD> wg stop            # stop background session
+CMD> sw                       # scan first to get AP index
+CMD> wg 2                     # interactive monitor on AP index 2
+CMD> wg 2 bg                  # background mode — returns to prompt
+CMD> wg view                  # enter live view of running bg session
+CMD> wg stop                  # stop background session
+CMD> wg AA:BB:CC:DD:EE:FF 6   # target by BSSID + channel directly
 ```
 
-You can also target by BSSID directly:
-```
-CMD> wg AA:BB:CC:DD:EE:FF 6
-```
+### Interactive mode
 
-### Interactive mode keys
+The screen shows a live cyberpunk header, status line (OK / WARNING / CRITICAL), frame counters (Bcn / Prb / Ath / Dth / EAP), and a scrollable event log with session-relative HH:MM:SS timestamps.
 
 | Key | Action |
 |-----|--------|
-| `s` | Save event log to `/logs/wguard.csv` |
-| `q` | Quit |
+| Trackball ↑ / ↓ | Scroll event history (5 lines per step) |
+| `s` | Save new events to SD — footer briefly shows `Saved N events` or `Nothing new to save` |
+| `q` | Quit (also triggers final save) |
 
-The screen shows live STATUS (OK / WARNING / CRITICAL), frame counters (Beacons / Probes / Auths / Deauths / EAPOLs), and the 5 most recent events with timestamps.
+The event list shows page position `EVENTS [2/5]` when history spans multiple pages.
 
 ### Background mode
 
-`wg <idx> bg` returns to the command prompt immediately. The shield icon in the status bar shows the current state:
+`wg <idx> bg` returns to the command prompt immediately. T-Rex keeps sniffing in the background while you use other commands.
 
-| Icon colour | Meaning |
-|-------------|---------|
+The shield icon in the status bar reflects the current threat level:
+
+| Colour | Meaning |
+|--------|---------|
 | Grey | wguard not running |
-| Green ✓ | Running, no threats detected |
-| Yellow | Running, warnings detected |
-| Red | Running, critical alert |
+| Green | Running — no threats |
+| Yellow | Running — WARNING detected |
+| Red | Running — CRITICAL alert |
 
-When a new event fires in background mode:
-- The shield colour updates immediately
-- A coloured bar appears at the bottom of the screen with the alert message
-- A notification sound plays (WARNING or ALERT level)
-- The bar auto-clears after 4 seconds
+When a threat fires in background mode a coloured bar appears at the bottom of the screen for 4 seconds and a notification sound plays. INFO events are silent.
 
-**WiFi lock** — while wguard is in background, all other WiFi commands are blocked. Run `wg stop` first, or enter the live view with `wg` and press `q` to exit without stopping monitoring.
+**WiFi lock** — while wguard bg is active, other WiFi commands are blocked. Run `wg stop` first, or use `wg view` to watch live, then `q` to return without stopping monitoring.
 
-**TrackMe note** — `tm` BLE scanning works normally alongside wguard bg. On T-Deck Plus, the WiFi probe-sniff phase of `tm` is automatically skipped to avoid overwriting wguard's promiscuous callback.
+**TrackMe** — BLE scanning works alongside wguard bg. On T-Deck Plus the WiFi probe-sniff phase of `trackme` is skipped automatically.
 
 ### Detections
 
 | Event | Trigger | Severity |
 |-------|---------|----------|
-| DEAUTH storm | 5 deauths from same MAC in 10 s | CRITICAL |
+| BCAST DEAUTH | 5 broadcast deauth frames from same MAC in 5 s | WARNING |
+| DEAUTH storm | 15 targeted deauth frames from same MAC in 5 s | CRITICAL |
 | AUTH flood | 32 unique MACs authenticating in 10 s | WARNING |
-| PROBE storm | 50 probes from same MAC in 5 s | WARNING |
-| PMKID harvest | 5 assoc requests from same MAC in 5 s | WARNING |
-| Evil Twin | Same SSID, different OUI (same OUI = mesh AP, INFO only) | WARNING |
-| Beacon flood | 100 unique APs seen in 30 s | WARNING |
-| Handshake harvest | EAPOL M1/M2 seen after recent deauth burst | CRITICAL |
+| PROBE storm | 50 probe requests from same MAC in 5 s | WARNING |
+| PMKID grab | 5 rapid association requests from same MAC in 5 s | WARNING |
+| EVIL TWIN+DTH | Foreign AP with your SSID + concurrent deauths | WARNING |
+| FOREIGN AP | Foreign AP with your SSID, no deauths yet (pending) | INFO |
+| CO-AP | Same SSID, same vendor OUI — mesh/enterprise node | INFO |
+| HANDSHAKE harvest | EAPOL exchange after deauth burst | CRITICAL |
+| BSSID CLONED | BSS timestamp went backward — two radios on same BSSID | CRITICAL |
+| BEACON FLOOD | 100+ unique BSSIDs in 30 s | WARNING |
+| KARMA | Same BSSID responding to 3+ different SSIDs in 60 s | WARNING |
 
-### Log
+**Evil twin detail** — wguard checks both SSID (must match exactly) and signal strength (beacon RSSI must be stronger than −82 dBm). Legitimate extenders that are far away at −90+ dBm are logged as INFO only and never promoted to WARNING. A rogue AP that disappears and restarts is re-detected after 3 seconds of silence.
 
-Events are saved to `/logs/wguard.csv` when you press `[s]` in interactive or live-view mode. Format: `timestamp_s,severity,message`.
+**Rate limiting** — to prevent log and notification spam during sustained attacks, each detection fires at most once per 30 seconds per source MAC. Notification sounds are further throttled: WARNING ≤ 1 per 10 s, CRITICAL ≤ 1 per 5 s.
+
+### Session logs
+
+Each `wg` run creates a new numbered file — `/logs/wguard/001.csv`, `/002.csv`, etc. The number increments on every boot and session start so files are never overwritten.
+
+**CSV format:**
+```
+# SESSION 3  wguard "MyNetwork"  bssid=XX:XX:XX:XX:XX:XX  ch6  uptime=12s
+time,severity,rssi_dbm,message
+# CHECKPOINT 1  Bcn=420 Prb=31 Ath=4 Dth=210 EAP=8
+time,severity,rssi_dbm,message
+00:01:04,WARNING,-36,BCAST DEAUTH XX:XX:XX:XX:XX:XX
+00:01:50,WARNING,-47,EVIL TWIN+DTH XX:XX:XX:XX:XX:XX
+00:02:14,CRITICAL,-75,HANDSHAKE harvest M1
+# FINAL SAVE 2  Bcn=890 Prb=61 Ath=6 Dth=398 EAP=14
+time,severity,rssi_dbm,message
+00:04:30,WARNING,-52,BCAST DEAUTH XX:XX:XX:XX:XX:XX
+# SESSION END  total=9 events  maxSev=CRITICAL  ch=6  duration=4m55s  Bcn=890 ...
+# THREATS  evil_twin=1  deauth_storm=2  karma=0  clone=0  beacon_flood=0
+```
+
+Timestamps are **session-relative** — `00:01:04` means 1 min 4 sec after `wg` was started.
+
+The `rssi_dbm` column shows the signal strength of the triggering frame — useful for estimating attacker proximity.
+
+**Automatic saves** — wguard saves without any action from you. Each save block writes only the **new events since the last save** — no duplicates.
+
+| Type | When | Ring cleared? |
+|------|------|---------------|
+| AUTO-SAVE | Ring hits 128 events | Yes — continues fresh |
+| CHECKPOINT | Every 2 minutes | No — ring stays for display |
+| MANUAL (`[s]`) | You press `s` | No |
+| FINAL | Session ends (quit / stop) | No |
+
+All saves append to the same session file so the full session history is always in one place.

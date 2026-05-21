@@ -10,9 +10,10 @@
 #include "esp_wifi.h"
 #include "display_manager.h"
 #include "wifi_functions.h"
+#include "notification_manager.h"
 
 #define WG_RING_SIZE    32
-#define WG_EVENT_MAX     8
+#define WG_EVENT_MAX   128
 #define WG_CTR_MAX      16
 #define WG_BSSID_MAX    32   // ISR beacon flood tracking
 
@@ -28,6 +29,7 @@ struct WgFrame {
 struct WgEvent {
     uint32_t ts;
     uint8_t  sev;       // 0=info 1=warning 2=critical
+    int8_t   rssi;      // RSSI of triggering frame; -127 = N/A
     char     msg[44];
 };
 
@@ -35,6 +37,14 @@ struct WgCounter {
     uint8_t  mac[6];
     uint32_t count;
     uint32_t winStart;
+    uint32_t lastFired;   // millis() when this MAC last fired an event — cooldown anchor
+};
+
+struct WgKarmaEntry {
+    uint8_t  bssid[6];
+    char     ssids[4][33];   // up to 4 unique SSIDs seen from this BSSID
+    uint8_t  ssidCount;
+    uint32_t firstSeen;
 };
 
 class WGuard {
@@ -67,8 +77,10 @@ private:
     uint8_t  _evHead;
     uint8_t  _evCount;
 
-    WgCounter _deauthCtr[WG_CTR_MAX];
+    WgCounter _deauthCtr[WG_CTR_MAX];   // targeted deauth per source MAC
     uint8_t   _deauthCtrN;
+    WgCounter _bcastCtr[WG_CTR_MAX];    // broadcast deauth per source MAC (separate counter)
+    uint8_t   _bcastCtrN;
     WgCounter _probeCtr[WG_CTR_MAX];
     uint8_t   _probeCtrN;
 
@@ -83,8 +95,39 @@ private:
     uint8_t  _recentProberN;
     uint32_t _recentProberWindow;
 
-    uint8_t  _evilTwinSeen[8][6];
-    uint8_t  _evilTwinN;
+    uint8_t      _evilTwinSeen[8][6];  // BSSIDs that fired WARNING
+    uint32_t     _evilTwinSeenTs[8];  // millis() of last beacon from that rogue BSSID
+    uint8_t      _evilTwinN;
+    uint8_t      _pendingForeign[4][6]; // foreign BSSIDs seen before deauths — pending upgrade
+    uint32_t     _pendingForeignTs[4];
+    int8_t       _pendingForeignRssi[4]; // beacon RSSI of each pending AP
+    uint8_t      _pendingForeignN;
+
+    WgKarmaEntry _karma[WG_CTR_MAX];
+    uint8_t      _karmaN;
+    bool         _cloneFired;
+
+    char         _sessionFile[48];   // e.g. /logs/wguard/003.csv
+    bool         _autoSaveNeeded;    // set by addEvent when ring is full
+    uint32_t     _totalEvents;       // total events since session start (never reset)
+    uint8_t      _saveCount;         // auto + manual + checkpoint saves done this session
+    uint8_t      _savedEvCount;      // events already flushed to file — skip on next save
+    uint32_t     _sessionStartMs;    // millis() at session start for duration calc
+    uint32_t     _lastCheckpointMs;  // millis() of last time-based checkpoint
+    uint32_t     _harvestFiredTs;    // millis() of last HANDSHAKE harvest event fired
+    uint32_t     _lastWarnNotifTs;   // millis() of last WARNING notification (throttle)
+    uint32_t     _lastAlertNotifTs;  // millis() of last ALERT notification (throttle)
+
+    uint8_t      _threatEvilTwin;    // count of EVIL TWIN events fired
+    uint8_t      _threatDeauthStorm; // count of DEAUTH STORM / BCAST DEAUTH events
+    uint8_t      _threatKarma;       // count of KARMA events fired
+    uint8_t      _threatClone;       // count of BSSID CLONED events fired
+    uint8_t      _threatBeaconFlood; // count of BEACON FLOOD events fired
+
+    void initSession();              // create session file, write header
+    void doAutoSave();               // flush ring → file, clear ring (ring-full path)
+    void doCheckpoint();             // append ring → file, keep ring intact (time-based path)
+    void finalizeSession();          // write remaining + SESSION END (call after promisc off)
 
     bool     _bgMode       = false;
     uint32_t _popupUntil   = 0;
@@ -94,7 +137,8 @@ private:
     void run(const uint8_t* bssid, int channel, const char* ssid);
     void runUI();          // blocking UI loop — shared by run() and enterView()
     void processFrame(const WgFrame& f);
-    void addEvent(uint8_t sev, const char* msg);
+    void addEvent(uint8_t sev, const char* msg, int8_t rssi = -127);
+    void notifyThrottled(NotifLevel level, uint32_t now);   // rate-limited notification
     WgCounter* findOrAdd(WgCounter* table, uint8_t& cnt, const uint8_t* mac);
     uint32_t   rollCount(WgCounter* ctr, uint32_t windowMs, uint32_t now);
 
@@ -114,6 +158,8 @@ private:
     static volatile uint8_t  s_bssidSeenN;
     static volatile uint32_t s_bssidFloodStart;
     static volatile bool     s_bssidFloodFired;
+    static volatile uint64_t s_lastTargetTs;    // BSS timestamp from last target beacon
+    static volatile bool     s_targetTsSeen;
 };
 
 #endif // WGUARD_H

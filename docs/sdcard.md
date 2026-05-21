@@ -29,6 +29,7 @@ Everything else is created automatically as you use features.
 | `/badusb/` | SDCardManager on init |
 | `/captures/` | SDCardManager on init |
 | `/logs/hs/` | `wpasniff` on first capture |
+| `/logs/wguard/` | `wguard` on first session |
 
 ---
 
@@ -46,12 +47,13 @@ Do nothing — firmware creates these when the relevant feature is first used.
 | `/logs/hidden_ssids.csv` | `hiddenssid` on find | `bssid,ssid,channel` per line |
 | `/logs/cracked.csv` | `wpasniff` on crack | `bssid,ssid,password` per line |
 | `/logs/hs/<BSSID>.cap` | `wpasniff` on EAPOL capture | raw pcap handshake file |
+| `/logs/wguard/001.csv` … `999.csv` | `wguard` — one file per session | CSV: `time,severity,rssi_dbm,message` + session header/footer |
 | `/logs/wifi.txt` | `wifimon` packet log | raw WiFi monitor log |
 | `/logs/packets.txt` | `wifimon` sniffer | raw packet log |
 | `/logs/bt.txt` | `scanblue` | BLE device log |
 | `/logs/ports.txt` | `portscan` / `topscan` | port scan results |
-| `/pwrsave.json` | `pwrsave set ...` | power save settings |
-| `/macchanger.cfg` | `macchanger` on save | MAC spoof state + address |
+| `/pwrsave.conf` | `pwrsave set ...` | power save settings (key=value) |
+| `/macchanger.conf` | `macchanger` on save | MAC spoof state + address |
 
 ---
 
