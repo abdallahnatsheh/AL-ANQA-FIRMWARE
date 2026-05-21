@@ -124,6 +124,12 @@ void PowerSaveManager::updateActivity() {
     }
 }
 
+void PowerSaveManager::forceWake() {
+    _manualOff = false;
+    lastActivityTime = millis();
+    wakeUp();
+}
+
 void PowerSaveManager::toggleManualOff() {
     if (_manualOff) {
         // Already off — turn back on

@@ -38,7 +38,7 @@ private:
     std::function<void()> _wakeCallback;
 
     void playTones(const int* freqs, const int* durs, int count);
-    bool playMp3(const char* path);
+    bool playWav(const char* path);   // WAV-only, no external lib needed
 };
 
 #endif // NOTIFICATION_MANAGER_H

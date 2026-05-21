@@ -5,9 +5,6 @@
 #include <SD.h>
 #include <driver/i2s.h>
 #include <math.h>
-#include <AudioFileSourceSD.h>
-#include <AudioOutputI2S.h>
-#include <AudioGeneratorMP3.h>
 
 // Pin fallbacks — audio lib headers may shadow the utilities.h defines
 #ifndef BOARD_I2S_BCK
@@ -90,31 +87,90 @@ void NotificationManager::playTones(const int* freqs, const int* durs, int count
     i2s_driver_uninstall(NM_I2S_PORT);
 }
 
-// ── MP3 playback via ESP8266Audio ─────────────────────────────────────────────
+// ── WAV playback (no external library — raw PCM streamed to I2S) ─────────────
+// Supports 8/16-bit PCM WAV, mono or stereo, any sample rate.
+// Convert sounds with: ffmpeg -i input.mp3 -ar 22050 -ac 1 -acodec pcm_s16le out.wav
 
-bool NotificationManager::playMp3(const char* path) {
-    if (!sdCardManager.canAccessSD()) return false;
+struct WavHeader {
+    char     riff[4];       // "RIFF"
+    uint32_t fileSize;
+    char     wave[4];       // "WAVE"
+    char     fmt[4];        // "fmt "
+    uint32_t fmtSize;
+    uint16_t audioFormat;   // 1 = PCM
+    uint16_t numChannels;
+    uint32_t sampleRate;
+    uint32_t byteRate;
+    uint16_t blockAlign;
+    uint16_t bitsPerSample;
+};
+
+bool NotificationManager::playWav(const char* path) {
     if (!SD.exists(path)) return false;
 
-    AudioFileSourceSD* src = new AudioFileSourceSD(path);
-    AudioOutputI2S*    out = new AudioOutputI2S();
-    AudioGeneratorMP3* mp3 = new AudioGeneratorMP3();
+    File f = SD.open(path, FILE_READ);
+    if (!f) return false;
 
-    out->SetPinout(BOARD_I2S_BCK, BOARD_I2S_WS, BOARD_I2S_DOUT);
-    out->SetGain(_notifVol / 100.0f);
+    WavHeader hdr;
+    if (f.read((uint8_t*)&hdr, sizeof(hdr)) != sizeof(hdr)) { f.close(); return false; }
+    if (memcmp(hdr.riff, "RIFF", 4) || memcmp(hdr.wave, "WAVE", 4)) { f.close(); return false; }
+    if (hdr.audioFormat != 1) { f.close(); return false; } // PCM only
 
-    if (!mp3->begin(src, out)) {
-        delete mp3; delete out; delete src;
+    // Skip to "data" chunk
+    char chunkId[4]; uint32_t chunkSize;
+    while (f.available()) {
+        if (f.read((uint8_t*)chunkId, 4) != 4) break;
+        if (f.read((uint8_t*)&chunkSize, 4) != 4) break;
+        if (memcmp(chunkId, "data", 4) == 0) break;
+        f.seek(f.position() + chunkSize); // skip non-data chunks
+    }
+    if (!f.available()) { f.close(); return false; }
+
+    i2s_config_t cfg = {};
+    cfg.mode                 = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX);
+    cfg.sample_rate          = hdr.sampleRate;
+    cfg.bits_per_sample      = (i2s_bits_per_sample_t)hdr.bitsPerSample;
+    cfg.channel_format       = (hdr.numChannels == 1)
+                                ? I2S_CHANNEL_FMT_ONLY_LEFT
+                                : I2S_CHANNEL_FMT_RIGHT_LEFT;
+    cfg.communication_format = I2S_COMM_FORMAT_STAND_I2S;
+    cfg.intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1;
+    cfg.dma_buf_count        = 8;
+    cfg.dma_buf_len          = 256;
+    cfg.use_apll             = false;
+    cfg.tx_desc_auto_clear   = true;
+    if (i2s_driver_install(NM_I2S_PORT, &cfg, 0, NULL) != ESP_OK) { f.close(); return false; }
+
+    i2s_pin_config_t pins = {};
+    pins.mck_io_num   = I2S_PIN_NO_CHANGE;
+    pins.bck_io_num   = BOARD_I2S_BCK;
+    pins.ws_io_num    = BOARD_I2S_WS;
+    pins.data_out_num = BOARD_I2S_DOUT;
+    pins.data_in_num  = I2S_PIN_NO_CHANGE;
+    if (i2s_set_pin(NM_I2S_PORT, &pins) != ESP_OK) {
+        i2s_driver_uninstall(NM_I2S_PORT);
+        f.close();
         return false;
     }
 
-    while (mp3->isRunning()) {
-        if (!mp3->loop()) mp3->stop();
+    // Apply volume by scaling samples
+    float gain = _notifVol / 100.0f;
+    uint8_t buf[512];
+    size_t  wr;
+    while (f.available()) {
+        int n = f.read(buf, sizeof(buf));
+        if (n <= 0) break;
+        // Scale 16-bit samples by gain
+        if (hdr.bitsPerSample == 16) {
+            int16_t* s = (int16_t*)buf;
+            for (int i = 0; i < n / 2; i++) s[i] = (int16_t)(s[i] * gain);
+        }
+        i2s_write(NM_I2S_PORT, buf, (size_t)n, &wr, pdMS_TO_TICKS(100));
     }
 
-    delete mp3;
-    delete out;   // destructor calls stop() which uninstalls I2S driver
-    delete src;
+    i2s_zero_dma_buffer(NM_I2S_PORT);
+    i2s_driver_uninstall(NM_I2S_PORT);
+    f.close();
     return true;
 }
 
@@ -124,8 +180,8 @@ void NotificationManager::notify(NotifLevel level) {
     if (!_enabled[level]) return;
     if (_wakeCallback) _wakeCallback();
 
-    // Try custom MP3 first; fall back to built-in tones
-    if (_mp3File[level][0] && playMp3(_mp3File[level])) return;
+    // Try custom WAV from SD first; fall back to built-in tones
+    if (_mp3File[level][0] && playWav(_mp3File[level])) return;
 
     switch (level) {
         case NOTIF_ALERT: {

@@ -12,6 +12,7 @@
 #include "M5StickCPlus.h"      // typedef LGFX_Sprite TFT_eSprite for species files
 #include "display_manager.h"
 #include "input_handling.h"
+#include "notification_manager.h"
 
 #include <NimBLEDevice.h>
 #include <ArduinoJson.h>
@@ -790,7 +791,11 @@ void buddyCommand(char* args) {
         // Track prompt arrival; open popup on new prompt
         if (tama.promptId[0] && strcmp(tama.promptId, lastPid) != 0) {
             if (s_promptArrivedMs == 0) s_promptArrivedMs = millis();
-            if (!s_popupOpen) { s_popupOpen = true; s_popupDrawMs = 0; }
+            if (!s_popupOpen) {
+                s_popupOpen = true;
+                s_popupDrawMs = 0;
+                NotificationManager::getInstance().notify(NOTIF_PING);
+            }
         }
         // Auto-close popup if desktop cleared the prompt
         if (s_popupOpen && !tama.promptId[0]) { s_popupOpen = false; lastPid[0] = '\1'; }

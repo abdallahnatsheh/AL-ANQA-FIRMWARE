@@ -51,6 +51,7 @@ public:
     bool isManualOff() const { return _manualOff; }
     void updateActivity();    // Called when user provides input
     void toggleManualOff();  // Double-click: toggle screen off/on
+    void forceWake();         // Force wake regardless of _manualOff — used by notifications
 
     // Settings modification
     void setTimeoutMs(uint32_t ms);
