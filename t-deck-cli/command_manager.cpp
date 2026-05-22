@@ -25,6 +25,7 @@
 #include "ble_info.h"
 #include "notification_manager.h"
 #include "wguard.h"
+#include "beacon_flood.h"
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
 extern WiFiFunctions      wifiFunctions;
@@ -475,6 +476,7 @@ void CommandManager::setupCommands() {
     registerCommand("macchanger",  "mc",     [](char* a) { MacChanger::getInstance().handleCommand(a); },                   "MAC spoof: mc on/off/random/set <mac>",              true,  "WiFi");
     registerCommand("wpasniff",    "ws",     [](char* a) { handshakeCapture.start(a); },                                      "WPA2 handshake: ws <idx|bssid> [ch]",                true,  "WiFi");
     registerCommand("wguard",      "wg",     [](char* a) { handleWGuardCmd(a); },                                           "WiFi IDS: wg <idx> [bg|stop]",                       true,  "WiFi");
+    registerCommand("beaconflood", "bf",     [](char* a) { runBeaconFlood(a); },                                              "Beacon flood: bf [list|seq <base>|file [path]]",     true,  "WiFi");
     registerCommand("wifipass",    "wp",     [](char* a) { wifiPassCommand(); },                                               "Saved WiFi passwords",                    false, "WiFi");
     registerCommand("wifiexport",  "wex",    [](char* a) { wifiExportCommand(); },                                             "Export NVS networks to wpa_supplicant",   false, "WiFi");
     // ── Network ───────────────────────────────────────────────────────────────

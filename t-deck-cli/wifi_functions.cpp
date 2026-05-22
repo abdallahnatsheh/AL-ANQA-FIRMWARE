@@ -482,5 +482,10 @@ bool WiFiFunctions::getNetworkSSID(int index, char* ssidOut) const {
     return true;
 }
 
+bool WiFiFunctions::getNetworkOpen(int index) const {
+    if (!networkScanExecuted || index < 0 || index >= (int)scanCache.size()) return true;
+    return scanCache[index].isOpen;
+}
+
 void WiFiFunctions::refreshHiddenCache()              { loadHiddenCache(); }
 bool WiFiFunctions::isHiddenKnown(const uint8_t* b) const { return lookupHidden(b) != nullptr; }

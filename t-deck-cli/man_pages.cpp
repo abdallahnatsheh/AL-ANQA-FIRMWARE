@@ -256,6 +256,21 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "beaconflood", "bf", {
+        "SYNTAX   bf",
+        "         bf list | rickroll | seq <base>",
+        "         bf file [path] | bf clone",
+        "",
+        "ABOUT    Inject fake 802.11 beacons. ~90/s.",
+        "         list=funny SSIDs  rick=rickroll",
+        "         seq=base+N  file=SD  clone=real AP",
+        "         clone needs sw first.",
+        "",
+        "KEYS     [q] stop",
+        "NOTE     Cannot run with wguard at same time.",
+        nullptr
+    }},
+
     { "netdiscover", "nd", {
         "SYNTAX   netdiscover",
         "",

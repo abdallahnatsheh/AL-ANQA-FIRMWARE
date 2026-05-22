@@ -54,6 +54,14 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 **NetworkScanner** (`network_scanner.cpp/h`):
 - ARP scan full /24 · Port scan: `std::vector<int> openPorts` collected once then paginated
 
+**BeaconFlood** (`beacon_flood.cpp/h`):
+- `bf [list|seq <base>|file [path]]` — raw 802.11 beacon injection, 109-byte fixed-length frames
+- Modes: `list` (built-in 40 SSID list, PROGMEM), `seq <base>` (base1…base9999), `file` (one SSID/line from SD, default `/wordlist_beacons.txt`)
+- Random LA-MAC per beacon (`(mac[0] & 0xFE) | 0x02`), channel hops 1→6→11→2→7→12… every 20 beacons
+- WiFi setup: `WIFI_MODE_APSTA` + `softAP` + promiscuous = same pattern as deauth. Teardown: `WiFi.mode(WIFI_STA)`.
+- No SD access during flood (GDMA rule) — file is opened before injection starts, closed after stop
+- Display: `[BCON::FLOOD]` header, live Ch/Sent/Err/Rate/SSID stats, `[q]` stop
+
 **WGuard** (`wguard.cpp/h`) — passive WiFi IDS:
 - `wg <index|bssid> [ch]` interactive · `wg <index|bssid> [ch] bg` background · `wg stop` · `wg view`
 - Detects: BCAST DEAUTH · DEAUTH storm · EVIL TWIN · HANDSHAKE harvest · BSSID CLONE · BEACON FLOOD · AUTH flood · PROBE storm · PMKID grab · KARMA attack
@@ -65,9 +73,9 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 
 ## Commands
 System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv`
-WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `wguard/wg`
+WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `wguard/wg` `beaconflood/bf`
 Network: `netdiscover/nd` `portscan/ps` `topscan/ts` `ping/pg`
-Bluetooth: `scanblue/sbl` `trackme/tm [silent]`
+Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
 SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `sdread/sdr` `sdrm/srm` `sdf/sdf`
 Diagnostics: `gpson/gon` `gpsoff/gof` `gpstest/gt` `spktest/st` `loratest/lt`
 
@@ -113,7 +121,7 @@ Diagnostics: `gpson/gon` `gpsoff/gof` `gpstest/gt` `spktest/st` `loratest/lt`
 - SD + WiFi: follow the GDMA rule above — open files before WiFi, close after teardown
 
 ## Pending Features
-- BLE GATT enumeration (`bleinfo/bi <mac>`)
 - LoRa scanner / packet logger
+- bmon — passive BLE advertisement sniffer (iBeacon/Eddystone/cleartext detector, PCAP linktype 251)
 - macwatch — MAC watchlist with proximity alert
 - wguard: Karma detection needs real-world testing (probe-response sniff for 3+ SSIDs/60s from same BSSID)

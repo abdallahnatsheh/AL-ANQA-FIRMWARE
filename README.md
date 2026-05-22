@@ -41,6 +41,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 - Evil Twin AP with adaptive deauth + captive portal
 - Hidden SSID reveal, WPA2 handshake capture + on-device crack
 - MAC spoofer, WPS flag detection
+- **Beacon flood** (`bf`) — inject hundreds of fake beacon frames/sec; 5 modes: built-in list, rickroll, sequential, SD file, or clone a real network from scan; ~90-100 frames/sec, random MAC per beacon, automatic channel hopping — [full guide](docs/beacon-flood.md)
 - **WiFi IDS** (`wguard`) — passive intrusion detection: deauth flood, evil twin, handshake harvest, PMKID grab, auth flood, probe storm, beacon flood, BSSID cloning, Karma attack; background mode with shield icon + popup alerts; session CSV logs with session-relative timestamps
 
 **🔑 WiFi Credentials** — [full guide](docs/wifi-credentials.md)
@@ -132,6 +133,7 @@ git clone https://github.com/abdallahnatsheh/T-Rex
 | `macchanger` | `mc` | `on\|off\|random\|set <mac>` | Spoof STA MAC |
 | `wpasniff` | `ws` | `<idx\|bssid> [ch]` | Capture + crack WPA2 handshake |
 | `wguard` | `wg` | `<idx\|bssid> [ch] [bg]` | WiFi IDS — passive intrusion detection; `wg stop` / `wg view` |
+| `beaconflood` | `bf` | `[list\|rickroll\|seq <base>\|file [path]\|clone]` | Beacon flood — fake AP injection; interactive mode picker; clone mirrors real network security |
 | **Network** | | | |
 | `netdiscover` | `nd` | — | ARP scan local /24 |
 | `portscan` | `ps` | `<ip\|#> <start> <end>` | TCP port scan |

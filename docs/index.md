@@ -25,7 +25,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 
 | Guide | What's covered |
 |-------|---------------|
-| [WiFi Attacks](wifi-attacks) | scanwifi, connectwifi, wifimon, deauth, eviltwin, hiddenssid, wpasniff, macchanger, **wguard** (WiFi IDS) |
+| [WiFi Attacks](wifi-attacks) | scanwifi, connectwifi, wifimon, deauth, eviltwin, hiddenssid, wpasniff, macchanger, **wguard** (WiFi IDS), **beaconflood** |
 | [WiFi Credentials](wifi-credentials) | wifipass, saved passwords, Linux wpa_supplicant.conf sync, desktop migration |
 | [Network Recon](network) | netdiscover, portscan, topscan, ping, banner grabber, OS fingerprinting |
 | [Bluetooth](bluetooth) | scanblue, trackme, fastpair, blespam |

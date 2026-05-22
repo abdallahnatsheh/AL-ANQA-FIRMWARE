@@ -22,6 +22,7 @@ public:
     void clearAllWiFiCredentials();
     bool getNetworkInfo(int index, uint8_t* bssidOut, int* channelOut);
     bool getNetworkSSID(int index, char* ssidOut) const;
+    bool getNetworkOpen(int index) const;
     int  getNetworkCount() const;
     bool isScanDone() const;
     void refreshHiddenCache();

@@ -291,3 +291,31 @@ The `rssi_dbm` column shows the signal strength of the triggering frame — usef
 | FINAL | Session ends (quit / stop) | No |
 
 All saves append to the same session file so the full session history is always in one place.
+
+---
+
+## `beaconflood` / `bf` — Beacon Flood
+
+```
+CMD> bf
+```
+
+Injects hundreds of fake 802.11 beacon frames per second — each with a different SSID and randomly generated MAC address. Every device in range sees its WiFi scan list flooded with fake networks.
+
+Type `bf` to open the mode picker:
+
+| Key | Mode | What it floods |
+|-----|------|---------------|
+| `1` | list | 40 built-in humorous SSIDs (Abraham Linksys, FBI Surveillance Van…) |
+| `2` | rickroll | Never Gonna Give You Up lyrics as sequential SSIDs |
+| `3` | seq | Your base name + incrementing number (`Starbucks1`, `Starbucks2`…) |
+| `4` | file | One SSID per line from `/wordlist_beacons.txt` on SD |
+| `5` | clone | Pick a real network from last `sw` scan — flood its exact SSID |
+
+Live display shows channel, total frames sent, error count, and rate (~90–100 frames/sec typical).
+
+Press `q` to stop. WiFi is restored to STA mode cleanly on exit.
+
+> **Note:** Cannot run simultaneously with `wguard` — both require promiscuous mode. To test wguard's beacon flood detection, use a second device running `bf`.
+
+For full usage and technical detail see the [Beacon Flood guide](beacon-flood).
