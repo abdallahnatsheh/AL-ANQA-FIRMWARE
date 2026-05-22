@@ -57,6 +57,11 @@ type: project
 
 ## Not Yet Built
 - macwatch / mw — MAC proximity watchlist
-- BLE GATT enumeration (`bleinfo/bi`)
 - LoRa scanner (`lorascan/ls`)
 - Touchscreen, microphone
+---
+name: buddy — implemented summary
+---
+`bd [name]` — NimBLE NUS GATT server, Claude Desktop BLE remote. y=approve once, n=deny, q=quit.
+Security: `setSecurityAuth/IOCap` must be called BEFORE `pSvc->start()` — crashes NimBLE 1.4.x if after.
+deinit(true) on quit + SD.begin(39) to restore SPI. NOTIF_PING fires on new popup arrival.
