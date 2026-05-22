@@ -15,7 +15,7 @@
 #define WG_RING_SIZE    32
 #define WG_EVENT_MAX   128
 #define WG_CTR_MAX      16
-#define WG_BSSID_MAX    32   // ISR beacon flood tracking
+#define WG_BSSID_MAX   128   // ISR beacon flood tracking — needs 128 slots to reach the 100-AP trigger
 
 struct WgFrame {
     uint8_t  subtype;   // 0xFF=EAPOL data, 0xFE=beacon flood trigger, 8=Evil Twin beacon
@@ -31,6 +31,7 @@ struct WgEvent {
     uint8_t  sev;       // 0=info 1=warning 2=critical
     int8_t   rssi;      // RSSI of triggering frame; -127 = N/A
     char     msg[44];
+    char     detail[48];   // log-only DFIR: dst MAC, OUI vendor, frame counts — never shown on screen
 };
 
 struct WgCounter {
@@ -83,6 +84,8 @@ private:
     uint8_t   _bcastCtrN;
     WgCounter _probeCtr[WG_CTR_MAX];
     uint8_t   _probeCtrN;
+    WgCounter _assocCtr[WG_CTR_MAX];    // association requests — separate from deauth to prevent cross-contamination
+    uint8_t   _assocCtrN;
 
     uint32_t _authFloodStart;
     uint8_t  _authMacs[32][6];
@@ -105,7 +108,8 @@ private:
 
     WgKarmaEntry _karma[WG_CTR_MAX];
     uint8_t      _karmaN;
-    bool         _cloneFired;
+    bool         _cloneFired;    // true after first detection — enables cooldown path
+    uint32_t     _cloneFiredTs;  // millis() of last clone detection — 60s cooldown
 
     char         _sessionFile[48];   // e.g. /logs/wguard/003.csv
     bool         _autoSaveNeeded;    // set by addEvent when ring is full
@@ -119,7 +123,11 @@ private:
     uint32_t     _lastAlertNotifTs;  // millis() of last ALERT notification (throttle)
 
     uint8_t      _threatEvilTwin;    // count of EVIL TWIN events fired
-    uint8_t      _threatDeauthStorm; // count of DEAUTH STORM / BCAST DEAUTH events
+    uint8_t      _threatBcastDeauth; // count of BCAST DEAUTH events fired
+    uint8_t      _threatDeauthStorm; // count of targeted DEAUTH STORM events fired
+    uint8_t      _threatHandshake;   // count of HANDSHAKE harvest events fired
+    uint8_t      _threatAuthFlood;   // count of AUTH FLOOD events fired
+    uint8_t      _threatProbeStorm;  // count of PROBE STORM events fired
     uint8_t      _threatKarma;       // count of KARMA events fired
     uint8_t      _threatClone;       // count of BSSID CLONED events fired
     uint8_t      _threatBeaconFlood; // count of BEACON FLOOD events fired
@@ -137,7 +145,7 @@ private:
     void run(const uint8_t* bssid, int channel, const char* ssid);
     void runUI();          // blocking UI loop — shared by run() and enterView()
     void processFrame(const WgFrame& f);
-    void addEvent(uint8_t sev, const char* msg, int8_t rssi = -127);
+    void addEvent(uint8_t sev, const char* msg, int8_t rssi = -127, const char* detail = nullptr);
     void notifyThrottled(NotifLevel level, uint32_t now);   // rate-limited notification
     WgCounter* findOrAdd(WgCounter* table, uint8_t& cnt, const uint8_t* mac);
     uint32_t   rollCount(WgCounter* ctr, uint32_t windowMs, uint32_t now);

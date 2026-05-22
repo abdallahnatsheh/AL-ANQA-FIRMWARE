@@ -241,6 +241,58 @@ void WGuard::notifyThrottled(NotifLevel level, uint32_t now) {
     NotificationManager::getInstance().notify(level);
 }
 
+// ── OUI vendor lookup (DFIR aid — log-only) ───────────────────────────────────
+// Returns a short vendor string for known attacker-relevant OUIs, or nullptr if unknown.
+// Locally-administered bit (0x02 in first octet) always means a spoofed / virtual MAC.
+
+static const char* lookupOui(const uint8_t* mac) {
+    if (mac[0] & 0x02) return "LA-MAC";   // bit 1 set = locally administered = spoofed
+    struct OuiEntry { uint8_t p0, p1, p2; const char* name; };
+    static const OuiEntry ouis[] = {
+        // Attack hardware / common security research tools
+        {0x00, 0xC0, 0xCA, "Alfa"},       // Alfa Network (USB attack adapters)
+        {0x00, 0x13, 0x37, "Hak5"},       // Hak5 LLC (WiFi Pineapple)
+        {0x00, 0xE0, 0x4C, "Realtek"},    // Realtek (cheap USB adapters)
+        // Raspberry Pi Foundation (all known OUI blocks)
+        {0xB8, 0x27, 0xEB, "RPi"},
+        {0xDC, 0xA6, 0x32, "RPi"},
+        {0xD8, 0x3A, 0xDD, "RPi"},
+        {0xE4, 0x5F, 0x01, "RPi"},
+        {0x28, 0xCD, 0xC1, "RPi"},
+        {0x2C, 0xCF, 0x67, "RPi"},
+        // Espressif Systems (DIY attack tools, ESP32-based firmware)
+        {0x18, 0xFE, 0x34, "Espressif"},
+        {0x24, 0x0A, 0xC4, "Espressif"},
+        {0x24, 0x6F, 0x28, "Espressif"},
+        {0x30, 0xAE, 0xA4, "Espressif"},
+        {0x40, 0xF5, 0x20, "Espressif"},
+        {0x54, 0x5A, 0xA6, "Espressif"},
+        {0x58, 0xBF, 0x25, "Espressif"},
+        {0x60, 0x01, 0x94, "Espressif"},
+        {0x68, 0xC6, 0x3A, "Espressif"},
+        {0x78, 0x21, 0x84, "Espressif"},
+        {0x84, 0xCC, 0xA8, "Espressif"},
+        {0x8C, 0xAA, 0xB5, "Espressif"},
+        {0x90, 0x97, 0xD5, "Espressif"},
+        {0xA0, 0x20, 0xA6, "Espressif"},
+        {0xA4, 0xCF, 0x12, "Espressif"},
+        {0xB4, 0xE6, 0x2D, "Espressif"},
+        {0xC4, 0x4F, 0x33, "Espressif"},
+        {0xCC, 0x50, 0xE3, "Espressif"},
+        {0xDC, 0x54, 0x75, "Espressif"},
+        {0xE8, 0xDB, 0x84, "Espressif"},
+        {0xEC, 0x15, 0xAD, "Espressif"},
+        {0xFC, 0xF5, 0xC4, "Espressif"},
+        {0x7C, 0x87, 0xCE, "Espressif"},  // ESP32-S3 (T-Deck family)
+        {0x80, 0xC5, 0x48, "Espressif"},  // ESP32 (Cardputer / M5Stack)
+        {0xAC, 0xD0, 0x74, "Espressif"},
+    };
+    for (uint8_t i = 0; i < sizeof(ouis)/sizeof(ouis[0]); i++)
+        if (mac[0] == ouis[i].p0 && mac[1] == ouis[i].p1 && mac[2] == ouis[i].p2)
+            return ouis[i].name;
+    return nullptr;
+}
+
 // ── Threat detection ──────────────────────────────────────────────────────────
 
 void WGuard::processFrame(const WgFrame& f) {
@@ -268,8 +320,12 @@ void WGuard::processFrame(const WgFrame& f) {
                         char msg[44];
                         snprintf(msg, sizeof(msg), "BCAST DEAUTH %02X:%02X:%02X:%02X:%02X:%02X",
                                  f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
-                        addEvent(1, msg, f.rssi);
-                        _threatDeauthStorm++;
+                        char det[48];
+                        const char* vb = lookupOui(f.src);
+                        if (vb) snprintf(det, sizeof(det), "Dth=%lu v=%s", (unsigned long)_cntDeauths, vb);
+                        else    snprintf(det, sizeof(det), "Dth=%lu",      (unsigned long)_cntDeauths);
+                        addEvent(1, msg, f.rssi, det);
+                        _threatBcastDeauth++;
                         notifyThrottled(NOTIF_WARNING, now);
                     }
                 }
@@ -285,7 +341,15 @@ void WGuard::processFrame(const WgFrame& f) {
                     char msg[44];
                     snprintf(msg, sizeof(msg), "DEAUTH storm %02X:%02X:%02X:%02X:%02X:%02X",
                              f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
-                    addEvent(2, msg, f.rssi);
+                    char det[48];
+                    const char* vt = lookupOui(f.src);
+                    if (vt) snprintf(det, sizeof(det), "dst=%02X:%02X:%02X:%02X:%02X:%02X Dth=%lu v=%s",
+                                     f.dst[0],f.dst[1],f.dst[2],f.dst[3],f.dst[4],f.dst[5],
+                                     (unsigned long)_cntDeauths, vt);
+                    else    snprintf(det, sizeof(det), "dst=%02X:%02X:%02X:%02X:%02X:%02X Dth=%lu",
+                                     f.dst[0],f.dst[1],f.dst[2],f.dst[3],f.dst[4],f.dst[5],
+                                     (unsigned long)_cntDeauths);
+                    addEvent(2, msg, f.rssi, det);
                     _threatDeauthStorm++;
                     notifyThrottled(NOTIF_ALERT, now);
                 }
@@ -307,7 +371,11 @@ void WGuard::processFrame(const WgFrame& f) {
                     snprintf(msg, sizeof(msg), "EVIL TWIN+DTH %02X:%02X:%02X:%02X:%02X:%02X",
                              _pendingForeign[i][0], _pendingForeign[i][1], _pendingForeign[i][2],
                              _pendingForeign[i][3], _pendingForeign[i][4], _pendingForeign[i][5]);
-                    addEvent(1, msg, _pendingForeignRssi[i]);  // use AP beacon RSSI, not deauth RSSI
+                    char det[48];
+                    const char* vp = lookupOui(_pendingForeign[i]);
+                    if (vp) snprintf(det, sizeof(det), "Dth=%lu v=%s", (unsigned long)_cntDeauths, vp);
+                    else    snprintf(det, sizeof(det), "Dth=%lu",      (unsigned long)_cntDeauths);
+                    addEvent(1, msg, _pendingForeignRssi[i], det);  // use AP beacon RSSI, not deauth RSSI
                     _threatEvilTwin++;
                     notifyThrottled(NOTIF_WARNING, now);
                     if (_evilTwinN < 8) {
@@ -329,7 +397,10 @@ void WGuard::processFrame(const WgFrame& f) {
         if (!seen && _authMacN < 32) memcpy(_authMacs[_authMacN++], f.src, 6);
         if (_authMacN == 32) {
             char msg[44]; snprintf(msg, sizeof(msg), "AUTH flood: 32+ unique MACs/10s");
-            addEvent(1, msg, f.rssi);
+            char det[48];
+            snprintf(det, sizeof(det), "Ath=%lu", (unsigned long)_cntAuths);
+            addEvent(1, msg, f.rssi, det);
+            _threatAuthFlood++;
             notifyThrottled(NOTIF_WARNING, now);
             _authMacN = 33;  // prevent re-fire until window resets
         }
@@ -347,21 +418,34 @@ void WGuard::processFrame(const WgFrame& f) {
             char msg[44];
             snprintf(msg, sizeof(msg), "PROBE storm %02X:%02X:%02X:%02X:%02X:%02X 50/5s",
                      f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
-            addEvent(1, msg, f.rssi);
+            char det[48];
+            const char* vpr = lookupOui(f.src);
+            if (vpr) snprintf(det, sizeof(det), "Prb=%lu v=%s", (unsigned long)_cntProbes, vpr);
+            else     snprintf(det, sizeof(det), "Prb=%lu",      (unsigned long)_cntProbes);
+            addEvent(1, msg, f.rssi, det);
+            _threatProbeStorm++;
             notifyThrottled(NOTIF_WARNING, now);
         }
         break;
     }
-    case 0: {    // Association request — rapid retry = PMKID harvest
-        // Real PMKID attack: same MAC sends many assoc requests rapidly.
-        // Normal reconnects: 1 assoc, possibly no prior probe — not suspicious.
-        WgCounter* ctr = findOrAdd(_deauthCtr, _deauthCtrN, f.src);
+    case 0: {    // Association request — rapid retry hint for DFIR
+        // 5 assoc requests in 5s from the same MAC is abnormal — could be a PMKID capture
+        // attempt, aggressive roaming firmware, or a buggy client hammering after a kick.
+        // Logged as INFO (silent, no alert) so DFIR analysts can correlate in the CSV.
+        // Uses dedicated _assocCtr — isolated from _deauthCtr to prevent cross-contamination
+        // (a victim reconnecting after being deauthed should not inflate the deauth storm counter).
+        WgCounter* ctr = findOrAdd(_assocCtr, _assocCtrN, f.src);
         if (ctr && rollCount(ctr, 5000, now) == 5) {
             char msg[44];
-            snprintf(msg, sizeof(msg), "PMKID? rapid assoc %02X:%02X:%02X:%02X:%02X:%02X",
+            snprintf(msg, sizeof(msg), "RAPID ASSOC (PMKID?) %02X:%02X:%02X:%02X:%02X:%02X",
                      f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
-            addEvent(1, msg, f.rssi);
-            notifyThrottled(NOTIF_WARNING, now);
+            char det[48];
+            const char* va = lookupOui(f.src);
+            if (va) snprintf(det, sizeof(det), "dst=%02X:%02X:%02X:%02X:%02X:%02X v=%s",
+                             f.dst[0],f.dst[1],f.dst[2],f.dst[3],f.dst[4],f.dst[5], va);
+            else    snprintf(det, sizeof(det), "dst=%02X:%02X:%02X:%02X:%02X:%02X",
+                             f.dst[0],f.dst[1],f.dst[2],f.dst[3],f.dst[4],f.dst[5]);
+            addEvent(0, msg, f.rssi, det);   // INFO — silent, no alert, written to CSV for DFIR
         }
         break;
     }
@@ -391,7 +475,10 @@ void WGuard::processFrame(const WgFrame& f) {
             char msg[44];
             snprintf(msg, sizeof(msg), "KARMA %02X:%02X:%02X:%02X:%02X:%02X 3+SSIDs",
                      f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
-            addEvent(1, msg, f.rssi);   // WARNING
+            char det[48] = {};
+            const char* vk = lookupOui(f.src);
+            if (vk) snprintf(det, sizeof(det), "v=%s", vk);
+            addEvent(1, msg, f.rssi, det[0] ? det : nullptr);   // WARNING
             _threatKarma++;
             notifyThrottled(NOTIF_WARNING, now);
             ke->ssidCount = 4;  // mark fired — won't re-trigger at count 3
@@ -423,10 +510,13 @@ void WGuard::processFrame(const WgFrame& f) {
             bool laMac        = (f.src[0] & 0x02) != 0;
             bool recentDeauth = (_deauthBurstCount >= 3 && (now - _deauthBurstStart) < 30000);
             char msg[44];
+            char det[48];
+            const char* v8 = lookupOui(f.src);
             if (sameOui) {
                 snprintf(msg, sizeof(msg), "CO-AP %02X:%02X:%02X:%02X:%02X:%02X same OUI",
                          f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
-                addEvent(0, msg, f.rssi);
+                if (v8) snprintf(det, sizeof(det), "v=%s", v8); else det[0] = '\0';
+                addEvent(0, msg, f.rssi, det[0] ? det : nullptr);
                 if (_evilTwinN < 8) {
                     memcpy(_evilTwinSeen[_evilTwinN], f.src, 6);
                     _evilTwinSeenTs[_evilTwinN] = now;
@@ -438,7 +528,9 @@ void WGuard::processFrame(const WgFrame& f) {
                 // positives from legitimate extenders/routers that appear during an attack.
                 snprintf(msg, sizeof(msg), "EVIL TWIN+DTH %02X:%02X:%02X:%02X:%02X:%02X",
                          f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
-                addEvent(1, msg, f.rssi);
+                if (v8) snprintf(det, sizeof(det), "Dth=%lu v=%s", (unsigned long)_cntDeauths, v8);
+                else    snprintf(det, sizeof(det), "Dth=%lu",      (unsigned long)_cntDeauths);
+                addEvent(1, msg, f.rssi, det);
                 _threatEvilTwin++;
                 notifyThrottled(NOTIF_WARNING, now);
                 if (_evilTwinN < 8) {
@@ -451,7 +543,8 @@ void WGuard::processFrame(const WgFrame& f) {
                     ? "FOREIGN AP (LA) %02X:%02X:%02X:%02X:%02X:%02X"
                     : "FOREIGN AP %02X:%02X:%02X:%02X:%02X:%02X",
                     f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
-                addEvent(0, msg, f.rssi);
+                if (v8) snprintf(det, sizeof(det), "v=%s", v8); else det[0] = '\0';
+                addEvent(0, msg, f.rssi, det[0] ? det : nullptr);
                 if (_pendingForeignN < 4) {
                     memcpy(_pendingForeign[_pendingForeignN], f.src, 6);
                     _pendingForeignTs[_pendingForeignN]   = now;
@@ -466,22 +559,32 @@ void WGuard::processFrame(const WgFrame& f) {
     case 0xFD: {  // Cloned BSSID — BSS timestamp went backward (two radios, same MAC)
         // OPEN-mode evil twins clone the exact BSSID; their beacon timestamps diverge from
         // the real AP's monotonically-increasing counter, producing a backward jump.
-        if (!_cloneFired) {
-            _cloneFired = true;
+        // _cloneFired bool ensures the very first detection fires instantly (no uptime dependency).
+        // After that, 60s cooldown prevents spam while the clone AP keeps running.
+        // A stopped-then-relaunched clone re-triggers cleanly after 60s of silence.
+        if (!_cloneFired || now - _cloneFiredTs >= 60000) {
+            _cloneFired   = true;
+            _cloneFiredTs = now;
             char msg[44];
             snprintf(msg, sizeof(msg), "BSSID CLONED %02X:%02X:%02X:%02X:%02X:%02X ts-jump",
                      f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
-            addEvent(2, msg, f.rssi);   // CRITICAL
+            char det[48] = {};
+            const char* vc = lookupOui(f.src);
+            if (vc) snprintf(det, sizeof(det), "v=%s", vc);
+            addEvent(2, msg, f.rssi, det[0] ? det : nullptr);   // CRITICAL
             _threatClone++;
             notifyThrottled(NOTIF_ALERT, now);
         }
         break;
     }
-    case 0xFE:   // Beacon flood trigger from ISR
-        addEvent(1, "BEACON FLOOD >50 APs/30s");   // no single-frame RSSI for flood
+    case 0xFE: {   // Beacon flood trigger from ISR
+        char det[48];
+        snprintf(det, sizeof(det), "Bcn=%lu", (unsigned long)_cntBeacons);
+        addEvent(1, "BEACON FLOOD 100+ APs/30s", -127, det);
         _threatBeaconFlood++;
         notifyThrottled(NOTIF_WARNING, now);
         break;
+    }
     case 0xFF: { // EAPOL
         _cntEapols++;
         if (_deauthBurstCount >= 3 && (now - _deauthBurstStart) < 30000) {
@@ -490,7 +593,10 @@ void WGuard::processFrame(const WgFrame& f) {
             if (now - _harvestFiredTs >= 30000) {
                 _harvestFiredTs = now;
                 char msg[44]; snprintf(msg, sizeof(msg), "HANDSHAKE harvest M%u", f.eapolMsg);
-                addEvent(2, msg, f.rssi);
+                char det[48];
+                snprintf(det, sizeof(det), "Dth=%lu EAP=%lu", (unsigned long)_cntDeauths, (unsigned long)_cntEapols);
+                addEvent(2, msg, f.rssi, det);
+                _threatHandshake++;
                 notifyThrottled(NOTIF_ALERT, now);
             }
             _deauthBurstCount = 0;
@@ -500,12 +606,16 @@ void WGuard::processFrame(const WgFrame& f) {
     }
 }
 
-void WGuard::addEvent(uint8_t sev, const char* msg, int8_t rssi) {
+void WGuard::addEvent(uint8_t sev, const char* msg, int8_t rssi, const char* detail) {
     WgEvent& e = _events[_evHead];
     e.ts   = millis();
     e.sev  = sev;
     e.rssi = rssi;
     strncpy(e.msg, msg, sizeof(e.msg) - 1); e.msg[sizeof(e.msg) - 1] = '\0';
+    if (detail && detail[0])
+        { strncpy(e.detail, detail, sizeof(e.detail) - 1); e.detail[sizeof(e.detail) - 1] = '\0'; }
+    else
+        e.detail[0] = '\0';
     _evHead = (_evHead + 1) % WG_EVENT_MAX;
     if (_evCount < WG_EVENT_MAX) _evCount++;
     if (sev > _maxSev) _maxSev = sev;
@@ -516,6 +626,7 @@ void WGuard::addEvent(uint8_t sev, const char* msg, int8_t rssi) {
 
 // Writes events[skipCount..evCount) to file — only NEW events since last save.
 // Timestamps are session-relative (sessionStartMs = millis() at session start).
+// detail column is log-only DFIR data (dst MAC, OUI vendor, frame counts) — never shown on screen.
 static void saveEventsToFile(const WgEvent* events, uint8_t evHead, uint8_t evCount,
                              uint8_t skipCount, uint32_t sessionStartMs, File& f) {
     for (uint8_t i = skipCount; i < evCount; i++) {
@@ -523,11 +634,12 @@ static void saveEventsToFile(const WgEvent* events, uint8_t evHead, uint8_t evCo
         const WgEvent& e = events[idx];
         uint32_t ms  = (e.ts >= sessionStartMs) ? (e.ts - sessionStartMs) : 0;
         uint32_t sec = ms / 1000;
-        f.printf("%02u:%02u:%02u,%s,%d,%s\n",
+        f.printf("%02u:%02u:%02u,%s,%d,%s,%s\n",
                  (sec / 3600) % 24, (sec / 60) % 60, sec % 60,
                  e.sev == 2 ? "CRITICAL" : (e.sev == 1 ? "WARNING" : "INFO"),
                  (int)e.rssi,
-                 e.msg);
+                 e.msg,
+                 e.detail);   // empty string if no DFIR detail
     }
     f.flush();
 }
@@ -565,7 +677,7 @@ void WGuard::initSession() {
              _bssid[0], _bssid[1], _bssid[2], _bssid[3], _bssid[4], _bssid[5],
              _channel, (unsigned long)(_sessionStartMs / 1000));
     f.print(hdr);
-    f.print("time,severity,rssi_dbm,message\n");   // CSV column header
+    f.print("time,severity,rssi_dbm,message,detail\n");   // CSV column header
     f.close();
 }
 
@@ -587,7 +699,7 @@ void WGuard::doAutoSave() {
                  (unsigned long)_cntEapols);
         f.print(hdr);
         if (newEvents > 0) {
-            f.print("time,severity,rssi_dbm,message\n");
+            f.print("time,severity,rssi_dbm,message,detail\n");
             saveEventsToFile(_events, _evHead, _evCount, _savedEvCount, _sessionStartMs, f);
         }
         f.close();
@@ -610,7 +722,7 @@ void WGuard::doCheckpoint() {
              (unsigned long)_cntAuths,   (unsigned long)_cntDeauths,
              (unsigned long)_cntEapols);
     f.print(hdr);
-    f.print("time,severity,rssi_dbm,message\n");
+    f.print("time,severity,rssi_dbm,message,detail\n");
     saveEventsToFile(_events, _evHead, _evCount, _savedEvCount, _sessionStartMs, f);
     _savedEvCount = _evCount;   // mark all current events as written
     f.close();
@@ -631,7 +743,7 @@ void WGuard::finalizeSession() {
                  (unsigned long)_cntAuths,   (unsigned long)_cntDeauths,
                  (unsigned long)_cntEapols);
         f.print(hdr);
-        f.print("time,severity,rssi_dbm,message\n");
+        f.print("time,severity,rssi_dbm,message,detail\n");
         saveEventsToFile(_events, _evHead, _evCount, _savedEvCount, _sessionStartMs, f);
     }
     uint32_t durS = (millis() - _sessionStartMs) / 1000;
@@ -643,9 +755,10 @@ void WGuard::finalizeSession() {
              (unsigned long)_cntBeacons, (unsigned long)_cntProbes,
              (unsigned long)_cntAuths,   (unsigned long)_cntDeauths,
              (unsigned long)_cntEapols);
-    f.printf("# THREATS  evil_twin=%u  deauth_storm=%u  karma=%u  clone=%u  beacon_flood=%u\n",
-             _threatEvilTwin, _threatDeauthStorm, _threatKarma,
-             _threatClone,    _threatBeaconFlood);
+    f.printf("# THREATS  evil_twin=%u  bcast_deauth=%u  deauth_storm=%u  handshake=%u  auth_flood=%u  probe_storm=%u  karma=%u  clone=%u  beacon_flood=%u\n",
+             _threatEvilTwin, _threatBcastDeauth, _threatDeauthStorm, _threatHandshake,
+             _threatAuthFlood, _threatProbeStorm,
+             _threatKarma,    _threatClone,       _threatBeaconFlood);
     f.close();
     _evHead = _evCount = _savedEvCount = 0;
 }
@@ -716,9 +829,11 @@ void WGuard::beginBackground(char* args) {
     _pendingForeignN = 0;
     _karmaN = 0;
     _cloneFired = false;
-    _threatEvilTwin = _threatDeauthStorm = _threatKarma = _threatClone = _threatBeaconFlood = 0;
+    _threatEvilTwin = _threatBcastDeauth = _threatDeauthStorm = _threatHandshake = _threatAuthFlood = _threatProbeStorm = _threatKarma = _threatClone = _threatBeaconFlood = 0;
     _harvestFiredTs = _lastWarnNotifTs = _lastAlertNotifTs = 0;
     _bcastCtrN = 0;
+    _assocCtrN = 0;
+    _cloneFiredTs = 0;
     _popupUntil = 0; _lastBgPoll = 0;
     s_head = s_tail = 0;
     s_targetTsSeen = false;
@@ -899,7 +1014,7 @@ void WGuard::runUI() {
                              (unsigned long)_cntAuths,   (unsigned long)_cntDeauths,
                              (unsigned long)_cntEapols);
                     f.print(hdr);
-                    f.print("time,severity,rssi_dbm,message\n");
+                    f.print("time,severity,rssi_dbm,message,detail\n");
                     saveEventsToFile(_events, _evHead, _evCount, _savedEvCount, _sessionStartMs, f);
                     _savedEvCount = _evCount;   // mark all current events as written
                     f.close();
@@ -1087,9 +1202,11 @@ void WGuard::run(const uint8_t* bssid, int channel, const char* ssid) {
     _pendingForeignN = 0;
     _karmaN = 0;
     _cloneFired = false;
-    _threatEvilTwin = _threatDeauthStorm = _threatKarma = _threatClone = _threatBeaconFlood = 0;
+    _threatEvilTwin = _threatBcastDeauth = _threatDeauthStorm = _threatHandshake = _threatAuthFlood = _threatProbeStorm = _threatKarma = _threatClone = _threatBeaconFlood = 0;
     _harvestFiredTs = _lastWarnNotifTs = _lastAlertNotifTs = 0;
     _bcastCtrN = 0;
+    _assocCtrN = 0;
+    _cloneFiredTs = 0;
     _bgMode = false;   // explicitly — interactive mode, not bg
     s_head = s_tail = 0;
     s_targetTsSeen = false;

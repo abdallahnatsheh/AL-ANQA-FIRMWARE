@@ -28,7 +28,9 @@ metadata:
 | 0xFE | BEACON FLOOD | 100+ unique BSSIDs / 30s window (ISR-level) | WARNING |
 | 11 | AUTH flood | 32+ unique MACs / 10s | WARNING |
 | 4 | PROBE storm | 50 probes/5s from one MAC | WARNING |
-| 0 | PMKID? | 5 rapid assoc requests/5s from one MAC | WARNING |
+| 0 | RAPID ASSOC (PMKID?) | 5 rapid assoc requests/5s from one MAC — INFO/silent, DFIR hint only | INFO |
+| 11 | AUTH FLOOD | counted by `_threatAuthFlood` — in THREATS tally | WARNING |
+| 4 | PROBE STORM | counted by `_threatProbeStorm` — in THREATS tally | WARNING |
 | 5 | KARMA | same BSSID probe-responds with 3+ different SSIDs / 60s | WARNING |
 
 ## Key Design Decisions
@@ -57,7 +59,16 @@ metadata:
 ### Session Files
 - Path: `/logs/wguard/NNN.csv` — scans SD for highest existing N, always creates new file (never overwrites)
 - Session header: `# SESSION N  wguard "SSID"  bssid=XX:XX:XX:XX:XX:XX  chN  uptime=Ns`
-- CSV columns: `time,severity,rssi_dbm,message`
+- CSV columns: `time,severity,rssi_dbm,message,detail`
+- **`detail` column is log-only DFIR data** — never shown on screen; blank for events that don't apply
+  - Targeted deauth: `dst=AA:BB:CC:DD:EE:FF Dth=42 v=Alfa` (dst MAC + frame count + OUI vendor)
+  - Broadcast deauth: `Dth=42 v=LA-MAC`
+  - Evil twin: `Dth=5 v=RPi`
+  - Handshake harvest: `Dth=20 EAP=3`
+  - Probe storm / rapid assoc: `Prb=50 v=Espressif` / `dst=... v=LA-MAC`
+  - Beacon flood: `Bcn=150`
+  - Auth flood: `Ath=32`
+  - BSSID clone / Karma / CO-AP / Foreign AP: `v=<vendor>`
 - **Timestamps are session-relative** — `(e.ts - _sessionStartMs) / 1000`. Display clock also session-relative.
 - Each save block writes only **new events since last save** — tracked by `_savedEvCount` (uint8_t). No duplicate events across blocks.
 - Per-save block header: stats snapshot `Bcn= Prb= Ath= Dth= EAP=`
@@ -90,6 +101,13 @@ All SD writes pause promiscuous (`s_active=false`), write, then resume — GDMA 
 - ISR tracks BSS timestamp (8-byte field at offset 24 in beacon frame) from target AP
 - If timestamp goes backward → two radios transmitting on same BSSID → enqueue 0xFD
 - `s_lastTargetTs` / `s_targetTsSeen` are ISR-level volatile statics
+- `_cloneFired` bool (first-ever detection fires instantly) + `_cloneFiredTs` uint32_t (60s cooldown after first). Stopped-then-relaunched clone re-triggers after 60s silence.
+
+### Association Request Tracking (DFIR hint)
+- Dedicated `_assocCtr[WG_CTR_MAX]` — isolated from `_deauthCtr` to prevent victim reconnections inflating deauth storm counter
+- Fires INFO (silent, no alert) at 5 assoc requests/5s from same MAC
+- Message: `RAPID ASSOC (PMKID?)` — written to CSV for DFIR correlation, never alerts the user
+- `WG_BSSID_MAX = 128` — beacon flood ISR array sized to reach the 100-AP trigger threshold
 
 ## WgFrame subtypes used internally
 - `0xFF` = EAPOL data frame
@@ -98,12 +116,19 @@ All SD writes pause promiscuous (`s_active=false`), write, then resume — GDMA 
 - `8` = evil twin beacon (same SSID, foreign BSSID)
 - `5` = probe response (Karma detection)
 
+### OUI Vendor Lookup (`lookupOui()`)
+- Static function, called from `processFrame()` only (not ISR-safe, not needed there)
+- LA-MAC check first: `if (mac[0] & 0x02) return "LA-MAC"` — always spoofed
+- Table covers: Alfa, Hak5, Realtek, RPi (6 OUI blocks), Espressif (22 OUI blocks including 7C:87:CE for ESP32-S3)
+- Returns `nullptr` for unknown OUIs — caller checks and omits the `v=` field from detail string
+- No lag — 34 entries, linear scan, runs once per event (not per frame)
+
 ## Ring / Event structures
 ```cpp
-struct WgEvent { uint32_t ts; uint8_t sev; int8_t rssi; char msg[44]; };
+struct WgEvent { uint32_t ts; uint8_t sev; int8_t rssi; char msg[44]; char detail[48]; };
 WG_EVENT_MAX = 128   // ring size
 WG_CTR_MAX   = 16   // per-MAC counter table size
-WG_BSSID_MAX = 32   // ISR beacon flood BSSID tracker
+WG_BSSID_MAX = 128  // ISR beacon flood BSSID tracker (needs 128 to reach 100-AP trigger)
 ```
 
 ## WgCounter (per-MAC rolling window)
