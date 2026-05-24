@@ -3,6 +3,7 @@
 #include <SD.h>
 #include <esp_wifi.h>
 #include "wifi_functions.h"
+#include "lockscreen_manager.h"
 #include "wifi_creds.h"
 #include "sdcard_manager.h"
 #include "input_handling.h"
@@ -201,6 +202,7 @@ void WiFiFunctions::scanWiFiNetworks() {
             if (k == 'l' || k == 'L') { if (currentPage < totalPages - 1) currentPage++; break; }
             if (k == 'a' || k == 'A') { if (currentPage > 0)              currentPage--; break; }
             if (k == 'q' || k == 'Q') { displayManager.printCommandScreen(); return; }
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) break;
             if (k == 'u' || k == 'U') {
                 displayManager.clearScreen();
                 displayManager.setCursor(10, outputY);
@@ -236,6 +238,7 @@ void WiFiFunctions::showWiFiResults() {
             if (k == 'l' || k == 'L') { if (currentPage < totalPages - 1) currentPage++; break; }
             if (k == 'a' || k == 'A') { if (currentPage > 0)              currentPage--; break; }
             if (k == 'q' || k == 'Q') { displayManager.printCommandScreen(); return; }
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) break;
         }
     }
 }

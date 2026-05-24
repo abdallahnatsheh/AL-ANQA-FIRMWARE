@@ -2,6 +2,7 @@
 #include <algorithm>
 #include "network_scanner.h"
 #include "input_handling.h"
+#include "lockscreen_manager.h"
 #include "task_manager.h"
 #include "utils.h"
 #include <ESP32Ping.h>
@@ -517,6 +518,7 @@ void NetworkScanner::showHostResults() {
             if (k == 'l' || k == 'L') { if (currentPage < totalPages - 1) currentPage++; break; }
             if (k == 'a' || k == 'A') { if (currentPage > 0)              currentPage--; break; }
             if (k == 'q' || k == 'Q') { displayManager.printCommandScreen(); return; }
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) break;
         }
     }
 }
@@ -584,6 +586,7 @@ void NetworkScanner::networkDiscovery() {
                 if (k == 'a' || k == 'A') { if (currentPage > 0)              currentPage--; break; }
                 if (k == 'q' || k == 'Q') { displayManager.printCommandScreen(); return; }
                 if (k == 'u' || k == 'U') { doRescan = true; break; }
+                if (LockScreenManager::getInstance().consumeJustUnlocked()) break;
             }
         }
         // doRescan == true → outer while loops back and re-runs the scan
@@ -861,6 +864,7 @@ void NetworkScanner::performPortScan(const IPAddress& targetIP, int startPort, i
                 if (bos.length() > 0) osHint = bos;
                 break;
             }
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) break;
         }
     }
 }
@@ -1011,6 +1015,7 @@ void NetworkScanner::topPortScan(char* args) {
                 if (bos.length() > 0) osHint = bos;
                 break;
             }
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) break;
         }
     }
 }

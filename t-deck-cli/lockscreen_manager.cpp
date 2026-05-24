@@ -143,6 +143,7 @@ static void drawLockHeader() {
 }
 
 void LockScreenManager::refreshDuration() {
+    displayManager.setBlocked(false);
     DisplayManager& dm = displayManager;
     uint32_t secs = (millis() - _lockedAtMs) / 1000;
     char buf[32];
@@ -158,9 +159,11 @@ void LockScreenManager::refreshDuration() {
     dm.setTextColor(0x4208); dm.println(buf);
     dm.setTextColor(TFT_WHITE);
     _lastDurRefresh = millis();
+    displayManager.setBlocked(true);
 }
 
 void LockScreenManager::drawDormant() {
+    displayManager.setBlocked(false);
     DisplayManager& dm = displayManager;
     dm.clearScreen();
     dm.setDefaultTextSize();
@@ -190,9 +193,11 @@ void LockScreenManager::drawDormant() {
 
     refreshDuration();
     dm.setTextColor(TFT_WHITE);
+    displayManager.setBlocked(true);
 }
 
 void LockScreenManager::drawPinScreen() {
+    displayManager.setBlocked(false);
     DisplayManager& dm = displayManager;
     dm.clearScreen();
     dm.setDefaultTextSize();
@@ -214,6 +219,7 @@ void LockScreenManager::drawPinScreen() {
     dm.fillRect(0, outputY + LINE_HEIGHT * 7, SCREEN_WIDTH, 1, 0x7BEF);
     refreshDuration();
     dm.setTextColor(TFT_WHITE);
+    displayManager.setBlocked(true);
 }
 
 // ── Lock / Unlock ─────────────────────────────────────────────────────────────
@@ -228,6 +234,7 @@ void LockScreenManager::lock() {
     _wrongPinMs = 0;
     _spaceCount = 0;
     _tpadHeld   = false;
+    displayManager.setBlocked(true);   // prevent apps from drawing over the lock screen
     drawDormant();
 }
 
@@ -237,16 +244,21 @@ void LockScreenManager::tryUnlock() {
         _pinActive      = false;
         _pinLen         = 0;
         _pinBuf[0]      = '\0';
-        _lastActivityMs = millis();   // prevent immediate re-lock from stale idle timer
+        _lastActivityMs = millis();
+        _justUnlocked   = true;
+        displayManager.setBlocked(false);
         displayManager.clearScreen();
+        displayManager.printCommandScreen();
     } else {
         // Flash red for 1.5 s, then redraw PIN entry
+        displayManager.setBlocked(false);
         DisplayManager& dm = displayManager;
         dm.fillRect(0, outputY + LINE_HEIGHT * 4, SCREEN_WIDTH, LINE_HEIGHT * 2, TFT_RED);
         dm.setCursor(50, outputY + LINE_HEIGHT * 4 + LINE_HEIGHT / 2);
         dm.setTextColor(TFT_WHITE);
         dm.println("!! Wrong PIN — try again");
         dm.setTextColor(TFT_WHITE);
+        displayManager.setBlocked(true);
         _wrongPinMs = millis();
         _pinLen     = 0;
         _pinBuf[0]  = '\0';
@@ -305,8 +317,11 @@ char LockScreenManager::intercept(char k, uint32_t now) {
             if (_spaceCount >= 3) {
                 _spaceCount     = 0;
                 _locked         = false;
-                _lastActivityMs = millis();   // prevent immediate re-lock from stale idle timer
+                _lastActivityMs = millis();
+                _justUnlocked   = true;
+                displayManager.setBlocked(false);
                 displayManager.clearScreen();
+                displayManager.printCommandScreen();
             } else {
                 DisplayManager& dm = displayManager;
                 dm.fillRect(0, outputY + LINE_HEIGHT * 10, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);

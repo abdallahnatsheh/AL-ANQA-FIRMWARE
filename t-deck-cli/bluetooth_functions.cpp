@@ -3,6 +3,7 @@
 #include "utils.h"
 #include "input_handling.h"
 #include "display_manager.h"
+#include "lockscreen_manager.h"
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
@@ -102,6 +103,7 @@ void BluetoothFunctions::showBleResults() {
             if (k == 'l' || k == 'L') { if (currentPage < totalPages - 1) currentPage++; break; }
             if (k == 'a' || k == 'A') { if (currentPage > 0)              currentPage--; break; }
             if (k == 'q' || k == 'Q') { displayManager.printCommandScreen(); return; }
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) break;
         }
     }
 }
@@ -226,6 +228,7 @@ void BluetoothFunctions::scanBluetoothDevices() {
             if (k == 'l' || k == 'L') { if (currentPage < totalPages - 1) currentPage++; break; }
             if (k == 'a' || k == 'A') { if (currentPage > 0) currentPage--; break; }
             if (k == 'u' || k == 'U') { needScan = true; break; }
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) break;
             if (k == 'q' || k == 'Q') {
                 pBLEScan->clearResults();
                 pBLEScan->setAdvertisedDeviceCallbacks(nullptr);

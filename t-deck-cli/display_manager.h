@@ -52,6 +52,8 @@ public:
     void setWGuardState(bool active, uint8_t maxSev);
     void redrawCommandLine(const char* cmd, int cursorPos);
     void flushSPI();   // Drain any pending LovyanGFX DMA and release SPI2 bus
+    void setBlocked(bool b) { _blocked = b; }
+    bool isBlocked() const  { return _blocked; }
 private:
     LGFX& tft;
     bool    _btActive      = false;
@@ -60,6 +62,7 @@ private:
     int32_t _cmdLineY  = outputY;
     DigitalRainAnimation<LGFX> matrix_effect = DigitalRainAnimation<LGFX>();
     void scrollIfNeeded();
+    bool _blocked = false;
 };
 
 #endif // DISPLAY_MANAGER_H

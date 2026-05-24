@@ -185,6 +185,7 @@ static void drawHeader(const char* modeLabel) {
 
 static void drawStats(int32_t statsY, uint32_t sent, uint32_t fail,
                       uint8_t ch, const char* curSsid, uint32_t rate) {
+    if (displayManager.isBlocked()) return;
     displayManager.fillRect(0, statsY, SCREEN_WIDTH, LINE_HEIGHT * 5 + 4, TFT_BLACK);
     displayManager.setCursor(4, statsY);
 

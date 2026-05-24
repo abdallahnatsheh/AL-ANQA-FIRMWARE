@@ -216,10 +216,12 @@ void DisplayManager::scrollIfNeeded() {
 }
 
 void DisplayManager::clearScreen() {
+    if (_blocked) return;
     tft.fillRect(0, promptY + promptHeight, SCREEN_WIDTH, SCREEN_HEIGHT - (promptY + promptHeight), TFT_BLACK);
 }
 
 void DisplayManager::redrawCommandLine(const char* cmd, int cursorPos) {
+    if (_blocked) return;
     tft.fillRect(0, _cmdLineY, SCREEN_WIDTH, LINE_HEIGHT + 2, TFT_BLACK);
     tft.setCursor(10, _cmdLineY);
     setDefaultTextSize();
@@ -260,57 +262,69 @@ void DisplayManager::setDefaultTextSize() {
 }
 
 void DisplayManager::printText(const char* text) {
+    if (_blocked) return;
     tft.print(text);
 }
 
 void DisplayManager::println(const char* text) {
+    if (_blocked) return;
     scrollIfNeeded();
     tft.println(text);
 }
 
 void DisplayManager::println(String text) {
+    if (_blocked) return;
     scrollIfNeeded();
     tft.println(text);
 }
 
 void DisplayManager::println(int text) {
+    if (_blocked) return;
     scrollIfNeeded();
     tft.println(text);
 }
 
 void DisplayManager::println() {
+    if (_blocked) return;
     scrollIfNeeded();
     tft.println();
 }
 
 void DisplayManager::printText(const char* text, uint16_t x, uint16_t y) {
+    if (_blocked) return;
     tft.setCursor(x, y);
     tft.print(text);
 }
 
 void DisplayManager::printText(const char* text, uint16_t x, uint16_t y, uint16_t color) {
+    if (_blocked) return;
     tft.setTextColor(color);
     tft.setCursor(x, y);
     tft.print(text);
 }
 
 void DisplayManager::printText(char incoming) {
+    if (_blocked) return;
     tft.print(incoming);
 }
 
 void DisplayManager::printText(int incoming) {
+    if (_blocked) return;
     tft.print(incoming);
 }
 
 void DisplayManager::printText(const std::string& text) {
+    if (_blocked) return;
     tft.print(text.c_str());
 }
 
 void DisplayManager::printText(const String& text) {
+    if (_blocked) return;
     tft.print(text);
 }
 
 void DisplayManager::backspaceChar() {
+    if (_blocked) return;
     int16_t x = tft.getCursorX();
     int16_t y = tft.getCursorY();
     int16_t charW = 6;
@@ -332,6 +346,7 @@ int32_t DisplayManager::getCursorY() {
 }
 
 void DisplayManager::printCommandScreen() {
+    if (_blocked) return;
     int32_t savedY = tft.getCursorY();
     updateStatusBar();
     tft.setTextColor(TFT_WHITE);
@@ -348,17 +363,20 @@ void DisplayManager::printCommandScreen() {
 }
 
 void DisplayManager::newLinePrintLn(const char* text) {
+    if (_blocked) return;
     scrollIfNeeded();
     newLine();
     tft.println(text);
 }
 
 void DisplayManager::newLinePrint(const char* text) {
+    if (_blocked) return;
     newLine();
     tft.print(text);
 }
 
 void DisplayManager::newLinePrint(char text) {
+    if (_blocked) return;
     newLine();
     tft.print(text);
 }
@@ -368,6 +386,7 @@ void DisplayManager::setCursor(uint16_t x, uint16_t y) {
 }
 
 void DisplayManager::printDefaultTableHelpInstructions() {
+    if (_blocked) return;
     setDefaultTextSize();
     auto kv = [&](const char* k, const char* label) {
         tft.setTextColor(0x7BEF); tft.print("[");
@@ -384,6 +403,7 @@ void DisplayManager::printDefaultTableHelpInstructions() {
 }
 
 void DisplayManager::printSeparator(uint16_t color) {
+    if (_blocked) return;
     int32_t y = tft.getCursorY();
     tft.fillRect(4, y + LINE_HEIGHT / 2, SCREEN_WIDTH - 8, 1, color);
     tft.setCursor(10, y + LINE_HEIGHT);
@@ -394,6 +414,7 @@ void DisplayManager::setTextColor(uint16_t color) {
 }
 
 void DisplayManager::fillRect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color) {
+    if (_blocked) return;
     tft.fillRect(x, y, w, h, color);
 }
 

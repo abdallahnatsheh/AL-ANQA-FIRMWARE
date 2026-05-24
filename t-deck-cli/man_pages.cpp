@@ -3,6 +3,7 @@
 // Copyright (C) 2026 Abdallah Natsheh
 
 #include "man_pages.h"
+#include "lockscreen_manager.h"
 #include <cctype>
 
 extern InputHandling inputHandler;
@@ -750,7 +751,7 @@ void ManPages::show(char* args) {
 
         if (key == 'q' || key == 'Q') { _dm.clearInputText(); return; }
 
-        bool redraw = false;
+        bool redraw = LockScreenManager::getInstance().consumeJustUnlocked();
 
         // Scroll within page
         if ((evt == TBALL_UP)   && scrollTop > 0) {

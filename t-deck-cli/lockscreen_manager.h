@@ -19,6 +19,7 @@ public:
     void           updateActivity();           // call on any user input to reset idle timer
     void           lock();
     bool           isLocked() const { return _locked; }
+    bool           consumeJustUnlocked() { bool v = _justUnlocked; _justUnlocked = false; return v; }
     void           cmd(char* args);
 
 private:
@@ -43,6 +44,7 @@ private:
     uint8_t  _spaceCount      = 0;       // consecutive Spaces pressed while locked (no-pwd)
 
     uint32_t _lastDurRefresh  = 0;
+    bool     _justUnlocked    = false;
 
     void  drawDormant();
     void  drawPinScreen();

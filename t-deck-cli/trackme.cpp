@@ -583,6 +583,7 @@ void TrackMeScanner::drawSdNotice(const char* msg) {
 // ── full screen redraw ────────────────────────────────────────────────────────
 void TrackMeScanner::drawScreen(ThreatLevel highestLevel,
                                  const char* alertName, uint32_t alertSec) {
+    if (dm.isBlocked()) return;
     const int RPP = 6; // rows per page
     int totalPages = (tier1Count + RPP - 1) / RPP;
     if (totalPages < 1) totalPages = 1;

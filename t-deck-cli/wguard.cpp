@@ -22,6 +22,7 @@
 #include "input_handling.h"
 #include "sdcard_manager.h"
 #include "notification_manager.h"
+#include "lockscreen_manager.h"
 #include <SD.h>
 
 extern DisplayManager displayManager;
@@ -1138,8 +1139,8 @@ void WGuard::pollBackground() {
             if (e.sev > 0)
                 NotificationManager::getInstance().notify(e.sev >= 2 ? NOTIF_ALERT : NOTIF_WARNING);
 
-            // Popup bar at bottom of screen (y=222, h=16) — only for sev>0
-            if (e.sev > 0) {
+            // Popup bar at bottom of screen — only for sev>0 and screen not locked
+            if (e.sev > 0 && !_dm.isBlocked()) {
                 uint16_t bgColor = (e.sev >= 2) ? TFT_RED : 0x9400;
                 _dm.fillRect(0, 222, 320, 16, bgColor);
                 _dm.setCursor(4, 223);
@@ -1155,7 +1156,8 @@ void WGuard::pollBackground() {
     // Expire popup
     if (_popupUntil && now >= _popupUntil) {
         _popupUntil = 0;
-        _dm.printCommandScreen();
+        if (!_dm.isBlocked())
+            _dm.printCommandScreen();
     }
 }
 
@@ -1192,12 +1194,36 @@ void WGuard::runUI() {
     int      viewOffset  = 0;   // 0 = newest events; positive = scroll into history
     uint32_t lastRefresh = 0;
     bool     forceRedraw = false;
+    bool     fullRedraw  = false;   // full header+layout redraw needed (after unlock)
     char     saveNote[48] = {};   // temporary footer message after [s]
     uint32_t saveNoteUntil = 0;  // millis() when note expires
 
     while (true) {
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
+
+        // Detect unlock — redraw full static layout so the app is restored
+        if (LockScreenManager::getInstance().consumeJustUnlocked())
+            fullRedraw = forceRedraw = true;
+
+        if (fullRedraw && !_dm.isBlocked()) {
+            fullRedraw = false;
+            _dm.clearScreen();
+            _dm.setDefaultTextSize();
+            _dm.setCursor(4, outputY);
+            _dm.setTextColor(0x7BEF);     _dm.printText("[");
+            _dm.setTextColor(TFT_CYAN);   _dm.printText("WGUARD");
+            _dm.setTextColor(0x7BEF);     _dm.printText("::");
+            _dm.setTextColor(TFT_YELLOW); _dm.printText("MONITOR");
+            _dm.setTextColor(0x7BEF);     _dm.printText("]  ch");
+            char chBuf2[4]; snprintf(chBuf2, sizeof(chBuf2), "%d", _channel);
+            _dm.setTextColor(TFT_WHITE);  _dm.printText(chBuf2);
+            _dm.setTextColor(0x4208);     _dm.printText(" . ");
+            char ssidShort2[14]; strncpy(ssidShort2, _ssid[0] ? _ssid : "<?>", 13); ssidShort2[13] = '\0';
+            _dm.setTextColor(TFT_WHITE);  _dm.printText(ssidShort2);
+            _dm.setTextColor(0x4208);     _dm.println(" . monitoring");
+            _dm.printSeparator();
+        }
 
         if (k == 's' || k == 'S') {
             // Manual save — append only NEW events to session file (GDMA: pause promisc)
@@ -1283,6 +1309,7 @@ void WGuard::runUI() {
 
         uint32_t now = millis();
         if (forceRedraw || now - lastRefresh >= 500) {
+            if (_dm.isBlocked()) { forceRedraw = false; continue; }
             lastRefresh = now;
             forceRedraw = false;
 

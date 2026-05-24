@@ -1,6 +1,7 @@
 #include "sdcard_manager.h"
 #include "utilities.h"
 #include "input_handling.h"
+#include "lockscreen_manager.h"
 #include <vector>
 
 extern InputHandling inputHandler;
@@ -251,7 +252,18 @@ void SDCardManager::listDirectory(const char* path) {
             displayManager.println("-- any key / q --");
             displayManager.setTextColor(TFT_WHITE);
             char k = 0;
-            while (k == 0) k = inputHandler.getKeyboardInput();
+            while (k == 0) {
+                k = inputHandler.getKeyboardInput();
+                if (k == 0 && LockScreenManager::getInstance().consumeJustUnlocked()) {
+                    // Unlock cleared the screen — redraw the pause indicator
+                    displayManager.clearScreen();
+                    displayManager.setCursor(10, outputY);
+                    displayManager.setTextColor(0x7BEF);    displayManager.printText("[");
+                    displayManager.setTextColor(TFT_CYAN);  displayManager.printText("SD::LS");
+                    displayManager.setTextColor(0x7BEF);    displayManager.println("] unlocked — any key / q");
+                    displayManager.setTextColor(TFT_WHITE);
+                }
+            }
             if (k == 'q' || k == 'Q') { entry.close(); quit = true; break; }
             // Redraw header for next page
             displayManager.clearScreen();
@@ -357,7 +369,10 @@ void SDCardManager::readFile(const char* path) {
     bool needsRedraw = true;
 
     while (true) {
-        if (needsRedraw) {
+        // Restore viewer after unlock
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) needsRedraw = true;
+
+        if (needsRedraw && !displayManager.isBlocked()) {
             displayManager.clearScreen();
             displayManager.setCursor(10, outputY);
 
