@@ -13,7 +13,7 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 
 **Command system** (`command_manager.cpp/h`): `registerCommand(name, shortName, fn, desc, hasArgs, category, compType=COMP_NONE)` — max 64, all one-liners in `setupCommands()`. Categories: System · WiFi · Network · Bluetooth · SD Card · Diagnostics.
 - Dispatch uses `Utils::matchesCmd(cmd, prefix)` — requires space or NUL after prefix (not bare `startsWith`). Critical: prevents `sdrm` matching `sdr`.
-- `CompType`: `COMP_NONE` (no file args) · `COMP_ANY` (ls) · `COMP_DIR` (cd) · `COMP_FILE` (sdr/srm/ux)
+- `CompType`: `COMP_NONE` (no file args) · `COMP_ANY` (ls) · `COMP_DIR` (cd) · `COMP_FILE` (cat/srm/ux)
 - History: 16-entry ring buffer in `_hist`; trackpad UP/DOWN navigates; `_histSaved` preserves in-progress line
 - Autocomplete: `'` key (Sym+K = 0x27, defined `KEY_AUTOCOMPLETE` in `input_handling.h`); fills common prefix, single match adds space, multiple lists up to 8
 
@@ -36,6 +36,17 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 - Hooked into `getKeyboardInput()` — `update()` every poll, `updateActivity()` on keypress — works globally, no per-command changes needed
 - Inactivity dim + battery-aware dim (force dim below threshold)
 - `init()` calls `tft.setBrightness()` directly · SD config: `/pwrsave.json` (key=value)
+
+**LockScreenManager** (`lockscreen_manager.cpp/h`) — singleton:
+- `intercept(k, now)` hooked at the return of `getKeyboardInput()` — swallows all keys and draws lock overlay when locked; `interceptTrackball(evt)` called in `main.ino` loop before `processTrackball` — swallows all trackball events while locked
+- Lock triggers: `lock` command (immediate) · hold trackpad center 3 s (GPIO0 LOW; `clearPendingClicks()` called before `lock()` to suppress stale TBALL_CLICK)
+- Idle auto-lock: `_timeout` seconds of no `getKeyboardInput()` activity; 0 = disabled
+- No-password mode: Space ×3 to unlock (shows `(1/3)` / `(2/3)` progress on instruction line); all trackball events are swallowed while locked
+- Recovery: remove SD card + reboot → `loadConfig()` returns false → `_hasPassword = false` → no PIN → Space ×3 unlocks. Hot-pulling SD while already locked does NOT bypass the PIN (hash stays in RAM until reboot) — intentional: prevents attacker from yanking SD to bypass lock
+- PIN mode: type PIN → Enter to confirm; wrong-PIN → 1.5 s red flash cooldown; Esc → back to dormant; up to 16 chars, any printable keyboard character
+- PIN stored as SHA-256(saltHex + pin) using mbedTLS context API; 8-byte random salt via `esp_random()`
+- Config: `/lockscreen.conf` (key=value: `timeout`, `hash`, `salt`). `saveConfig()` returns `bool` — all cmd functions check it and print yellow "No SD — active this session only" warning on false
+- Dormant screen: Nokia-style ASCII padlock art, instruction line, live locked-duration counter (HH:MM:SS, refreshed every 1 s)
 
 **EvilTwin** (`eviltwin.cpp/h`):
 - OPEN → clone exact MAC + channel; WPA2 → random LA-MAC (`(x & 0xFE) | 0x02`)
@@ -66,17 +77,18 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 - `wg <index|bssid> [ch]` interactive · `wg <index|bssid> [ch] bg` background · `wg stop` · `wg view`
 - Detects: BCAST DEAUTH · DEAUTH storm · EVIL TWIN · HANDSHAKE harvest · BSSID CLONE · BEACON FLOOD · AUTH flood · PROBE storm · PMKID grab · KARMA attack
 - Evil twin: two-tier — `_pendingForeign[]` INFO until deauths arrive → WARNING upgrade. RSSI filter > -82 dBm prevents extender false positives. 3s beacon-silence expiry on `_evilTwinSeen[]` allows re-detection after attacker restarts AP.
+- **Clock-skew fingerprint (case 0xF9)**: fires WARNING "CLOCK SKEW ANOMALY" but does NOT upgrade `_cloneWarnActive` — a rebooting AP resets BSS timestamp to ~0 which triggers both 0xFD (backward ts-jump) and 0xF9 simultaneously, indistinguishable from an evil twin. Only case 0xFA (beacon interval compression) is reliable as upgrade signal.
 - Rate limits: BCAST DEAUTH / DEAUTH storm / HANDSHAKE harvest all throttled to once per 30s per source MAC via `lastFired` field in `WgCounter`. Notification sound throttle: WARNING ≤1/10s, ALERT ≤1/5s via `notifyThrottled()`.
 - Session files: `/logs/wguard/NNN.csv` — scans SD on init to find next free number (never overwrites). Columns: `time,severity,rssi_dbm,message`. Timestamps are session-relative (`e.ts - _sessionStartMs`). Each save block writes only new events via `_savedEvCount` tracker — no duplicates. Save types: AUTO-SAVE (ring full, clears ring + resets `_savedEvCount`) · CHECKPOINT (every 2 min, skipped if nothing new) · MANUAL ([s] key, footer shows `Saved N events` / `Nothing new to save` for 2.5s) · FINAL (session end).
 - GDMA: all SD writes pause promiscuous (`s_active=false`), write, resume.
-- Background: `pollBackground()` drains ring, triggers saves, shows popup bar + shield icon in status bar.
+- Background: `pollBackground()` drains ring, triggers saves, shows popup bar + shield icon in status bar. After `doAutoSave()` clears the ring, `_lastBgHead` is reset to 0 — prevents stale popup on the next poll cycle.
 
 ## Commands
-System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv`
+System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `lock/lk`
 WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `wguard/wg` `beaconflood/bf`
 Network: `netdiscover/nd` `portscan/ps` `topscan/ts` `ping/pg`
 Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
-SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `sdread/sdr` `sdrm/srm` `sdf/sdf`
+SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `sdrm/srm` `sdf/sdf`
 Diagnostics: `gpson/gon` `gpsoff/gof` `gpstest/gt` `spktest/st` `loratest/lt`
 
 ## SD Layout
@@ -85,6 +97,7 @@ Diagnostics: `gpson/gon` `gpsoff/gof` `gpstest/gt` `spktest/st` `loratest/lt`
 `/wordlist.txt` — custom WPA crack wordlist (one password per line, ≥8 chars)
 `/pwrsave.conf` — power save config (key=value, NOT JSON)
 `/macchanger.conf` — MAC changer config (key=value)
+`/lockscreen.conf` — lock screen config (key=value: `timeout`, `hash`, `salt`)
 `/logs/` — eviltwin.csv · trackme.csv · trackme_known.csv · hidden_ssids.csv · cracked.csv
 `/logs/wguard/` — `001.csv`, `002.csv` … session files (never overwritten; new number on each boot/start)
 `/logs/hs/` — WPA handshake pcap files (`<BSSID>.cap`, libpcap format, linktype 105)

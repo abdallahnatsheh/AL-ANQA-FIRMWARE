@@ -15,7 +15,7 @@ public:
     void show(char* args);
 private:
     DisplayManager& _dm;
-    void renderPage(int idx);
+    void renderPage(int idx, int scrollTop, int total);
 };
 
 #endif // MAN_PAGES_H

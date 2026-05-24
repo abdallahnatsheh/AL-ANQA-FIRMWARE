@@ -18,11 +18,14 @@
 #define WG_BSSID_MAX   128   // ISR beacon flood tracking — needs 128 slots to reach the 100-AP trigger
 
 struct WgFrame {
-    uint8_t  subtype;   // 0xFF=EAPOL data, 0xFE=beacon flood trigger, 8=Evil Twin beacon
+    uint8_t  subtype;    // 0xFF=EAPOL, 0xFE=bcn flood, 0xFD=ts-jump clone,
+                         // 0xFB=seq gap, 0xFA=bcn interval compress, 0xF9=clock skew,
+                         // 8=foreign same-SSID, 12=deauth, 11=auth, 4=probe, 5=probe-resp, 0=assoc
     uint8_t  src[6];
     uint8_t  dst[6];
     char     ssid[33];
-    uint8_t  eapolMsg;
+    uint8_t  eapolMsg;   // EAPOL msg (1-4); deauth reason code for subtype 12; gap size for 0xFB
+    uint16_t seqNum;     // beacon seq number (target-BSSID beacons only, for gap detection)
     int8_t   rssi;
 };
 
@@ -93,6 +96,8 @@ private:
 
     uint32_t _deauthBurstStart;
     uint32_t _deauthBurstCount;
+    uint32_t _bcastBurstStart;   // rolling window for broadcast-only deauths
+    uint32_t _bcastBurstCount;   // used by HANDSHAKE harvest — bcast deauths only
 
     uint8_t  _recentProbers[WG_CTR_MAX][6];
     uint8_t  _recentProberN;
@@ -131,6 +136,21 @@ private:
     uint8_t      _threatKarma;       // count of KARMA events fired
     uint8_t      _threatClone;       // count of BSSID CLONED events fired
     uint8_t      _threatBeaconFlood; // count of BEACON FLOOD events fired
+    uint8_t      _threatSeqGap;      // count of SEQ NUMBER GAP events fired
+    uint8_t      _threatBiCompress;  // count of BEACON INTERVAL COMPRESSED events fired
+    uint8_t      _threatClockSkew;   // count of CLOCK SKEW ANOMALY events fired
+
+    // ── Multi-signal clone upgrade state ─────────────────────────────────
+    bool         _cloneWarnActive  = false;  // 0xFD fired WARNING — watching for upgrade signal
+    uint32_t     _cloneWarnTs      = 0;
+    int8_t       _cloneWarnRssi    = -127;
+
+    // ── New detection cooldowns ────────────────────────────────────────────
+    uint32_t     _seqGapFiredTs    = 0;      // millis() of last SEQ GAP event (60s cooldown)
+    bool         _biCompressFired  = false;
+    uint32_t     _biCompressFiredTs = 0;     // millis() of last INTERVAL COMPRESSED (30s cooldown)
+    bool         _clkSkewFired     = false;
+    uint32_t     _clkSkewFiredTs   = 0;      // millis() of last CLOCK SKEW event (60s cooldown)
 
     void initSession();              // create session file, write header
     void doAutoSave();               // flush ring → file, clear ring (ring-full path)
@@ -153,7 +173,8 @@ private:
     static void IRAM_ATTR rxCallback(void* buf, wifi_promiscuous_pkt_type_t type);
     static void IRAM_ATTR extractSSID(const uint8_t* d, uint16_t len, uint8_t subtype, char* out);
     static void IRAM_ATTR enqueue(uint8_t sub, const uint8_t* src, const uint8_t* dst,
-                                  const char* ssid, uint8_t eapolMsg, int8_t rssi);
+                                  const char* ssid, uint8_t eapolMsg, int8_t rssi,
+                                  uint16_t seqNum = 0);
 
     static volatile WgFrame  s_ring[WG_RING_SIZE];
     static volatile uint8_t  s_head;
@@ -166,8 +187,26 @@ private:
     static volatile uint8_t  s_bssidSeenN;
     static volatile uint32_t s_bssidFloodStart;
     static volatile bool     s_bssidFloodFired;
-    static volatile uint64_t s_lastTargetTs;    // BSS timestamp from last target beacon
+    static volatile uint64_t s_lastTargetTs;      // BSS timestamp from last target beacon
     static volatile bool     s_targetTsSeen;
+
+    // ── Beacon sequence number gap (ISR) ──────────────────────────────────
+    static volatile uint16_t s_lastBeaconSeq;
+    static volatile bool     s_beaconSeqSeen;
+
+    // ── Beacon interval compression (ISR) ────────────────────────────────
+    static volatile uint32_t s_lastBeaconMs;
+    static volatile uint32_t s_biSum;
+    static volatile uint8_t  s_biSamples;    // 0–20 = learning; 20 = baseline locked
+    static volatile uint32_t s_biBaseline;   // learned mean inter-beacon ms (~102)
+    static volatile bool     s_biLearned;
+
+    // ── Clock skew slope fingerprinting (ISR collects, one-time slope computation) ──
+    static volatile uint64_t s_csTs[20];     // BSS timestamps of target-BSSID beacons
+    static volatile uint32_t s_csArr[20];    // millis() at receipt
+    static volatile uint8_t  s_csCount;      // filled slots; ≥20 = slope computed
+    static volatile uint32_t s_csSlopeNumer; // µs per ms, should be ~1000 for real AP
+    static volatile bool     s_csSlopeLearned;
 };
 
 #endif // WGUARD_H

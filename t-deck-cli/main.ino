@@ -21,6 +21,7 @@
 #include "usb_manager.h"
 #include "notification_manager.h"
 #include "wguard.h"
+#include "lockscreen_manager.h"
 
 LGFX tft;
 DisplayManager   displayManager(tft);
@@ -54,6 +55,7 @@ void setup() {
 
     MacChanger::getInstance().begin();
     PowerSaveManager::getInstance().init(&batteryManager);
+    LockScreenManager::getInstance().init();
     usbManager.begin();
     NotificationManager::getInstance().begin();
     NotificationManager::getInstance().setWakeCallback([]() {
@@ -68,5 +70,6 @@ void loop() {
     commandManager.processInput(input);
 
     TrackballEvent evt = inputHandler.getTrackballEvent();
+    evt = LockScreenManager::getInstance().interceptTrackball(evt);
     commandManager.processTrackball(evt);
 }

@@ -81,6 +81,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 **🖥️ System** — [full guide](docs/system.md)
 - Man pages on-device (`man <cmd>`), paginated help, power save, Matrix animation
 - Trackpad cursor — move cursor mid-command, click to execute
+- **Lock screen** (`lock`) — [full guide](docs/lock.md) — idle-timeout auto-lock (keyboard **and** trackpad activity both reset the timer); hold trackpad center 3 s to lock from any app; no-PIN mode (Space ×3) or SHA-256 hashed PIN; live locked-duration counter; warns if no SD card; forgot PIN → remove SD + reboot
 
 ---
 
@@ -120,6 +121,7 @@ git clone https://github.com/abdallahnatsheh/T-Rex
 | `show` | `sh` | `<wifi\|ble\|hosts>` | Re-display last scan without rescanning |
 | `clear` | `clr` | — | Clear screen |
 | `pwrsave` | `psv` | `[status\|on\|off\|set ...]` | Power save config |
+| `lock` | `lk` | `[new\|update\|clean\|timeout <s>\|status]` | Screen lock — PIN optional; hold trackpad 3 s or run `lock` to lock |
 | **WiFi** | | | |
 | `scanwifi` | `sw` | — | Scan WiFi networks |
 | `connectwifi` | `cw` | `<index\|ssid>` | Connect by scan index or SSID name |
@@ -150,7 +152,7 @@ git clone https://github.com/abdallahnatsheh/T-Rex
 | `sdinfo` | `sdi` | — | SD card info |
 | `sdls` | `ls` | `[path]` | List directory (CWD if no path, paginated, dirs in cyan) |
 | `cd` | `cd` | `<dir\|..>` | Change working directory — `cd badusb`, `cd ..`, `cd /` |
-| `sdread` | `sdr` | `<path>` | Read file (relative to CWD) |
+| `cat` | `cat` | `<path>` | Read file — scrollable viewer, tpad UP/DN, `q` quit |
 | `sdrm` | `srm` | `<path>` | Delete file (relative to CWD) |
 | **USB** | | | |
 | `usbmsc` | `um` | — | Expose SD card as USB Mass Storage drive |
@@ -189,7 +191,7 @@ All scan tables share the same keys:
 **Autocomplete:** Press `'` (Sym+K) at any point in a command.
 - At the start → completes command names (`scan` + `'` shows `scanwifi`, `scanblue`)
 - After a command name → completes file/dir paths from the current working directory
-- Smart filtering: `cd` suggests dirs only, `sdr`/`srm`/`ux` suggest files only, `ls` suggests both
+- Smart filtering: `cd` suggests dirs only, `srm`/`ux` suggest files only, `ls`/`cat` suggest both files and dirs
 - Fills common prefix automatically (Linux-style); single match adds a trailing space
 
 ---
@@ -202,6 +204,7 @@ All scan tables share the same keys:
 /wordlist.txt         — custom WPA crack wordlist (one password per line, ≥8 chars)
 /pwrsave.conf         — power save config (key=value)
 /macchanger.conf      — MAC changer config (key=value)
+/lockscreen.conf      — lock screen config (timeout, PIN hash+salt)
 /signatures.csv       — custom BLE tracker signatures
 /logs/                — eviltwin.csv, trackme.csv, hidden_ssids.csv, cracked.csv, fastpair.csv
 /logs/wguard/         — wguard session files (001.csv, 002.csv … — never overwritten)
@@ -237,6 +240,7 @@ All scan tables share the same keys:
 - [x] BadUSB / DuckyScript — Flipper Zero DuckyScript v1 compatible, hyphenated combos, REPEAT, built-in demo
 - [x] `wguard` WiFi IDS — deauth flood, evil twin (two-tier RSSI-filtered detection), handshake harvest, PMKID grab, auth flood, probe storm, beacon flood, BSSID cloning, Karma attack; background mode with shield icon + popup bars; session CSV logs (session-relative timestamps, no duplicate events across save blocks)
 - [x] Notification manager — I2S WAV playback from SD, per-level volume, screen wake callback; wired into Buddy, TrackMe, wguard
+- [x] Lock screen — idle-timeout auto-lock (keyboard + trackpad both reset timer) + hold-trackpad-3s trigger; no-PIN (Space ×3) or SHA-256-hashed PIN (salt via esp_random, mbedTLS); live locked-duration HH:MM:SS; yellow warning when no SD card; recovery = remove SD + reboot
 - [ ] LoRa packet logger
 - [ ] MAC proximity watchlist
 - [ ] DNS enumeration

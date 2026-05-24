@@ -19,6 +19,7 @@ class SDCardManager {
 public:
     SDCardManager(DisplayManager& displayManager);
     bool begin();
+    bool tryReinit();    // attempt hot-insert mount; no-op if already ready
     bool isReady() const;
     bool canAccessSD() const;   // false while USB MSC/HID is active
     void lockSD(bool lock);     // called by USBManager

@@ -1,6 +1,7 @@
 #include "sdcard_manager.h"
 #include "utilities.h"
 #include "input_handling.h"
+#include <vector>
 
 extern InputHandling inputHandler;
 
@@ -309,54 +310,111 @@ void SDCardManager::readFile(const char* path) {
     path = resolved;
 
     File file = SD.open(path);
-    if (!file) {
+    if (!file || file.isDirectory()) {
         displayManager.setCursor(10, displayManager.getCursorY());
         displayManager.printText("Not found: ");
         displayManager.println(path);
         displayManager.printCommandScreen();
+        if (file) file.close();
         return;
     }
 
-    displayManager.setCursor(10, displayManager.getCursorY());
-    displayManager.setTextColor(TFT_YELLOW);
-    displayManager.println(path);
-    displayManager.setTextColor(TFT_WHITE);
-
-    const int linesPerPage = 10;
-    String lines[linesPerPage];
-    int lineCount = 0;
-    int pageNum   = 0;
-
-    while (file.available()) {
-        lines[lineCount++] = file.readStringUntil('\n');
-
-        if (lineCount == linesPerPage) {
-            if (pageNum > 0) {
-                displayManager.setTextColor(TFT_GREEN);
-                displayManager.println("-- any key = next, q = quit --");
-                displayManager.setTextColor(TFT_WHITE);
-                char k = 0;
-                while (k == 0) k = inputHandler.getKeyboardInput();
-                if (k == 'q' || k == 'Q') { file.close(); displayManager.printCommandScreen(); return; }
-                displayManager.clearScreen();
-                displayManager.setCursor(10, outputY);
-            }
-            for (int i = 0; i < linesPerPage; i++) {
-                displayManager.setCursor(10, displayManager.getCursorY());
-                displayManager.println(lines[i]);
-            }
-            lineCount = 0;
-            pageNum++;
-        }
+    // ── Read all lines into RAM (capped at 400) ───────────────────────────────
+    const int MAX_LINES = 400;
+    std::vector<String> lines;
+    lines.reserve(32);
+    while (file.available() && (int)lines.size() < MAX_LINES) {
+        String s = file.readStringUntil('\n');
+        // strip Windows \r
+        if (s.length() > 0 && s[s.length() - 1] == '\r') s.remove(s.length() - 1);
+        lines.push_back(s);
     }
-
-    for (int i = 0; i < lineCount; i++) {
-        displayManager.setCursor(10, displayManager.getCursorY());
-        displayManager.println(lines[i]);
-    }
-
+    bool truncated = file.available();
     file.close();
-    displayManager.printCommandScreen();
+
+    if (lines.empty()) {
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.println("(empty file)");
+        displayManager.printCommandScreen();
+        return;
+    }
+
+    // ── Viewer state ──────────────────────────────────────────────────────────
+    const int CAT_VISIBLE = 9;
+    int total     = (int)lines.size();
+    int scrollTop = 0;
+
+    // Build short display name (truncate if > 20 chars)
+    const char* fname = strrchr(path, '/');
+    fname = fname ? fname + 1 : path;
+    char fdisp[24];
+    if (strlen(fname) > 20) {
+        strncpy(fdisp, fname, 17); fdisp[17] = '\0'; strcat(fdisp, "...");
+    } else {
+        strncpy(fdisp, fname, sizeof(fdisp) - 1); fdisp[sizeof(fdisp) - 1] = '\0';
+    }
+
+    bool needsRedraw = true;
+
+    while (true) {
+        if (needsRedraw) {
+            displayManager.clearScreen();
+            displayManager.setCursor(10, outputY);
+
+            // ── Header ───────────────────────────────────────────────────────
+            displayManager.setTextColor(0x7BEF);    displayManager.printText("[");
+            displayManager.setTextColor(TFT_CYAN);  displayManager.printText("CAT");
+            displayManager.setTextColor(0x7BEF);    displayManager.printText("] ");
+            displayManager.setTextColor(TFT_YELLOW);displayManager.printText(fdisp);
+            char lnbuf[20];
+            snprintf(lnbuf, sizeof(lnbuf), truncated ? "  %d+ ln" : "  %d ln", total);
+            displayManager.setTextColor(0x7BEF);    displayManager.println(lnbuf);
+            displayManager.printSeparator();
+
+            int contentTop = displayManager.getCursorY();
+            int y          = contentTop;
+
+            // ── Content lines ─────────────────────────────────────────────────
+            for (int i = scrollTop; i < scrollTop + CAT_VISIBLE && i < total; i++) {
+                displayManager.setCursor(10, y);
+                displayManager.setTextColor(TFT_WHITE);
+                displayManager.println(lines[i].c_str());
+                y += LINE_HEIGHT;
+            }
+
+            // ── Scrollbar ─────────────────────────────────────────────────────
+            if (total > CAT_VISIBLE) {
+                int barX   = SCREEN_WIDTH - 5;
+                int barH   = CAT_VISIBLE * LINE_HEIGHT;
+                int thumbH = max(4, barH * CAT_VISIBLE / total);
+                int maxTop = total - CAT_VISIBLE;
+                int thumbY = contentTop + (maxTop > 0
+                                ? (barH - thumbH) * scrollTop / maxTop : 0);
+                displayManager.fillRect(barX, contentTop, 3, barH,   0x2104);
+                displayManager.fillRect(barX, thumbY,     3, thumbH, TFT_CYAN);
+            }
+
+            // ── Nav bar ───────────────────────────────────────────────────────
+            int navY = contentTop + CAT_VISIBLE * LINE_HEIGHT + 2;
+            displayManager.fillRect(5, navY, 310, 1, TFT_CYAN);
+            displayManager.setCursor(10, navY + 3);
+            displayManager.setTextColor(0x7BEF);    displayManager.printText("tpad ");
+            displayManager.setTextColor(TFT_GREEN); displayManager.printText("UP/DN");
+            displayManager.setTextColor(0x7BEF);    displayManager.printText(" scroll  [");
+            displayManager.setTextColor(TFT_GREEN); displayManager.printText("q");
+            displayManager.setTextColor(0x7BEF);    displayManager.printText("] quit");
+            displayManager.setTextColor(TFT_WHITE);
+
+            needsRedraw = false;
+        }
+
+        char           k   = inputHandler.getKeyboardInput();
+        TrackballEvent evt = inputHandler.getTrackballEvent();
+
+        if (k == 'q' || k == 'Q') { displayManager.clearInputText(); return; }
+        if (evt == TBALL_UP   && scrollTop > 0)                   { scrollTop--; needsRedraw = true; }
+        if (evt == TBALL_DOWN && scrollTop < total - CAT_VISIBLE) { scrollTop++; needsRedraw = true; }
+    }
 }
 
 bool SDCardManager::removeFile(const char* path) {

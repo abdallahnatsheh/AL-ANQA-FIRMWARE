@@ -200,3 +200,78 @@ void UsbKeyboard::start() {
     vTaskDelay(pdMS_TO_TICKS(1500));
     dm.printCommandScreen();
 }
+
+// ── jiggle() ──────────────────────────────────────────────────────────────────
+// Nudges mouse +2px right then -2px left every 30s to prevent screen lock.
+// Cursor returns to its original position — imperceptible to the target user.
+void UsbKeyboard::jiggle() {
+    static const uint32_t INTERVAL_MS = 30000;
+
+    DisplayManager& dm = displayManager;
+
+    dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+    dm.setTextColor(0x7BEF);     dm.printText("[");
+    dm.setTextColor(TFT_CYAN);   dm.printText("USB");
+    dm.setTextColor(0x7BEF);     dm.printText("::");
+    dm.setTextColor(TFT_GREEN);  dm.printText("JIGGLE");
+    dm.setTextColor(0x7BEF);     dm.println("]");
+    dm.printSeparator();
+
+    if (!usbManager.isConnected()) {
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(TFT_RED);  dm.println("Not connected to PC.");
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(0x7BEF);   dm.println("Plug in USB cable first.");
+        vTaskDelay(pdMS_TO_TICKS(2500));
+        dm.printCommandScreen(); return;
+    }
+
+    dm.setCursor(10, dm.getCursorY());
+    dm.setTextColor(TFT_WHITE);  dm.println("Jiggling every 30s.");
+    dm.setCursor(10, dm.getCursorY());
+    dm.setTextColor(0x7BEF);     dm.println("Press q to stop.");
+    dm.printSeparator();
+    int statusY = dm.getCursorY();
+
+    uint32_t lastJiggleMs = millis() - INTERVAL_MS; // jiggle immediately on start
+    uint32_t lastDisplayMs = 0;
+    uint32_t jiggles = 0;
+
+    while (true) {
+        uint32_t now = millis();
+
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') break;
+
+        if (now - lastJiggleMs >= INTERVAL_MS) {
+            lastJiggleMs = now;
+            _mouse.move(2, 0, 0);
+            vTaskDelay(pdMS_TO_TICKS(80));
+            _mouse.move(-2, 0, 0);
+            jiggles++;
+        }
+
+        if (now - lastDisplayMs >= 250) {
+            lastDisplayMs = now;
+            uint32_t secsLeft = (INTERVAL_MS - (now - lastJiggleMs)) / 1000;
+            dm.fillRect(0, statusY, SCREEN_WIDTH, LINE_HEIGHT * 2, TFT_BLACK);
+            dm.setCursor(10, statusY);
+            dm.setTextColor(TFT_CYAN);  dm.printText("Next jiggle in ");
+            dm.setTextColor(TFT_YELLOW);
+            char buf[8]; snprintf(buf, sizeof(buf), "%lus", secsLeft);
+            dm.println(buf);
+            dm.setCursor(10, statusY + LINE_HEIGHT);
+            dm.setTextColor(TFT_CYAN);  dm.printText("Jiggles: ");
+            dm.setTextColor(TFT_WHITE);
+            snprintf(buf, sizeof(buf), "%lu", jiggles);
+            dm.println(buf);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+
+    dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+    dm.setTextColor(TFT_GREEN); dm.println("Jiggler stopped.");
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    dm.printCommandScreen();
+}

@@ -14,8 +14,9 @@ extern USBHIDKeyboard g_hid_keyboard;
 
 class UsbKeyboard {
 public:
-    void begin();  // Register HID descriptors with TinyUSB — must be called before USB.begin()
-    void start();  // usbkbd/uk — T-DECK keyboard+trackball as USB keyboard+mouse, blocks until exit
+    void begin();   // Register HID descriptors with TinyUSB — must be called before USB.begin()
+    void start();   // usbkbd/uk — T-DECK keyboard+trackball as USB keyboard+mouse, blocks until exit
+    void jiggle();  // jiggle/jg — mouse jiggler, nudges cursor every 30s to prevent screen lock
 
 private:
     USBHIDMouse _mouse;

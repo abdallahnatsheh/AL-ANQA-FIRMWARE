@@ -13,6 +13,7 @@ public:
     void begin();
     char           getKeyboardInput();
     TrackballEvent getTrackballEvent();
+    void           clearPendingClicks();
     uint32_t getLastActivityTime() const { return lastActivityTime; }
     void updateActivity() { lastActivityTime = millis(); }
 

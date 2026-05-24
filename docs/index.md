@@ -33,6 +33,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 | [Anti-Tracking](trackme) | Full trackme algorithm guide — baseline, gates, GPS, alerts |
 | [USB Gadget](usb) | usbmsc — SD as USB drive · usbkbd — T-Deck as keyboard+mouse |
 | [Audio & Notifications](audio) | vol, notif levels, custom MP3 per level, spktest |
+| [Lock Screen](lock) | Idle timeout, trackpad-hold lock, no-PIN and PIN modes, recovery |
 | [System](system) | Trackpad, help, man pages, pwrsave, SD commands, diagnostics |
 | [SD Card](sdcard) | File layout, auto-created files, optional files, quick-start checklist |
 

@@ -1,6 +1,22 @@
 // T-REX — offensive security firmware for LilyGo T-DECK
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Abdallah Natsheh
+//
+// WGuard detection techniques based on published research:
+//   Clock skew fingerprinting:
+//     Lanze et al., "Clock Skew Based Remote Device Fingerprinting Demystified",
+//     IEEE S&P 2012. https://ieeexplore.ieee.org/document/6234403
+//   Beacon sequence number gap / interval deviation:
+//     Jana & Kasera, "An Accurate Fake AP Detection Method Based on Deviation of
+//     Beacon Time Interval", IEEE IPCCC 2010. https://ieeexplore.ieee.org/document/6901631
+//     Park et al., "Rogue AP detection mechanism considering sequence number of
+//     beacon frame", 2017. https://doi.org/10.1007/s11042-017-4514-5
+//   Deauth reason code analysis:
+//     Al-Mhiqani et al., "Detection of De-authentication DoS attack in 802.11
+//     networks", ResearchGate 2014.
+//   Multi-signal suspicion scoring:
+//     Arubanetworks WIDS/WIPS detection guide,
+//     https://arubanetworking.hpe.com/techdocs/aos/wifi-design-deploy/security/wids-wips/
 
 #include "wguard.h"
 #include "input_handling.h"
@@ -25,8 +41,23 @@ volatile uint8_t  WGuard::s_bssidSeen[WG_BSSID_MAX][6] = {};
 volatile uint8_t  WGuard::s_bssidSeenN      = 0;
 volatile uint32_t WGuard::s_bssidFloodStart = 0;
 volatile bool     WGuard::s_bssidFloodFired = false;
-volatile uint64_t WGuard::s_lastTargetTs    = 0;
-volatile bool     WGuard::s_targetTsSeen    = false;
+volatile uint64_t WGuard::s_lastTargetTs     = 0;
+volatile bool     WGuard::s_targetTsSeen     = false;
+
+volatile uint16_t WGuard::s_lastBeaconSeq   = 0;
+volatile bool     WGuard::s_beaconSeqSeen   = false;
+
+volatile uint32_t WGuard::s_lastBeaconMs    = 0;
+volatile uint32_t WGuard::s_biSum           = 0;
+volatile uint8_t  WGuard::s_biSamples       = 0;
+volatile uint32_t WGuard::s_biBaseline      = 0;
+volatile bool     WGuard::s_biLearned       = false;
+
+volatile uint64_t WGuard::s_csTs[20]        = {};
+volatile uint32_t WGuard::s_csArr[20]       = {};
+volatile uint8_t  WGuard::s_csCount         = 0;
+volatile uint32_t WGuard::s_csSlopeNumer    = 0;
+volatile bool     WGuard::s_csSlopeLearned  = false;
 
 // ── ISR helpers ───────────────────────────────────────────────────────────────
 
@@ -47,7 +78,8 @@ void IRAM_ATTR WGuard::extractSSID(const uint8_t* d, uint16_t len, uint8_t subty
 }
 
 void IRAM_ATTR WGuard::enqueue(uint8_t sub, const uint8_t* src, const uint8_t* dst,
-                                const char* ssid, uint8_t eapolMsg, int8_t rssi) {
+                                const char* ssid, uint8_t eapolMsg, int8_t rssi,
+                                uint16_t seqNum) {
     uint8_t next = (s_head + 1) % WG_RING_SIZE;
     if (next == s_tail) return;
     WgFrame& slot = (WgFrame&)s_ring[s_head];
@@ -57,6 +89,7 @@ void IRAM_ATTR WGuard::enqueue(uint8_t sub, const uint8_t* src, const uint8_t* d
     slot.ssid[0]  = '\0';
     if (ssid) { uint8_t i = 0; while (i < 32 && ssid[i]) { slot.ssid[i] = ssid[i]; i++; } slot.ssid[i] = '\0'; }
     slot.eapolMsg = eapolMsg;
+    slot.seqNum   = seqNum;
     slot.rssi     = rssi;
     s_head = next;
 }
@@ -80,16 +113,83 @@ void IRAM_ATTR WGuard::rxCallback(void* buf, wifi_promiscuous_pkt_type_t pktType
         if (subtype == 8) {
             s_isrBeacons++;
 
-            // ── Cloned BSSID: BSS timestamp backward jump ─────────────────────
-            // Two physical radios can't stay in sync — one will have a lower timestamp.
+            // ── Target BSSID beacon analysis ──────────────────────────────────
             if (memcmp(addr2, (const void*)s_bssid, 6) == 0 && len >= 32) {
                 uint64_t bssTs = 0;
                 for (uint8_t ti = 0; ti < 8; ti++) bssTs |= (uint64_t)d[24 + ti] << (ti * 8);
+                uint32_t nowMs = millis();
+
+                // [1] Backward timestamp jump — two radios on same BSSID can't stay in sync.
+                //     Ref: Jana & Kasera, IEEE IPCCC 2010.
                 if (s_targetTsSeen && bssTs < s_lastTargetTs) {
-                    enqueue(0xFD, addr2, addr1, "", 0, rssi);
+                    enqueue(0xFD, addr2, addr1, "", 0, rssi, 0);
                 }
                 s_lastTargetTs = bssTs;
                 s_targetTsSeen = true;
+
+                // [2] Beacon sequence number gap — clone AP runs its own counter; interleaved
+                //     beacons create apparent gaps > 1 in the observed stream.
+                //     Ref: Park et al., 2017.
+                uint16_t seqNum = (uint16_t)(((uint16_t)d[22] | ((uint16_t)d[23] << 8)) >> 4);
+                if (s_beaconSeqSeen) {
+                    uint16_t expected = (s_lastBeaconSeq + 1) & 0x0FFF;
+                    uint16_t gap = (seqNum >= expected)
+                                 ? (seqNum - expected)
+                                 : (uint16_t)(0x1000u + seqNum - expected);
+                    if (gap > 10 && gap < 0x0F00u) {  // >10 gap, ignore near-full wraps
+                        enqueue(0xFB, addr2, addr1, "", (uint8_t)(gap > 255 ? 255 : gap), rssi, seqNum);
+                    }
+                }
+                s_lastBeaconSeq = seqNum;
+                s_beaconSeqSeen = true;
+
+                // [3] Beacon interval compression — two radios on same BSSID double the observed
+                //     beacon rate, halving the inter-arrival time vs the learned baseline.
+                //     Ref: Jana & Kasera, IEEE IPCCC 2010.
+                if (s_lastBeaconMs > 0) {
+                    uint32_t interval = nowMs - s_lastBeaconMs;
+                    if (!s_biLearned) {
+                        if (interval > 50 && interval < 500) {  // valid beacon interval
+                            s_biSum += interval;
+                            s_biSamples++;
+                            if (s_biSamples == 20) {
+                                s_biBaseline = s_biSum / 20;
+                                s_biLearned  = true;
+                            }
+                        }
+                    } else if (interval > 10 && interval < s_biBaseline / 2) {
+                        enqueue(0xFA, addr2, addr1, "", 0, rssi, seqNum);
+                    }
+                }
+                s_lastBeaconMs = nowMs;
+
+                // [4] Clock skew slope fingerprinting — each radio's crystal oscillator drifts
+                //     at a unique rate. After a 20-beacon baseline, deviations >2s from the
+                //     predicted BSS timestamp indicate a different physical transmitter.
+                //     Ref: Lanze et al., IEEE S&P 2012.
+                if (s_csCount < 20) {
+                    s_csTs[s_csCount]  = bssTs;
+                    s_csArr[s_csCount] = nowMs;
+                    s_csCount++;
+                    if (s_csCount == 20) {
+                        uint64_t dtTs = bssTs - s_csTs[0];
+                        uint32_t dtMs = nowMs  - s_csArr[0];
+                        if (dtMs > 0) {
+                            s_csSlopeNumer   = (uint32_t)(dtTs / dtMs);  // µs per ms (~1000)
+                            s_csSlopeLearned = true;
+                        }
+                    }
+                } else if (s_csSlopeLearned) {
+                    uint32_t elapsed   = nowMs - s_csArr[0];
+                    uint64_t predicted = s_csTs[0] + (uint64_t)s_csSlopeNumer * elapsed;
+                    uint64_t deviation = (bssTs > predicted) ? (bssTs - predicted)
+                                                              : (predicted - bssTs);
+                    if (deviation > 2000000ULL) {   // >2s deviation = different oscillator
+                        enqueue(0xF9, addr2, addr1, "", 0, rssi, seqNum);
+                        s_csCount        = 0;        // re-baseline after detection
+                        s_csSlopeLearned = false;
+                    }
+                }
             }
 
             // ── Beacon flood: track unique BSSIDs in 30s window ──────────────
@@ -124,7 +224,13 @@ void IRAM_ATTR WGuard::rxCallback(void* buf, wifi_promiscuous_pkt_type_t pktType
         bool fromUs  = memcmp(addr2, (const void*)s_bssid, 6) == 0;
         bool bssidOk = memcmp(addr3, (const void*)s_bssid, 6) == 0;
 
-        if      (subtype == 12 && (toUs || fromUs || bssidOk)) enqueue(12, addr2, addr1, "", 0, rssi);
+        if      (subtype == 12 && (toUs || fromUs || bssidOk)) {
+            // Extract reason code (bytes 24-25 of deauth body) for DFIR enrichment.
+            // Attack tools typically use rc=1 (unspecified) or rc=2 (prev auth invalid).
+            // Ref: Al-Mhiqani et al., "Detection of De-authentication DoS attack", 2014.
+            uint8_t rc = (len >= 26) ? d[24] : 1;
+            enqueue(12, addr2, addr1, "", rc, rssi, 0);
+        }
         else if (subtype == 11 && (toUs || bssidOk))           enqueue(11, addr2, addr1, "", 0, rssi);
         else if (subtype ==  0 && (toUs || bssidOk))           enqueue(0,  addr2, addr1, "", 0, rssi);
         else if (subtype ==  4) {
@@ -305,6 +411,10 @@ void WGuard::processFrame(const WgFrame& f) {
         _deauthBurstCount++;
 
         bool isBcast = (f.dst[0] == 0xFF && f.dst[1] == 0xFF && f.dst[2] == 0xFF);
+        if (isBcast) {
+            if (now - _bcastBurstStart > 30000) { _bcastBurstStart = now; _bcastBurstCount = 0; }
+            _bcastBurstCount++;
+        }
 
         if (isBcast) {
             // Broadcast deauth — always malicious (legit APs only deauth specific clients).
@@ -322,8 +432,8 @@ void WGuard::processFrame(const WgFrame& f) {
                                  f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
                         char det[48];
                         const char* vb = lookupOui(f.src);
-                        if (vb) snprintf(det, sizeof(det), "Dth=%lu v=%s", (unsigned long)_cntDeauths, vb);
-                        else    snprintf(det, sizeof(det), "Dth=%lu",      (unsigned long)_cntDeauths);
+                        if (vb) snprintf(det, sizeof(det), "rc=%u Dth=%lu v=%s", f.eapolMsg, (unsigned long)_cntDeauths, vb);
+                        else    snprintf(det, sizeof(det), "rc=%u Dth=%lu",       f.eapolMsg, (unsigned long)_cntDeauths);
                         addEvent(1, msg, f.rssi, det);
                         _threatBcastDeauth++;
                         notifyThrottled(NOTIF_WARNING, now);
@@ -343,11 +453,11 @@ void WGuard::processFrame(const WgFrame& f) {
                              f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
                     char det[48];
                     const char* vt = lookupOui(f.src);
-                    if (vt) snprintf(det, sizeof(det), "dst=%02X:%02X:%02X:%02X:%02X:%02X Dth=%lu v=%s",
-                                     f.dst[0],f.dst[1],f.dst[2],f.dst[3],f.dst[4],f.dst[5],
+                    if (vt) snprintf(det, sizeof(det), "dst=%02X%02X%02X rc=%u Dth=%lu v=%s",
+                                     f.dst[3],f.dst[4],f.dst[5], f.eapolMsg,
                                      (unsigned long)_cntDeauths, vt);
-                    else    snprintf(det, sizeof(det), "dst=%02X:%02X:%02X:%02X:%02X:%02X Dth=%lu",
-                                     f.dst[0],f.dst[1],f.dst[2],f.dst[3],f.dst[4],f.dst[5],
+                    else    snprintf(det, sizeof(det), "dst=%02X%02X%02X rc=%u Dth=%lu",
+                                     f.dst[3],f.dst[4],f.dst[5], f.eapolMsg,
                                      (unsigned long)_cntDeauths);
                     addEvent(2, msg, f.rssi, det);
                     _threatDeauthStorm++;
@@ -562,18 +672,101 @@ void WGuard::processFrame(const WgFrame& f) {
         // _cloneFired bool ensures the very first detection fires instantly (no uptime dependency).
         // After that, 60s cooldown prevents spam while the clone AP keeps running.
         // A stopped-then-relaunched clone re-triggers cleanly after 60s of silence.
+        //
+        // Severity downgrade: if a co-AP sharing the first 4 MAC bytes is already known,
+        // the ts-jump is almost certainly an AP reboot (ISP batch neighbours share 4-byte prefix).
+        // A real attacker's adapter has a different OUI entirely — no prefix match → stays CRITICAL.
         if (!_cloneFired || now - _cloneFiredTs >= 60000) {
             _cloneFired   = true;
             _cloneFiredTs = now;
             char msg[44];
             snprintf(msg, sizeof(msg), "BSSID CLONED %02X:%02X:%02X:%02X:%02X:%02X ts-jump",
                      f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
+            // Check for co-AP with same 4-byte prefix — indicates ISP batch neighbour
+            bool coApSamePrefix = false;
+            for (int i = 0; i < _evilTwinN; i++) {
+                if (memcmp(_evilTwinSeen[i], _bssid, 4) == 0) { coApSamePrefix = true; break; }
+            }
             char det[48] = {};
             const char* vc = lookupOui(f.src);
-            if (vc) snprintf(det, sizeof(det), "v=%s", vc);
-            addEvent(2, msg, f.rssi, det[0] ? det : nullptr);   // CRITICAL
+            if (coApSamePrefix) {
+                snprintf(det, sizeof(det), "reboot? co-AP same prefix%s%s",
+                         vc ? " v=" : "", vc ? vc : "");
+                addEvent(1, msg, f.rssi, det);   // WARNING — likely reboot, not clone
+                // Keep watching: if interval compression or clock skew follows within 60s,
+                // upgrade to CRITICAL (a rebooting AP doesn't compress beacon rate).
+                _cloneWarnActive = true;
+                _cloneWarnTs     = now;
+                _cloneWarnRssi   = f.rssi;
+                notifyThrottled(NOTIF_WARNING, now);
+            } else {
+                if (vc) snprintf(det, sizeof(det), "v=%s", vc);
+                addEvent(2, msg, f.rssi, det[0] ? det : nullptr);   // CRITICAL — no co-AP alibi
+                _cloneWarnActive = false;
+                notifyThrottled(NOTIF_ALERT, now);
+            }
             _threatClone++;
-            notifyThrottled(NOTIF_ALERT, now);
+        }
+        break;
+    }
+    case 0xFB: {   // Beacon sequence number gap
+        // Clone AP runs its own 12-bit counter; interleaved beacons create observed gaps >10.
+        // Ref: Park et al., "Rogue AP detection mechanism considering sequence number", 2017.
+        // Fired as INFO — standalone seq gaps can occur from wireless loss; value is in
+        // correlation with 0xFD / 0xFA / 0xF9 for multi-signal CRITICAL upgrade.
+        if (now - _seqGapFiredTs >= 60000) {
+            _seqGapFiredTs = now;
+            char msg[44];
+            snprintf(msg, sizeof(msg), "SEQ GAP %02X:%02X:%02X:%02X:%02X:%02X gap=%u",
+                     f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5], f.eapolMsg);
+            char det[48] = {};
+            const char* vs = lookupOui(f.src);
+            if (vs) snprintf(det, sizeof(det), "seq=%u v=%s", f.seqNum, vs);
+            else    snprintf(det, sizeof(det), "seq=%u",       f.seqNum);
+            addEvent(0, msg, f.rssi, det[0] ? det : nullptr);   // INFO
+            _threatSeqGap++;
+        }
+        break;
+    }
+    case 0xFA: {   // Beacon interval compression
+        // Two radios beaconing on the same BSSID doubles the observed rate, halving the
+        // inter-arrival interval below 50% of the learned baseline.
+        // Ref: Jana & Kasera, "An Accurate Fake AP Detection Method", IEEE IPCCC 2010.
+        if (!_biCompressFired || now - _biCompressFiredTs >= 30000) {
+            _biCompressFired   = true;
+            _biCompressFiredTs = now;
+            char msg[44];
+            snprintf(msg, sizeof(msg), "BCN INTERVAL COMPRESSED %02X:%02X:%02X:%02X:%02X:%02X",
+                     f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
+            addEvent(1, msg, f.rssi, nullptr);   // WARNING
+            _threatBiCompress++;
+            notifyThrottled(NOTIF_WARNING, now);
+            // Upgrade: interval compression after a clone WARNING = confirmed different radio
+            if (_cloneWarnActive && now - _cloneWarnTs < 60000) {
+                _cloneWarnActive = false;
+                addEvent(2, "CLONE CONFIRMED (ts-jump + interval compress)", _cloneWarnRssi, nullptr);
+                notifyThrottled(NOTIF_ALERT, now);
+            }
+        }
+        break;
+    }
+    case 0xF9: {   // Clock skew anomaly
+        // Each radio's crystal oscillator drifts at a unique µs/ms rate. After a 20-beacon
+        // baseline, BSS timestamp deviation >2s indicates either a different physical
+        // transmitter (evil twin) OR an AP reboot (timestamps reset to ~0).
+        // Because a reboot also triggers 0xFD, we cannot distinguish the two with 0xF9 alone —
+        // we do NOT upgrade _cloneWarnActive here. Use 0xFA (beacon interval compression)
+        // for high-confidence upgrade, since a rebooting AP cannot double its beacon rate.
+        // Ref: Lanze et al., "Clock Skew Based Remote Device Fingerprinting", IEEE S&P 2012.
+        if (!_clkSkewFired || now - _clkSkewFiredTs >= 60000) {
+            _clkSkewFired   = true;
+            _clkSkewFiredTs = now;
+            char msg[44];
+            snprintf(msg, sizeof(msg), "CLOCK SKEW ANOMALY %02X:%02X:%02X:%02X:%02X:%02X",
+                     f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
+            addEvent(1, msg, f.rssi, "ts-fingerprint mismatch >2s");   // WARNING
+            _threatClockSkew++;
+            notifyThrottled(NOTIF_WARNING, now);
         }
         break;
     }
@@ -587,7 +780,9 @@ void WGuard::processFrame(const WgFrame& f) {
     }
     case 0xFF: { // EAPOL
         _cntEapols++;
-        if (_deauthBurstCount >= 3 && (now - _deauthBurstStart) < 30000) {
+        // Require broadcast deauths — real deauth attacks use bcast to kick all clients.
+        // Band steering uses targeted unicast only, so _bcastBurstCount stays 0 during normal operation.
+        if (_bcastBurstCount >= 3 && (now - _bcastBurstStart) < 30000) {
             // Rate-limit harvest events to once per 30 s — during a continuous deauth+ET
             // attack, M1s arrive every reconnect attempt; logging each one fills the ring fast.
             if (now - _harvestFiredTs >= 30000) {
@@ -755,10 +950,11 @@ void WGuard::finalizeSession() {
              (unsigned long)_cntBeacons, (unsigned long)_cntProbes,
              (unsigned long)_cntAuths,   (unsigned long)_cntDeauths,
              (unsigned long)_cntEapols);
-    f.printf("# THREATS  evil_twin=%u  bcast_deauth=%u  deauth_storm=%u  handshake=%u  auth_flood=%u  probe_storm=%u  karma=%u  clone=%u  beacon_flood=%u\n",
+    f.printf("# THREATS  evil_twin=%u  bcast_deauth=%u  deauth_storm=%u  handshake=%u  auth_flood=%u  probe_storm=%u  karma=%u  clone=%u  beacon_flood=%u  seq_gap=%u  bi_compress=%u  clk_skew=%u\n",
              _threatEvilTwin, _threatBcastDeauth, _threatDeauthStorm, _threatHandshake,
              _threatAuthFlood, _threatProbeStorm,
-             _threatKarma,    _threatClone,       _threatBeaconFlood);
+             _threatKarma,    _threatClone,       _threatBeaconFlood,
+             _threatSeqGap,   _threatBiCompress,  _threatClockSkew);
     f.close();
     _evHead = _evCount = _savedEvCount = 0;
 }
@@ -824,6 +1020,12 @@ void WGuard::beginBackground(char* args) {
     _deauthCtrN = _probeCtrN = 0;
     _authFloodStart = 0; _authMacN = 0;
     _deauthBurstStart = 0; _deauthBurstCount = 0;
+    _bcastBurstStart  = 0; _bcastBurstCount  = 0;
+    _cloneWarnActive  = false; _cloneWarnTs = 0; _cloneWarnRssi = -127;
+    _seqGapFiredTs    = 0;
+    _biCompressFired  = false; _biCompressFiredTs = 0;
+    _clkSkewFired     = false; _clkSkewFiredTs    = 0;
+    _threatSeqGap     = 0; _threatBiCompress = 0; _threatClockSkew = 0;
     _recentProberN = 0; _recentProberWindow = millis();
     _evilTwinN = 0;
     _pendingForeignN = 0;
@@ -836,8 +1038,11 @@ void WGuard::beginBackground(char* args) {
     _cloneFiredTs = 0;
     _popupUntil = 0; _lastBgPoll = 0;
     s_head = s_tail = 0;
-    s_targetTsSeen = false;
-    s_lastTargetTs = 0;
+    s_targetTsSeen  = false;
+    s_lastTargetTs  = 0;
+    s_beaconSeqSeen = false; s_lastBeaconSeq = 0;
+    s_lastBeaconMs  = 0; s_biSum = 0; s_biSamples = 0; s_biBaseline = 0; s_biLearned = false;
+    s_csCount       = 0; s_csSlopeLearned = false; s_csSlopeNumer = 0;
     initSession();   // create session file before promiscuous starts
     s_isrBeacons = 0;
     s_bssidSeenN = 0; s_bssidFloodStart = millis(); s_bssidFloodFired = false;
@@ -894,6 +1099,7 @@ void WGuard::pollBackground() {
         esp_wifi_set_promiscuous(true);
         s_active = true;
         _lastCheckpointMs = millis();
+        _lastBgHead = 0;   // ring cleared — prevent stale popup on next poll
     }
 
     // Time-based checkpoint every 2 min (background mode) — only if there are new events
@@ -1197,6 +1403,12 @@ void WGuard::run(const uint8_t* bssid, int channel, const char* ssid) {
     _deauthCtrN = _probeCtrN = 0;
     _authFloodStart = 0; _authMacN = 0;
     _deauthBurstStart = 0; _deauthBurstCount = 0;
+    _bcastBurstStart  = 0; _bcastBurstCount  = 0;
+    _cloneWarnActive  = false; _cloneWarnTs = 0; _cloneWarnRssi = -127;
+    _seqGapFiredTs    = 0;
+    _biCompressFired  = false; _biCompressFiredTs = 0;
+    _clkSkewFired     = false; _clkSkewFiredTs    = 0;
+    _threatSeqGap     = 0; _threatBiCompress = 0; _threatClockSkew = 0;
     _recentProberN = 0; _recentProberWindow = millis();
     _evilTwinN = 0;
     _pendingForeignN = 0;
@@ -1209,8 +1421,11 @@ void WGuard::run(const uint8_t* bssid, int channel, const char* ssid) {
     _cloneFiredTs = 0;
     _bgMode = false;   // explicitly — interactive mode, not bg
     s_head = s_tail = 0;
-    s_targetTsSeen = false;
-    s_lastTargetTs = 0;
+    s_targetTsSeen  = false;
+    s_lastTargetTs  = 0;
+    s_beaconSeqSeen = false; s_lastBeaconSeq = 0;
+    s_lastBeaconMs  = 0; s_biSum = 0; s_biSamples = 0; s_biBaseline = 0; s_biLearned = false;
+    s_csCount       = 0; s_csSlopeLearned = false; s_csSlopeNumer = 0;
     s_isrBeacons = 0;
     s_bssidSeenN = 0; s_bssidFloodStart = millis(); s_bssidFloodFired = false;
     memcpy((void*)s_bssid, bssid, 6);

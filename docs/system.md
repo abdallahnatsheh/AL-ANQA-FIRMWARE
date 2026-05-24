@@ -175,11 +175,13 @@ Launches the Matrix digital rain animation. Press `q` to exit.
 
 ```
 CMD> sdinfo                  # SD card type and capacity
-CMD> sdls [path]             # list directory (default: /)
-CMD> sdread <path>           # print file contents
+CMD> sdls [path]             # list directory (default: CWD)
+CMD> cat <path>              # read file — scrollable viewer, tpad UP/DN, q to quit
 CMD> sdrm <path>             # delete a file
 CMD> sdformat [init]         # format SD card to FAT32 (WARNING: destroys all data)
 ```
+
+`cat` loads up to 400 lines, strips Windows `\r`, and shows a scrollable viewer with a cyan scrollbar. Tab-complete navigates into directories.
 
 `sdformat` prompts for confirmation before formatting. Use `sdf init` to format and re-initialise the directory structure in one step.
 

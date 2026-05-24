@@ -26,6 +26,7 @@
 #include "notification_manager.h"
 #include "wguard.h"
 #include "beacon_flood.h"
+#include "lockscreen_manager.h"
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
 extern WiFiFunctions      wifiFunctions;
@@ -463,6 +464,7 @@ void CommandManager::setupCommands() {
     registerCommand("clear",       "clr",    [](char* a) { displayManager.tdeck_begin(); },                                  "Clear screen",                            false, "System");
     registerCommand("MATRIX",      "matrix", [](char* a) { displayManager.launchMatrixAnimation(); },                       "Matrix rain animation",                   false, "System");
     registerCommand("pwrsave",     "psv",    [](char* a) { PowerSaveManager::handleCommand(a); },                         "Power save: on/off/set/status",  true,  "System");
+    registerCommand("lock",        "lk",     [](char* a) { LockScreenManager::getInstance().cmd(a); },                       "Screen lock  [new|update|clean|timeout <s>|status]", true,  "System");
     registerCommand("volume",      "vol",    [](char* a) { handleVolumeCmd(a); },                                             "General volume: vol [0-100|up|down|off]",   true,  "System");
     registerCommand("notif",       "nf",     [](char* a) { NotificationManager::handleNotifCmd(a); },                        "Notifications: nf [on|off|vol <n>|<lvl> on|off|file <f>]", true, "System");
     // ── WiFi ──────────────────────────────────────────────────────────────────
@@ -495,13 +497,14 @@ void CommandManager::setupCommands() {
     registerCommand("sdinfo",      "sdi",    [](char* a) { sdCardManager.printInfo(); },                                    "SD card type and size",                   false, "SD Card");
     registerCommand("sdls",        "ls",     [](char* a) { sdCardManager.listDirectory(a && *a ? a : nullptr); },           "List SD dir [path] — default: cwd",       true,  "SD Card", COMP_ANY);
     registerCommand("cd",          "cd",     [](char* a) { sdCardManager.cdCommand(a); },                                   "Change SD directory: cd <dir|..>",        true,  "SD Card", COMP_DIR);
-    registerCommand("sdread",      "sdr",    [](char* a) { if (a&&*a) sdCardManager.readFile(a); else { displayManager.println("Usage: sdr <path>"); displayManager.printCommandScreen(); } }, "Read file from SD",    true,  "SD Card", COMP_FILE);
+    registerCommand("cat",         "cat",    [](char* a) { if (a&&*a) sdCardManager.readFile(a); else { displayManager.println("Usage: cat <path>"); displayManager.printCommandScreen(); } }, "Read file from SD",    true,  "SD Card", COMP_ANY);
     registerCommand("sdrm",        "srm",    [](char* a) { if (a&&*a) sdCardManager.removeFile(a); else { displayManager.println("Usage: srm <path>"); displayManager.printCommandScreen(); } }, "Delete file from SD", true,  "SD Card", COMP_FILE);
     registerCommand("sdformat",    "sdf",    [](char* a) { sdCardManager.formatCommand(a); },                               "Format SD to FAT: sdf [init]",            true,  "SD Card");
     // ── USB ───────────────────────────────────────────────────────────────────
     registerCommand("usbmsc",      "um",     [](char* a) { usbManager.startMSC(); },                                                              "Expose SD card as USB drive",             false, "USB");
     registerCommand("usbkbd",      "uk",     [](char* a) { usbKeyboard.start(); },                                                               "T-DECK as USB keyboard+mouse",            false, "USB");
     registerCommand("usbexec",     "ux",     [](char* a) { handleUsbExecCmd(a); },                                              "BadUSB/DuckyScript executor",             true,  "USB",  COMP_FILE);
+    registerCommand("jiggle",      "jg",     [](char* a) { usbKeyboard.jiggle(); },                                             "Mouse jiggler — prevent screen lock",     false, "USB");
     // ── Diagnostics ───────────────────────────────────────────────────────────
     registerCommand("gpson",       "gon",    [](char* a) { runGpsOn(); },                                                   "GPS background task + live status",       false, "Diagnostics");
     registerCommand("gpsoff",      "gof",    [](char* a) { runGpsOff(); },                                                  "Stop GPS background task",                false, "Diagnostics");

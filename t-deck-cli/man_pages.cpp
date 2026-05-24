@@ -9,10 +9,12 @@ extern InputHandling inputHandler;
 
 // ── Man page data ─────────────────────────────────────────────────────────────
 
+static const int MAN_VISIBLE = 9;  // content lines visible at once
+
 struct ManEntry {
     const char* cmd;
     const char* shortName;
-    const char* lines[12]; // nullptr-terminated, max 11 content lines
+    const char* lines[24]; // nullptr-terminated, max 23 content lines
 };
 
 static const ManEntry PAGES[] = {
@@ -24,6 +26,8 @@ static const ManEntry PAGES[] = {
         "         help <cmd> for single command detail.",
         "",
         "KEYS     [l] next  [a] prev  [q] quit",
+        "NOTE     man pages: tpad UP/DN scrolls.",
+        "         [a]/[l] change page.",
         "EXAMPLE  help wpasniff",
         nullptr
     }},
@@ -54,6 +58,21 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "lock", "lk", {
+        "SYNTAX   lock",
+        "         lock new | update | clean | wipe",
+        "         lock timeout <s>  |  lock status",
+        "",
+        "ABOUT    No PIN: press Space x3 to unlock.",
+        "         PIN: type password then Enter.",
+        "",
+        "LOCK     Run 'lock' or hold trackpad 3s.",
+        "TIMEOUT  lock timeout <s>  (0 = off)",
+        "RECOVER  Forgot? Remove SD + reboot,",
+        "         Space x3, then: lock wipe",
+        nullptr
+    }},
+
     { "pwrsave", "psv", {
         "SYNTAX   pwrsave on|off|status",
         "         pwrsave set <option> <value>",
@@ -61,9 +80,10 @@ static const ManEntry PAGES[] = {
         "ABOUT    Dim on inactivity + battery level.",
         "         Config saved to /pwrsave.conf.",
         "",
-        "OPTIONS  dim_timeout <secs>  dim_lvl <0-255>",
-        "         bat_threshold <%>  bat_dim_lvl <0-255>",
+        "OPTIONS  dim_timeout <s>   dim_level <0-255>",
+        "         bat_threshold <%> bat_dim_lvl <0-255>",
         "EXAMPLE  pwrsave set dim_timeout 60",
+        "         pwrsave set bat_threshold 20",
         nullptr
     }},
 
@@ -89,9 +109,11 @@ static const ManEntry PAGES[] = {
         "",
         "LEVELS   alert  warning  success  info  ping",
         "ABOUT    Per-level audio notifications.",
-        "         Custom MP3 per level from /notification/",
+        "         Custom MP3 from /notification/*.mp3",
         "         Config saved to /notif.conf",
-        "FILES    /notification/*.mp3",
+        "",
+        "EXAMPLE  notif alert off",
+        "         notif vol 80",
         nullptr
     }},
 
@@ -159,7 +181,7 @@ static const ManEntry PAGES[] = {
         "         Skips duplicates already on SD.",
         "         File stays Linux-compatible.",
         "",
-        "FILE     /wpa_supplicant.conf",
+        "FILES    /wpa_supplicant.conf",
         nullptr
     }},
 
@@ -243,16 +265,21 @@ static const ManEntry PAGES[] = {
     }},
 
     { "wguard", "wg", {
-        "SYNTAX   wg <idx>       — interactive mode",
-        "         wg <idx> bg    — background mode",
-        "         wg stop        — stop background",
+        "SYNTAX   wg <idx|bssid> [ch]     interactive",
+        "         wg <idx|bssid> [ch] bg  background",
+        "         wg stop  |  wg view",
         "",
-        "ABOUT    Passive WiFi IDS. Detects deauth,",
-        "         Evil Twin, PMKID, handshake harvest,",
-        "         auth/probe/beacon flood.",
-        "NOTE     bg blocks other WiFi commands.",
-        "         Run wg stop before deauth/ws/et etc.",
-        "FILES    /logs/wguard.csv",
+        "ABOUT    Passive WiFi IDS — monitors one AP",
+        "         for known attacks in real time.",
+        "",
+        "STEPS    1. sw  2. wg <idx>  3. monitor",
+        "         bg: wg <idx> bg  then  wg view",
+        "DETECTS  Deauth storm, bcast deauth, evil twin",
+        "         handshake harvest, BSSID clone,",
+        "         beacon/auth/probe flood, Karma",
+        "KEYS     [s] save  [q] quit",
+        "FILES    /logs/wguard/NNN.csv",
+        "NOTE     bg blocks WiFi cmds; wg stop first.",
         nullptr
     }},
 
@@ -347,15 +374,22 @@ static const ManEntry PAGES[] = {
     { "bleinfo", "bi", {
         "SYNTAX   bi <index|mac|all>",
         "",
-        "ABOUT    GATT enum+interact. Auto-flags",
-        "         suspicious values (keys/PINs).",
-        "         [n]sniff saves _replay.ble to SD.",
-        "         [r]wcap: write a captured value",
-        "         [w]write  [f]fuzz  [b]audit view",
-        "         [p]pair bonding+MITM  [s]save SD",
+        "ABOUT    BLE GATT client — enumerate services,",
+        "         read characteristics, interact+audit.",
         "",
-        "RISK     !=high ~=med orange=low",
-        "KEYS     [n][r=wcap][w][f][b][p][s][q]",
+        "STEPS    1. sbl  2. bi <idx>  3. use keys below",
+        "         bi all — connect+save every sbl result",
+        "",
+        "KEYS     [n] sniff — notify+indicate, saves SD",
+        "         [w] write — hex/ASCII to char",
+        "         [f] fuzz — seq/random/boundary",
+        "         [b] audit — risk-flagged chars only",
+        "         [r] wcap — replay captured notif",
+        "         [p] pair — bond + MITM + passkey",
+        "         [s] save — GATT tree to /logs/bleinfo/",
+        "",
+        "RISK     ! high   ~ med   orange low",
+        "FILES    /logs/bleinfo/<mac>.txt",
         nullptr
     }},
 
@@ -384,7 +418,7 @@ static const ManEntry PAGES[] = {
         "",
         "KEYS     [h+#] hijack  [s] spam  [q] quit",
         "FILES    /fastpair_keys.csv  /logs/fastpair.csv",
-        "NOTE     Put device in pairing mode for key read.",
+        "NOTE     Device needs pairing mode for h <idx>.",
         nullptr
     }},
 
@@ -392,14 +426,14 @@ static const ManEntry PAGES[] = {
         "SYNTAX   bs [apple|android|ms|samsung|all]",
         "",
         "ABOUT    BLE notification spam suite.",
-        "         apple   — iOS pairing popups (AirPods etc)",
-        "         android — Google Fast Pair (Android popup)",
-        "         ms      — Windows Swift Pair popup",
-        "         samsung — Galaxy manufacturer data flood",
-        "         all     — cycle all four vendors",
+        "         apple   - iOS popups (AirPods/Beats)",
+        "         android - Google Fast Pair popups",
+        "         ms      - Windows Swift Pair popup",
+        "         samsung - Galaxy manufacturer flood",
+        "         all     - cycle all four vendors",
         "",
-        "KEYS     [l/a]=next/prev type  [q]=stop",
-        "NOTE     MAC randomized each advertisement cycle.",
+        "KEYS     [l/a] next/prev type  [q] stop",
+        "NOTE     MAC randomized per advertisement.",
         nullptr
     }},
 
@@ -425,6 +459,20 @@ static const ManEntry PAGES[] = {
         "",
         "CLICK    tap=left  hold=right  1.5s=exit",
         "NOTE     BS auto-repeats after 500ms hold.",
+        nullptr
+    }},
+
+    { "jiggle", "jg", {
+        "SYNTAX   jiggle",
+        "",
+        "ABOUT    Mouse jiggler. Nudges cursor +2/-2px",
+        "         every 30s to prevent screen lock.",
+        "         Cursor returns to original position.",
+        "",
+        "USE      Plug T-Deck into target PC via USB,",
+        "         run jiggle, leave machine unattended.",
+        "",
+        "EXIT     q",
         nullptr
     }},
 
@@ -479,14 +527,16 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
-    { "sdread", "sdr", {
-        "SYNTAX   sdr <path>",
+    { "cat", "cat", {
+        "SYNTAX   cat <path>",
         "",
         "ABOUT    Read and display file from SD.",
-        "         Long files are paginated.",
+        "         Scrollable viewer — up to 400 lines.",
+        "         Paths resolve from current directory.",
         "",
-        "EXAMPLE  sdr /logs/cracked.csv",
-        "         sdr /pwrsave.conf",
+        "EXAMPLE  cat /logs/cracked.csv",
+        "         cat /pwrsave.conf",
+        "KEYS     tpad UP/DN scroll  [q] quit",
         nullptr
     }},
 
@@ -569,15 +619,17 @@ static const int PAGE_COUNT = (int)(sizeof(PAGES) / sizeof(PAGES[0]));
 // ── Label keywords colored grey in output ─────────────────────────────────────
 
 static const char* LABELS[] = {
-    "SYNTAX", "ABOUT", "STEPS", "EXAMPLE",
-    "KEYS", "NOTE", "FILES", "OPTIONS", "WARNING", nullptr
+    "SYNTAX", "ABOUT", "STEPS", "EXAMPLE", "KEYS",
+    "NOTE", "FILES", "OPTIONS", "WARNING", "DETECTS",
+    "RECOVER", "LOCK", "TIMEOUT", "UNLOCK", "RISK",
+    "CMDS", "MODES", "USE", "EXIT", "CLICK", "LEVELS", nullptr
 };
 
 // ── Class implementation ──────────────────────────────────────────────────────
 
 ManPages::ManPages(DisplayManager& dm) : _dm(dm) {}
 
-void ManPages::renderPage(int idx) {
+void ManPages::renderPage(int idx, int scrollTop, int total) {
     const ManEntry& pg = PAGES[idx];
 
     _dm.clearScreen();
@@ -598,14 +650,14 @@ void ManPages::renderPage(int idx) {
     _dm.setTextColor(0x7BEF);    _dm.println(pgbuf);
     _dm.printSeparator();
 
-    int y = _dm.getCursorY();
+    int contentTop = _dm.getCursorY();
+    int y = contentTop;
 
-    for (int i = 0; i < 12 && pg.lines[i]; i++) {
+    // Content — render only the visible window
+    for (int i = scrollTop; i < scrollTop + MAN_VISIBLE && i < total; i++) {
         const char* line = pg.lines[i];
         _dm.setCursor(10, y);
-
         if (line[0] != '\0') {
-            // Check for label keyword (e.g. "SYNTAX   ...")
             bool labeled = false;
             for (int k = 0; LABELS[k]; k++) {
                 int llen = strlen(LABELS[k]);
@@ -613,7 +665,7 @@ void ManPages::renderPage(int idx) {
                     _dm.setTextColor(0x7BEF);
                     _dm.printText(LABELS[k]);
                     _dm.setTextColor(TFT_WHITE);
-                    _dm.printText(line + llen); // includes padding spaces
+                    _dm.printText(line + llen);
                     labeled = true;
                     break;
                 }
@@ -626,10 +678,26 @@ void ManPages::renderPage(int idx) {
         y += LINE_HEIGHT;
     }
 
-    // Nav bar
-    _dm.fillRect(5, y + 1, 310, 1, TFT_CYAN);
-    _dm.setCursor(10, y + 4);
-    _dm.setTextColor(0x7BEF);    _dm.printText("[");
+    // Scrollbar — only when content overflows
+    if (total > MAN_VISIBLE) {
+        int barX    = SCREEN_WIDTH - 5;
+        int barH    = MAN_VISIBLE * LINE_HEIGHT;
+        int thumbH  = max(4, barH * MAN_VISIBLE / total);
+        int maxTop  = total - MAN_VISIBLE;
+        int thumbY  = contentTop + (maxTop > 0
+                        ? (barH - thumbH) * scrollTop / maxTop
+                        : 0);
+        _dm.fillRect(barX, contentTop, 3, barH, 0x2104);   // track (dark)
+        _dm.fillRect(barX, thumbY,     3, thumbH, TFT_CYAN); // thumb
+    }
+
+    // Nav bar — fixed position below content area
+    int navY = contentTop + MAN_VISIBLE * LINE_HEIGHT + 2;
+    _dm.fillRect(5, navY, 310, 1, TFT_CYAN);
+    _dm.setCursor(10, navY + 3);
+    _dm.setTextColor(0x7BEF);    _dm.printText("tpad ");
+    _dm.setTextColor(TFT_GREEN); _dm.printText("UP/DN");
+    _dm.setTextColor(0x7BEF);    _dm.printText(" scroll  [");
     _dm.setTextColor(TFT_GREEN); _dm.printText("a");
     _dm.setTextColor(0x7BEF);    _dm.printText("]prev [");
     _dm.setTextColor(TFT_GREEN); _dm.printText("l");
@@ -637,6 +705,13 @@ void ManPages::renderPage(int idx) {
     _dm.setTextColor(TFT_GREEN); _dm.printText("q");
     _dm.setTextColor(0x7BEF);    _dm.printText("]quit");
     _dm.setTextColor(TFT_WHITE);
+}
+
+// Count non-null lines in a ManEntry
+static int countLines(const ManEntry& pg) {
+    int n = 0;
+    while (n < 23 && pg.lines[n]) n++;
+    return n;
 }
 
 void ManPages::show(char* args) {
@@ -665,13 +740,34 @@ void ManPages::show(char* args) {
         return;
     }
 
+    int scrollTop = 0;
+    int total     = countLines(PAGES[found]);
+    renderPage(found, scrollTop, total);
+
     while (true) {
-        renderPage(found);
-        while (true) {
-            char key = inputHandler.getKeyboardInput();
-            if (key == 'q' || key == 'Q') { _dm.clearInputText(); return; }
-            if ((key == 'l' || key == 'L') && found < PAGE_COUNT - 1) { found++; break; }
-            if ((key == 'a' || key == 'A') && found > 0)              { found--; break; }
+        char         key = inputHandler.getKeyboardInput();
+        TrackballEvent evt = inputHandler.getTrackballEvent();
+
+        if (key == 'q' || key == 'Q') { _dm.clearInputText(); return; }
+
+        bool redraw = false;
+
+        // Scroll within page
+        if ((evt == TBALL_UP)   && scrollTop > 0) {
+            scrollTop--; redraw = true;
         }
+        if ((evt == TBALL_DOWN) && scrollTop < total - MAN_VISIBLE) {
+            scrollTop++; redraw = true;
+        }
+
+        // Navigate between man pages (keyboard only — trackball left/right excluded, too sensitive)
+        if ((key == 'l' || key == 'L') && found < PAGE_COUNT - 1) {
+            found++; scrollTop = 0; total = countLines(PAGES[found]); redraw = true;
+        }
+        if ((key == 'a' || key == 'A') && found > 0) {
+            found--; scrollTop = 0; total = countLines(PAGES[found]); redraw = true;
+        }
+
+        if (redraw) renderPage(found, scrollTop, total);
     }
 }

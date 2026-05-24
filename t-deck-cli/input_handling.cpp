@@ -1,6 +1,7 @@
 #include "input_handling.h"
 #include "utilities.h"
 #include "powersave_manager.h"
+#include "lockscreen_manager.h"
 #include "wguard.h"
 #include <Wire.h>
 #include <esp_timer.h>
@@ -59,6 +60,7 @@ TrackballEvent InputHandling::getTrackballEvent() {
             updateActivity();
             if (!PowerSaveManager::getInstance().isManualOff())
                 PowerSaveManager::getInstance().updateActivity();
+            LockScreenManager::getInstance().updateActivity();
             return evts[i];
         }
     }
@@ -69,6 +71,7 @@ TrackballEvent InputHandling::getTrackballEvent() {
         updateActivity();
         if (!PowerSaveManager::getInstance().isManualOff())
             PowerSaveManager::getInstance().updateActivity();
+        LockScreenManager::getInstance().updateActivity();
         return TBALL_CLICK;
     }
 
@@ -96,5 +99,10 @@ char InputHandling::getKeyboardInput() {
         updateActivity();
         PowerSaveManager::getInstance().updateActivity();
     }
-    return key;
+    return LockScreenManager::getInstance().intercept(key, now);
+}
+
+void InputHandling::clearPendingClicks() {
+    s_singleClickPending = false;
+    s_doubleClickPending = false;
 }
