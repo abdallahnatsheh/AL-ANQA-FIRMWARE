@@ -169,6 +169,10 @@ void CommandManager::executeCommand() {
     }
     _histNav = -1;
 
+    // Strip trailing spaces so "lock " and "cat /f " match the same as without them
+    while (commandIndex > 0 && command[commandIndex - 1] == ' ')
+        command[--commandIndex] = '\0';
+
     displayManager.clearInputText();
     displayManager.setCursor(10, outputY + LINE_HEIGHT);
     for (int i = 0; i < commandCount; i++) {
