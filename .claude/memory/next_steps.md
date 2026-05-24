@@ -48,6 +48,16 @@ type: project
 
 17. **GPS Tracker** — log coordinates + timestamp to `/logs/gps_track.csv` every N seconds; summary on exit. Command: `gpstracker/gtr [interval_s]`.
 
+## USB Attacks
+
+- **Mouse Jiggler** — `jiggle/jg`; HID already wired; moves mouse ±1px every ~30s to prevent screen lock; useful during physical pentest. Trivial to add.
+
+- **Auto OS Detection for BadUSB** — on USB connect, enumerate host OS via HID descriptor timing / USB string requests; auto-select script folder: `/badusb/win/`, `/badusb/mac/`, `/badusb/linux/`; extends `usbexec/ux`. No new command needed — make it default behavior when no explicit script path given.
+
+- **Remote BadUSB via WiFi** — `rbadusb/rb`; T-Deck plugged into target via USB, operator connects to T-Deck soft-AP from phone, selects script from SD via simple HTTP page, triggers execution; drop-device scenario. Needs small HTTP server + script list endpoint + auth PIN.
+
+- **Keylogger Mode** — `keylog/kl`; capture keystrokes typed on host machine into T-Deck via USB HID host mode; log to `/logs/keylog_<ts>.txt` on SD; optional WiFi stream to operator. Needs USB HID host-direction report parsing (harder than injection).
+
 ## Other (high priority first)
 
 18. **VNC Client** — connect to VNC server; display scaled to 320×240; keyboard + trackball as mouse. Library: `moononournation/ArduinoVNC`. Command: `vnc/vn <ip> [port] [password]`.
