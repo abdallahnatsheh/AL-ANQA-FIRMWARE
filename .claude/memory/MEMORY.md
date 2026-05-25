@@ -7,3 +7,6 @@
 - [macwatch spec](project_macwatch_idea.md) — WiFi probe + BLE MAC watchlist, proximity alert
 - [Future peripherals](project_future_peripherals.md) — ES7210 mic, trackpad, GT911 touch — pins + priority
 - [Buddy port plan](project_buddy_port.md) — full self-contained spec: NimBLE GATT server port, wire protocol, TamaState struct, exact API mapping, T-DECK UI, impl order
+- [BLE Info](project_bleinfo.md) — bleinfo/bi: compiled NOT YET FIELD TESTED; critical quirks: s_loadedPkts order, off-by-one in s_writable, pairing callback return type
+- [GPS Warm Start](project_gps_warmstart.md) — NVS lat/lon cache; L76K BeiDou/SBAS; M10Q MGA-INI inject; NVS namespace "gps"
+- [USB MSC+HID](project_usb_gadget_plan.md) — working on feature/usb-msc-hid (NOT merged); queue-based SD I/O; RADIO_CS_PIN fix; BadUSB pending
