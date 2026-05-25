@@ -27,6 +27,7 @@
 #include "wguard.h"
 #include "beacon_flood.h"
 #include "lockscreen_manager.h"
+#include "clock_manager.h"
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
 extern WiFiFunctions      wifiFunctions;
@@ -229,6 +230,74 @@ void CommandManager::resetCommand() {
     _cursorPos   = 0;
 }
 
+// ── Argument hint table ───────────────────────────────────────────────────────
+// cmd  = first word of command buffer
+// prev = word immediately before the current token ("" = must equal cmd, i.e. first arg level)
+// hints = space-separated completions for that context
+struct ArgHintEntry { const char* cmd; const char* prev; const char* hints; };
+static const ArgHintEntry kArgHints[] = {
+    // pwrsave / psv
+    { "pwrsave",     "",              "on off status save reset set" },
+    { "psv",         "",              "on off status save reset set" },
+    { "pwrsave",     "set",           "timeout dimto fullto screenoff screenoffmode batterymode batterythreshold batterydim" },
+    { "psv",         "set",           "timeout dimto fullto screenoff screenoffmode batterymode batterythreshold batterydim" },
+    { "pwrsave",     "screenoffmode", "on off" },
+    { "psv",         "screenoffmode", "on off" },
+    { "pwrsave",     "batterymode",   "on off" },
+    { "psv",         "batterymode",   "on off" },
+    // lock / lk
+    { "lock",        "",              "new update clean wipe timeout status" },
+    { "lk",          "",              "new update clean wipe timeout status" },
+    // tz
+    { "tz",          "",              "status" },
+    // macchanger / mc  (no "status" — no-args shows status, but "mc status" is not a keyword)
+    { "macchanger",  "",              "on off random set restore target" },
+    { "mc",          "",              "on off random set restore target" },
+    { "macchanger",  "target",        "wifi bt both" },
+    { "mc",          "target",        "wifi bt both" },
+    { "macchanger",  "restore",       "on off" },
+    { "mc",          "restore",       "on off" },
+    // wguard / wg
+    { "wguard",      "",              "stop view" },
+    { "wg",          "",              "stop view" },
+    // beaconflood / bf
+    { "beaconflood", "",              "list rickroll seq file clone" },
+    { "bf",          "",              "list rickroll seq file clone" },
+    // show / sh
+    { "show",        "",              "wifi ble hosts" },
+    { "sh",          "",              "wifi ble hosts" },
+    // volume / vol
+    { "volume",      "",              "up down off" },
+    { "vol",         "",              "up down off" },
+    // notif / nf — first level includes level names; second level after each level
+    { "notif",       "",              "on off vol status alert warning success info ping" },
+    { "nf",          "",              "on off vol status alert warning success info ping" },
+    { "notif",       "alert",         "on off file" },
+    { "nf",          "alert",         "on off file" },
+    { "notif",       "warning",       "on off file" },
+    { "nf",          "warning",       "on off file" },
+    { "notif",       "success",       "on off file" },
+    { "nf",          "success",       "on off file" },
+    { "notif",       "info",          "on off file" },
+    { "nf",          "info",          "on off file" },
+    { "notif",       "ping",          "on off file" },
+    { "nf",          "ping",          "on off file" },
+    // trackme / tm  ("silent" IS a valid first arg: tm [silent])
+    { "trackme",     "",              "silent" },
+    { "tm",          "",              "silent" },
+    // blespam / bs
+    { "blespam",     "",              "apple android ms samsung all" },
+    { "bs",          "",              "apple android ms samsung all" },
+    // fastpair / fp
+    { "fastpair",    "",              "scan spam h" },
+    { "fp",          "",              "scan spam h" },
+    // hiddenssid / hs — first arg is index/bssid (dynamic), no static hints
+    // sdformat / sdf
+    { "sdformat",    "",              "init" },
+    { "sdf",         "",              "init" },
+    { nullptr, nullptr, nullptr }
+};
+
 void CommandManager::doAutocomplete() {
     // Find start of the word being completed (scan left from cursor to last space)
     int wordStart = _cursorPos;
@@ -242,67 +311,135 @@ void CommandManager::doAutocomplete() {
     static const int kMaxMatch = 16;
     char matches[kMaxMatch][128];
     int  matchCount = 0;
+    bool argHintsMode = false;
 
     if (wordStart == 0) {
-        // ── Complete command names ────────────────────────────────────────────
+        // ── Complete command names + short names ──────────────────────────────
+        // Prefer the full name if it matches; fall back to shortName if different.
+        // This lets "ls", "ps", "psv" etc. complete even though they are shortNames.
         for (int i = 0; i < commandCount && matchCount < kMaxMatch; i++) {
+            const char* candidate = nullptr;
             if (strncmp(commands[i].name, prefix, prefixLen) == 0) {
+                candidate = commands[i].name;
+            } else if (strcmp(commands[i].shortName, commands[i].name) != 0 &&
+                       strncmp(commands[i].shortName, prefix, prefixLen) == 0) {
+                candidate = commands[i].shortName;
+            }
+            if (candidate) {
                 bool dup = false;
                 for (int j = 0; j < matchCount; j++)
-                    if (strcmp(matches[j], commands[i].name) == 0) { dup = true; break; }
-                if (!dup) { strncpy(matches[matchCount], commands[i].name, 127); matches[matchCount++][127] = '\0'; }
+                    if (strcmp(matches[j], candidate) == 0) { dup = true; break; }
+                if (!dup) { strncpy(matches[matchCount], candidate, 127); matches[matchCount++][127] = '\0'; }
             }
         }
     } else {
-        // ── Complete file/dir names from SD ───────────────────────────────────
-        // Find which command is active (first word before wordStart)
-        CompType activeComp = COMP_ANY;
+        // ── Extract first word (command name) ────────────────────────────────
+        char cmdWord[32] = "";
         {
-            int ce = wordStart;
-            while (ce > 0 && command[ce-1] == ' ') ce--;
-            int cs = ce;
-            while (cs > 0 && command[cs-1] != ' ') cs--;
-            char cmdWord[64] = "";
-            strncpy(cmdWord, command + cs, ce - cs); cmdWord[ce - cs] = '\0';
-            for (int i = 0; i < commandCount; i++) {
-                if (strcmp(commands[i].name, cmdWord) == 0 || strcmp(commands[i].shortName, cmdWord) == 0) {
-                    activeComp = commands[i].compType;
-                    break;
-                }
+            int i = 0;
+            while (i < (int)sizeof(cmdWord)-1 && command[i] && command[i] != ' ') {
+                cmdWord[i] = command[i];
+                i++;
+            }
+            cmdWord[i] = '\0';
+        }
+
+        // ── CompType for this command ─────────────────────────────────────────
+        CompType activeComp = COMP_NONE;
+        for (int i = 0; i < commandCount; i++) {
+            if (strcmp(commands[i].name, cmdWord) == 0 || strcmp(commands[i].shortName, cmdWord) == 0) {
+                activeComp = commands[i].compType;
+                break;
             }
         }
-        if (activeComp == COMP_NONE) return;  // command takes no file args
 
-        bool dirsOnly  = (activeComp == COMP_DIR);
-        bool filesOnly = (activeComp == COMP_FILE);
-
-        if (sdCardManager.isReady()) {
-            char searchDir[128];
-            char filePrefix[64] = "";
-            const char* lastSlash = strrchr(prefix, '/');
-            if (lastSlash) {
-                int pathLen = (lastSlash - prefix) + 1;
-                char pathPart[128];
-                strncpy(pathPart, prefix, pathLen); pathPart[pathLen] = '\0';
-                sdCardManager.resolvePath(pathPart, searchDir, sizeof(searchDir));
-                strncpy(filePrefix, lastSlash + 1, sizeof(filePrefix) - 1);
-            } else {
-                strncpy(searchDir,  sdCardManager.getCwd(), sizeof(searchDir) - 1);
-                strncpy(filePrefix, prefix,                 sizeof(filePrefix) - 1);
+        // ── Word immediately before the current token (context for 2nd-level hints) ─
+        char prevWord[32] = "";
+        {
+            int pe = wordStart;
+            while (pe > 0 && command[pe-1] == ' ') pe--;
+            int ps = pe;
+            while (ps > 0 && command[ps-1] != ' ') ps--;
+            int len = pe - ps;
+            if (len > 0 && len < (int)sizeof(prevWord)) {
+                strncpy(prevWord, command + ps, len);
+                prevWord[len] = '\0';
             }
-            searchDir[sizeof(searchDir) - 1]   = '\0';
-            filePrefix[sizeof(filePrefix) - 1]  = '\0';
+        }
 
-            char raw[kMaxMatch][64];
-            int  rawCount = sdCardManager.listCompletions(searchDir, filePrefix, raw, kMaxMatch, dirsOnly, filesOnly);
-            for (int i = 0; i < rawCount && matchCount < kMaxMatch; i++) {
-                char full[128] = "";
+        if (activeComp != COMP_NONE) {
+            // ── File / dir completion ─────────────────────────────────────────
+            bool dirsOnly  = (activeComp == COMP_DIR);
+            bool filesOnly = (activeComp == COMP_FILE);
+
+            if (sdCardManager.isReady()) {
+                char searchDir[128];
+                char filePrefix[64] = "";
+                const char* lastSlash = strrchr(prefix, '/');
                 if (lastSlash) {
                     int pathLen = (lastSlash - prefix) + 1;
-                    strncpy(full, prefix, pathLen); full[pathLen] = '\0';
+                    char pathPart[128];
+                    strncpy(pathPart, prefix, pathLen); pathPart[pathLen] = '\0';
+                    sdCardManager.resolvePath(pathPart, searchDir, sizeof(searchDir));
+                    strncpy(filePrefix, lastSlash + 1, sizeof(filePrefix) - 1);
+                } else {
+                    strncpy(searchDir,  sdCardManager.getCwd(), sizeof(searchDir) - 1);
+                    strncpy(filePrefix, prefix,                 sizeof(filePrefix) - 1);
                 }
-                strncat(full, raw[i], sizeof(full) - strlen(full) - 1);
-                strncpy(matches[matchCount], full, 127); matches[matchCount++][127] = '\0';
+                searchDir[sizeof(searchDir) - 1]  = '\0';
+                filePrefix[sizeof(filePrefix) - 1] = '\0';
+
+                char raw[kMaxMatch][64];
+                int  rawCount = sdCardManager.listCompletions(searchDir, filePrefix, raw, kMaxMatch, dirsOnly, filesOnly);
+                for (int i = 0; i < rawCount && matchCount < kMaxMatch; i++) {
+                    char full[128] = "";
+                    if (lastSlash) {
+                        int pathLen = (lastSlash - prefix) + 1;
+                        strncpy(full, prefix, pathLen); full[pathLen] = '\0';
+                    }
+                    strncat(full, raw[i], sizeof(full) - strlen(full) - 1);
+                    strncpy(matches[matchCount], full, 127); matches[matchCount++][127] = '\0';
+                }
+            }
+        } else {
+            // ── Arg hint completion ───────────────────────────────────────────
+            bool isManHelp = (strcmp(cmdWord,"man")==0  || strcmp(cmdWord,"mn")==0 ||
+                              strcmp(cmdWord,"help")==0 || strcmp(cmdWord,"hlp")==0);
+            if (isManHelp) {
+                // Complete against registered command names
+                for (int i = 0; i < commandCount && matchCount < kMaxMatch; i++) {
+                    if (strncmp(commands[i].name, prefix, prefixLen) == 0) {
+                        bool dup = false;
+                        for (int j = 0; j < matchCount; j++)
+                            if (strcmp(matches[j], commands[i].name) == 0) { dup = true; break; }
+                        if (!dup) { strncpy(matches[matchCount], commands[i].name, 127); matches[matchCount++][127] = '\0'; }
+                    }
+                }
+                if (matchCount) argHintsMode = true;
+            } else {
+                for (int h = 0; kArgHints[h].cmd; h++) {
+                    if (strcmp(kArgHints[h].cmd, cmdWord) != 0) continue;
+                    // Match context: empty prev = first-level (prevWord must equal cmdWord)
+                    if (kArgHints[h].prev[0]) {
+                        if (strcmp(kArgHints[h].prev, prevWord) != 0) continue;
+                    } else {
+                        if (strcmp(prevWord, cmdWord) != 0) continue;
+                    }
+                    char hintsBuf[128];
+                    strncpy(hintsBuf, kArgHints[h].hints, sizeof(hintsBuf)-1);
+                    hintsBuf[sizeof(hintsBuf)-1] = '\0';
+                    char* tok = strtok(hintsBuf, " ");
+                    while (tok && matchCount < kMaxMatch) {
+                        if (strncmp(tok, prefix, prefixLen) == 0) {
+                            bool dup = false;
+                            for (int j = 0; j < matchCount; j++)
+                                if (strcmp(matches[j], tok) == 0) { dup = true; break; }
+                            if (!dup) { strncpy(matches[matchCount], tok, 127); matches[matchCount++][127] = '\0'; }
+                        }
+                        tok = strtok(nullptr, " ");
+                    }
+                }
+                if (matchCount) argHintsMode = true;
             }
         }
     }
@@ -333,51 +470,46 @@ void CommandManager::doAutocomplete() {
         prefixLen = commonLen;
     }
 
-    // ── Single match ──────────────────────────────────────────────────────────
+    // ── Single match: append space at any level ───────────────────────────────
     if (matchCount == 1) {
-        bool addedSpace = false;
-        if (wordStart == 0 && command[_cursorPos] == '\0' && commandIndex < (int)bufferSize - 1) {
+        if (command[_cursorPos] == '\0' && commandIndex < (int)bufferSize - 1) {
             command[commandIndex++] = ' ';
             _cursorPos++;
             command[commandIndex] = '\0';
-            addedSpace = true;
-        }
-        // After completing a command name, show CWD contents filtered by the
-        // command's CompType — so cd shows dirs only, sdr shows files only, etc.
-        if (addedSpace && sdCardManager.isReady()) {
-            // Look up the completed command's CompType
-            CompType ct = COMP_NONE;
-            for (int i = 0; i < commandCount; i++) {
-                if (strcmp(commands[i].name, matches[0]) == 0 || strcmp(commands[i].shortName, matches[0]) == 0) {
-                    ct = commands[i].compType; break;
+            // After completing a command name (wordStart==0) with file args,
+            // preview CWD — so cd shows dirs, cat shows files, etc.
+            if (wordStart == 0 && sdCardManager.isReady()) {
+                CompType ct = COMP_NONE;
+                for (int i = 0; i < commandCount; i++) {
+                    if (strcmp(commands[i].name, matches[0]) == 0 || strcmp(commands[i].shortName, matches[0]) == 0) {
+                        ct = commands[i].compType; break;
+                    }
                 }
-            }
-            if (ct == COMP_NONE) {
-                displayManager.redrawCommandLine(command, _cursorPos);
-                return;
-            }
-            char raw[kMaxMatch][64];
-            int rawCount = sdCardManager.listCompletions(sdCardManager.getCwd(), "", raw, kMaxMatch,
-                                                         ct == COMP_DIR, ct == COMP_FILE);
-            if (rawCount > 0) {
-                int shown = rawCount < 8 ? rawCount : 8;
-                displayManager.setCursor(10, displayManager.getCursorY());
-                displayManager.println("");
-                for (int i = 0; i < shown; i++) {
-                    displayManager.setCursor(10, displayManager.getCursorY());
-                    bool isD = (raw[i][strlen(raw[i]) - 1] == '/');
-                    displayManager.setTextColor(isD ? TFT_CYAN : TFT_WHITE);
-                    displayManager.println(raw[i]);
-                    displayManager.setTextColor(TFT_WHITE);
+                if (ct != COMP_NONE) {
+                    char raw[kMaxMatch][64];
+                    int rawCount = sdCardManager.listCompletions(sdCardManager.getCwd(), "", raw, kMaxMatch,
+                                                                 ct == COMP_DIR, ct == COMP_FILE);
+                    if (rawCount > 0) {
+                        int shown = rawCount < 8 ? rawCount : 8;
+                        displayManager.setCursor(10, displayManager.getCursorY());
+                        displayManager.println("");
+                        for (int i = 0; i < shown; i++) {
+                            displayManager.setCursor(10, displayManager.getCursorY());
+                            bool isD = (raw[i][strlen(raw[i]) - 1] == '/');
+                            displayManager.setTextColor(isD ? TFT_CYAN : TFT_WHITE);
+                            displayManager.println(raw[i]);
+                            displayManager.setTextColor(TFT_WHITE);
+                        }
+                        if (rawCount > 8) {
+                            displayManager.setCursor(10, displayManager.getCursorY());
+                            displayManager.setTextColor(0x4208);
+                            char more[24]; snprintf(more, sizeof(more), "... %d more", rawCount - 8);
+                            displayManager.println(more);
+                            displayManager.setTextColor(TFT_WHITE);
+                        }
+                        displayManager.printCommandScreen();
+                    }
                 }
-                if (rawCount > 8) {
-                    displayManager.setCursor(10, displayManager.getCursorY());
-                    displayManager.setTextColor(0x4208);
-                    char more[24]; snprintf(more, sizeof(more), "... %d more", rawCount - 8);
-                    displayManager.println(more);
-                    displayManager.setTextColor(TFT_WHITE);
-                }
-                displayManager.printCommandScreen();
             }
         }
         displayManager.redrawCommandLine(command, _cursorPos);
@@ -391,17 +523,12 @@ void CommandManager::doAutocomplete() {
     for (int i = 0; i < shown; i++) {
         displayManager.setCursor(10, displayManager.getCursorY());
         bool isDir = (matches[i][strlen(matches[i]) - 1] == '/');
-        if (isDir) {
-            displayManager.setTextColor(TFT_CYAN);
-            displayManager.println(matches[i]);
-            displayManager.setTextColor(TFT_WHITE);
-        } else if (wordStart == 0) {
-            displayManager.setTextColor(TFT_GREEN);
-            displayManager.println(matches[i]);
-            displayManager.setTextColor(TFT_WHITE);
-        } else {
-            displayManager.println(matches[i]);
-        }
+        if (isDir)             displayManager.setTextColor(TFT_CYAN);
+        else if (wordStart==0) displayManager.setTextColor(TFT_GREEN);
+        else if (argHintsMode) displayManager.setTextColor(TFT_YELLOW);
+        else                   displayManager.setTextColor(TFT_WHITE);
+        displayManager.println(matches[i]);
+        displayManager.setTextColor(TFT_WHITE);
     }
     if (matchCount > 8) {
         displayManager.setCursor(10, displayManager.getCursorY());
@@ -452,6 +579,12 @@ static void handleWGuardCmd(char* a) {
         return;
     }
     if (strcmp(a, "stop") == 0) { wGuard.stopBackground(); return; }
+    if (strcmp(a, "view") == 0) {
+        if (wGuard.isBackground()) { wGuard.enterView(); return; }
+        displayManager.println("wguard not running in background");
+        displayManager.printCommandScreen();
+        return;
+    }
     // Strip trailing " bg" if present
     char buf[64]; strncpy(buf, a, 63); buf[63] = '\0';
     char* last = strrchr(buf, ' ');
@@ -469,6 +602,7 @@ void CommandManager::setupCommands() {
     registerCommand("MATRIX",      "matrix", [](char* a) { displayManager.launchMatrixAnimation(); },                       "Matrix rain animation",                   false, "System");
     registerCommand("pwrsave",     "psv",    [](char* a) { PowerSaveManager::handleCommand(a); },                         "Power save: on/off/set/status",  true,  "System");
     registerCommand("lock",        "lk",     [](char* a) { LockScreenManager::getInstance().cmd(a); },                       "Screen lock  [new|update|clean|timeout <s>|status]", true,  "System");
+    registerCommand("tz",          "tz",     [](char* a) { runTzCmd(a); },                                                    "Timezone  [+3 | -5:30 | <posix> | status]",          true,  "System");
     registerCommand("volume",      "vol",    [](char* a) { handleVolumeCmd(a); },                                             "General volume: vol [0-100|up|down|off]",   true,  "System");
     registerCommand("notif",       "nf",     [](char* a) { NotificationManager::handleNotifCmd(a); },                        "Notifications: nf [on|off|vol <n>|<lvl> on|off|file <f>]", true, "System");
     // ── WiFi ──────────────────────────────────────────────────────────────────
@@ -502,7 +636,7 @@ void CommandManager::setupCommands() {
     registerCommand("sdls",        "ls",     [](char* a) { sdCardManager.listDirectory(a && *a ? a : nullptr); },           "List SD dir [path] — default: cwd",       true,  "SD Card", COMP_ANY);
     registerCommand("cd",          "cd",     [](char* a) { sdCardManager.cdCommand(a); },                                   "Change SD directory: cd <dir|..>",        true,  "SD Card", COMP_DIR);
     registerCommand("cat",         "cat",    [](char* a) { if (a&&*a) sdCardManager.readFile(a); else { displayManager.println("Usage: cat <path>"); displayManager.printCommandScreen(); } }, "Read file from SD",    true,  "SD Card", COMP_ANY);
-    registerCommand("sdrm",        "srm",    [](char* a) { if (a&&*a) sdCardManager.removeFile(a); else { displayManager.println("Usage: srm <path>"); displayManager.printCommandScreen(); } }, "Delete file from SD", true,  "SD Card", COMP_FILE);
+    registerCommand("rm",          "rm",     [](char* a) { if (a&&*a) sdCardManager.removeFile(a); else { displayManager.println("Usage: rm <path>"); displayManager.printCommandScreen(); } }, "Delete file from SD", true,  "SD Card", COMP_FILE);
     registerCommand("sdformat",    "sdf",    [](char* a) { sdCardManager.formatCommand(a); },                               "Format SD to FAT: sdf [init]",            true,  "SD Card");
     // ── USB ───────────────────────────────────────────────────────────────────
     registerCommand("usbmsc",      "um",     [](char* a) { usbManager.startMSC(); },                                                              "Expose SD card as USB drive",             false, "USB");

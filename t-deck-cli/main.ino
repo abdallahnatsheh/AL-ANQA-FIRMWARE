@@ -22,6 +22,7 @@
 #include "notification_manager.h"
 #include "wguard.h"
 #include "lockscreen_manager.h"
+#include "clock_manager.h"
 
 LGFX tft;
 DisplayManager   displayManager(tft);
@@ -53,6 +54,7 @@ void setup() {
         Serial.println("SD card not found or failed to mount.");
     }
 
+    ClockManager::instance().init();
     MacChanger::getInstance().begin();
     PowerSaveManager::getInstance().init(&batteryManager);
     LockScreenManager::getInstance().init();

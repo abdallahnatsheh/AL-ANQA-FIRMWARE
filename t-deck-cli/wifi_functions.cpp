@@ -284,9 +284,9 @@ String WiFiFunctions::readPassword() {
                 pw.remove(pw.length() - 1);
                 displayManager.backspaceChar();
             }
-        } else if (isPrintable(c) && c != ' ' && pw.length() < 100) {
+        } else if (isPrintable(c) && pw.length() < 100) {
             pw += c;
-            displayManager.printText('*');
+            displayManager.printText(c);
         }
     }
     displayManager.println();
@@ -386,7 +386,7 @@ void WiFiFunctions::connectToWiFiCommand(char* args) {
                 displayManager.tdeck_begin();
                 return;
             }
-            storeWiFiCredentials(ssid, password);
+            // Don't save yet — only save to NVS after successful connection
         } else {
             displayManager.setCursor(10, displayManager.getCursorY());
             displayManager.setTextColor(0x7BEF);
@@ -434,6 +434,9 @@ void WiFiFunctions::connectToWiFiCommand(char* args) {
     displayManager.setCursor(10, displayManager.getCursorY());
     displayManager.printText("IP: ");
     displayManager.println(WiFi.localIP().toString());
+
+    // Save to NVS only on successful connection
+    if (!isOpen) storeWiFiCredentials(ssid, password);
 
     WifiNetwork newNet;
     newNet.ssid   = ssid;

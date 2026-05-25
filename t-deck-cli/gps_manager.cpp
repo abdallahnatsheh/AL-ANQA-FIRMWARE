@@ -1,6 +1,7 @@
 #include "gps_manager.h"
 #include "display_manager.h"
 #include "input_handling.h"
+#include "lockscreen_manager.h"
 #include <Preferences.h>
 
 extern DisplayManager displayManager;
@@ -37,6 +38,12 @@ void GpsManager::gpsTask(void* pv) {
             self->_minute    = self->_gps.time.minute();
             self->_second    = self->_gps.time.second();
             self->_timeValid = true;
+        }
+        if (self->_gps.date.isValid()) {
+            self->_day       = self->_gps.date.day();
+            self->_month     = self->_gps.date.month();
+            self->_year      = (uint16_t)self->_gps.date.year();
+            self->_dateValid = true;
         }
         self->_chars = self->_gps.charsProcessed();
 
@@ -268,6 +275,7 @@ void runGpsOn() {
 
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) lastDraw = 0;
         vTaskDelay(pdMS_TO_TICKS(20));
     }
     displayManager.printCommandScreen();

@@ -77,7 +77,6 @@ void PowerSaveManager::update() {
         if (screenOffEnabled && elapsed >= screenOffTimeoutMs) {
             if (!isScreenOffState) applyScreenOff();
         } else if (elapsed >= inactivityTimeoutMs) {
-            if (isScreenOffState) { isScreenOffState = false; }
             if (!isDimState) applyDim();
         } else {
             if (isDimState || isScreenOffState) wakeUp();
@@ -237,48 +236,26 @@ void PowerSaveManager::loadConfigFromSD() {
     configFile.close();
 }
 
+bool PowerSaveManager::writeConfigFile() {
+    if (SD.exists(CONFIG_FILE_PATH)) SD.remove(CONFIG_FILE_PATH);
+    File f = SD.open(CONFIG_FILE_PATH, FILE_WRITE);
+    if (!f) return false;
+    f.print("enabled=");                f.println(enabled ? "true" : "false");
+    f.print("timeoutMs=");              f.println(inactivityTimeoutMs);
+    f.print("screenOffTimeoutMs=");     f.println(screenOffTimeoutMs);
+    f.print("screenOffEnabled=");       f.println(screenOffEnabled ? "true" : "false");
+    f.print("dimBrightness=");          f.println(dimBrightness);
+    f.print("fullBrightness=");         f.println(fullBrightness);
+    f.print("batteryAwareDimEnabled="); f.println(batteryAwareDimEnabled ? "true" : "false");
+    f.print("batteryThreshold=");       f.println(batteryThreshold);
+    f.print("batteryDimBrightness=");   f.println(batteryDimBrightness);
+    f.close();
+    return true;
+}
+
 void PowerSaveManager::saveConfigToSD() {
-    if (SD.exists(CONFIG_FILE_PATH)) {
-        SD.remove(CONFIG_FILE_PATH);
-    }
-    File configFile = SD.open(CONFIG_FILE_PATH, FILE_WRITE);
-    if (!configFile) {
-        displayManager.println("Error: Failed to save config to SD");
-        displayManager.printCommandScreen();
-        return;
-    }
-    
-    // Write config in simple key=value format
-    configFile.print("enabled=");
-    configFile.println(enabled ? "true" : "false");
-    
-    configFile.print("timeoutMs=");
-    configFile.println(inactivityTimeoutMs);
-
-    configFile.print("screenOffTimeoutMs=");
-    configFile.println(screenOffTimeoutMs);
-
-    configFile.print("screenOffEnabled=");
-    configFile.println(screenOffEnabled ? "true" : "false");
-
-    configFile.print("dimBrightness=");
-    configFile.println(dimBrightness);
-    
-    configFile.print("fullBrightness=");
-    configFile.println(fullBrightness);
-    
-    configFile.print("batteryAwareDimEnabled=");
-    configFile.println(batteryAwareDimEnabled ? "true" : "false");
-    
-    configFile.print("batteryThreshold=");
-    configFile.println(batteryThreshold);
-    
-    configFile.print("batteryDimBrightness=");
-    configFile.println(batteryDimBrightness);
-    
-    configFile.close();
-    
-    displayManager.println("PowerSave config saved to SD.");
+    bool ok = writeConfigFile();
+    displayManager.println(ok ? "PowerSave config saved to SD." : "Error: Failed to save config to SD");
     displayManager.printCommandScreen();
 }
 
@@ -395,14 +372,16 @@ void PowerSaveManager::handleCommand(char* args) {
     
     if (strcmp(args, "on") == 0) {
         psm.enable();
-        displayManager.println("PowerSave: ON");
+        bool saved = psm.writeConfigFile();
+        displayManager.println(saved ? "PowerSave: ON (saved)" : "PowerSave: ON");
         displayManager.printCommandScreen();
         return;
     }
-    
+
     if (strcmp(args, "off") == 0) {
         psm.disable();
-        displayManager.println("PowerSave: OFF");
+        bool saved = psm.writeConfigFile();
+        displayManager.println(saved ? "PowerSave: OFF (saved)" : "PowerSave: OFF");
         displayManager.printCommandScreen();
         return;
     }
@@ -412,10 +391,11 @@ void PowerSaveManager::handleCommand(char* args) {
         
         // Set timeout
         if (strncmp(subcmd, "timeout ", 8) == 0) {
-            uint32_t ms = (uint32_t)atoi(subcmd + 8) * 1000;
-            psm.setTimeoutMs(ms);
-            char buf[32];
-            snprintf(buf, sizeof(buf), "Timeout set to %us", (unsigned int)(ms / 1000));
+            uint32_t secs = (uint32_t)atoi(subcmd + 8);
+            psm.setTimeoutMs(secs * 1000);
+            bool saved = psm.writeConfigFile();
+            char buf[40];
+            snprintf(buf, sizeof(buf), "Timeout: %us%s", (unsigned int)secs, saved ? " (saved)" : "");
             displayManager.println(buf);
             displayManager.printCommandScreen();
             return;
@@ -425,8 +405,9 @@ void PowerSaveManager::handleCommand(char* args) {
         if (strncmp(subcmd, "dimto ", 6) == 0) {
             uint8_t br = (uint8_t)atoi(subcmd + 6);
             psm.setDimBrightness(br);
+            bool saved = psm.writeConfigFile();
             char buf[32];
-            snprintf(buf, sizeof(buf), "Dim level set to %u", br);
+            snprintf(buf, sizeof(buf), "Dim: %u%s", br, saved ? " (saved)" : "");
             displayManager.println(buf);
             displayManager.printCommandScreen();
             return;
@@ -436,8 +417,9 @@ void PowerSaveManager::handleCommand(char* args) {
         if (strncmp(subcmd, "fullto ", 7) == 0) {
             uint8_t br = (uint8_t)atoi(subcmd + 7);
             psm.setFullBrightness(br);
+            bool saved = psm.writeConfigFile();
             char buf[32];
-            snprintf(buf, sizeof(buf), "Full level set to %u", br);
+            snprintf(buf, sizeof(buf), "Full: %u%s", br, saved ? " (saved)" : "");
             displayManager.println(buf);
             displayManager.printCommandScreen();
             return;
@@ -445,10 +427,11 @@ void PowerSaveManager::handleCommand(char* args) {
         
         // Set screen-off timeout
         if (strncmp(subcmd, "screenoff ", 10) == 0) {
-            uint32_t ms = (uint32_t)atoi(subcmd + 10) * 1000;
-            psm.setScreenOffTimeoutMs(ms);
-            char buf[36];
-            snprintf(buf, sizeof(buf), "Screen-off @ %us", (unsigned int)(ms / 1000));
+            uint32_t secs = (uint32_t)atoi(subcmd + 10);
+            psm.setScreenOffTimeoutMs(secs * 1000);
+            bool saved = psm.writeConfigFile();
+            char buf[40];
+            snprintf(buf, sizeof(buf), "Screen-off @ %us%s", (unsigned int)secs, saved ? " (saved)" : "");
             displayManager.println(buf);
             displayManager.printCommandScreen();
             return;
@@ -459,50 +442,60 @@ void PowerSaveManager::handleCommand(char* args) {
             const char* mode = subcmd + 14;
             if (strcmp(mode, "on") == 0) {
                 psm.enableScreenOff();
-                displayManager.println("Screen-off: ON");
             } else if (strcmp(mode, "off") == 0) {
                 psm.disableScreenOff();
-                displayManager.println("Screen-off: OFF");
             } else {
                 displayManager.println("Use: on or off");
+                displayManager.printCommandScreen();
+                return;
             }
+            bool saved = psm.writeConfigFile();
+            char buf[36];
+            snprintf(buf, sizeof(buf), "Screen-off: %s%s", strcmp(mode,"on")==0 ? "ON" : "OFF", saved ? " (saved)" : "");
+            displayManager.println(buf);
             displayManager.printCommandScreen();
             return;
         }
 
         // Set battery mode
         if (strncmp(subcmd, "batterymode ", 12) == 0) {
-            char* mode = subcmd + 12;
+            const char* mode = subcmd + 12;
             if (strcmp(mode, "on") == 0) {
                 psm.enableBatteryMode();
-                displayManager.println("Battery mode: ON");
             } else if (strcmp(mode, "off") == 0) {
                 psm.disableBatteryMode();
-                displayManager.println("Battery mode: OFF");
             } else {
-                displayManager.println("Invalid mode. Use 'on' or 'off'");
+                displayManager.println("Use: on or off");
+                displayManager.printCommandScreen();
+                return;
             }
+            bool saved = psm.writeConfigFile();
+            char buf[36];
+            snprintf(buf, sizeof(buf), "Battery mode: %s%s", strcmp(mode,"on")==0 ? "ON" : "OFF", saved ? " (saved)" : "");
+            displayManager.println(buf);
             displayManager.printCommandScreen();
             return;
         }
-        
+
         // Set battery threshold
         if (strncmp(subcmd, "batterythreshold ", 17) == 0) {
             uint8_t pct = (uint8_t)atoi(subcmd + 17);
             psm.setBatteryThreshold(pct);
-            char buf[32];
-            snprintf(buf, sizeof(buf), "Batt threshold: %u%%", pct);
+            bool saved = psm.writeConfigFile();
+            char buf[40];
+            snprintf(buf, sizeof(buf), "Batt threshold: %u%%%s", pct, saved ? " (saved)" : "");
             displayManager.println(buf);
             displayManager.printCommandScreen();
             return;
         }
 
         // Set battery dim brightness
-        if (strncmp(subcmd, "batterydimu ", 12) == 0) {
-            uint8_t br = (uint8_t)atoi(subcmd + 12);
+        if (strncmp(subcmd, "batterydim ", 11) == 0) {
+            uint8_t br = (uint8_t)atoi(subcmd + 11);
             psm.setBatteryDimBrightness(br);
+            bool saved = psm.writeConfigFile();
             char buf[32];
-            snprintf(buf, sizeof(buf), "Batt dim level: %u", br);
+            snprintf(buf, sizeof(buf), "Batt dim: %u%s", br, saved ? " (saved)" : "");
             displayManager.println(buf);
             displayManager.printCommandScreen();
             return;
@@ -524,16 +517,13 @@ void PowerSaveManager::handleCommand(char* args) {
     }
     
     // Invalid command
-    displayManager.println("PowerSave Commands:");
-    displayManager.println("  status - Show current status");
-    displayManager.println("  on/off - Enable/disable");
-    displayManager.println("  set timeout <sec>");
-    displayManager.println("  set dimto <0-255>");
-    displayManager.println("  set fullto <0-255>");
-    displayManager.println("  set batterymode on|off");
-    displayManager.println("  set batterythreshold <%>");
-    displayManager.println("  set batterydimu <0-255>");
-    displayManager.println("  save - Save to SD");
-    displayManager.println("  reset - Reset to defaults");
+    displayManager.println("pwrsave on|off|status|save|reset");
+    displayManager.println("pwrsave set timeout <s>");
+    displayManager.println("pwrsave set dimto|fullto <0-255>");
+    displayManager.println("pwrsave set screenoff <s>");
+    displayManager.println("pwrsave set screenoffmode on|off");
+    displayManager.println("pwrsave set batterymode on|off");
+    displayManager.println("pwrsave set batterythreshold <%>");
+    displayManager.println("pwrsave set batterydim <0-255>");
     displayManager.printCommandScreen();
 }

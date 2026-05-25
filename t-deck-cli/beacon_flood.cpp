@@ -585,10 +585,11 @@ void runBeaconFlood(char* arg) {
         char tmp[64]; strncpy(tmp, arg, sizeof(tmp) - 1); tmp[sizeof(tmp) - 1] = '\0';
         char* tok = strtok(tmp, " ");
         if (tok) {
-            if      (strncasecmp(tok, "seq",   3) == 0) { seqMode      = true; char* b = strtok(nullptr, " "); strncpy(baseBuf, b && *b ? b : "Network_", 32); strncpy(modeBuf, "seq",      sizeof(modeBuf) - 1); }
-            else if (strncasecmp(tok, "rick",  4) == 0) { rickrollMode = true; strncpy(modeBuf, "rickroll", sizeof(modeBuf) - 1); }
-            else if (strncasecmp(tok, "file",  4) == 0) { fileMode     = true; char* p = strtok(nullptr, " "); if (p && *p) strncpy(filePath, p, sizeof(filePath) - 1); strncpy(modeBuf, "file",  sizeof(modeBuf) - 1); }
-            else if (strncasecmp(tok, "clone", 5) == 0) { cloneMode    = true; strncpy(modeBuf, "clone",    sizeof(modeBuf) - 1); }
+            if      (strncasecmp(tok, "list",  4) == 0) {                       strncpy(modeBuf, "list",     sizeof(modeBuf) - 1); }
+            else if (strncasecmp(tok, "seq",   3) == 0) { seqMode      = true;  char* b = strtok(nullptr, " "); strncpy(baseBuf, b && *b ? b : "Network_", 32); strncpy(modeBuf, "seq",      sizeof(modeBuf) - 1); }
+            else if (strncasecmp(tok, "rick",  4) == 0) { rickrollMode = true;  strncpy(modeBuf, "rickroll", sizeof(modeBuf) - 1); }
+            else if (strncasecmp(tok, "file",  4) == 0) { fileMode     = true;  char* p = strtok(nullptr, " "); if (p && *p) strncpy(filePath, p, sizeof(filePath) - 1); strncpy(modeBuf, "file", sizeof(modeBuf) - 1); }
+            else if (strncasecmp(tok, "clone", 5) == 0) { cloneMode    = true;  strncpy(modeBuf, "clone",    sizeof(modeBuf) - 1); }
         }
     }
 

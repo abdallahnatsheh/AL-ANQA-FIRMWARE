@@ -23,6 +23,10 @@ public:
     uint8_t     hour()           const { return _hour; }
     uint8_t     minute()         const { return _minute; }
     uint8_t     second()         const { return _second; }
+    bool        dateValid()      const { return _dateValid; }
+    uint8_t     day()            const { return _day; }
+    uint8_t     month()          const { return _month; }
+    uint16_t    year()           const { return _year; }
     uint32_t    charsProcessed() const { return _chars; }
     const char* moduleName()     const { return _module; }
 
@@ -52,6 +56,10 @@ private:
     volatile uint8_t  _hour      = 0;
     volatile uint8_t  _minute    = 0;
     volatile uint8_t  _second    = 0;
+    volatile bool     _dateValid = false;
+    volatile uint8_t  _day       = 0;
+    volatile uint8_t  _month     = 0;
+    volatile uint16_t _year      = 0;
     volatile uint32_t _chars     = 0;
     char              _module[24] = "Unknown";
     bool              _nvsCachedFix = false; // true if a GPS fix was ever saved to NVS

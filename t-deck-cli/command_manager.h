@@ -12,7 +12,7 @@ enum CompType {
     COMP_NONE,   // no file/dir suggestions (network cmds, etc.)
     COMP_ANY,    // files and directories
     COMP_DIR,    // directories only (cd)
-    COMP_FILE,   // files only (sdr, srm, ux)
+    COMP_FILE,   // files only (rm, ux)
 };
 
 struct Command {

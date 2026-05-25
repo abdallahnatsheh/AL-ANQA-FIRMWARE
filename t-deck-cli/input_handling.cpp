@@ -2,6 +2,7 @@
 #include "utilities.h"
 #include "powersave_manager.h"
 #include "lockscreen_manager.h"
+#include "clock_manager.h"
 #include "wguard.h"
 #include <Wire.h>
 #include <esp_timer.h>
@@ -85,6 +86,7 @@ char InputHandling::getKeyboardInput() {
     lastPoll = now;
 
     PowerSaveManager::getInstance().update();
+    ClockManager::instance().update();
     wGuard.pollBackground();
 
     // Double-click screen-off — ISR captured it, we just act on the flag
@@ -93,12 +95,32 @@ char InputHandling::getKeyboardInput() {
         PowerSaveManager::getInstance().toggleManualOff();
     }
 
-    if (Wire.requestFrom(LILYGO_KB_SLAVE_ADDRESS, 1) == 0) return 0;
-    char key = Wire.read();
-    if (key != 0) {
-        updateActivity();
-        PowerSaveManager::getInstance().updateActivity();
+    char key = 0;
+    if (Wire.requestFrom(LILYGO_KB_SLAVE_ADDRESS, 1) != 0) {
+        key = Wire.read();
+        if (key != 0) {
+            // Only backspace repeats on hold — all other keys cancel any pending repeat.
+            if (key == '\b') {
+                _repeatKey   = '\b';
+                _repeatStart = now;
+                _repeatLast  = now;
+            } else {
+                _repeatKey = 0;
+            }
+            updateActivity();
+            PowerSaveManager::getInstance().updateActivity();
+        }
     }
+
+    // Software key repeat: fire synthetic events after kRepeatDelayMs hold,
+    // then every kRepeatRateMs. Clears automatically when next physical key arrives.
+    if (key == 0 && _repeatKey != 0 &&
+        now - _repeatStart >= kRepeatDelayMs &&
+        now - _repeatLast  >= kRepeatRateMs) {
+        key = _repeatKey;
+        _repeatLast = now;
+    }
+
     return LockScreenManager::getInstance().intercept(key, now);
 }
 

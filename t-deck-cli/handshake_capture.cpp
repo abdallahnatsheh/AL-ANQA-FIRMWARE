@@ -5,6 +5,7 @@
 #include "handshake_capture.h"
 #include "input_handling.h"
 #include "sdcard_manager.h"
+#include "clock_manager.h"
 #include <SD.h>
 #include <mbedtls/pkcs5.h>
 #include <mbedtls/md.h>
@@ -476,9 +477,15 @@ void HandshakeCapture::crack() {
         // Save to SD if available
         if (sdCardManager.isReady()) {
             sdCardManager.ensureDir("/logs");
-            char logLine[128];
-            snprintf(logLine, sizeof(logLine), "%s,%s,%s",
-                     macStr(g_whs.apMac).c_str(), g_whs.ssid, found);
+            char ts[22] = "";
+            ClockManager::instance().getTimestamp(ts, sizeof(ts));
+            char logLine[152];
+            if (ts[0])
+                snprintf(logLine, sizeof(logLine), "%s,%s,%s,%s",
+                         ts, macStr(g_whs.apMac).c_str(), g_whs.ssid, found);
+            else
+                snprintf(logLine, sizeof(logLine), "%s,%s,%s",
+                         macStr(g_whs.apMac).c_str(), g_whs.ssid, found);
             sdCardManager.appendLine("/logs/cracked.csv", logLine);
         }
     } else {

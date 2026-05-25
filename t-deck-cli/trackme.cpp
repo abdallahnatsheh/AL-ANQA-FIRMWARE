@@ -3,6 +3,7 @@
 #include "input_handling.h"
 #include "utilities.h"
 #include "notification_manager.h"
+#include "clock_manager.h"
 #include "wguard.h"
 #include <WiFi.h>
 #include <SD.h>
@@ -547,13 +548,27 @@ void TrackMeScanner::appendLog(const TrackedDev& d) {
     }
     char line[128];
     String mac = macStr(d.mac);
-    snprintf(line, sizeof(line),
-        "[%lums] %s | %s | 0x%04X | score:%d | seen:%lus | rssi:%.0f",
-        (unsigned long)millis(), levelStr,
-        d.name[0] ? d.name : mac.c_str(),
-        d.companyId, d.score,
-        (unsigned long)((millis() - d.firstSeen) / 1000),
-        d.rssiSmoothed);
+    {
+        char ts[22] = "";
+        ClockManager::instance().getTimestamp(ts, sizeof(ts));
+        if (ts[0]) {
+            snprintf(line, sizeof(line),
+                "%s %s | %s | 0x%04X | score:%d | seen:%lus | rssi:%.0f",
+                ts, levelStr,
+                d.name[0] ? d.name : mac.c_str(),
+                d.companyId, d.score,
+                (unsigned long)((millis() - d.firstSeen) / 1000),
+                d.rssiSmoothed);
+        } else {
+            snprintf(line, sizeof(line),
+                "[%lums] %s | %s | 0x%04X | score:%d | seen:%lus | rssi:%.0f",
+                (unsigned long)millis(), levelStr,
+                d.name[0] ? d.name : mac.c_str(),
+                d.companyId, d.score,
+                (unsigned long)((millis() - d.firstSeen) / 1000),
+                d.rssiSmoothed);
+        }
+    }
     if (sd.appendLine(SD_LOG_TRACKME, String(line)))
         _sdNoticeMs = millis();
 }

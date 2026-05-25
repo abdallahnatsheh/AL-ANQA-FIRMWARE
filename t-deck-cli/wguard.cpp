@@ -23,6 +23,7 @@
 #include "sdcard_manager.h"
 #include "notification_manager.h"
 #include "lockscreen_manager.h"
+#include "clock_manager.h"
 #include <SD.h>
 
 extern DisplayManager displayManager;
@@ -873,6 +874,15 @@ void WGuard::initSession() {
              _bssid[0], _bssid[1], _bssid[2], _bssid[3], _bssid[4], _bssid[5],
              _channel, (unsigned long)(_sessionStartMs / 1000));
     f.print(hdr);
+    {
+        char ts[22] = "";
+        ClockManager::instance().getTimestamp(ts, sizeof(ts));
+        if (ts[0]) {
+            char tshdr[48];
+            snprintf(tshdr, sizeof(tshdr), "# started %s (local)\n", ts);
+            f.print(tshdr);
+        }
+    }
     f.print("time,severity,rssi_dbm,message,detail\n");   // CSV column header
     f.close();
 }
@@ -1050,6 +1060,7 @@ void WGuard::beginBackground(char* args) {
     memcpy((void*)s_bssid, bssid, 6);
     strncpy((char*)s_ssid, ssid, 32); ((char*)s_ssid)[32] = '\0';
 
+    WiFi.disconnect(false);   // drop any existing association before promiscuous
     WiFi.mode(WIFI_STA);
     delay(100);
     wifi_promiscuous_filter_t filt = { .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA };
@@ -1460,6 +1471,7 @@ void WGuard::run(const uint8_t* bssid, int channel, const char* ssid) {
 
     initSession();   // create /logs/wguard_NNN.csv — SD safe before promiscuous
 
+    WiFi.disconnect(false);   // drop any existing association before promiscuous
     WiFi.mode(WIFI_STA);
     delay(100);
     wifi_promiscuous_filter_t filt = { .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA };

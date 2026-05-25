@@ -6,6 +6,7 @@
 #include "input_handling.h"
 #include "utilities.h"
 #include "sdcard_manager.h"
+#include "clock_manager.h"
 #include <SD.h>
 #include <Preferences.h>
 #include "mbedtls/sha256.h"
@@ -144,6 +145,7 @@ static void drawLockHeader() {
 
 void LockScreenManager::refreshDuration() {
     displayManager.setBlocked(false);
+    displayManager.updateStatusBar();   // keep WiFi/battery/clock in status bar fresh while locked
     DisplayManager& dm = displayManager;
     uint32_t secs = (millis() - _lockedAtMs) / 1000;
     char buf[32];
@@ -157,6 +159,25 @@ void LockScreenManager::refreshDuration() {
     dm.fillRect(0, dy, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
     dm.setCursor(10, dy);
     dm.setTextColor(0x4208); dm.println(buf);
+
+    // UTC clock line — only when GPS time is available
+    {
+        ClockManager& clk = ClockManager::instance();
+        int32_t utcY = _pinActive
+                     ? (outputY + LINE_HEIGHT * 9)
+                     : (outputY + LINE_HEIGHT * 13);
+        dm.fillRect(0, utcY, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+        if (clk.isValid()) {
+            char t[10], d[12], utcLine[26];
+            clk.getTimeStr(t, sizeof(t));
+            clk.getDateStr(d, sizeof(d));
+            snprintf(utcLine, sizeof(utcLine), "%s  %s", t, d);
+            dm.setCursor(10, utcY);
+            dm.setTextColor(TFT_CYAN);
+            dm.println(utcLine);
+        }
+    }
+
     dm.setTextColor(TFT_WHITE);
     _lastDurRefresh = millis();
     displayManager.setBlocked(true);

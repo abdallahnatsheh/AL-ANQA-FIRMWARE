@@ -1,6 +1,7 @@
 #include "display_manager.h"
 #include "battery_manager.h"
 #include "gps_manager.h"
+#include "clock_manager.h"
 #include "utilities.h"
 #include <Wire.h>
 #include <string>
@@ -164,6 +165,15 @@ void DisplayManager::updateStatusBar() {
         tft.setTextColor(TFT_GREEN);
         tft.setCursor(82, promptY + 11);
         tft.print(WiFi.localIP().toString());
+    }
+
+    // ── UTC clock — "HH:MM" fixed at x=173, same row as IP ───────────────────
+    {
+        char clk[6];
+        ClockManager::instance().getShortTime(clk, sizeof(clk));
+        tft.setCursor(175, promptY + 11);
+        tft.setTextColor(ClockManager::instance().isValid() ? TFT_WHITE : 0x2104);
+        tft.print(clk);
     }
 
     // ── WGuard shield icon ────────────────────────────────────────────────────

@@ -74,17 +74,41 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "tz", "tz", {
+        "SYNTAX   tz               — pick from list",
+        "         tz status        — show current TZ + time",
+        "         tz +3 | tz -5   — set UTC offset directly",
+        "         tz +3:30        — half-hour offset",
+        "",
+        "ABOUT    Scrollable list of 30+ common timezones.",
+        "         UP/DN to move, Enter to select, q to quit.",
+        "         WiFi: NTP syncs local time automatically.",
+        "         No WiFi: GPS used as source (Plus only).",
+        "         Saved to /clock.conf on SD.",
+        nullptr
+    }},
+
     { "pwrsave", "psv", {
         "SYNTAX   pwrsave on|off|status",
         "         pwrsave set <option> <value>",
+        "         pwrsave save|reset",
         "",
-        "ABOUT    Dim on inactivity + battery level.",
+        "ABOUT    Dim + screen-off on inactivity, battery-aware dim.",
         "         Config saved to /pwrsave.conf.",
         "",
-        "OPTIONS  dim_timeout <s>   dim_level <0-255>",
-        "         bat_threshold <%> bat_dim_lvl <0-255>",
-        "EXAMPLE  pwrsave set dim_timeout 60",
-        "         pwrsave set bat_threshold 20",
+        "SET      timeout <s>           — inactivity dim delay",
+        "         dimto <0-255>         — dim brightness level",
+        "         fullto <0-255>        — full brightness level",
+        "         screenoff <s>         — screen-off delay",
+        "         screenoffmode on|off  — enable screen-off",
+        "         batterymode on|off    — battery-aware dim",
+        "         batterythreshold <%>  — dim below this %",
+        "         batterydim <0-255>     — battery dim level",
+        "",
+        "EXAMPLE  pwrsave set timeout 60",
+        "         pwrsave set dimto 40",
+        "         pwrsave set batterymode on",
+        "         pwrsave set batterythreshold 20",
         nullptr
     }},
 
@@ -518,7 +542,7 @@ static const ManEntry PAGES[] = {
         "         cd /",
         "",
         "ABOUT    Change the current working directory.",
-        "         Affects ls, sdr, srm, ux path lookup.",
+        "         Affects ls, rm, ux path lookup.",
         "         Relative and absolute paths supported.",
         "         cd with no arg or / returns to root.",
         "",
@@ -541,13 +565,13 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
-    { "sdrm", "srm", {
-        "SYNTAX   srm <path>",
+    { "rm", "rm", {
+        "SYNTAX   rm <path>",
         "",
         "ABOUT    Delete a file from SD card.",
         "WARNING  No confirmation — immediate.",
         "",
-        "EXAMPLE  srm /logs/eviltwin.csv",
+        "EXAMPLE  rm /logs/eviltwin.csv",
         nullptr
     }},
 
