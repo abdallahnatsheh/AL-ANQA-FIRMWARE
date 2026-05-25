@@ -55,6 +55,22 @@ type: project
 - `sdr`, `srm`, `ux` resolve relative paths via `resolvePath()` before calling their functions
 - Command history — 16-entry ring buffer in CommandManager; trackpad UP = older, DOWN = newer; saves current input before navigating, restores on DOWN past newest
 
+## Session 2026-05-25
+- Lock screen write-lock — `DisplayManager::_blocked` flag; all draw methods guard `if (_blocked) return`; `setBlocked(true)` after `lock()`; lock screen draw functions temporarily lift block to draw; status bar also refreshed inside `refreshDuration()` while block is lifted
+- Auto-redraw on unlock — `LockScreenManager::_justUnlocked` + `consumeJustUnlocked()`; all interactive apps (sw, sbl, nd, ps, ts, man, wguard, cat, ls, bf, tm, hs) check flag each loop iteration and re-render; `clearRedrawCallback()` approach replaced by `_justUnlocked` pattern
+- Backspace hold-repeat in CLI — 700ms delay, 80ms rate, backspace only; any other key cancels; fields `_repeatKey`, `_repeatStart`, `_repeatLast` in `InputHandling`; `kReleaseTimeoutMs` removed (was causing repeat to never fire)
+- WiFi wrong password fix — `storeWiFiCredentials()` moved from before-connect to success path only; wrong password is never saved to NVS
+- Plain text password entry — `readPassword()` now echoes `c` directly instead of `*`; space restriction removed
+- Clock sync after WiFi connect — NTP start/stop check moved ABOVE 10s throttle in `ClockManager::update()`; fires immediately on first poll after `WL_CONNECTED`
+- Status bar 3s live refresh — `_lastBarMs` timer in `ClockManager::update()`; calls `updateStatusBar()` every 3s when not blocked; keeps clock/WiFi/battery/GPS live during idle
+- Status bar while locked — `refreshDuration()` (1 Hz) calls `updateStatusBar()` with block temporarily lifted; keeps clock in status bar fresh while screen is locked
+- WGuard WiFi isolation — `WiFi.disconnect(false)` before `WiFi.mode(WIFI_STA)` in both `run()` and `beginBackground()`; ensures promiscuous-only mode, no lingering STA association
+- ClockManager — GPS-backed UTC wall clock with NTP priority; TZ from `/clock.conf`; `getShortTime/getTimeStr/getDateStr/getTimestamp`; status bar HH:MM at x=175; lock screen UTC line in `refreshDuration()`; timestamps in trackme/eviltwin/handshake/wguard logs
+- BeaconFlood (`bf/beaconflood`) — raw 802.11 beacon injection; list/seq/file modes; random LA-MAC; channel hop 1→6→11…
+- WGuard enrichments — DFIR log enrichment, threat counter split, OUI vendor lookup
+- `ls/cd` CWD, command history ring buffer, autocomplete arg hints
+- `sdrm` renamed → `rm/rm`
+
 ## Not Yet Built
 - macwatch / mw — MAC proximity watchlist
 - LoRa scanner (`lorascan/ls`)

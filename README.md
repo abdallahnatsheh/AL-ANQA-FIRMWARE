@@ -153,7 +153,7 @@ git clone https://github.com/abdallahnatsheh/T-Rex
 | `sdls` | `ls` | `[path]` | List directory (CWD if no path, paginated, dirs in cyan) |
 | `cd` | `cd` | `<dir\|..>` | Change working directory — `cd badusb`, `cd ..`, `cd /` |
 | `cat` | `cat` | `<path>` | Read file — scrollable viewer, tpad UP/DN, `q` quit |
-| `sdrm` | `srm` | `<path>` | Delete file (relative to CWD) |
+| `rm` | `rm` | `<path>` | Delete file (relative to CWD) |
 | **USB** | | | |
 | `usbmsc` | `um` | — | Expose SD card as USB Mass Storage drive |
 | `usbkbd` | `uk` | — | T-Deck as USB keyboard + mouse (trackball = cursor, tap = left click, hold = right click) |
@@ -189,9 +189,11 @@ All scan tables share the same keys:
 | Click | Execute command |
 
 **Autocomplete:** Press `'` (Sym+K) at any point in a command.
-- At the start → completes command names (`scan` + `'` shows `scanwifi`, `scanblue`)
-- After a command name → completes file/dir paths from the current working directory
-- Smart filtering: `cd` suggests dirs only, `srm`/`ux` suggest files only, `ls`/`cat` suggest both files and dirs
+- At the start → completes command names and short names (`sc` + `'` → `scanwifi`; `ps` + `'` → `portscan`)
+- After a command with file args → completes file/dir paths from the current working directory
+- After a command with subcommands → shows valid args in yellow (`psv ` + `'` → `on off status save reset set`)
+- Two-level context: `psv set ` + `'` → shows settable options; `mc target ` + `'` → `wifi bt both`
+- Smart filtering: `cd` suggests dirs only, `rm`/`ux` suggest files only, `ls`/`cat` suggest both
 - Fills common prefix automatically (Linux-style); single match adds a trailing space
 
 ---
@@ -240,7 +242,7 @@ All scan tables share the same keys:
 - [x] BadUSB / DuckyScript — Flipper Zero DuckyScript v1 compatible, hyphenated combos, REPEAT, built-in demo
 - [x] `wguard` WiFi IDS — deauth flood, evil twin (two-tier RSSI-filtered detection), handshake harvest, PMKID grab, auth flood, probe storm, beacon flood, BSSID cloning, Karma attack; background mode with shield icon + popup bars; session CSV logs (session-relative timestamps, no duplicate events across save blocks)
 - [x] Notification manager — I2S WAV playback from SD, per-level volume, screen wake callback; wired into Buddy, TrackMe, wguard
-- [x] Lock screen — idle-timeout auto-lock (keyboard + trackpad both reset timer) + hold-trackpad-3s trigger; no-PIN (Space ×3) or SHA-256-hashed PIN (salt via esp_random, mbedTLS); live locked-duration HH:MM:SS; yellow warning when no SD card; recovery = remove SD + reboot
+- [x] Lock screen — idle-timeout auto-lock (keyboard + trackpad both reset timer) + hold-trackpad-3s trigger; no-PIN (Space ×3) or SHA-256-hashed PIN (salt via esp_random, mbedTLS); live locked-duration HH:MM:SS; yellow warning when no SD card; recovery = remove SD + reboot; status bar stays live (clock/WiFi/battery update every 1 s while locked)
 - [ ] LoRa packet logger
 - [ ] MAC proximity watchlist
 - [ ] DNS enumeration
