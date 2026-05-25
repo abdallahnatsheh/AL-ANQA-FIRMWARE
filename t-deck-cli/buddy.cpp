@@ -337,11 +337,29 @@ class BuddyRxCb : public NimBLECharacteristicCallbacks {
     }
 };
 
+class BuddySecCb : public NimBLESecurityCallbacks {
+    void onPassKeyNotify(uint32_t pk) override { s_passkey = pk; }
+    uint32_t onPassKeyRequest() override { return 0; }
+    bool onSecurityRequest() override { return true; }
+    bool onConfirmPIN(uint32_t) override { return true; }
+    void onAuthenticationComplete(ble_gap_conn_desc* desc) override {
+        s_passkey = 0;
+        if (desc->sec_state.encrypted) {
+            s_secure    = true;
+            s_connected = true;
+        } else {
+            NimBLEDevice::startAdvertising(); // auth failed — retry
+        }
+    }
+};
+
 class BuddySrvCb : public NimBLEServerCallbacks {
-    void onConnect(NimBLEServer*) override    { s_connected = true; }
+    // Wait for BuddySecCb::onAuthenticationComplete before setting s_connected
+    void onConnect(NimBLEServer*) override    {}
     void onDisconnect(NimBLEServer*) override {
         s_connected = false;
         s_secure    = false;
+        s_passkey   = 0;
         NimBLEDevice::startAdvertising();
     }
 };
@@ -474,23 +492,49 @@ static void drawStatus(const TamaState& t, bool bleConn, const char* name) {
     tft.drawFastHLine(0, y, W, DIM);
     y += 4;
 
-    // ── Not connected: pairing guide ───────────────────────────────────────────
+    // ── Not connected: passkey or discovery guide ─────────────────────────────
     if (!bleConn) {
-        tft.setTextColor(bleCol, 0x0000);
-        tft.setTextSize(2);
-        tft.setCursor(6, y); tft.print("discover");
-        tft.setTextSize(1);
-        y += 20;
-        tft.setTextColor(bodyCol, 0x0000);
-        tft.setCursor(6, y); tft.print(name);
-        y += 14;
-        tft.setTextColor(DIM, 0x0000);
-        tft.setCursor(6, y); tft.print("Open Claude Desktop"); y += 10;
-        tft.setCursor(6, y); tft.print("> Developer");          y += 10;
-        tft.setCursor(6, y); tft.print("> Hardware Buddy");     y += 10;
-        tft.setCursor(6, y); tft.print("auto-connects via BLE");
-        tft.setCursor(6, SCREEN_HEIGHT - 10);
-        tft.print("[q] quit  [spc] pet");
+        if (s_passkey) {
+            // Pairing in progress — show passkey prominently
+            char digits[8]; snprintf(digits, sizeof(digits), "%06lu", s_passkey);
+            char spaced[14];
+            snprintf(spaced, sizeof(spaced), "%c %c %c %c %c %c",
+                     digits[0], digits[1], digits[2],
+                     digits[3], digits[4], digits[5]);
+            tft.setTextColor(HOT, 0x0000);
+            tft.setTextSize(2);
+            tft.setCursor(6, y); tft.print("PAIRING");
+            tft.setTextSize(1);
+            y += 20;
+            tft.setTextColor(bodyCol, 0x0000);
+            tft.setCursor(6, y); tft.print("Enter this code:"); y += 14;
+            tft.setTextColor(GREEN, 0x0000);
+            tft.setTextSize(2);
+            int pw = strlen(spaced) * 12; // font size 2 = 12px/char
+            tft.setCursor((W - pw) / 2, y); tft.print(spaced);
+            tft.setTextSize(1);
+            y += 24;
+            tft.setTextColor(DIM, 0x0000);
+            tft.setCursor(6, y); tft.print("Type on Claude Desktop");
+            tft.setCursor(6, SCREEN_HEIGHT - 10);
+            tft.print("[q] cancel");
+        } else {
+            tft.setTextColor(bleCol, 0x0000);
+            tft.setTextSize(2);
+            tft.setCursor(6, y); tft.print("discover");
+            tft.setTextSize(1);
+            y += 20;
+            tft.setTextColor(bodyCol, 0x0000);
+            tft.setCursor(6, y); tft.print(name);
+            y += 14;
+            tft.setTextColor(DIM, 0x0000);
+            tft.setCursor(6, y); tft.print("Open Claude Desktop"); y += 10;
+            tft.setCursor(6, y); tft.print("> Developer");          y += 10;
+            tft.setCursor(6, y); tft.print("> Hardware Buddy");     y += 10;
+            tft.setCursor(6, y); tft.print("auto-connects via BLE");
+            tft.setCursor(6, SCREEN_HEIGHT - 10);
+            tft.print("[q] quit  [spc] pet");
+        }
         return;
     }
 
@@ -726,6 +770,10 @@ void buddyCommand(char* args) {
 
     NimBLEDevice::init(btName);
     NimBLEDevice::setMTU(517);
+    // Bonding + MITM (passkey display) — encrypted + authenticated link
+    NimBLEDevice::setSecurityAuth(true, true, false);
+    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
+    NimBLEDevice::setSecurityCallbacks(new BuddySecCb());
 
     s_server = NimBLEDevice::createServer();
     s_server->setCallbacks(new BuddySrvCb());

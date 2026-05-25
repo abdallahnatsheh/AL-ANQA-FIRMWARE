@@ -5,7 +5,11 @@ type: project
 ---
 
 ## Already implemented (do NOT re-add)
-`beaconflood/bf` · `bleinfo/bi` · `usbkbd/uk` · `usbexec/ux` (BadUSB) · `clock/ClockManager` · `buddy/bd` · `wguard/wg` · `hiddenssid/hs` · `blespam/bs`
+`beaconflood/bf` · `bleinfo/bi` · `usbkbd/uk` · `usbexec/ux` (BadUSB) · `clock/ClockManager` · `buddy/bd` · `wguard/wg` · `hiddenssid/hs` · `blespam/bs` · `jiggle/jg` (mouse jiggler)
+
+## Implemented — NOT YET FIELD TESTED
+- `btkbd/bk` — BLE HID keyboard+mouse; MITM passkey pairing; see ble_keyboard.h/.cpp
+- `buddy/bd` security — MITM bonding added; passkey shown on screen; see buddy.cpp BuddySecCb
 
 ---
 
@@ -23,7 +27,12 @@ type: project
 
 ## Bluetooth
 
-10. **BadBLE** — connect as BLE HID keyboard; inject DuckyScript. Command: `badble/bb <mac|#> <script>`
+10. **BadBLE** — BLE HID spoofing + DuckyScript injection. Command: `badble/bb <mac|#> <script>`
+    - Clone MAC + HID profile of a bonded keyboard from last `sbl` scan
+    - Optional forced disconnect phase: flood BLE adv channels / 2.4GHz to drop real keyboard
+    - Host auto-reconnects to cloned MAC; exploits BLESA (2020) — unpatched Android/old iOS/some Windows accept unencrypted HID reconnect → keystrokes injected before re-auth
+    - Patched devices require valid LTK → connection drops on encrypt failure (no injection)
+    - NimBLE: set MAC before `init()` via `esp_wifi_set_mac` equivalent for BLE
 11. **macwatch** — see `project_macwatch_idea.md` for full spec. Command: `macwatch/mw`
 12. **BT Command Relay** — send CLI command to remote T-Deck over BLE NUS; output streams back. `btcmd/btc <mac> <cmd>`
 
@@ -34,8 +43,7 @@ type: project
 
 ## USB Attacks
 
-15. **Mouse Jiggler** — `jiggle/jg`; move mouse ±1px every ~30s; trivial (HID already wired)
-16. **Auto OS Detection** — detect Windows/macOS/Linux on USB connect; auto-select script folder for `ux`
+15. **Auto OS Detection** — detect Windows/macOS/Linux on USB connect; auto-select script folder for `ux`
 17. **Remote BadUSB via WiFi** — `rbadusb/rb`; HTTP AP to trigger scripts from phone
 18. **Keylogger Mode** — `keylog/kl`; USB HID host-direction capture to SD
 

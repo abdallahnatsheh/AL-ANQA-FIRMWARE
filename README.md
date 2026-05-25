@@ -63,9 +63,10 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 - Anti-tracking detector — BLE + WiFi probe surveillance with 3-gate confirmation and GPS movement awareness
 - **Fast Pair attack** (`fp`) — scan for Fast Pair devices, flood Google FP advertisements with per-cycle MAC randomization, GATT probe (WhisperPair) to read anti-spoofing keys
 - **BLE notification spam** (`bs`) — Apple Continuity (Proximity Pairing + Nearby Info popups), Google Fast Pair flood, Microsoft Swift Pair, Samsung Galaxy accessory popups
+- **BLE Keyboard + Mouse** (`bk`) — T-Deck as a wireless BLE HID keyboard + mouse; same features as USB keyboard (`uk`) but over Bluetooth; MITM-protected bonding (passkey shown on screen, typed on host); tap = left click, hold = right click, hold 1.5s = exit; auto-reconnects on drop
 
 **🤖 Claude Desktop Buddy** — [full guide](docs/buddy.md)
-- **BLE remote** (`bd`) — approve/deny Claude Desktop permission prompts from the T-Deck keyboard
+- **BLE remote** (`bd`) — approve/deny Claude Desktop permission prompts from the T-Deck keyboard; MITM-protected bonding (passkey shown on screen)
 - Full-screen terminal popup for long commands — full text wrapped across multiple lines, no truncation
 - Live session stats: tokens, level, mood, energy — all persisted to NVS
 - 19 ASCII pet species with 7-state animation at 5 fps
@@ -148,6 +149,7 @@ git clone https://github.com/abdallahnatsheh/T-Rex
 | `fastpair` | `fp` | `[scan\|spam\|h <idx>\|h all]` | Fast Pair: scan devices / flood ads / GATT hijack |
 | `blespam` | `bs` | `[apple\|android\|ms\|samsung\|all]` | BLE notification spam (popups on nearby devices) |
 | `buddy` | `bd` | `[name]` | Claude Desktop remote — approve prompts, ASCII pet, NVS stats |
+| `btkbd` | `bk` | — | T-Deck as BLE keyboard + mouse (MITM-bonded, passkey on screen) |
 | **SD Card** | | | |
 | `sdinfo` | `sdi` | — | SD card info |
 | `sdls` | `ls` | `[path]` | List directory (CWD if no path, paginated, dirs in cyan) |
@@ -157,6 +159,7 @@ git clone https://github.com/abdallahnatsheh/T-Rex
 | **USB** | | | |
 | `usbmsc` | `um` | — | Expose SD card as USB Mass Storage drive |
 | `usbkbd` | `uk` | — | T-Deck as USB keyboard + mouse (trackball = cursor, tap = left click, hold = right click) |
+| `jiggle` | `jg` | — | Mouse jiggler — nudges cursor ±2 px every 30 s to prevent host screen lock |
 | `usbexec` | `ux` | `demo\|<path>` | BadUSB — execute DuckyScript payload (Flipper Zero compatible) |
 | **Diagnostics** | | | |
 | `gpson` | `gon` | — | Start GPS task (T-Deck Plus) |
@@ -238,7 +241,9 @@ All scan tables share the same keys:
 - [x] LoRa diagnostic, GPS (T-Deck Plus)
 - [x] USB Mass Storage — expose SD card as USB drive (read + write, 2MB file tested)
 - [x] USB Keyboard + Mouse — T-Deck physical keyboard + trackball as full USB HID input device
-- [x] Claude Desktop Buddy — BLE remote, permission prompts, ASCII pet, NVS stats
+- [x] Mouse Jiggler — USB HID nudge every 30 s to prevent host screen lock
+- [x] BLE Keyboard + Mouse (`bk`) — wireless BLE HID; MITM-bonded passkey pairing; same features as USB keyboard; auto-reconnects on drop
+- [x] Claude Desktop Buddy — BLE remote, permission prompts, ASCII pet, NVS stats; MITM-bonded passkey pairing
 - [x] BadUSB / DuckyScript — Flipper Zero DuckyScript v1 compatible, hyphenated combos, REPEAT, built-in demo
 - [x] `wguard` WiFi IDS — deauth flood, evil twin (two-tier RSSI-filtered detection), handshake harvest, PMKID grab, auth flood, probe storm, beacon flood, BSSID cloning, Karma attack; background mode with shield icon + popup bars; session CSV logs (session-relative timestamps, no duplicate events across save blocks)
 - [x] Notification manager — I2S WAV playback from SD, per-level volume, screen wake callback; wired into Buddy, TrackMe, wguard

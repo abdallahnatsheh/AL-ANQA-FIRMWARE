@@ -487,6 +487,23 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "btkbd", "bk", {
+        "SYNTAX   btkbd",
+        "",
+        "ABOUT    T-Deck as BLE keyboard + mouse.",
+        "         Pair with any Bluetooth host.",
+        "         Keyboard types into host. Trackball",
+        "         moves cursor (accelerated).",
+        "",
+        "PAIR     Just Works — no passkey needed.",
+        "         Advertises as: T-REX-KBD",
+        "",
+        "CLICK    tap=left  hold=right  1.5s=exit",
+        "NOTE     BS auto-repeats after 1s hold.",
+        "         Reconnects automatically on drop.",
+        nullptr
+    }},
+
     { "jiggle", "jg", {
         "SYNTAX   jiggle",
         "",

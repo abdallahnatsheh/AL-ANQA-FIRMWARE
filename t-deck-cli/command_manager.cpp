@@ -20,6 +20,7 @@
 #include "ble_spam.h"
 #include "usb_manager.h"
 #include "usb_keyboard.h"
+#include "ble_keyboard.h"
 #include "bad_usb.h"
 #include "buddy.h"
 #include "ble_info.h"
@@ -641,6 +642,7 @@ void CommandManager::setupCommands() {
     // ── USB ───────────────────────────────────────────────────────────────────
     registerCommand("usbmsc",      "um",     [](char* a) { usbManager.startMSC(); },                                                              "Expose SD card as USB drive",             false, "USB");
     registerCommand("usbkbd",      "uk",     [](char* a) { usbKeyboard.start(); },                                                               "T-DECK as USB keyboard+mouse",            false, "USB");
+    registerCommand("btkbd",       "bk",     [](char* a) { bleKeyboard.start(); },                                                               "T-DECK as BLE keyboard+mouse",            false, "Bluetooth");
     registerCommand("usbexec",     "ux",     [](char* a) { handleUsbExecCmd(a); },                                              "BadUSB/DuckyScript executor",             true,  "USB",  COMP_FILE);
     registerCommand("jiggle",      "jg",     [](char* a) { usbKeyboard.jiggle(); },                                             "Mouse jiggler — prevent screen lock",     false, "USB");
     // ── Diagnostics ───────────────────────────────────────────────────────────

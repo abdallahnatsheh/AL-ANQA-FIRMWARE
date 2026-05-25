@@ -17,6 +17,8 @@ All implemented features are documented in CLAUDE.md (commands, architecture sec
 - Status bar while locked — `refreshDuration()` calls `updateStatusBar()` with block lifted
 - WGuard WiFi isolation — `WiFi.disconnect(false)` before `WiFi.mode(WIFI_STA)` in `run()` + `beginBackground()`
 - `sdrm` renamed → `rm/rm`; autocomplete arg hints + shortName completion fixed
+- `btkbd/bk` — BLE HID keyboard + mouse (ble_keyboard.h/.cpp); same features as usbkbd; MITM-bonded passkey pairing (BLE_HS_IO_DISPLAY_ONLY); `NimBLESecurityCallbacks` sets `s_bleConnected` only on `onAuthenticationComplete` with encrypted link; passkey shown on screen during pairing; auto-reconnects on drop; `NimBLEDevice::deinit(true)` + `SD.begin(39)` on exit; ⚠️ NOT YET FIELD TESTED
+- `buddy/bd` security fix — added `BuddySecCb` (same pattern as btkbd); `setSecurityAuth/IOCap/Callbacks` before `pSvc->start()`; `onConnect` no longer sets `s_connected`; `drawStatus` shows passkey screen when `s_passkey != 0`; ⚠️ NOT YET FIELD TESTED
 
 ## Not Yet Built
 - macwatch/mw — MAC proximity watchlist (spec: project_macwatch_idea.md)
