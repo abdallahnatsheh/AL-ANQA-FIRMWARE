@@ -242,10 +242,10 @@ static void enumerate(NimBLEClient* client) {
     s_hasWrite      = false;
     s_hasRisk       = false;
     s_writableCount = 0;
-    auto* services = client->getServices(true);
-    if (!services) return;
+    const auto& services = client->getServices(true);
+    if (services.empty()) return;
 
-    for (auto* svc : *services) {
+    for (auto* svc : services) {
         if (s_svcCount >= BI_MAX_SVCS) break;
         BiSvc& bs = s_svcs[s_svcCount++];
         memset(&bs, 0, sizeof(bs));
@@ -254,14 +254,14 @@ static void enumerate(NimBLEClient* client) {
         strncpy(bs.fullUuid, svc->getUUID().toString().c_str(), sizeof(bs.fullUuid) - 1);
         bs.fullUuid[sizeof(bs.fullUuid) - 1] = '\0';
         uint16_t su = (svc->getUUID().bitSize() == 16)
-                      ? svc->getUUID().getNative()->u16.value : 0;
+                      ? ((const ble_uuid16_t*)svc->getUUID().getBase())->value : 0;
         const char* sn = su ? svcName(su) : nullptr;
         if (sn) strncpy(bs.name, sn, sizeof(bs.name) - 1);
 
-        auto* chars = svc->getCharacteristics(true);
-        if (!chars) continue;
+        const auto& chars = svc->getCharacteristics(true);
+        if (chars.empty()) continue;
 
-        for (auto* chr : *chars) {
+        for (auto* chr : chars) {
             if (bs.nChars >= BI_MAX_CHARS) break;
             BiChar& bc = bs.chars[bs.nChars++];
             memset(&bc, 0, sizeof(bc));
@@ -285,7 +285,7 @@ static void enumerate(NimBLEClient* client) {
             bc.props[pi] = '\0';
 
             uint16_t cu = (chr->getUUID().bitSize() == 16)
-                          ? chr->getUUID().getNative()->u16.value : 0;
+                          ? ((const ble_uuid16_t*)chr->getUUID().getBase())->value : 0;
             const char* cn = cu ? chrName(cu) : nullptr;
 
             // Read 0x2904 Presentation Format descriptor
@@ -337,7 +337,7 @@ static void enumerate(NimBLEClient* client) {
 // ── Pairing / security ────────────────────────────────────────────────────────
 
 class BiSecCallbacks : public NimBLEClientCallbacks {
-    uint32_t onPassKeyRequest() override {
+    void onPassKeyEntry(NimBLEConnInfo& connInfo) override {
         displayManager.setCursor(4, displayManager.getCursorY());
         displayManager.setTextColor(TFT_CYAN);
         displayManager.println("Passkey (6 digits):");
@@ -354,20 +354,22 @@ class BiSecCallbacks : public NimBLEClientCallbacks {
             }
             vTaskDelay(pdMS_TO_TICKS(20));
         }
-        return (uint32_t)atol(buf);
+        NimBLEDevice::injectPassKey(connInfo, (uint32_t)atol(buf));
     }
-    bool onConfirmPIN(uint32_t pin) override {
+    void onConfirmPasskey(NimBLEConnInfo& connInfo, uint32_t pin) override {
         // Numeric comparison — show pin, ask y/n
         displayManager.setCursor(4, displayManager.getCursorY());
         displayManager.setTextColor(TFT_CYAN);
         char msg[32]; snprintf(msg, sizeof(msg), "Confirm PIN %06lu? [y/n]", (unsigned long)pin);
         displayManager.println(msg);
+        bool accept = false;
         while (true) {
             char k = inputHandler.getKeyboardInput();
-            if (k == 'y' || k == 'Y') return true;
-            if (k == 'n' || k == 'N') return false;
+            if (k == 'y' || k == 'Y') { accept = true;  break; }
+            if (k == 'n' || k == 'N') { accept = false; break; }
             vTaskDelay(pdMS_TO_TICKS(20));
         }
+        NimBLEDevice::injectConfirmPasskey(connInfo, accept);
     }
 };
 static BiSecCallbacks s_secCallbacks;
@@ -711,7 +713,7 @@ static void runReplay(const char* macStr, uint8_t addrType) {
 
     NimBLEDevice::init("");
     NimBLEClient* client = NimBLEDevice::createClient();
-    client->setConnectTimeout(5);
+    client->setConnectTimeout(5000);   // v2.x: unit is ms
     if (!client->connect(NimBLEAddress(replayMac, replayType))) {
         displayManager.setTextColor(TFT_RED);
         displayManager.println("Connect failed.");
@@ -722,12 +724,12 @@ static void runReplay(const char* macStr, uint8_t addrType) {
     applyPairing(client);
 
     bool sent = false;
-    auto* svcs = client->getServices(true);
-    if (svcs) {
-        for (auto* svc : *svcs) {
-            auto* chars = svc->getCharacteristics(true);
-            if (!chars) continue;
-            for (auto* chr : *chars) {
+    const auto& svcs = client->getServices(true);
+    if (!svcs.empty()) {
+        for (auto* svc : svcs) {
+            const auto& chars = svc->getCharacteristics(true);
+            if (chars.empty()) continue;
+            for (auto* chr : chars) {
                 char uuidBuf[12];
                 shortUuid(chr->getUUID().toString(), uuidBuf, sizeof(uuidBuf));
                 if (strcmp(uuidBuf, target.uuid) == 0 && chr->canWrite()) {
@@ -913,7 +915,7 @@ static void runWrite(const char* macStr, uint8_t addrType) {
 
     // Do NOT call NimBLEDevice::init() — stack is already up
     NimBLEClient* client = NimBLEDevice::createClient();
-    client->setConnectTimeout(5);
+    client->setConnectTimeout(5000);   // v2.x: unit is ms
     if (!client->connect(NimBLEAddress(macStr, addrType))) {
         displayManager.setTextColor(TFT_RED);
         displayManager.println("Connect failed.");
@@ -926,12 +928,12 @@ static void runWrite(const char* macStr, uint8_t addrType) {
     // Find the characteristic by UUID and write
     // Try with-response first; fall back to without-response (e.g. Da Fit 0xffd1)
     bool sent = false;
-    auto* svcs = client->getServices(true);
-    if (svcs) {
-        for (auto* svc : *svcs) {
-            auto* chars = svc->getCharacteristics(true);
-            if (!chars) continue;
-            for (auto* chr : *chars) {
+    const auto& svcs = client->getServices(true);
+    if (!svcs.empty()) {
+        for (auto* svc : svcs) {
+            const auto& chars = svc->getCharacteristics(true);
+            if (chars.empty()) continue;
+            for (auto* chr : chars) {
                 char uuidBuf[12]; shortUuid(chr->getUUID().toString(), uuidBuf, sizeof(uuidBuf));
                 if (strcmp(uuidBuf, bc.uuid) == 0) {
                     if (chr->canWrite())
@@ -1018,7 +1020,7 @@ static void runFuzz(const char* macStr, uint8_t addrType) {
 
     NimBLEDevice::init("");
     NimBLEClient* client = NimBLEDevice::createClient();
-    client->setConnectTimeout(5);
+    client->setConnectTimeout(5000);   // v2.x: unit is ms
     if (!client->connect(NimBLEAddress(macStr, addrType))) {
         displayManager.setTextColor(TFT_RED);
         displayManager.println("Connect failed.");
@@ -1030,12 +1032,12 @@ static void runFuzz(const char* macStr, uint8_t addrType) {
 
     // Find the characteristic
     NimBLERemoteCharacteristic* target = nullptr;
-    auto* svcs = client->getServices(true);
-    if (svcs) {
-        for (auto* svc : *svcs) {
-            auto* chars = svc->getCharacteristics(true);
-            if (!chars) continue;
-            for (auto* chr : *chars) {
+    const auto& svcs = client->getServices(true);
+    if (!svcs.empty()) {
+        for (auto* svc : svcs) {
+            const auto& chars = svc->getCharacteristics(true);
+            if (chars.empty()) continue;
+            for (auto* chr : chars) {
                 char uuidBuf[12]; shortUuid(chr->getUUID().toString(), uuidBuf, sizeof(uuidBuf));
                 if (strcmp(uuidBuf, bc.uuid) == 0 && chr->canWrite()) { target = chr; break; }
             }
@@ -1350,7 +1352,7 @@ static void runSniff(const char* macStr, uint8_t addrType) {
     displayManager.println("Reconnecting for sniff...");
 
     NimBLEClient* client = NimBLEDevice::createClient();
-    client->setConnectTimeout(5);
+    client->setConnectTimeout(5000);   // v2.x: unit is ms
 
     if (!client->connect(NimBLEAddress(macStr, addrType))) {
         displayManager.setTextColor(TFT_RED);
@@ -1363,12 +1365,12 @@ static void runSniff(const char* macStr, uint8_t addrType) {
 
     // Subscribe to every notify characteristic
     int subCount = 0;
-    auto* services = client->getServices(true);
-    if (services) {
-        for (auto* svc : *services) {
-            auto* chars = svc->getCharacteristics(true);
-            if (!chars) continue;
-            for (auto* chr : *chars) {
+    const auto& services = client->getServices(true);
+    if (!services.empty()) {
+        for (auto* svc : services) {
+            const auto& chars = svc->getCharacteristics(true);
+            if (chars.empty()) continue;
+            for (auto* chr : chars) {
                 if (chr->canNotify()) {
                     chr->subscribe(true, onNotify);
                     subCount++;
@@ -1504,12 +1506,12 @@ static void runSniff(const char* macStr, uint8_t addrType) {
                 if (payLen > 0) {
                     // Write using the existing connected client — no reconnect
                     bool sent = false;
-                    auto* svcs2 = client->getServices(false); // cached, no re-discover
-                    if (svcs2) {
-                        for (auto* svc : *svcs2) {
-                            auto* chars2 = svc->getCharacteristics(false);
-                            if (!chars2) continue;
-                            for (auto* chr : *chars2) {
+                    const auto& svcs2 = client->getServices(false); // cached, no re-discover
+                    if (!svcs2.empty()) {
+                        for (auto* svc : svcs2) {
+                            const auto& chars2 = svc->getCharacteristics(false);
+                            if (chars2.empty()) continue;
+                            for (auto* chr : chars2) {
                                 char uuidBuf[12];
                                 shortUuid(chr->getUUID().toString(), uuidBuf, sizeof(uuidBuf));
                                 if (strcmp(uuidBuf, bc.uuid) == 0) {
@@ -1593,8 +1595,9 @@ void runBleInfo(char* arg) {
             displayManager.println(hdr);
 
             NimBLEDevice::init("");
+            NimBLEDevice::getScan()->stop();   // v2.x: ensure scanner idle before connecting
             NimBLEClient* client = NimBLEDevice::createClient();
-            client->setConnectTimeout(4);
+            client->setConnectTimeout(4000);   // v2.x: unit is ms (was seconds in v1.x)
             bool ok = client->connect(NimBLEAddress(s_bleDevices[di].addr,
                                                      s_bleDevices[di].addrType));
             if (ok) {
@@ -1656,8 +1659,9 @@ void runBleInfo(char* arg) {
     displayManager.println(msg);
 
     NimBLEDevice::init("");
+    NimBLEDevice::getScan()->stop();   // v2.x: ensure scanner idle before connecting
     NimBLEClient* client = NimBLEDevice::createClient();
-    client->setConnectTimeout(5);
+    client->setConnectTimeout(5000);   // v2.x: unit is ms (was seconds in v1.x)
 
     bool connected = client->connect(NimBLEAddress(macStr, addrType));
     if (!connected && !isIdx)

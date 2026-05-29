@@ -18,7 +18,7 @@ public:
 
 private:
     NimBLEScan*                       pBLEScan;
-    NimBLEAdvertisedDeviceCallbacks*  pScanCallbacks;
+    NimBLEScanCallbacks*  pScanCallbacks;
     bool bluetoothScanExecuted;
     int  numberOfDevices = 0;
     const int scanTime   = 5;

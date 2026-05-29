@@ -1,13 +1,27 @@
 ---
-name: Collaboration Rules
-description: All feedback rules for how to work with this user
+name: Collaboration + Coding Rules
+description: All rules for how to work with this user and this codebase
 type: feedback
 ---
 
-1. **No AskUserQuestion tool** — pick the best approach, propose it in plain text, let user redirect.
-2. **No git push** — HTTPS credential prompt blocks in sandbox. Tell user to run `git push` themselves.
-3. **No full license text via Write** — AGPL-3.0 full text triggers content filter. User pastes manually.
-4. **Reuse existing code** — read the class before writing new functions. Call what exists; don't reimplement.
-5. **No redundant verification** — don't run diff/status/grep after edits just to confirm. Trust the edit and move on. User said "do not waste my tokens".
-6. **Verify APIs before using them** — check actual header files for method names before writing code (e.g. `getInitialized()` not `isInitialized()`). Wrong API names cause compile errors that waste tokens.
-7. **Test logic mentally before writing** — trace through crash scenarios (uninitialized deinit, duplicate service on second run) before submitting. Don't iterate fixes in the chat.
+## Collaboration
+1. No `AskUserQuestion` tool — pick best approach, propose in text, let user redirect.
+2. No redundant verification — don't grep/diff/status after edits just to confirm. Trust the edit.
+3. No full license text via Write — AGPL-3.0 text triggers content filter. User pastes manually.
+4. Concise — Abdallah wants direct communication, file:line refs, no padding.
+
+## Code Quality
+5. Reuse existing code — read the class before writing new functions. If a method exists, call it.
+6. Verify APIs before using — check actual header files (e.g. `getInitialized()` not `isInitialized()`).
+7. Test logic mentally — trace crash scenarios before submitting. Don't iterate fixes in chat.
+
+## Hardware Rules (ESP32-S3)
+**GDMA — CRITICAL:** WiFi and SPI-SD share the GDMA controller. Wrong teardown = SD permanently broken until reboot.
+- WiFi teardown: always `WiFi.mode(WIFI_STA)` — never `WIFI_OFF`
+- AP drop: always `WiFi.disconnect(false)` — never `disconnect(true)`
+- SD writes during capture: buffer in RAM, write only AFTER WiFi fully torn down
+- SD file open: always BEFORE `WiFi.mode(APSTA)` or `esp_wifi_set_promiscuous(true)`
+- After `NimBLEDevice::deinit(true)`: always call `SD.begin(39)` — BLE deinit disturbs SPI bus
+
+## User Background
+Abdallah — embedded/ESP32 dev, PlatformIO + Arduino, C++, WiFi/BLE APIs. Personal pentesting firmware project for ethical hacking/education.

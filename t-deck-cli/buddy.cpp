@@ -286,6 +286,10 @@ static NimBLECharacteristic* s_txChar    = nullptr;
 static volatile bool         s_connected = false;
 static volatile bool         s_secure    = false;
 static uint32_t              s_passkey   = 0;
+// Diagnostic flags — captured during init, shown on discover screen
+static bool s_addrOk    = false;  // setOwnAddr + setOwnAddrType both returned true
+static bool s_advOk     = false;  // startAdvertising() returned true
+static bool s_staleBond = false;  // Windows has stale LTK — user must remove from BT settings
 
 // ── Session state ─────────────────────────────────────────────────────────────
 struct TamaState {
@@ -331,36 +335,48 @@ static void sendPermission(const char* id, const char* decision) {
 
 // ── BLE callbacks ─────────────────────────────────────────────────────────────
 class BuddyRxCb : public NimBLECharacteristicCallbacks {
-    void onWrite(NimBLECharacteristic* c) override {
+    void onWrite(NimBLECharacteristic* c, NimBLEConnInfo&) override {
         std::string v = c->getValue();
         if (!v.empty()) rxPush((const uint8_t*)v.data(), v.size());
     }
 };
 
-class BuddySecCb : public NimBLESecurityCallbacks {
-    void onPassKeyNotify(uint32_t pk) override { s_passkey = pk; }
-    uint32_t onPassKeyRequest() override { return 0; }
-    bool onSecurityRequest() override { return true; }
-    bool onConfirmPIN(uint32_t) override { return true; }
-    void onAuthenticationComplete(ble_gap_conn_desc* desc) override {
-        s_passkey = 0;
-        if (desc->sec_state.encrypted) {
-            s_secure    = true;
-            s_connected = true;
-        } else {
-            NimBLEDevice::startAdvertising(); // auth failed — retry
-        }
-    }
-};
-
+// NimBLE v2.x: NimBLESecurityCallbacks removed — security events are now in
+// NimBLEServerCallbacks. onPassKeyDisplay() replaces onPassKeyNotify().
 class BuddySrvCb : public NimBLEServerCallbacks {
-    // Wait for BuddySecCb::onAuthenticationComplete before setting s_connected
-    void onConnect(NimBLEServer*) override    {}
-    void onDisconnect(NimBLEServer*) override {
+    void onConnect(NimBLEServer*, NimBLEConnInfo&) override {
+        // Accept the link immediately — NUS does not require encryption.
+        // Do NOT gate on onAuthenticationComplete(isEncrypted=true): with
+        // bonding=false + NO_INPUT_OUTPUT, Windows may send no SMP at all
+        // (or send Just Works that resolves unencrypted), so isEncrypted can
+        // legitimately be false while the NUS pipe works perfectly fine.
+        s_connected = true;
+        s_secure    = false;
+        s_passkey   = 0;
+        s_staleBond = false;  // fresh connect — clear stale-bond warning
+    }
+    void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int reason) override {
         s_connected = false;
         s_secure    = false;
         s_passkey   = 0;
+        // reason 0x05 = AUTH_FAIL, 0x06 = PIN_OR_KEY_MISSING — Windows has a
+        // stored LTK but T-DECK (bonding=false) has no matching key.
+        // User must remove this device from Windows Bluetooth settings.
+        if (reason == 0x05 || reason == 0x06) s_staleBond = true;
         NimBLEDevice::startAdvertising();
+    }
+    // Called when stack needs us to display a passkey for the desktop to type
+    uint32_t onPassKeyDisplay() override {
+        s_passkey = 100000 + (esp_random() % 900000);
+        return s_passkey;
+    }
+    void onConfirmPassKey(NimBLEConnInfo& connInfo, uint32_t) override { NimBLEDevice::injectConfirmPasskey(connInfo, true); }
+    void onAuthenticationComplete(NimBLEConnInfo& connInfo) override {
+        s_passkey = 0;
+        s_secure  = connInfo.isEncrypted();
+        // s_connected is already true from onConnect — no longer gated here.
+        // Calling startAdvertising() on !isEncrypted was wrong: it re-advertised
+        // while the link was still up and left s_connected=false permanently.
     }
 };
 
@@ -528,11 +544,33 @@ static void drawStatus(const TamaState& t, bool bleConn, const char* name) {
             tft.setCursor(6, y); tft.print(name);
             y += 14;
             tft.setTextColor(DIM, 0x0000);
-            tft.setCursor(6, y); tft.print("Open Claude Desktop"); y += 10;
-            tft.setCursor(6, y); tft.print("> Developer");          y += 10;
-            tft.setCursor(6, y); tft.print("> Hardware Buddy");     y += 10;
-            tft.setCursor(6, y); tft.print("auto-connects via BLE");
+            if (s_staleBond) {
+                // Windows has a stale LTK and keeps disconnecting immediately.
+                // Shown in red-orange so the user sees the action they must take.
+                tft.setTextColor(HOT, 0x0000);
+                tft.setCursor(6, y); tft.print("! Win has stale bond"); y += 10;
+                tft.setCursor(6, y); tft.print("  Remove device from"); y += 10;
+                tft.setCursor(6, y); tft.print("  Win BT settings!"); y += 12;
+            } else {
+                tft.setTextColor(DIM, 0x0000);
+                tft.setCursor(6, y); tft.print("Open Claude Desktop"); y += 10;
+                tft.setCursor(6, y); tft.print("> Developer");          y += 10;
+                tft.setCursor(6, y); tft.print("> Hardware Buddy");     y += 10;
+                tft.setCursor(6, y); tft.print("auto-connects via BLE"); y += 12;
+            }
+            // ── Diagnostics (MAC + init status) ──────────────────────────────────
+            tft.setTextColor(s_addrOk ? GREEN : HOT, 0x0000);
+            tft.setCursor(6, y);
+            tft.printf("%.17s", NimBLEDevice::getAddress().toString().c_str()); y += 10;
+            tft.setTextColor(s_advOk ? GREEN : HOT, 0x0000);
+            tft.setCursor(6, y);
+            bool live = NimBLEDevice::getAdvertising()->isAdvertising();
+            tft.printf("adv:%s addr:%s live:%s",
+                       s_advOk ? "OK" : "FAIL",
+                       s_addrOk ? "OK" : "FAIL",
+                       live ? "Y" : "N");
             tft.setCursor(6, SCREEN_HEIGHT - 10);
+            tft.setTextColor(DIM, 0x0000);
             tft.print("[q] quit  [spc] pet");
         }
         return;
@@ -751,7 +789,7 @@ void buddyCommand(char* args) {
     // Reset BLE + JSON state
     s_rxHead = 0; s_rxTail = 0;
     s_lineLen = 0;
-    s_connected = false; s_secure = false;
+    s_connected = false; s_secure = false; s_staleBond = false;
     s_lastLiveMs = 0;
     s_popupOpen   = false;
     s_popupDrawMs = 0;
@@ -762,18 +800,39 @@ void buddyCommand(char* args) {
     spr.setColorDepth(16);
     spr.createSprite(PET_W, PET_H);
 
-    // NimBLE init
-    NimBLEDevice::init("");
-    vTaskDelay(pdMS_TO_TICKS(100));   // let controller fully start before cold-boot deinit
-    NimBLEDevice::deinit(true);
-    vTaskDelay(pdMS_TO_TICKS(100));
-
+    // NimBLE init — double-cycle matching btkbd's proven pattern (200ms delays,
+    // isInitialized guard). Ensures clean stack regardless of prior command.
+    if (NimBLEDevice::isInitialized()) {
+        NimBLEDevice::deinit(true);
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
     NimBLEDevice::init(btName);
+    vTaskDelay(pdMS_TO_TICKS(200));
+    NimBLEDevice::deinit(true);
+    vTaskDelay(pdMS_TO_TICKS(200));
+    NimBLEDevice::init(btName);
+    // Stable unique random-static address (suffix BD) — different from btkbd (CB)
+    // so Windows bonds them separately.
+    // CRITICAL ORDER: setOwnAddr (register) BEFORE setOwnAddrType (verify exists).
+    // Same proven pattern as btkbd; only the last byte differs.
+    {
+        uint8_t hwmac[6];
+        esp_read_mac(hwmac, ESP_MAC_BT);
+        char macStr[18];
+        snprintf(macStr, sizeof(macStr), "C2:%02X:%02X:%02X:%02X:BD",
+                 hwmac[1], hwmac[2], hwmac[3], hwmac[4]);
+        bool r1 = NimBLEDevice::setOwnAddr(NimBLEAddress(macStr, BLE_ADDR_RANDOM));
+        bool r2 = NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);
+        s_addrOk = r1 && r2;
+    }
     NimBLEDevice::setMTU(517);
-    // Bonding + MITM (passkey display) — encrypted + authenticated link
-    NimBLEDevice::setSecurityAuth(true, true, false);
-    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
-    NimBLEDevice::setSecurityCallbacks(new BuddySecCb());
+    // NO bonding — buddy uses the NUS serial pipe; bonding is not needed and
+    // MUST NOT be used: both buddy and btkbd bond to the same Windows PC MAC,
+    // so NimBLE's NVS (keyed by peer MAC) would have them overwrite each other's
+    // LTK causing every subsequent connection to fail with auth errors.
+    // Encryption without bonding (ephemeral Just Works) is enough for Claude Desktop.
+    NimBLEDevice::setSecurityAuth(false, false, false);
+    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
 
     s_server = NimBLEDevice::createServer();
     s_server->setCallbacks(new BuddySrvCb());
@@ -784,12 +843,13 @@ void buddyCommand(char* args) {
     NimBLECharacteristic* rxChar = pSvc->createCharacteristic(NUS_RX_UUID,
                    NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
     rxChar->setCallbacks(new BuddyRxCb());
-    pSvc->start();
-
     NimBLEAdvertising* pAdv = NimBLEDevice::getAdvertising();
     pAdv->addServiceUUID(NUS_SVC_UUID);
-    pAdv->setScanResponse(true);
-    NimBLEDevice::startAdvertising();
+    // v2.x does NOT auto-include device name — add it to scan response so
+    // Windows and Claude Desktop can find buddy by name ("Claude-XXYY").
+    pAdv->enableScanResponse(true);
+    pAdv->setName(btName);
+    s_advOk = NimBLEDevice::startAdvertising();
 
     displayManager.setBtActive(true);
     displayManager.updateStatusBar();
@@ -894,8 +954,9 @@ void buddyCommand(char* args) {
     s_secure    = false;
 
     NimBLEDevice::deinit(true);
-    vTaskDelay(pdMS_TO_TICKS(50));
-    NimBLEDevice::init("T-REX");
+    vTaskDelay(pdMS_TO_TICKS(200));
+    // Do NOT reinit here — the stale init("T-REX") was interfering with btkbd's
+    // double-cycle. Next BLE command inits fresh from uninitialised state.
     SD.begin(39);
 
     displayManager.setBtActive(false);

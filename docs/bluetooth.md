@@ -68,17 +68,17 @@ Three-mode attack suite targeting Google Fast Pair.
 
 ### `fp scan`
 
-Scans for BLE devices advertising Google Fast Pair service data (UUID `0xFE2C`). Shows device index, model ID, name, MAC, and RSSI in a paginated table.
+Scans for BLE devices advertising Google Fast Pair service data (UUID `0xFE2C`) for 5 seconds. Shows a live found-count during the scan, then a paginated table with device index, model ID, name, MAC, and RSSI.
 
 | Key | Action |
 |-----|--------|
 | `h <n>` | Attempt GATT hijack on device at index n |
 | `s` | Switch to spam mode |
-| `q` | Quit |
+| `q` | Quit / abort scan early |
 
 ### `fp spam`
 
-Floods the air with Fast Pair advertisement packets. Each advertisement cycle uses a freshly randomized MAC. Nearby Android devices show Google Fast Pair pairing popups.
+Floods the air with Fast Pair advertisement packets. Each cycle uses a freshly randomized MAC and advertises for 10 seconds — enough time for Android to display the pairing popup. Nearby Android devices show Google Fast Pair pairing popups.
 
 Press `q` to stop.
 
@@ -99,7 +99,7 @@ CMD> bs samsung     # Samsung Galaxy accessory data flood
 CMD> bs all         # cycle through all four vendors
 ```
 
-Floods the air with BLE advertisements that trigger pairing or notification popups on nearby devices. Each advertisement cycle randomizes the source MAC to bypass filters.
+Floods the air with BLE advertisements that trigger pairing or notification popups on nearby devices. Each advertisement cycle randomizes the source MAC to bypass filters. The Android vendor (`bs android`) advertises for 10 seconds per cycle — Android needs several seconds to process and display Fast Pair popups.
 
 | Vendor | What appears on target |
 |--------|----------------------|

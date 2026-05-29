@@ -5,12 +5,12 @@
 #include "ble_keyboard.h"
 #include "display_manager.h"
 #include "input_handling.h"
+#include "lockscreen_manager.h"
 #include "utilities.h"
 
 #include <SD.h>
 #include <NimBLEDevice.h>
 #include <NimBLEHIDDevice.h>
-#include <NimBLESecurity.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -19,8 +19,11 @@ extern InputHandling  inputHandler;
 
 BleKeyboard bleKeyboard;
 
-static volatile bool     s_bleConnected = false;
-static volatile uint32_t s_blePasskey   = 0;   // 0 = none pending
+static volatile bool     s_bleConnected      = false;
+static volatile uint16_t s_connHandle        = BLE_HS_CONN_HANDLE_NONE;
+static volatile bool     s_bleExiting        = false;
+static volatile bool     s_kbdStaleBond      = false;  // Windows has stale LTK — must remove from BT settings
+static volatile int      s_lastDisconReason  = 0;      // last onDisconnect reason code — shown on screen for diagnosis
 
 // ── HID Report Descriptor ─────────────────────────────────────────────────────
 // Keyboard — Report ID 1 (8 bytes: modifier, reserved, 6 keycodes)
@@ -82,36 +85,37 @@ static const uint8_t kHidDescriptor[] = {
     0xC0,        // End Collection (Application)
 };
 
-// ── Security callbacks ────────────────────────────────────────────────────────
-class BleKbdSecCb : public NimBLESecurityCallbacks {
-    // Host wants us to display a passkey — show it on screen
-    void onPassKeyNotify(uint32_t pk) override { s_blePasskey = pk; }
-    // We are DISPLAY_ONLY — we never enter a passkey ourselves
-    uint32_t onPassKeyRequest() override { return 0; }
-    // Accept all pairing requests
-    bool onSecurityRequest() override { return true; }
-    // Numeric comparison — accept (not triggered for DISPLAY_ONLY)
-    bool onConfirmPIN(uint32_t) override { return true; }
-    // Authentication done — set connected only if link is encrypted (MITM-authenticated)
-    void onAuthenticationComplete(ble_gap_conn_desc* desc) override {
-        s_blePasskey = 0;
-        if (desc->sec_state.encrypted) {
-            s_bleConnected = true;
+// ── Server + security callbacks (NimBLE v2.x: security folded into server cb) ─
+class BleKbdServerCb : public NimBLEServerCallbacks {
+    void onConnect(NimBLEServer*, NimBLEConnInfo&) override {
+        s_kbdStaleBond = false;
+    }
+    void onDisconnect(NimBLEServer*, NimBLEConnInfo& connInfo, int reason) override {
+        s_bleConnected     = false;
+        s_connHandle       = BLE_HS_CONN_HANDLE_NONE;
+        s_lastDisconReason = reason;
+        if (reason == 0x05 || reason == 0x06) {
+            // AUTH_FAIL / KEY_MISSING — stale LTK mismatch.
+            // Delete T-DECK's bond so on the next attempt Windows gets
+            // LL_REJECT_IND and initiates a fresh pairing automatically.
+            NimBLEDevice::deleteBond(connInfo.getAddress());
+            s_kbdStaleBond = true;
+        }
+        if (!s_bleExiting) NimBLEDevice::startAdvertising();
+    }
+    void onAuthenticationComplete(NimBLEConnInfo& connInfo) override {
+        if (connInfo.isEncrypted()) {
+            s_kbdStaleBond     = false;
+            s_lastDisconReason = 0;
+            s_connHandle       = connInfo.getConnHandle();
+            s_bleConnected     = true;
         } else {
-            // Auth failed — re-advertise, let user retry
+            // SMP completed but link is unencrypted — treat as stale bond.
+            s_lastDisconReason = -1;
+            s_kbdStaleBond     = true;
+            NimBLEDevice::deleteBond(connInfo.getAddress());
             NimBLEDevice::startAdvertising();
         }
-    }
-};
-
-// ── Server callbacks ──────────────────────────────────────────────────────────
-class BleKbdServerCb : public NimBLEServerCallbacks {
-    // Do NOT set s_bleConnected here — wait for authenticated link in BleKbdSecCb
-    void onConnect(NimBLEServer*) override {}
-    void onDisconnect(NimBLEServer*) override {
-        s_bleConnected = false;
-        s_blePasskey   = 0;
-        NimBLEDevice::startAdvertising();
     }
 };
 
@@ -192,7 +196,7 @@ int8_t BleKeyboard::mouseStep(uint32_t elapsedMs) {
 
 // ── start() ───────────────────────────────────────────────────────────────────
 // T-DECK keyboard + trackball → BLE HID keyboard + mouse passthrough.
-// Pairing: MITM + bonding, DISPLAY_ONLY — passkey shown on screen, typed on host.
+// Pairing: Just Works (no PIN), bonding — link is AES-128 encrypted after pairing.
 // Trackball center: tap <300ms = left click, hold 300ms–1.5s = right click, ≥1.5s = exit.
 // Backspace: auto-repeats after 1s hold (60ms interval, 2s max).
 void BleKeyboard::start() {
@@ -204,88 +208,113 @@ void BleKeyboard::start() {
 
     DisplayManager& dm = displayManager;
 
-    // ── Header ────────────────────────────────────────────────────────────────
-    dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
-    dm.setTextColor(0x7BEF);     dm.printText("[");
-    dm.setTextColor(TFT_CYAN);   dm.printText("BLE");
-    dm.setTextColor(0x7BEF);     dm.printText("::");
-    dm.setTextColor(TFT_YELLOW); dm.printText("KBD");
-    dm.setTextColor(0x7BEF);     dm.println("]");
-    dm.printSeparator();
-
     // ── Init NimBLE HID ───────────────────────────────────────────────────────
     s_bleConnected = false;
-    s_blePasskey   = 0;
-    if (NimBLEDevice::getInitialized()) NimBLEDevice::deinit(true);
+    s_connHandle   = BLE_HS_CONN_HANDLE_NONE;
+    s_bleExiting   = false;
+    s_kbdStaleBond = false;
+    // Double-cycle cold-reset — required; single-cycle leaves the HID stack in
+    // a state that crashes on exit. Longer delays (200ms) prevent crashes when
+    // coming from buddy, which leaves its own init("T-REX") active on exit.
+    if (NimBLEDevice::isInitialized()) {
+        NimBLEDevice::deinit(true);
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
     NimBLEDevice::init("T-REX-KBD");
-    // Bonding + MITM (passkey display) — encrypted + authenticated link
-    NimBLEDevice::setSecurityAuth(true, true, false);
-    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
-    NimBLEDevice::setSecurityCallbacks(new BleKbdSecCb());
+    vTaskDelay(pdMS_TO_TICKS(200));
+    NimBLEDevice::deinit(true);
+    vTaskDelay(pdMS_TO_TICKS(200));
+    NimBLEDevice::init("T-REX-KBD");
+    // Stable unique address for btkbd (suffix CB) — different from buddy (BD) so
+    // Windows stores two separate bonds and never confuses keyboard with NUS client.
+    // Must be called after init() — ble_hs_id_set_rnd needs the host running.
+    {
+        uint8_t hwmac[6];
+        esp_read_mac(hwmac, ESP_MAC_BT);
+        char macStr[18];
+        snprintf(macStr, sizeof(macStr), "C2:%02X:%02X:%02X:%02X:CB",
+                 hwmac[1], hwmac[2], hwmac[3], hwmac[4]);
+        NimBLEDevice::setOwnAddr(NimBLEAddress(macStr, BLE_ADDR_RANDOM));  // register first
+        NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);                // succeeds now address exists
+    }
+    // Just Works — no PIN dialog, link is encrypted after pairing
+    NimBLEDevice::setSecurityAuth(true, false, false);
+    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
 
-    NimBLEServer*    server = NimBLEDevice::createServer();
+    NimBLEServer* server = NimBLEDevice::createServer();
+    // Use heap-allocated callback: NimBLE v2.x setCallbacks() defaults deleteCallbacks=true,
+    // so deinit(true) will delete it cleanly. Using a static address would crash.
     server->setCallbacks(new BleKbdServerCb());
 
     NimBLEHIDDevice* hid = new NimBLEHIDDevice(server);
-    hid->manufacturer()->setValue("T-REX");
-    hid->pnp(0x02, 0x05AC, 0x820A, 0x0110);
-    hid->hidInfo(0x00, 0x02);
-    hid->reportMap((uint8_t*)kHidDescriptor, sizeof(kHidDescriptor));
-    _inputKbd   = hid->inputReport(1);
-    _inputMouse = hid->inputReport(2);
-    hid->startServices();  // security must be set before this
+    hid->setManufacturer("T-REX");
+    hid->setPnp(0x02, 0x05AC, 0x820A, 0x0110);
+    hid->setHidInfo(0x00, 0x02);
+    hid->setReportMap((uint8_t*)kHidDescriptor, sizeof(kHidDescriptor));
+    _inputKbd   = hid->getInputReport(1);
+    _inputMouse = hid->getInputReport(2);
 
     NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
     adv->setAppearance(HID_KEYBOARD);
-    adv->addServiceUUID(hid->hidService()->getUUID());
-    adv->setScanResponse(false);
+    adv->addServiceUUID(hid->getHidService()->getUUID());
     NimBLEDevice::startAdvertising();
 
-    // ── Phase 1: Wait for host to pair + connect ──────────────────────────────
-    dm.setCursor(10, dm.getCursorY());
-    dm.setTextColor(TFT_WHITE); dm.println("Advertising as: T-REX-KBD");
-    dm.setCursor(10, dm.getCursorY());
-    dm.setTextColor(0x7BEF);   dm.println("Waiting for host...");
-    dm.setCursor(10, dm.getCursorY());
-    dm.setTextColor(0x7BEF);   dm.println("Hold 1.5s to cancel.");
-    dm.printSeparator();
-    int waitY = dm.getCursorY();
+    // ── Phase 1 static draw ───────────────────────────────────────────────────
+    int waitY = 0;
+    auto drawPhase1 = [&]() {
+        dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+        dm.setTextColor(0x7BEF);     dm.printText("[");
+        dm.setTextColor(TFT_CYAN);   dm.printText("BLE");
+        dm.setTextColor(0x7BEF);     dm.printText("::");
+        dm.setTextColor(TFT_YELLOW); dm.printText("KBD");
+        dm.setTextColor(0x7BEF);     dm.println("]");
+        dm.printSeparator();
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(TFT_WHITE); dm.println("Advertising as: T-REX-KBD");
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(0x7BEF);   dm.println("Waiting for host...");
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(0x7BEF);   dm.println("Hold 1.5s to cancel.");
+        dm.printSeparator();
+        waitY = dm.getCursorY();
+    };
+    drawPhase1();
 
+    // ── Phase 1: Wait for host to connect ────────────────────────────────────
     bool     exitReq     = false;
     bool     clickHeld   = false;
     uint32_t clickDownMs = 0;
     uint32_t lastDrawMs  = 0;
     uint8_t  spinIdx     = 0;
     const char* spinChars = "|/-\\";
-    uint32_t lastPasskey  = 0; // track change to force redraw
 
     while (!s_bleConnected && !exitReq) {
         uint32_t now = millis();
         inputHandler.getKeyboardInput();
+
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            drawPhase1();
+            lastDrawMs = 0;
+        }
 
         bool cc = (bool)digitalRead(BOARD_BOOT_PIN);
         if (!cc && !clickHeld)                                   { clickDownMs = now; clickHeld = true; }
         else if (cc && clickHeld)                                { clickHeld = false; }
         else if (!cc && clickHeld && now - clickDownMs >= 1500)  { exitReq = true; break; }
 
-        uint32_t pk = s_blePasskey;
-        if (pk != lastPasskey || now - lastDrawMs >= 250) {
-            lastDrawMs  = now;
-            lastPasskey = pk;
+        if (now - lastDrawMs >= 250) {
+            lastDrawMs = now;
             dm.fillRect(0, waitY, SCREEN_WIDTH, LINE_HEIGHT * 3, TFT_BLACK);
             dm.setCursor(10, waitY);
-            if (pk) {
-                // Passkey arrived — show it prominently
-                char digits[8]; snprintf(digits, sizeof(digits), "%06lu", pk);
-                char spaced[14];
-                snprintf(spaced, sizeof(spaced), "%c %c %c %c %c %c",
-                         digits[0], digits[1], digits[2],
-                         digits[3], digits[4], digits[5]);
-                dm.setTextColor(TFT_YELLOW); dm.println("Type on host:");
+            if (s_kbdStaleBond) {
+                char rbuf[32];
+                snprintf(rbuf, sizeof(rbuf), "Auth fail (0x%02X) re-pair", s_lastDisconReason & 0xFF);
+                dm.setTextColor(TFT_RED);    dm.println(rbuf);
                 dm.setCursor(10, waitY + LINE_HEIGHT);
-                dm.setTextColor(TFT_GREEN);  dm.println(spaced);
+                dm.setTextColor(TFT_YELLOW); dm.println("Waiting for Win to");
+                dm.setCursor(10, waitY + LINE_HEIGHT * 2);
+                dm.setTextColor(TFT_YELLOW); dm.println("re-pair automatically...");
             } else {
-                // Spinner while waiting
                 char spin[2] = { spinChars[spinIdx++ & 3], 0 };
                 dm.setTextColor(TFT_CYAN);   dm.printText("Waiting ");
                 dm.setTextColor(TFT_YELLOW); dm.println(spin);
@@ -296,19 +325,23 @@ void BleKeyboard::start() {
 
     // ── Phase 2: Keyboard + Mouse loop ────────────────────────────────────────
     if (!exitReq) {
-        dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
-        dm.setTextColor(0x7BEF);     dm.printText("[");
-        dm.setTextColor(TFT_CYAN);   dm.printText("BLE");
-        dm.setTextColor(0x7BEF);     dm.printText("::");
-        dm.setTextColor(TFT_YELLOW); dm.printText("KBD");
-        dm.setTextColor(0x7BEF);     dm.println("]");
-        dm.printSeparator();
-        dm.setCursor(10, dm.getCursorY());
-        dm.setTextColor(TFT_WHITE); dm.println("Keyboard + Mouse active.");
-        dm.setCursor(10, dm.getCursorY());
-        dm.setTextColor(0x7BEF);    dm.println("L=tap R=hold Exit=hold 1.5s");
-        dm.printSeparator();
-        int statusY = dm.getCursorY();
+        int statusY = 0;
+        auto drawPhase2Header = [&]() {
+            dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+            dm.setTextColor(0x7BEF);     dm.printText("[");
+            dm.setTextColor(TFT_CYAN);   dm.printText("BLE");
+            dm.setTextColor(0x7BEF);     dm.printText("::");
+            dm.setTextColor(TFT_YELLOW); dm.printText("KBD");
+            dm.setTextColor(0x7BEF);     dm.println("]");
+            dm.printSeparator();
+            dm.setCursor(10, dm.getCursorY());
+            dm.setTextColor(TFT_WHITE); dm.println("Keyboard + Mouse active.");
+            dm.setCursor(10, dm.getCursorY());
+            dm.setTextColor(0x7BEF);    dm.println("L=tap R=hold Exit=hold 1.5s");
+            dm.printSeparator();
+            statusY = dm.getCursorY();
+        };
+        drawPhase2Header();
 
         bool dirLast[4];
         for (int i = 0; i < 4; i++) dirLast[i] = (bool)digitalRead(DIR_PINS[i]);
@@ -334,32 +367,24 @@ void BleKeyboard::start() {
         while (running) {
             uint32_t now = millis();
 
-            // Host disconnected — show banner, wait for reconnect + re-auth
+            // Host disconnected — show banner, wait for reconnect
             if (!s_bleConnected) {
                 dm.fillRect(0, statusY, SCREEN_WIDTH, LINE_HEIGHT * 2, TFT_BLACK);
                 dm.setCursor(10, statusY);
                 dm.setTextColor(TFT_YELLOW); dm.println("Host disconnected.");
                 dm.setCursor(10, statusY + LINE_HEIGHT);
                 dm.setTextColor(0x7BEF);     dm.println("Reconnecting...");
-                lastPasskey = 0;
                 while (!s_bleConnected && running) {
                     inputHandler.getKeyboardInput();
-                    uint32_t pk2 = s_blePasskey;
-                    if (pk2 != lastPasskey) {
-                        lastPasskey = pk2;
-                        dm.fillRect(0, statusY + LINE_HEIGHT, SCREEN_WIDTH, LINE_HEIGHT * 2, TFT_BLACK);
+
+                    if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+                        drawPhase2Header();
+                        dm.setCursor(10, statusY);
+                        dm.setTextColor(TFT_YELLOW); dm.println("Host disconnected.");
                         dm.setCursor(10, statusY + LINE_HEIGHT);
-                        if (pk2) {
-                            char d[8]; snprintf(d, sizeof(d), "%06lu", pk2);
-                            char sp[14];
-                            snprintf(sp, sizeof(sp), "%c %c %c %c %c %c",
-                                     d[0],d[1],d[2],d[3],d[4],d[5]);
-                            dm.setTextColor(TFT_YELLOW); dm.printText("Code: ");
-                            dm.setTextColor(TFT_GREEN);  dm.println(sp);
-                        } else {
-                            dm.setTextColor(0x7BEF); dm.println("Reconnecting...");
-                        }
+                        dm.setTextColor(0x7BEF);     dm.println("Reconnecting...");
                     }
+
                     bool cc2 = (bool)digitalRead(BOARD_BOOT_PIN);
                     if (!cc2 && !clickHeld)                              { clickDownMs = millis(); clickHeld = true; }
                     else if (cc2 && clickHeld)                           { clickHeld = false; }
@@ -426,6 +451,12 @@ void BleKeyboard::start() {
                 running = false;
             }
 
+            // ── Unlock redraw ─────────────────────────────────────────────────
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+                drawPhase2Header();
+                lastDisplayMs = 0;
+            }
+
             // ── Status display ~8 fps ─────────────────────────────────────────
             if (now - lastDisplayMs >= 125) {
                 lastDisplayMs = now;
@@ -446,12 +477,35 @@ void BleKeyboard::start() {
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
-    _inputKbd      = nullptr;
-    _inputMouse    = nullptr;
+    _inputKbd    = nullptr;
+    _inputMouse  = nullptr;
+    s_bleExiting = true;
+
+    NimBLEDevice::getAdvertising()->stop();
+
+    // Disconnect active session and wait for the link to fully close
+    if (s_connHandle != BLE_HS_CONN_HANDLE_NONE) {
+        NimBLEDevice::getServer()->disconnect(s_connHandle);
+        uint32_t t0 = millis();
+        while (s_connHandle != BLE_HS_CONN_HANDLE_NONE && millis() - t0 < 1000) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+    }
+
+    // 500ms drain: after disconnect the NimBLE host task clears CCCD subscriptions
+    // and flushes pending HID ATT ops. deinit(true) is safe once that's done.
+    vTaskDelay(pdMS_TO_TICKS(500));
+
     s_bleConnected = false;
-    s_blePasskey   = 0;
+    s_connHandle   = BLE_HS_CONN_HANDLE_NONE;
+    s_bleExiting   = false;
+
+    // Full teardown — leaves BLE off so buddy/next command inits from clean slate
     NimBLEDevice::deinit(true);
-    SD.begin(39); // restore SPI after BLE deinit
+    vTaskDelay(pdMS_TO_TICKS(100));
+    NimBLEDevice::init("T-REX");
+
+    SD.begin(39);
 
     dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
     dm.setTextColor(TFT_GREEN); dm.println("BLE KBD ended.");

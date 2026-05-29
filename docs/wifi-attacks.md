@@ -34,7 +34,7 @@ CMD> cw <index>       # connect by scan index from last sw
 CMD> cw <ssid>        # connect by SSID name — no scan needed
 ```
 
-Connects to a network by scan index or SSID name. Passwords are resolved automatically from NVS or SD card; you are only prompted if the password is unknown.
+Connects to a network by scan index or SSID name. Passwords are resolved automatically from NVS or SD card; you are only prompted if the password is unknown. Password entry echoes characters in plaintext on the T-Deck screen (only the user can see the display).
 
 On successful connection the network is saved to `/wpa_supplicant.conf` on the SD card.
 

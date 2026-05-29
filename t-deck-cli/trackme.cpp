@@ -475,32 +475,33 @@ void IRAM_ATTR TrackMeScanner::wifiCb(void* buf, wifi_promiscuous_pkt_type_t typ
 void TrackMeScanner::doBLEScan(int seconds) {
     esp_wifi_set_promiscuous(false);
     NimBLEScan* scan = NimBLEDevice::getScan();
-    scan->setAdvertisedDeviceCallbacks(nullptr);  // clear any stale callback from scanblue
+    scan->setScanCallbacks(nullptr);  // clear any stale callback from scanblue
     scan->setActiveScan(true);
     scan->setInterval(100);
     scan->setWindow(99);
     {
-        NimBLEScanResults results = scan->start(seconds, false);
+        NimBLEScanResults results = scan->getResults((uint32_t)seconds * 1000, false);
         int n = results.getCount();
         for (int i = 0; i < n; i++) {
-            NimBLEAdvertisedDevice dev = results.getDevice(i);
+            const NimBLEAdvertisedDevice* dev = results.getDevice(i);
+            if (!dev) continue;
             uint8_t  mac[6]    = {0};
             uint16_t companyId = 0;
-            String   addr      = dev.getAddress().toString().c_str();
+            String   addr      = dev->getAddress().toString().c_str();
             sscanf(addr.c_str(), "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
                    &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
             uint8_t mfrType = 0x00;
             uint8_t mfrLen  = 0;
-            if (dev.haveManufacturerData()) {
-                std::string mfr = dev.getManufacturerData();
+            if (dev->haveManufacturerData()) {
+                std::string mfr = dev->getManufacturerData();
                 mfrLen = (uint8_t)min((int)mfr.size(), 255);
                 if (mfr.size() >= 2)
                     companyId = (uint8_t)mfr[0] | ((uint16_t)(uint8_t)mfr[1] << 8);
                 if (mfr.size() >= 3)
                     mfrType = (uint8_t)mfr[2];
             }
-            String name = dev.getName().c_str();
-            processDevice(mac, name.c_str(), companyId, mfrType, dev.getRSSI(), false, mfrLen);
+            String name = dev->getName().c_str();
+            processDevice(mac, name.c_str(), companyId, mfrType, dev->getRSSI(), false, mfrLen);
         }
     }
     scan->clearResults();

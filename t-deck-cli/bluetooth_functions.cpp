@@ -16,9 +16,8 @@ BluetoothFunctions::BluetoothFunctions()
 BleEntry     s_bleDevices[64];
 volatile int s_bleCount = 0;
 
-// NimBLE callback — receives pointer, not reference
-class BleQueueCallbacks : public NimBLEAdvertisedDeviceCallbacks {
-    void onResult(NimBLEAdvertisedDevice* dev) override {
+class BleQueueCallbacks : public NimBLEScanCallbacks {
+    void onResult(const NimBLEAdvertisedDevice* dev) override {
         if (!TaskManager::resultQueue) return;
         TaskResult r;
         r.type = TaskResult::INFO;
@@ -33,7 +32,11 @@ class BleQueueCallbacks : public NimBLEAdvertisedDeviceCallbacks {
 
 static void bleScanTaskFn(void* param) {
     NimBLEScan* scan = static_cast<NimBLEScan*>(param);
-    scan->start(5, false);
+    scan->start(5000, false);
+    // v2.x: start() is async — block here until scan finishes or abort is requested
+    while (scan->isScanning() && TaskManager::taskRunning) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
     TaskResult done;
     done.type = TaskResult::DONE;
     done.data[0] = '\0';
@@ -129,7 +132,7 @@ void BluetoothFunctions::scanBluetoothDevices() {
 
             delete pScanCallbacks;
             pScanCallbacks = new BleQueueCallbacks();
-            pBLEScan->setAdvertisedDeviceCallbacks(pScanCallbacks);
+            pBLEScan->setScanCallbacks(pScanCallbacks);
             pBLEScan->clearResults();
 
             displayManager.clearScreen();
@@ -212,7 +215,7 @@ void BluetoothFunctions::scanBluetoothDevices() {
 
             if (aborted) {
                 pBLEScan->clearResults();
-                pBLEScan->setAdvertisedDeviceCallbacks(nullptr);
+                pBLEScan->setScanCallbacks(nullptr);
                 delete pScanCallbacks; pScanCallbacks = nullptr;
                 displayManager.setBtActive(false);
                 displayManager.printCommandScreen();
@@ -231,7 +234,7 @@ void BluetoothFunctions::scanBluetoothDevices() {
             if (LockScreenManager::getInstance().consumeJustUnlocked()) break;
             if (k == 'q' || k == 'Q') {
                 pBLEScan->clearResults();
-                pBLEScan->setAdvertisedDeviceCallbacks(nullptr);
+                pBLEScan->setScanCallbacks(nullptr);
                 delete pScanCallbacks; pScanCallbacks = nullptr;
                 displayManager.setBtActive(false);
                 displayManager.printCommandScreen();

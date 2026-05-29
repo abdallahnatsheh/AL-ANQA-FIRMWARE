@@ -275,21 +275,28 @@ void WiFiFunctions::clearAllWiFiCredentials() {
 
 String WiFiFunctions::readPassword() {
     String pw = "";
+    // Save Y before the poll loop — getKeyboardInput() triggers status-bar
+    // updates which leave tft.getCursorY() at y<30 (battery icon area).
+    int32_t inputY = displayManager.getCursorY();
+
     while (true) {
         char c = inputHandler.getKeyboardInput();
         if (!c) continue;
         if (c == '\n' || c == '\r') break;
         if (c == '\b') {
-            if (pw.length() > 0) {
-                pw.remove(pw.length() - 1);
-                displayManager.backspaceChar();
-            }
+            if (pw.length() > 0) pw.remove(pw.length() - 1);
         } else if (isPrintable(c) && pw.length() < 100) {
             pw += c;
-            displayManager.printText(c);
         }
+        // Redraw masked line at fixed inputY — status-bar cursor corruption
+        // cannot reach here because we never use getCursorY() inside the loop.
+        displayManager.fillRect(10, inputY, SCREEN_WIDTH - 10, LINE_HEIGHT + 2, TFT_BLACK);
+        displayManager.setCursor(10, inputY);
+        displayManager.setTextColor(TFT_WHITE);
+        for (size_t i = 0; i < pw.length(); i++) displayManager.printText(pw[i]);
     }
-    displayManager.println();
+    // Leave cursor below the input line for subsequent prints
+    displayManager.setCursor(10, inputY + LINE_HEIGHT + 2);
     return pw;
 }
 
