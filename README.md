@@ -166,9 +166,7 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `jiggle` | `jg` | — | Mouse jiggler — nudges cursor ±2 px every 30 s to prevent host screen lock |
 | `usbexec` | `ux` | `demo\|<path>` | BadUSB — execute DuckyScript payload (Flipper Zero compatible) |
 | **Diagnostics** | | | |
-| `gpson` | `gon` | — | Start GPS task (T-Deck Plus) |
-| `gpsoff` | `gof` | — | Stop GPS task |
-| `gpstest` | `gt` | — | GPS coordinate test |
+| `gps` | `gps` | `on\|off\|test` | GPS task control + coordinate test (T-Deck Plus) |
 | `spktest` | `st` | — | Speaker tone test |
 | `loratest` | `lt` | — | LoRa SX1262 diagnostic |
 | `MATRIX` | `matrix` | — | Matrix rain animation |

@@ -197,7 +197,7 @@ Session log: `/logs/wguard/001.csv` (new numbered file each session, never overw
 
 GPS needs ~4 minutes for a cold fix. Start it before leaving:
 ```
-CMD> gpson
+CMD> gps on
 ```
 Watch the satellite icon: grey → yellow (searching) → green (fixed). Once green, `trackme` skips its own GPS warm-up and starts immediately.
 

@@ -9,14 +9,14 @@ nav_order: 8
 ## GPS (T-Deck Plus only)
 
 ```
-CMD> gpson    # start GPS background task with live status display
-CMD> gpsoff   # stop GPS background task
-CMD> gpstest  # one-shot GPS coordinate read + display
+CMD> gps on    # start GPS background task with live status display
+CMD> gps off   # stop GPS background task
+CMD> gps test  # one-shot GPS coordinate read + display
 ```
 
 GPS status bar icon: grey = off, yellow = searching, green = fixed.
 
-Cold start takes ~4 minutes outdoors. Run `gpson` before `trackme` to pre-warm the fix.
+Cold start takes ~4 minutes outdoors. Run `gps on` before `trackme` to pre-warm the fix.
 
 ---
 

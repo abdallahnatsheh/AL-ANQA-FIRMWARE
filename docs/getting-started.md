@@ -57,7 +57,7 @@ The device is ready. Nothing else is needed before you start typing commands.
 |------|-------------|---------|
 | Battery | Green / Yellow / Red | Charge level |
 | `ᛒ` | Grey | Bluetooth off (normal at boot) |
-| Satellite | Grey | GPS off — run `gpson` to start (T-Deck Plus) |
+| Satellite | Grey | GPS off — run `gps on` to start (T-Deck Plus) |
 | Shield | Grey | wguard not running |
 
 ---

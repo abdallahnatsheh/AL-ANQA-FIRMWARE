@@ -425,7 +425,7 @@ static const ManEntry PAGES[] = {
         "         learns your devices. Gate3 (200m GPS)",
         "         needed for WARNING/ALERT.",
         "",
-        "STEPS    1. gpson  2. tm (start before leaving)",
+        "STEPS    1. gps on  2. tm (start before leaving)",
         "         3. Move 200m to confirm Gate3",
         "KEYS     [w] whitelist  [s] save  [q] quit",
         "FILES    /logs/trackme_known.csv  whitelist",
@@ -601,33 +601,19 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
-    { "gpson", "gon", {
-        "SYNTAX   gpson",
+    { "gps", "gps", {
+        "SYNTAX   gps on|off|test",
         "",
-        "ABOUT    Start GPS background task.",
-        "         Shows live NMEA + fix status.",
-        "         Task keeps running after quit.",
+        "ABOUT    on   — start GPS background task.",
+        "                Shows live fix status.",
+        "                Task keeps running on quit.",
+        "         off  — stop GPS background task.",
+        "         test — one-shot coordinate read.",
+        "                Lat, lon, alt, speed, sats.",
         "",
         "NOTE     Cold fix ~4 min outdoors.",
-        "         Run before trackme for GPS data.",
+        "         Run gps on before trackme.",
         "         T-Deck Plus only.",
-        nullptr
-    }},
-
-    { "gpsoff", "gof", {
-        "SYNTAX   gpsoff",
-        "",
-        "ABOUT    Stop the GPS background task.",
-        "NOTE     T-Deck Plus only.",
-        nullptr
-    }},
-
-    { "gpstest", "gt", {
-        "SYNTAX   gpstest",
-        "",
-        "ABOUT    Print GPS coordinates — lat, lon,",
-        "         altitude, speed, satellite count.",
-        "NOTE     T-Deck Plus only.",
         nullptr
     }},
 

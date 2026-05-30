@@ -45,6 +45,7 @@ extern WGuard             wGuard;
 extern ManPages           manPages;
 
 // Forward declarations for standalone command functions
+void runGps(char* a);
 void runGpsOn();
 void runGpsOff();
 void runGpsTest();
@@ -296,6 +297,8 @@ static const ArgHintEntry kArgHints[] = {
     // sdformat / sdf
     { "sdformat",    "",              "init" },
     { "sdf",         "",              "init" },
+    // gps
+    { "gps",         "",              "on off test" },
     { nullptr, nullptr, nullptr }
 };
 
@@ -646,9 +649,7 @@ void CommandManager::setupCommands() {
     registerCommand("usbexec",     "ux",     [](char* a) { handleUsbExecCmd(a); },                                              "BadUSB/DuckyScript executor",             true,  "USB",  COMP_FILE);
     registerCommand("jiggle",      "jg",     [](char* a) { usbKeyboard.jiggle(); },                                             "Mouse jiggler — prevent screen lock",     false, "USB");
     // ── Diagnostics ───────────────────────────────────────────────────────────
-    registerCommand("gpson",       "gon",    [](char* a) { runGpsOn(); },                                                   "GPS background task + live status",       false, "Diagnostics");
-    registerCommand("gpsoff",      "gof",    [](char* a) { runGpsOff(); },                                                  "Stop GPS background task",                false, "Diagnostics");
-    registerCommand("gpstest",     "gt",     [](char* a) { runGpsTest(); },                                                  "GPS coordinate test",                     false, "Diagnostics");
+    registerCommand("gps",         "gps",    [](char* a) { runGps(a); },                                                "GPS: gps on|off|test",                    true,  "Diagnostics");
     registerCommand("spktest",     "st",     [](char* a) { runSpeakerTest(); },                                              "Speaker tone test",                       false, "Diagnostics");
     registerCommand("loratest",    "lt",     [](char* a) { runLoraTest(); },                                                 "LoRa SX1262 diagnostic",                  false, "Diagnostics");
 }

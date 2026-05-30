@@ -201,7 +201,7 @@ void ESPInfoPrinter::drawPageHardware() {
 #ifdef BOARD_TDECK_PLUS
     GpsManager& gps = GpsManager::instance();
     if (!gps.isRunning()) {
-        iRow(dm, "GPS     ", "off  (run gpson)", TFT_YELLOW);
+        iRow(dm, "GPS     ", "off  (run: gps on)", TFT_YELLOW);
     } else if (!gps.isValid()) {
         snprintf(buf, sizeof(buf), "searching  sats:%u  mod:%s",
                  gps.satellites(), gps.moduleName());
