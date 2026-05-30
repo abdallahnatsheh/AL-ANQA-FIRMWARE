@@ -1,0 +1,1127 @@
+#include "trackme.h"
+#include "gps_manager.h"
+#include "input_handling.h"
+#include "utilities.h"
+#include "notification_manager.h"
+#include "clock_manager.h"
+#include "wguard.h"
+#include <WiFi.h>
+#include <SD.h>
+
+extern WGuard wGuard;
+
+extern InputHandling inputHandler;
+
+// ── static ring buffer (written from WiFi ISR, read from main task) ──────────
+volatile TrackMeScanner::ProbeEntry TrackMeScanner::_ring[TM_PROBE_RING];
+volatile uint8_t TrackMeScanner::_rHead = 0;
+volatile uint8_t TrackMeScanner::_rTail = 0;
+
+// ── hardcoded fallback signatures ────────────────────────────────────────────
+static void fillBuiltinSigs(TrackerSig* sigs, int& count) {
+    count = 0;
+    // payloadByte: required mfr[2] in BLE advertisement; 0x00 = any
+    // Apple 0x004C is shared by ALL Apple devices — require 0x12 (Offline Finding / Find My)
+    // to distinguish AirTag / separated AirPods from iPhones and Macs.
+    const struct { const char* name; uint16_t cid; uint8_t pb; uint8_t ml; ThreatLevel lvl; } entries[] = {
+        { "Apple AirTag",     0x004C, 0x12, 27, THREAT_WARNING },
+        { "Apple Device",     0x004C, 0x10,  0, THREAT_NONE    },
+        { "Apple Device",     0x004C, 0x09,  0, THREAT_NONE    },
+        { "Apple Device",     0x004C, 0x07,  0, THREAT_NONE    },
+        { "Apple Device",     0x004C, 0x02,  0, THREAT_NONE    },
+        { "Apple Device",     0x004C, 0x0F,  0, THREAT_NONE    },
+        { "Apple Device",     0x004C, 0x05,  0, THREAT_NONE    },
+        { "Apple Device",     0x004C, 0x06,  0, THREAT_NONE    },
+        { "Apple Device",     0x004C, 0x08,  0, THREAT_NONE    },
+        { "Tile Tracker",     0x00D7, 0x00,  0, THREAT_WARNING },
+        { "Samsung SmartTag", 0x0075, 0x00,  0, THREAT_WARNING },
+        { "Chipolo",          0x00F0, 0x00,  0, THREAT_WARNING },
+        { "Google FindMy",    0x00E0, 0x00,  0, THREAT_WARNING },
+        { "Eufy SmartTrack",  0x006B, 0x00,  0, THREAT_WARNING },
+        { "Pebblebee",        0x0157, 0x00,  0, THREAT_WARNING },
+    };
+    for (auto& e : entries) {
+        if (count >= TM_SIG_MAX) break;
+        strncpy(sigs[count].name, e.name, 23);
+        sigs[count].name[23]    = '\0';
+        sigs[count].companyId   = e.cid;
+        sigs[count].payloadByte = e.pb;
+        sigs[count].minMfrLen   = e.ml;
+        sigs[count].level       = e.lvl;
+        count++;
+    }
+}
+
+// ── constructor ───────────────────────────────────────────────────────────────
+TrackMeScanner::TrackMeScanner(DisplayManager& dm, SDCardManager& sd)
+    : dm(dm), sd(sd), sigCount(0),
+      tier1Count(0), tier2Count(0),
+      page(0), startMs(0), _silent(false),
+      _totalDistM(0.0f), _gpsMoving(false),
+      _baselineDone(false), _knownCount(0)
+{
+#ifdef BOARD_TDECK_PLUS
+    gpsLat = 0; gpsLon = 0; gpsValid = false;
+    gpsSerial = nullptr;
+#endif
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+String TrackMeScanner::macStr(const uint8_t* m) {
+    char buf[18];
+    snprintf(buf, sizeof(buf), "%02X:%02X:%02X:%02X:%02X:%02X",
+             m[0], m[1], m[2], m[3], m[4], m[5]);
+    return String(buf);
+}
+
+bool TrackMeScanner::macEq(const uint8_t* a, const uint8_t* b) {
+    return memcmp(a, b, 6) == 0;
+}
+
+bool TrackMeScanner::matchKnown(const uint8_t* mac) {
+    for (int i = 0; i < _knownCount; i++)
+        if (macEq(_knownMAC[i], mac)) return true;
+    return false;
+}
+
+void TrackMeScanner::loadWhitelist() {
+    _knownCount = 0;
+    if (!sd.isReady() || !SD.exists("/logs/trackme_known.csv")) return;
+    File f = SD.open("/logs/trackme_known.csv", FILE_READ);
+    if (!f) return;
+    while (f.available() && _knownCount < 20) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() < 17 || line[0] == '#') continue;
+        uint8_t mac[6];
+        if (sscanf(line.c_str(), "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                   &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]) != 6) continue;
+        memcpy(_knownMAC[_knownCount], mac, 6);
+        int comma = line.indexOf(',');
+        String label = (comma >= 0) ? line.substring(comma + 1) : String("Known");
+        label.trim();
+        strncpy(_knownLabel[_knownCount], label.c_str(), 23);
+        _knownLabel[_knownCount][23] = '\0';
+        _knownCount++;
+    }
+    f.close();
+}
+
+bool TrackMeScanner::addToWhitelist(const uint8_t* mac, const char* label) {
+    if (matchKnown(mac)) return true;       // already there
+    if (_knownCount >= 20) return false;
+    memcpy(_knownMAC[_knownCount], mac, 6);
+    strncpy(_knownLabel[_knownCount], label, 23);
+    _knownLabel[_knownCount][23] = '\0';
+    _knownCount++;
+    if (!sd.isReady()) return false;
+    sd.ensureDir("/logs");
+    String mac_str = macStr(mac);
+    if (sd.appendLine("/logs/trackme_known.csv", mac_str + "," + String(label)))
+        _sdNoticeMs = millis();
+    return true;
+}
+
+// ── 1-D Kalman (process noise Q=1, measurement noise R=4) ────────────────────
+float TrackMeScanner::kalmanUpdate(KState& k, float z) {
+    const float Q = 1.0f, R = 4.0f;
+    k.P += Q;
+    float gain = k.P / (k.P + R);
+    k.x = k.x + gain * (z - k.x);
+    k.P = (1.0f - gain) * k.P;
+    return k.x;
+}
+
+float TrackMeScanner::calcVariance(const TrackedDev& d) {
+    if (d.rssiCount < 2) return 999.0f;
+    float sum = 0;
+    for (int i = 0; i < d.rssiCount; i++) sum += d.rssiHistory[i];
+    float mean = sum / d.rssiCount;
+    float var  = 0;
+    for (int i = 0; i < d.rssiCount; i++) {
+        float diff = d.rssiHistory[i] - mean;
+        var += diff * diff;
+    }
+    return var / d.rssiCount;
+}
+
+// ── signature matching ────────────────────────────────────────────────────────
+// mfrType = mfr[2] from BLE advertisement; 0x00 means "not available / any"
+int TrackMeScanner::matchSig(uint16_t companyId, uint8_t mfrType, uint8_t mfrDataLen) {
+    if (companyId == 0) return -1;
+    // Apple with unreadable payload → classify as Apple Device (THREAT_NONE), never as AirTag
+    if (companyId == 0x004C && mfrType == 0x00) {
+        for (int i = 0; i < sigCount; i++) {
+            if (sigs[i].companyId == 0x004C && sigs[i].level == THREAT_NONE) return i;
+        }
+    }
+    for (int i = 0; i < sigCount; i++) {
+        if (sigs[i].companyId != companyId) continue;
+        if (sigs[i].payloadByte != 0x00 && mfrType != 0x00 &&
+            mfrType != sigs[i].payloadByte) continue;
+        if (sigs[i].minMfrLen > 0 && mfrDataLen < sigs[i].minMfrLen) continue;
+        return i;
+    }
+    return -1;
+}
+
+// ── signature loading ─────────────────────────────────────────────────────────
+void TrackMeScanner::loadSignatures() {
+    sigCount = 0;
+    bool loadedFromSD = false;
+
+    if (sd.isReady() && SD.exists("/signatures.csv")) {
+        File f = SD.open("/signatures.csv", FILE_READ);
+        if (f) {
+            while (f.available() && sigCount < TM_SIG_MAX) {
+                String line = f.readStringUntil('\n');
+                line.trim();
+                if (line.length() == 0 || line[0] == '#') continue;
+                int f1 = line.indexOf(',');
+                int f2 = line.indexOf(',', f1 + 1);
+                int f3 = line.indexOf(',', f2 + 1);
+                if (f1 < 0 || f2 < 0 || f3 < 0) continue;
+
+                String cidStr = line.substring(f1 + 1, f2);
+                String name   = line.substring(f2 + 1, f3);
+                cidStr.trim(); name.trim();
+
+                uint16_t cid = (uint16_t)strtoul(cidStr.c_str(), nullptr, 16);
+                strncpy(sigs[sigCount].name, name.c_str(), 23);
+                sigs[sigCount].name[23]    = '\0';
+                sigs[sigCount].companyId   = cid;
+                sigs[sigCount].payloadByte = 0x00;
+                sigs[sigCount].minMfrLen   = 0;
+                sigs[sigCount].level       = THREAT_WARNING;
+                sigCount++;
+            }
+            f.close();
+            if (sigCount > 0) loadedFromSD = true;
+        }
+    }
+
+    if (!loadedFromSD) {
+        fillBuiltinSigs(sigs, sigCount);
+        return;
+    }
+
+    // Ensure Apple THREAT_NONE entries exist even with a custom SD file,
+    // to prevent iPhones/Macs from being misidentified as AirTags.
+    bool hasAppleNone = false;
+    for (int i = 0; i < sigCount; i++) {
+        if (sigs[i].companyId == 0x004C && sigs[i].level == THREAT_NONE) {
+            hasAppleNone = true; break;
+        }
+    }
+    if (!hasAppleNone) {
+        const uint8_t appleTypes[] = { 0x10, 0x09, 0x07, 0x02, 0x0F, 0x05, 0x06, 0x08 };
+        for (uint8_t pb : appleTypes) {
+            if (sigCount >= TM_SIG_MAX) break;
+            strncpy(sigs[sigCount].name, "Apple Device", 23);
+            sigs[sigCount].name[23]    = '\0';
+            sigs[sigCount].companyId   = 0x004C;
+            sigs[sigCount].payloadByte = pb;
+            sigs[sigCount].minMfrLen   = 0;
+            sigs[sigCount].level       = THREAT_NONE;
+            sigCount++;
+        }
+    }
+}
+
+// ── device init helper ────────────────────────────────────────────────────────
+void TrackMeScanner::initDev(TrackedDev& d, const uint8_t* mac, const char* name,
+                              uint16_t companyId, int8_t rssi, bool isWiFi, uint8_t t,
+                              uint8_t mfrType, uint8_t mfrDataLen, uint8_t crowd) {
+    memset(&d, 0, sizeof(TrackedDev));
+    memcpy(d.mac, mac, 6);
+    strncpy(d.name, name, 27); d.name[27] = '\0';
+    d.companyId      = companyId;
+    d.firstSeen      = millis();
+    d.lastSeen       = d.firstSeen;
+    d.sightings      = 1;
+    d.rssiSmoothed   = (float)rssi;
+    d.rssiHistory[0] = rssi;
+    d.rssiIdx        = 1 % TM_RSSI_HISTORY;
+    d.rssiCount      = 1;
+    d.sigIdx         = matchSig(companyId, mfrType, mfrDataLen);
+    d.isKnown        = (d.sigIdx >= 0 && sigs[d.sigIdx].level != THREAT_NONE);
+    d.isAppleDevice  = (d.sigIdx >= 0 && sigs[d.sigIdx].level == THREAT_NONE
+                        && companyId == 0x004C);
+    d.tier           = t;
+    d.isWiFi         = isWiFi;
+    d.isCompanion    = false;
+    d.crowdAtArrival = crowd;
+    d.followDistM    = 0.0f;
+}
+
+// ── process one detected device ───────────────────────────────────────────────
+void TrackMeScanner::processDevice(const uint8_t* mac, const char* name,
+                                    uint16_t companyId, uint8_t mfrType,
+                                    int8_t rssi, bool isWiFi, uint8_t mfrDataLen) {
+    // Locate in tier1 or tier2
+    TrackedDev* existing = nullptr;
+    KState*     ks       = nullptr;
+    int         t2idx    = -1;
+
+    for (int i = 0; i < tier1Count; i++) {
+        if (macEq(tier1[i].mac, mac)) { existing = &tier1[i]; ks = &k1[i]; break; }
+    }
+    if (!existing) {
+        for (int i = 0; i < tier2Count; i++) {
+            if (macEq(tier2[i].mac, mac)) {
+                existing = &tier2[i]; ks = &k2[i]; t2idx = i; break;
+            }
+        }
+    }
+
+    // Kalman update, or raw for first sighting
+    float smooth = (existing && ks) ? kalmanUpdate(*ks, (float)rssi) : (float)rssi;
+
+    // RSSI gate — drop anything too far
+    if (smooth < -85.0f) return;
+
+    if (existing) {
+        if (!isWiFi) existing->isWiFi = false;  // BLE sighting confirms — not WiFi-only
+        existing->lastSeen     = millis();
+        existing->sightings    = min((int)existing->sightings + 1, 65535);
+        existing->rssiSmoothed = smooth;
+        existing->rssiHistory[existing->rssiIdx] = rssi;
+        existing->rssiIdx = (existing->rssiIdx + 1) % TM_RSSI_HISTORY;
+        if (existing->rssiCount < TM_RSSI_HISTORY) existing->rssiCount++;
+
+        if (name[0] != '\0' && existing->name[0] == '\0') {
+            strncpy(existing->name, name, 27); existing->name[27] = '\0';
+        }
+        if (companyId != 0 && existing->companyId == 0) {
+            existing->companyId = companyId;
+            int idx = matchSig(companyId, mfrType, mfrDataLen);
+            if (idx >= 0) {
+                existing->sigIdx        = idx;
+                existing->isKnown       = (sigs[idx].level != THREAT_NONE);
+                existing->isAppleDevice = (sigs[idx].level == THREAT_NONE && companyId == 0x004C);
+            }
+        }
+
+        // Gap return — require 30 s absence so a single missed BLE advert doesn't count
+        if (existing->gapActive) {
+            existing->gapActive = false;
+            if (millis() - existing->gapStart >= 30000) {
+                existing->gapReturned = true;
+                existing->distinctWindows++;
+            }
+        }
+
+        // Tier 2 → Tier 1 promotion — Apple non-trackers stay in tier2 always
+        if (t2idx >= 0 && !existing->isAppleDevice) {
+            bool promote = (smooth > -70.0f) || (existing->sightings >= 3);
+            if (promote && tier1Count < TM_TIER1_MAX) {
+                tier1[tier1Count]      = *existing;
+                tier1[tier1Count].tier = 1;
+                k1[tier1Count]         = *ks;
+                tier1Count++;
+                int last = tier2Count - 1;
+                if (t2idx != last) { tier2[t2idx] = tier2[last]; k2[t2idx] = k2[last]; }
+                tier2Count--;
+            }
+        }
+    } else {
+        KState newK = { smooth, 10.0f };
+        int  preSig  = matchSig(companyId, mfrType, mfrDataLen);
+        bool isApple = (preSig >= 0 && sigs[preSig].level == THREAT_NONE && companyId == 0x004C);
+        // Device is a companion if seen during baseline OR on the permanent whitelist
+        bool isCpn   = matchKnown(mac) || !_baselineDone;
+
+        if (isApple || smooth <= -70.0f) {
+            if (tier2Count < TM_TIER2_MAX) {
+                initDev(tier2[tier2Count], mac, name, companyId, rssi, isWiFi, 2,
+                        mfrType, mfrDataLen, (uint8_t)tier1Count);
+                tier2[tier2Count].isCompanion = isCpn;
+                k2[tier2Count] = newK;
+                tier2Count++;
+            }
+        } else {
+            if (tier1Count < TM_TIER1_MAX) {
+                initDev(tier1[tier1Count], mac, name, companyId, rssi, isWiFi, 1,
+                        mfrType, mfrDataLen, (uint8_t)tier1Count);
+                tier1[tier1Count].isCompanion = isCpn;
+                k1[tier1Count] = newK;
+                tier1Count++;
+            }
+        }
+    }
+}
+
+// ── gap marking (called after each scan cycle) ────────────────────────────────
+void TrackMeScanner::markGaps(uint32_t cycleStart) {
+    for (int i = 0; i < tier1Count; i++) {
+        TrackedDev& d = tier1[i];
+        if (d.lastSeen < cycleStart && !d.gapActive) {
+            d.gapActive = true; d.gapStart = d.lastSeen;
+        }
+    }
+    for (int i = 0; i < tier2Count; i++) {
+        TrackedDev& d = tier2[i];
+        if (d.lastSeen < cycleStart && !d.gapActive) {
+            d.gapActive = true; d.gapStart = d.lastSeen;
+        }
+    }
+}
+
+// ── Gate 2: behaviour scoring ─────────────────────────────────────────────────
+void TrackMeScanner::runGate2(TrackedDev& d) {
+    uint32_t seenMs = millis() - d.firstSeen;
+    int      score  = 0;
+
+    if      (seenMs > 30ul * 60000) score += 25;
+    else if (seenMs > 15ul * 60000) score += 15;
+    else if (seenMs >  5ul * 60000) score += 10;
+
+    if      (d.sightings >= 5) score += 20;
+    else if (d.sightings >= 3) score += 15;
+
+    float var = calcVariance(d);
+    if      (var < 20.0f) score += 35; // very consistent (+20 low + +15 very)
+    else if (var < 50.0f) score += 20;
+
+    if (d.gapReturned)          score += 25;
+    if (d.distinctWindows >= 2) score += 15;
+
+    d.score = score;
+}
+
+// ── Gate 3: confirmation ──────────────────────────────────────────────────────
+bool TrackMeScanner::runGate3(const TrackedDev& d) {
+    if (d.rssiSmoothed < -80.0f) return false;  // device fading away
+
+    // GPS movement path: if the user has walked 200 m+ and this device followed
+    // with at least one real gap-and-return, that is direct physical evidence.
+    // No time minimum needed — GPS movement is a stronger signal than elapsed time.
+    if (d.followDistM >= 200.0f && d.distinctWindows >= 1) return true;
+
+    // Time-based path (no GPS or not enough movement yet)
+    uint32_t seenMs = millis() - d.firstSeen;
+    if (seenMs < 5ul * 60000) return false;     // < 5 min
+    if (d.distinctWindows < 3 && d.sightings < 3) return false;
+
+    // Traffic-jam guard
+    if (d.crowdAtArrival >= 4 && d.distinctWindows == 0) return false;
+
+    return true;
+}
+
+// ── full scoring pass on tier1 ────────────────────────────────────────────────
+void TrackMeScanner::runScoring() {
+    uint32_t now = millis();
+    for (int i = 0; i < tier1Count; i++) {
+        TrackedDev& d = tier1[i];
+        if (d.isAppleDevice || d.isCompanion) { d.alertLevel = THREAT_NONE; continue; }
+        uint32_t seenMs = now - d.firstSeen;
+
+        // WiFi-only cap: probe sniff catches routers, phones, APs — not just trackers.
+        // If the user is stationary (no GPS movement) a persistent WiFi device is almost
+        // certainly a fixed AP, not a follower. Only escalate to NOTICE when GPS confirms
+        // the user has actually moved 100 m+ and the device has followed with a real gap.
+        if (d.isWiFi) {
+            d.alertLevel = (_gpsMoving && d.followDistM >= 100.0f && d.distinctWindows >= 1)
+                           ? THREAT_NOTICE : THREAT_NONE;
+            continue;
+        }
+
+        if (d.isKnown) {
+            if (runGate3(d)) {
+                d.alertLevel = THREAT_ALERT;
+            } else if (seenMs >= 60000 && d.sightings >= 2 &&
+                       !(d.crowdAtArrival >= 4 && d.distinctWindows == 0)) {
+                d.alertLevel = THREAT_NOTICE;
+            } else {
+                d.alertLevel = THREAT_NONE;
+            }
+        } else {
+            runGate2(d);
+            if (d.score >= 40) {
+                if (runGate3(d)) {
+                    // Gate 3 confirmed (5+ min, proper behavioural evidence)
+                    d.alertLevel = (d.score >= 80) ? THREAT_ALERT : THREAT_WARNING;
+                } else {
+                    // Gate 3 not yet confirmed — NOTICE only, never WARNING.
+                    // WARNING requires Gate 3 so a single gap-return + consistent RSSI
+                    // in the first few minutes cannot trigger a false alarm.
+                    d.alertLevel = (d.score >= 60) ? THREAT_NOTICE : THREAT_NONE;
+                }
+            } else {
+                d.alertLevel = THREAT_NONE;
+            }
+        }
+    }
+}
+
+// ── WiFi promiscuous callback (runs in WiFi driver task) ──────────────────────
+void IRAM_ATTR TrackMeScanner::wifiCb(void* buf, wifi_promiscuous_pkt_type_t type) {
+    if (type != WIFI_PKT_MGMT) return;
+    const wifi_promiscuous_pkt_t* pkt = (wifi_promiscuous_pkt_t*)buf;
+    uint16_t len = pkt->rx_ctrl.sig_len;
+    if (len < 24) return;
+    const uint8_t* d = pkt->payload;
+    if (((d[0] >> 4) & 0x0F) != 4) return; // probe requests only
+    uint8_t next = (_rHead + 1) % TM_PROBE_RING;
+    if (next == _rTail) return;
+    ProbeEntry& slot = (ProbeEntry&)_ring[_rHead];
+    memcpy(slot.mac, d + 10, 6);
+    slot.rssi = pkt->rx_ctrl.rssi;
+    _rHead = next;
+}
+
+// ── BLE scan (~2 s blocking) ──────────────────────────────────────────────────
+void TrackMeScanner::doBLEScan(int seconds) {
+    esp_wifi_set_promiscuous(false);
+    NimBLEScan* scan = NimBLEDevice::getScan();
+    scan->setScanCallbacks(nullptr);  // clear any stale callback from scanblue
+    scan->setActiveScan(true);
+    scan->setInterval(100);
+    scan->setWindow(99);
+    {
+        NimBLEScanResults results = scan->getResults((uint32_t)seconds * 1000, false);
+        int n = results.getCount();
+        for (int i = 0; i < n; i++) {
+            const NimBLEAdvertisedDevice* dev = results.getDevice(i);
+            if (!dev) continue;
+            uint8_t  mac[6]    = {0};
+            uint16_t companyId = 0;
+            String   addr      = dev->getAddress().toString().c_str();
+            sscanf(addr.c_str(), "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                   &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
+            uint8_t mfrType = 0x00;
+            uint8_t mfrLen  = 0;
+            if (dev->haveManufacturerData()) {
+                std::string mfr = dev->getManufacturerData();
+                mfrLen = (uint8_t)min((int)mfr.size(), 255);
+                if (mfr.size() >= 2)
+                    companyId = (uint8_t)mfr[0] | ((uint16_t)(uint8_t)mfr[1] << 8);
+                if (mfr.size() >= 3)
+                    mfrType = (uint8_t)mfr[2];
+            }
+            String name = dev->getName().c_str();
+            processDevice(mac, name.c_str(), companyId, mfrType, dev->getRSSI(), false, mfrLen);
+        }
+    }
+    scan->clearResults();
+}
+
+// ── WiFi probe sniff (500 ms, non-blocking loop) ──────────────────────────────
+void TrackMeScanner::doWiFiSniff(uint32_t durationMs) {
+    // Skip if wguard owns the promiscuous callback — replacing it would blind wguard
+    if (wGuard.isBackground()) return;
+
+    if (WiFi.getMode() == WIFI_MODE_NULL) {
+        WiFi.mode(WIFI_STA);
+        WiFi.disconnect();
+        delay(50);
+    }
+    wifi_promiscuous_filter_t flt = { .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT };
+    esp_wifi_set_promiscuous_filter(&flt);
+    esp_wifi_set_promiscuous_rx_cb(wifiCb);
+    esp_wifi_set_promiscuous(true);
+
+    uint32_t t0 = millis();
+    while (millis() - t0 < durationMs) {
+        while (_rTail != _rHead) {
+            ProbeEntry pe;
+            memcpy(&pe, (const void*)&_ring[_rTail], sizeof(ProbeEntry));
+            _rTail = (_rTail + 1) % TM_PROBE_RING;
+            processDevice(pe.mac, "", 0, 0x00, pe.rssi, true, 0);
+        }
+        delay(10);
+    }
+    esp_wifi_set_promiscuous(false);
+}
+
+
+// ── SD logging ────────────────────────────────────────────────────────────────
+void TrackMeScanner::appendLog(const TrackedDev& d) {
+    if (!sd.isReady()) return;
+    sd.ensureDir("/logs");
+    const char* levelStr;
+    switch (d.alertLevel) {
+        case THREAT_ALERT:   levelStr = "ALERT";   break;
+        case THREAT_WARNING: levelStr = "WARNING"; break;
+        case THREAT_NOTICE:  levelStr = "NOTICE";  break;
+        default:             levelStr = "NONE";    break;
+    }
+    char line[128];
+    String mac = macStr(d.mac);
+    {
+        char ts[22] = "";
+        ClockManager::instance().getTimestamp(ts, sizeof(ts));
+        if (ts[0]) {
+            snprintf(line, sizeof(line),
+                "%s %s | %s | 0x%04X | score:%d | seen:%lus | rssi:%.0f",
+                ts, levelStr,
+                d.name[0] ? d.name : mac.c_str(),
+                d.companyId, d.score,
+                (unsigned long)((millis() - d.firstSeen) / 1000),
+                d.rssiSmoothed);
+        } else {
+            snprintf(line, sizeof(line),
+                "[%lums] %s | %s | 0x%04X | score:%d | seen:%lus | rssi:%.0f",
+                (unsigned long)millis(), levelStr,
+                d.name[0] ? d.name : mac.c_str(),
+                d.companyId, d.score,
+                (unsigned long)((millis() - d.firstSeen) / 1000),
+                d.rssiSmoothed);
+        }
+    }
+    if (sd.appendLine(SD_LOG_TRACKME, String(line)))
+        _sdNoticeMs = millis();
+}
+
+void TrackMeScanner::saveLog() {
+    for (int i = 0; i < tier1Count; i++) appendLog(tier1[i]);
+    for (int i = 0; i < tier2Count; i++) appendLog(tier2[i]);
+}
+
+// ── custom red header ─────────────────────────────────────────────────────────
+void TrackMeScanner::drawHeader() {
+    dm.fillRect(0, promptY, SCREEN_WIDTH, promptHeight, TFT_RED);
+    dm.printText("T-REX // TRACK ME", 5, promptY + 9, TFT_WHITE);
+    if (_silent)
+        dm.printText("[MUTE][q]", 210, promptY + 9, TFT_YELLOW);
+    else
+        dm.printText("[q]quit",   250, promptY + 9, TFT_WHITE);
+}
+
+// ── SD save notice (drawn directly into the alert bar row) ───────────────────
+void TrackMeScanner::drawSdNotice(const char* msg) {
+    int alertY = outputY + LINE_HEIGHT * 10;
+    dm.fillRect(0, alertY, SCREEN_WIDTH, LINE_HEIGHT + 2, TFT_BLACK);
+    dm.printText(msg, 4, alertY + 1, TFT_GREEN);
+}
+
+// ── full screen redraw ────────────────────────────────────────────────────────
+void TrackMeScanner::drawScreen(ThreatLevel highestLevel,
+                                 const char* alertName, uint32_t alertSec) {
+    if (dm.isBlocked()) return;
+    const int RPP = 6; // rows per page
+    int totalPages = (tier1Count + RPP - 1) / RPP;
+    if (totalPages < 1) totalPages = 1;
+    if (page >= totalPages) page = totalPages - 1;
+    if (page < 0) page = 0;
+
+    dm.clearScreen();
+    drawHeader();
+    dm.setDefaultTextSize();
+
+    // Status line
+    uint32_t elapsed = (millis() - startMs) / 1000;
+    int cpnCount = 0;
+    for (int i = 0; i < tier1Count; i++) if (tier1[i].isCompanion) cpnCount++;
+    char status[64];
+    snprintf(status, sizeof(status), "BLE+WiFi t:%02lu:%02lu T1:%d Cpn:%d [%d/%d]",
+             (unsigned long)(elapsed / 60), (unsigned long)(elapsed % 60),
+             tier1Count, cpnCount, page + 1, totalPages);
+    dm.setCursor(4, outputY);
+    dm.setTextColor(TFT_CYAN);
+    dm.printText(status);
+
+#ifdef BOARD_TDECK_PLUS
+    {
+        GpsManager& _gm = GpsManager::instance();
+        bool  _gmOn  = _gm.isRunning();
+        char gpsStr[22];
+        if (!gpsValid) {
+            uint32_t sats  = _gmOn ? _gm.satellites()
+                                   : (gps.satellites.isValid() ? gps.satellites.value() : 0);
+            uint32_t chars = _gmOn ? _gm.charsProcessed() : gps.charsProcessed();
+            if (chars > 0) {
+                snprintf(gpsStr, sizeof(gpsStr), " GPS:srch(%lu)", (unsigned long)sats);
+                dm.setTextColor(sats >= 4 ? TFT_YELLOW : TFT_ORANGE);
+            } else {
+                snprintf(gpsStr, sizeof(gpsStr), " GPS:none");
+                dm.setTextColor(TFT_DARKGREY);
+            }
+        } else if (!_gpsMoving) {
+            bool tValid = _gmOn ? _gm.timeValid() : gps.time.isValid();
+            int  h = _gmOn ? (int)_gm.hour()   : (int)gps.time.hour();
+            int  m = _gmOn ? (int)_gm.minute()  : (int)gps.time.minute();
+            if (tValid)
+                snprintf(gpsStr, sizeof(gpsStr), " GPS:%02d:%02d", h, m);
+            else
+                snprintf(gpsStr, sizeof(gpsStr), " GPS:fix");
+            dm.setTextColor(TFT_GREEN);
+        } else {
+            snprintf(gpsStr, sizeof(gpsStr), " GPS:%.0fm", _totalDistM);
+            dm.setTextColor(TFT_GREEN);
+        }
+        dm.printText(gpsStr);
+    }
+#endif
+
+    // Baseline countdown OR table header on line 1
+    dm.setCursor(4, outputY + LINE_HEIGHT);
+    if (!_baselineDone) {
+        uint32_t remSec = (startMs + 60000 > millis()) ? (startMs + 60000 - millis()) / 1000 : 0;
+        char bl[48];
+        snprintf(bl, sizeof(bl), "BASELINE %2lus — learning your devices...", (unsigned long)remSec);
+        dm.setTextColor(TFT_YELLOW);
+        dm.printText(bl);
+    } else {
+        dm.setTextColor(0x7BEF);
+        dm.printText("#  TYPE        SCORE  SEEN    RSSI");
+    }
+
+    // Device rows
+    int start = page * RPP;
+    int end   = min(start + RPP, tier1Count);
+    for (int i = start; i < end; i++) {
+        const TrackedDev& d = tier1[i];
+        uint16_t color;
+        if (d.isCompanion) {
+            color = 0x2104;  // dark grey — own device
+        } else if (d.isAppleDevice) {
+            color = TFT_WHITE;
+        } else {
+            switch (d.alertLevel) {
+                case THREAT_ALERT:   color = TFT_RED;    break;
+                case THREAT_WARNING: color = TFT_ORANGE; break;
+                case THREAT_NOTICE:  color = TFT_YELLOW; break;
+                default:             color = TFT_WHITE;  break;
+            }
+        }
+        uint32_t seenMs = millis() - d.firstSeen;
+        char typeBuf[11];
+        if (d.isCompanion)
+            snprintf(typeBuf, sizeof(typeBuf), "%.10s", d.name[0] ? d.name : "Companion");
+        else if (d.isAppleDevice)
+            strcpy(typeBuf, "Apple Dev");
+        else if (d.isKnown && d.sigIdx >= 0)
+            snprintf(typeBuf, sizeof(typeBuf), "%.10s", sigs[d.sigIdx].name);
+        else if (d.isWiFi)
+            strcpy(typeBuf, "WiFi?");
+        else
+            strcpy(typeBuf, "Unknown");
+
+        char row[44];
+        snprintf(row, sizeof(row), "%-2d %-10s %4d %3lu:%02lu %5.0f",
+                 i + 1, typeBuf, d.score,
+                 (unsigned long)(seenMs / 60000),
+                 (unsigned long)((seenMs % 60000) / 1000),
+                 d.rssiSmoothed);
+
+        dm.setCursor(4, outputY + LINE_HEIGHT * (2 + (i - start)));
+        dm.setTextColor(color);
+        dm.printText(row);
+    }
+
+    // Controls
+    dm.setCursor(4, outputY + LINE_HEIGHT * 9);
+    dm.setTextColor(TFT_GREEN);  dm.printText("a");
+    dm.setTextColor(TFT_WHITE);  dm.printText("=prev ");
+    dm.setTextColor(TFT_GREEN);  dm.printText("l");
+    dm.setTextColor(TFT_WHITE);  dm.printText("=next ");
+    dm.setTextColor(TFT_GREEN);  dm.printText("w");
+    dm.setTextColor(TFT_WHITE);  dm.printText("=trust ");
+    dm.setTextColor(TFT_GREEN);  dm.printText("s");
+    dm.setTextColor(TFT_WHITE);  dm.printText("=save ");
+    dm.setTextColor(TFT_GREEN);  dm.printText("q");
+    dm.setTextColor(TFT_WHITE);  dm.printText("=quit");
+
+    // Alert bar
+    int      alertY  = outputY + LINE_HEIGHT * 10;
+    uint16_t alertBg, alertFg;
+    char     alertText[48];
+
+    if (highestLevel == THREAT_ALERT) {
+        alertBg = TFT_RED; alertFg = TFT_WHITE;
+        snprintf(alertText, sizeof(alertText), "[!] ALERT: %s  %lu:%02lu",
+                 alertName, (unsigned long)(alertSec / 60),
+                 (unsigned long)(alertSec % 60));
+    } else if (highestLevel == THREAT_WARNING) {
+        alertBg = TFT_ORANGE; alertFg = TFT_BLACK;
+        snprintf(alertText, sizeof(alertText), "[!] WARNING: %.28s", alertName);
+    } else if (highestLevel == THREAT_NOTICE) {
+        alertBg = TFT_BLACK; alertFg = TFT_YELLOW;
+        snprintf(alertText, sizeof(alertText), "[ ] NOTICE: %.29s", alertName);
+    } else {
+        alertBg = TFT_BLACK;
+        if (_sdNoticeMs && millis() - _sdNoticeMs < 3000) {
+            alertFg = TFT_GREEN;
+            strcpy(alertText, "  Saved to SD: /logs/trackme.txt");
+        } else {
+            alertFg = 0x7BEF;
+            strcpy(alertText, "    No threats detected");
+        }
+    }
+
+    dm.fillRect(0, alertY, SCREEN_WIDTH, LINE_HEIGHT + 2, alertBg);
+    dm.printText(alertText, 4, alertY + 1, alertFg);
+}
+
+// ── GPS (T-Deck Plus only) ────────────────────────────────────────────────────
+// Init, module detection, and background task are in gps_manager.cpp.
+#ifdef BOARD_TDECK_PLUS
+
+float TrackMeScanner::gpsDistance(float lat1, float lon1, float lat2, float lon2) {
+    const float R = 6371000.0f;
+    float dLat = (lat2 - lat1) * M_PI / 180.0f;
+    float dLon = (lon2 - lon1) * M_PI / 180.0f;
+    float a = sinf(dLat / 2) * sinf(dLat / 2) +
+              cosf(lat1 * M_PI / 180.0f) * cosf(lat2 * M_PI / 180.0f) *
+              sinf(dLon / 2) * sinf(dLon / 2);
+    return R * 2.0f * atan2f(sqrtf(a), sqrtf(1.0f - a));
+}
+#endif
+
+// ── entry point ───────────────────────────────────────────────────────────────
+static bool s_bleInited = false;
+
+void TrackMeScanner::start(bool silent) {
+
+    _silent = silent;
+    loadSignatures();
+
+    memset(tier1, 0, sizeof(tier1)); tier1Count = 0;
+    memset(tier2, 0, sizeof(tier2)); tier2Count = 0;
+    memset(k1, 0, sizeof(k1));
+    memset(k2, 0, sizeof(k2));
+    _rHead = 0; _rTail = 0;
+    page          = 0;
+    startMs       = millis();
+    _totalDistM   = 0.0f;
+    _gpsMoving    = false;
+    _baselineDone = false;
+    _sdNoticeMs   = 0;
+    loadWhitelist();
+
+    if (!s_bleInited) {
+        NimBLEDevice::init("");
+        s_bleInited = true;
+    }
+    dm.setBtActive(true);
+
+#ifdef BOARD_TDECK_PLUS
+    GpsManager& gpsMgr = GpsManager::instance();
+    bool _ownGps = !gpsMgr.isRunning(); // we init GPS only when background task isn't
+
+    if (_ownGps) {
+        gpsSerial = new HardwareSerial(1);
+        gpsSerial->setRxBufferSize(1024);
+        gpsSerial->begin(BOARD_GPS_BAUD, SERIAL_8N1, BOARD_GPS_RX_PIN, BOARD_GPS_TX_PIN);
+        // Module detection moved to GpsManager; reuse the same init via a temporary manager start/stop
+        // is overkill — just call the static helpers via a local GpsManager that we immediately discard.
+        // Instead: delegate module init to GpsManager's public helpers by starting it, then handing
+        // the serial over.  Simplest: just re-implement the quick init inline here (same 3 lines).
+        gpsSerial->write("$PCAS04,7*1E\r\n");  delay(250);  // GPS+GLONASS+BDS
+        gpsSerial->write("$PCAS03,1,0,0,0,1,0,0,0,0,0,,,0,0*02\r\n"); delay(250);
+        gpsSerial->write("$PCAS11,3*1E\r\n");  delay(100);
+    }
+
+    gpsValid = gpsMgr.isRunning() && gpsMgr.isValid();
+    if (gpsValid) { gpsLat = gpsMgr.lat(); gpsLon = gpsMgr.lon(); }
+    float lastGpsLat = 0, lastGpsLon = 0;
+    bool  lastGpsSet = false;
+
+    // ── experimental disclaimer ───────────────────────────────────────────────
+    {
+        dm.clearScreen();
+        drawHeader();
+        dm.setDefaultTextSize();
+        dm.setCursor(4, outputY);
+        dm.setTextColor(TFT_YELLOW);
+        dm.println("[!] EXPERIMENTAL TOOL");
+        dm.setCursor(4, outputY + LINE_HEIGHT + 2);
+        dm.setTextColor(0x7BEF);
+        dm.println("Results may include false positives.");
+        dm.println("Use as a general indicator only.");
+        dm.setCursor(4, outputY + LINE_HEIGHT * 4);
+        dm.setTextColor(TFT_DARKGREY);
+        dm.println("Press any key to continue...");
+        uint32_t t0 = millis();
+        while (millis() - t0 < 2000) {
+            if (inputHandler.getKeyboardInput()) break;
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+    }
+
+    // GPS readiness screen
+    {
+        dm.clearScreen();
+        drawHeader();
+        dm.setDefaultTextSize();
+        dm.setCursor(4, outputY);
+
+        if (gpsMgr.isRunning() && gpsValid) {
+            // GPS already fixed from background — skip straight to scan
+            dm.setTextColor(TFT_GREEN);
+            char msg[48];
+            snprintf(msg, sizeof(msg), "GPS ready!  %lu sats  UTC %02d:%02d",
+                     (unsigned long)gpsMgr.satellites(),
+                     (int)gpsMgr.hour(), (int)gpsMgr.minute());
+            dm.printText(msg);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+
+        } else if (gpsMgr.isRunning() && !gpsValid) {
+            // Background task running but no fix yet — wait briefly then proceed
+            dm.setTextColor(TFT_CYAN);
+            dm.printText("GPS running in background — waiting for fix...");
+            uint32_t waitStart = millis();
+            while (millis() - waitStart < 8000) {
+                if (gpsMgr.isValid()) {
+                    gpsValid = true; gpsLat = gpsMgr.lat(); gpsLon = gpsMgr.lon();
+                    dm.setCursor(4, outputY + LINE_HEIGHT * 2);
+                    dm.setTextColor(TFT_GREEN);
+                    dm.printText("Fix! Starting scan...");
+                    vTaskDelay(pdMS_TO_TICKS(800));
+                    break;
+                }
+                uint32_t sats = gpsMgr.satellites();
+                char line[40];
+                snprintf(line, sizeof(line), "Sats: %lu/12   ", (unsigned long)sats);
+                dm.setCursor(4, outputY + LINE_HEIGHT);
+                dm.setTextColor(sats >= 4 ? TFT_YELLOW : TFT_ORANGE);
+                dm.printText(line);
+                vTaskDelay(pdMS_TO_TICKS(300));
+                if (inputHandler.getKeyboardInput()) break;
+            }
+            if (!gpsValid) {
+                dm.setCursor(4, outputY + LINE_HEIGHT * 2);
+                dm.setTextColor(TFT_DARKGREY);
+                dm.printText("No fix — scanning without GPS");
+                vTaskDelay(pdMS_TO_TICKS(800));
+            }
+
+        } else {
+            // No background GPS — run the full 90s warm-up with own serial
+            dm.setTextColor(TFT_CYAN);
+            dm.printText("GPS warm-up — any key to skip");
+            const uint32_t GPS_INIT_MS = 90000;
+            uint32_t gpsInitStart = millis();
+            uint32_t lastDrawMs   = 0;
+
+            while (millis() - gpsInitStart < GPS_INIT_MS) {
+                while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+
+                if (gps.location.isValid()) {
+                    gpsLat = (float)gps.location.lat(); gpsLon = (float)gps.location.lng();
+                    gpsValid = true;
+                    dm.setCursor(4, outputY + LINE_HEIGHT * 2);
+                    dm.setTextColor(TFT_GREEN);
+                    char ok[56];
+                    if (gps.time.isValid())
+                        snprintf(ok, sizeof(ok), "Fix! UTC %02d:%02d:%02d  %lu sats",
+                                 (int)gps.time.hour(), (int)gps.time.minute(),
+                                 (int)gps.time.second(),
+                                 gps.satellites.isValid() ? (unsigned long)gps.satellites.value() : 0UL);
+                    else
+                        snprintf(ok, sizeof(ok), "Fix acquired!");
+                    dm.printText(ok);
+                    dm.setCursor(4, outputY + LINE_HEIGHT * 3);
+                    dm.setTextColor(TFT_WHITE);
+                    dm.printText("Starting baseline scan...");
+                    uint32_t p = millis();
+                    while (millis() - p < 1500)
+                        while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+                    break;
+                }
+
+                uint32_t now = millis();
+                if (now - lastDrawMs >= 500) {
+                    lastDrawMs = now;
+                    uint32_t sats = gps.satellites.isValid() ? (uint32_t)gps.satellites.value() : 0;
+                    uint32_t elapsed = (now - gpsInitStart) / 1000;
+                    uint32_t remain  = (GPS_INIT_MS / 1000) - elapsed;
+                    char line[48];
+                    snprintf(line, sizeof(line), "Sats: %lu/12  timeout: %lus", (unsigned long)sats, (unsigned long)remain);
+                    dm.fillRect(4, outputY + LINE_HEIGHT, SCREEN_WIDTH - 8, LINE_HEIGHT, TFT_BLACK);
+                    dm.setCursor(4, outputY + LINE_HEIGHT);
+                    dm.setTextColor(sats >= 4 ? TFT_YELLOW : TFT_ORANGE);
+                    dm.printText(line);
+                }
+                if (inputHandler.getKeyboardInput()) break;
+                vTaskDelay(pdMS_TO_TICKS(20));
+            }
+            if (!gpsValid) {
+                dm.setCursor(4, outputY + LINE_HEIGHT * 2);
+                dm.setTextColor(TFT_DARKGREY);
+                dm.printText("No GPS fix — scanning without GPS");
+                uint32_t p = millis();
+                while (millis() - p < 1000) {
+                    while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+                    vTaskDelay(pdMS_TO_TICKS(10));
+                }
+            }
+        }
+    }
+#endif
+
+    // Reset baseline timer so the 60s learning window starts NOW (after GPS init)
+    startMs = millis();
+
+    drawHeader();
+    drawScreen(THREAT_NONE, "", 0);
+
+    ThreatLevel highestLevel = THREAT_NONE;
+    char        alertName[28] = {0};
+    uint32_t    alertSec     = 0;
+    uint32_t    lastBeepMs   = 0;
+    bool        alertActive  = false;
+
+    while (true) {
+        uint32_t cycleStart = millis();
+
+#ifdef BOARD_TDECK_PLUS
+        // Pre-flush own serial before BLE blocks core 1 for 1 s
+        if (_ownGps && gpsSerial)
+            while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+#endif
+        doBLEScan(1);        // 1 s (reduced for faster key response)
+#ifdef BOARD_TDECK_PLUS
+        doWiFiSniff(500);    // ~0.5 s — requires GPS movement to avoid false positives
+#endif
+
+#ifdef BOARD_TDECK_PLUS
+        // Update position from whichever GPS source is active
+        if (_ownGps && gpsSerial) {
+            while (gpsSerial->available()) gps.encode((char)gpsSerial->read());
+            if (gps.location.isValid()) {
+                gpsLat = (float)gps.location.lat();
+                gpsLon = (float)gps.location.lng();
+                gpsValid = true;
+            }
+        } else if (!_ownGps && gpsMgr.isValid()) {
+            gpsLat  = gpsMgr.lat();
+            gpsLon  = gpsMgr.lon();
+            gpsValid = true;
+        }
+        if (gpsValid) {
+            if (lastGpsSet) {
+                float step = gpsDistance(lastGpsLat, lastGpsLon, gpsLat, gpsLon);
+                if (step >= 10.0f) {
+                    _totalDistM += step;
+                    _gpsMoving   = (_totalDistM >= 50.0f);
+                    // Accumulate followDistM for every tier1 device currently visible
+                    for (int i = 0; i < tier1Count; i++) {
+                        if (!tier1[i].gapActive)
+                            tier1[i].followDistM += step;
+                    }
+                    lastGpsLat = gpsLat;
+                    lastGpsLon = gpsLon;
+                }
+            } else {
+                lastGpsLat = gpsLat;
+                lastGpsLon = gpsLon;
+                lastGpsSet = true;
+            }
+        }
+#endif
+
+        // Transition out of baseline after 60 s
+        if (!_baselineDone && millis() - startMs >= 60000)
+            _baselineDone = true;
+
+        markGaps(cycleStart);
+        runScoring();
+
+        // Collect highest threat
+        highestLevel = THREAT_NONE;
+        alertName[0] = '\0';
+        alertSec     = 0;
+        for (int i = 0; i < tier1Count; i++) {
+            if (tier1[i].isAppleDevice) continue;
+            if (tier1[i].alertLevel > highestLevel) {
+                highestLevel = tier1[i].alertLevel;
+                const char* src = (tier1[i].isKnown && tier1[i].sigIdx >= 0)
+                                  ? sigs[tier1[i].sigIdx].name : tier1[i].name;
+                String mac = macStr(tier1[i].mac);
+                strncpy(alertName, src[0] ? src : mac.c_str(), 27);
+                alertName[27] = '\0';
+                alertSec = (millis() - tier1[i].firstSeen) / 1000;
+            }
+        }
+
+        // Beep
+        uint32_t now = millis();
+        if (highestLevel == THREAT_ALERT) {
+            if (!alertActive || now - lastBeepMs >= 30000) {
+                if (!_silent) NotificationManager::getInstance().notify(NOTIF_ALERT);
+                lastBeepMs = now; alertActive = true;
+            }
+        } else if (highestLevel == THREAT_WARNING && !alertActive) {
+            if (!_silent) NotificationManager::getInstance().notify(NOTIF_WARNING);
+            lastBeepMs = now; alertActive = true;
+        } else if (highestLevel < THREAT_WARNING) {
+            alertActive = false;
+        }
+
+        // Auto-log new alerts
+        for (int i = 0; i < tier1Count; i++) {
+            if (tier1[i].isAppleDevice) continue;
+            if (tier1[i].alertLevel >= THREAT_WARNING && !tier1[i].alertFired) {
+                appendLog(tier1[i]);
+                tier1[i].alertFired = true;
+            }
+        }
+
+        drawScreen(highestLevel, alertName, alertSec);
+
+        // Keyboard (checked between scan cycles ~every 2.5 s)
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') break;
+        if (k == 'l' || k == 'L') page++;
+        if (k == 'a' || k == 'A') page = max(0, page - 1);
+        if (k == 'c' || k == 'C') {
+            memset(tier1, 0, sizeof(tier1)); tier1Count = 0;
+            memset(tier2, 0, sizeof(tier2)); tier2Count = 0;
+            memset(k1, 0, sizeof(k1)); memset(k2, 0, sizeof(k2));
+            page = 0; alertActive = false;
+        }
+        if (k == 's' || k == 'S') {
+            uint32_t before = _sdNoticeMs;
+            saveLog();
+            if (_sdNoticeMs != before) {
+                char msg[48];
+                snprintf(msg, sizeof(msg), "  Saved %d devices to SD", tier1Count + tier2Count);
+                drawSdNotice(msg);
+            } else {
+                drawSdNotice("  No SD card - nothing saved");
+            }
+        }
+        if (k == 'w' || k == 'W') {
+            // Whitelist the highest-threat non-companion tier1 device
+            int best = -1;
+            ThreatLevel bestLvl = THREAT_NONE;
+            for (int i = 0; i < tier1Count; i++) {
+                if (!tier1[i].isCompanion && tier1[i].alertLevel > bestLvl) {
+                    best = i; bestLvl = tier1[i].alertLevel;
+                }
+            }
+            // If nothing is alerting, whitelist first non-companion
+            if (best < 0) {
+                for (int i = 0; i < tier1Count; i++) {
+                    if (!tier1[i].isCompanion) { best = i; break; }
+                }
+            }
+            if (best >= 0) {
+                const char* lbl = tier1[best].name[0] ? tier1[best].name : "My Device";
+                tier1[best].isCompanion  = true;
+                tier1[best].alertLevel   = THREAT_NONE;
+                tier1[best].alertFired   = false;
+                uint32_t before = _sdNoticeMs;
+                addToWhitelist(tier1[best].mac, lbl);
+                drawSdNotice(_sdNoticeMs != before
+                    ? "  Device trusted + saved to whitelist"
+                    : "  Device trusted (no SD - session only)");
+            }
+        }
+    }
+
+    // Cleanup
+    esp_wifi_set_promiscuous(false);
+    // BLE stack stays resident to avoid double-init crash on re-entry
+    dm.setBtActive(false);
+
+#ifdef BOARD_TDECK_PLUS
+    if (_ownGps && gpsSerial) { gpsSerial->end(); delete gpsSerial; gpsSerial = nullptr; }
+    // GpsManager-owned serial stays open — background task keeps running
+#endif
+
+    dm.printCommandScreen();
+}

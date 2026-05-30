@@ -1,0 +1,60 @@
+T-REX Third-Party Notices
+=========================
+
+This project incorporates code from the following open-source projects:
+
+1. Bruce Firmware
+   Source:  https://github.com/pr3y/Bruce
+   License: GNU Affero General Public License v3.0 (AGPL-3.0)
+   Files:   t-deck-cli/eviltwin.cpp, t-deck-cli/deauth_functions.cpp
+   Notes:   Evil Twin captive portal HTML templates and raw 802.11 frame
+            injection approach adapted from Bruce's evil_portal.cpp and
+            related WiFi attack modules.
+
+2. LovyanGFX
+   Source:  https://github.com/lovyan03/LovyanGFX
+   License: FreeBSD License (2-Clause BSD)
+   Use:     Display driver for ST7789 TFT
+
+3. ESP32Ping
+   Source:  https://github.com/marian-craciunescu/ESP32Ping
+   License: GNU Lesser General Public License v2.1
+   Use:     ICMP ping implementation
+
+4. DigitalRainAnimation (TP_Arduino_DigitalRain_Anim)
+   Source:  https://github.com/0015/TP_Arduino_DigitalRain_Anim
+   License: MIT License
+   Use:     Matrix rain animation effect
+
+5. Pangodream 18650CL
+   Source:  https://github.com/pangodream/18650CL
+   License: MIT License
+   Use:     Battery voltage / percentage estimation
+
+6. RadioLib
+   Source:  https://github.com/jgromes/RadioLib
+   License: MIT License
+   Use:     LoRa radio (upcoming features)
+
+7. ArduinoJson
+   Source:  https://github.com/bblanchon/ArduinoJson
+   License: MIT License
+   Use:     JSON config and data handling
+
+8. AceButton
+   Source:  https://github.com/bxparks/AceButton
+   License: MIT License
+   Use:     Physical button handling
+
+9. TinyGPS++
+   Source:  https://github.com/mikalhart/TinyGPSPlus
+   License: GNU Lesser General Public License v2.1
+   Use:     GPS NMEA sentence parsing (T-Deck Plus only)
+
+10. AirGuard (research inspiration only — no code used)
+    Source:  https://github.com/seemoo-lab/AirGuard
+    License: Apache License 2.0
+    Notes:   Anti-tracking detection methodology (behaviour scoring,
+             gap-and-return analysis, crowd filtering) was inspired by
+             AirGuard's published research by the Secure Mobile Networking
+             Lab, TU Darmstadt. No source code was copied or adapted.
