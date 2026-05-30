@@ -116,6 +116,15 @@ void BluetoothFunctions::scanBluetoothDevices() {
     int currentPage   = 0;
     bool needScan     = true;
 
+    // init("") is idempotent:
+    //   - Stack already up (e.g. btkbd left it alive): no-op, scan runs on
+    //     the existing idle stack — this is intentional. btkbd deliberately
+    //     skips deinit because the ESP32 BT controller can't be fully reset
+    //     in software after HID; deinit+reinit breaks subsequent scanning.
+    //   - Stack down (after buddy/ble_spam/fast_pair which call deinit): fresh
+    //     init from clean state.
+    // Do NOT add a deinit cycle here — it would tear down the stack that btkbd
+    // intentionally left alive, causing the same scan failure we're fixing.
     NimBLEDevice::init("");
     displayManager.setBtActive(true);
     displayManager.updateStatusBar();

@@ -509,18 +509,23 @@ void BleKeyboard::start() {
         }
     }
 
-    // 500ms drain: after disconnect the NimBLE host task clears CCCD subscriptions
-    // and flushes pending HID ATT ops. deinit(true) is safe once that's done.
+    // Wait for ATT ops to flush then force-clear connection state.
     vTaskDelay(pdMS_TO_TICKS(500));
-
     s_bleConnected = false;
     s_connHandle   = BLE_HS_CONN_HANDLE_NONE;
     s_bleExiting   = false;
 
-    // Full teardown — leaves BLE off so buddy/next command inits from clean slate
-    NimBLEDevice::deinit(true);
-    vTaskDelay(pdMS_TO_TICKS(100));
-    NimBLEDevice::init("T-REX");
+    // Do NOT call deinit(true) here. The ESP32 BT controller cannot be fully
+    // reset in software after running an HID profile — deinit+reinit leaves
+    // hardware state that causes sbl's scan->start() to be rejected silently,
+    // making sbl complete in <1s with 0 results. A reboot fixes it (hardware
+    // reset), but software deinit does not. Solution: leave the BLE stack
+    // alive but idle (advertising stopped, client disconnected). sbl's init("")
+    // is a no-op when the stack is already up and the scan runs fine on the
+    // idle stack. buddy/ble_spam/fast_pair all do their own double-cycle
+    // deinit+init at startup which properly tears down the HID server.
+    NimBLEDevice::getServer()->setCallbacks(nullptr);  // refuse any reconnection
+    vTaskDelay(pdMS_TO_TICKS(200));
 
     SD.begin(39);
 
