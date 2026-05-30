@@ -47,7 +47,7 @@ CMD> tm silent    # no speaker alerts
 
 Passive BLE + WiFi probe scanner that detects devices that may be physically following you. Uses a 60s baseline learning period, 3-gate confirmation pipeline, and Kalman-filtered RSSI to minimize false positives.
 
-**T-Deck Plus tip:** Run `gpson` before `trackme` — GPS movement data significantly improves detection accuracy and eliminates most false positives.
+**T-Deck Plus tip:** Run `gps on` before `trackme` — GPS movement data significantly improves detection accuracy and eliminates most false positives.
 
 | Key | Action |
 |-----|--------|

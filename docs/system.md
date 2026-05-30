@@ -15,7 +15,7 @@ has_children: true
 | [Timezone](tz) | `tz` |
 | [Audio & Notifications](audio) | `volume` / `vol` · `notif` / `nf` · `spktest` / `st` |
 | [SD Commands](sd-commands) | `sdinfo` · `sdls` · `cd` · `cat` · `rm` · `sdformat` |
-| [Diagnostics](diagnostics) | `gpson` · `gpsoff` · `gpstest` · `spktest` · `loratest` |
+| [Diagnostics](diagnostics) | `gps on` · `gps off` · `gps test` · `spktest` · `loratest` |
 | [SD Card Layout](sdcard) | File layout reference |
 | [Custom Splash Screen](splash) | Replace the boot image with your own PNG |
 
@@ -173,9 +173,9 @@ CMD> sdformat [init]         # format SD card to FAT32 (WARNING: destroys all da
 ## Diagnostics
 
 ```
-CMD> gpson    # start GPS background task with live status (T-Deck Plus)
-CMD> gpsoff   # stop GPS task
-CMD> gpstest  # one-shot GPS coordinate read (T-Deck Plus)
+CMD> gps on    # start GPS background task with live status (T-Deck Plus)
+CMD> gps off   # stop GPS task
+CMD> gps test  # one-shot GPS coordinate read (T-Deck Plus)
 CMD> spktest  # I2S speaker tone test + notif level test
 CMD> loratest # LoRa SX1262 init, TX test, RX monitor
 ```

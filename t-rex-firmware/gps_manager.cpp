@@ -2,6 +2,7 @@
 #include "display_manager.h"
 #include "input_handling.h"
 #include "lockscreen_manager.h"
+#include "utils.h"
 #include <Preferences.h>
 
 extern DisplayManager displayManager;
@@ -9,6 +10,7 @@ extern InputHandling  inputHandler;
 
 #ifdef BOARD_TDECK_PLUS
 #include "utilities.h"
+void runGpsTest(); // defined in test_gps.cpp
 
 GpsManager& GpsManager::instance() {
     static GpsManager inst;
@@ -354,9 +356,19 @@ void GpsManager::applyUbloxHotStart() {
     delay(600);
 }
 
+void runGps(char* a) {
+    if (!a) { displayManager.println("Usage: gps on|off|test"); displayManager.printCommandScreen(); return; }
+    while (*a == ' ') a++;
+    if      (Utils::matchesCmd(a, "on"))   runGpsOn();
+    else if (Utils::matchesCmd(a, "off"))  runGpsOff();
+    else if (Utils::matchesCmd(a, "test")) runGpsTest();
+    else    { displayManager.println("Usage: gps on|off|test"); displayManager.printCommandScreen(); }
+}
+
 #else  // non-Plus stub
 
 void runGpsOn()  { displayManager.println("GPS only on T-Deck Plus."); displayManager.printCommandScreen(); }
 void runGpsOff() { displayManager.println("GPS only on T-Deck Plus."); displayManager.printCommandScreen(); }
+void runGps(char* a) { displayManager.println("GPS only on T-Deck Plus."); displayManager.printCommandScreen(); }
 
 #endif // BOARD_TDECK_PLUS

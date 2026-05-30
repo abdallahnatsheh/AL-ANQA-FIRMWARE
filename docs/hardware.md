@@ -48,9 +48,9 @@ On the standard T-Deck, `trackme` still works and can reach WARNING/ALERT — it
 
 | Command | T-Deck | T-Deck Plus |
 |---------|--------|-------------|
-| `gpson` — GPS background task + live status | ✗ | ✅ |
-| `gpsoff` — stop GPS task | ✗ | ✅ |
-| `gpstest` — one-shot coordinate read | ✗ | ✅ |
+| `gps on` — GPS background task + live status | ✗ | ✅ |
+| `gps off` — stop GPS task | ✗ | ✅ |
+| `gps test` — one-shot coordinate read | ✗ | ✅ |
 
 ---
 
@@ -72,7 +72,7 @@ The GPS module needs approximately **4 minutes outdoors** for a cold fix (first 
 **Recommended workflow for T-Deck Plus users:**
 
 ```
-CMD> gpson       # start GPS task before doing anything else
+CMD> gps on      # start GPS task before doing anything else
 ```
 
 Leave it running in the background. By the time you finish scanning WiFi and want to run `trackme`, the fix is already acquired — `trackme` will skip its own warm-up and start immediately.
