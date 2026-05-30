@@ -99,9 +99,10 @@ void UsbKeyboard::start() {
     char     lastKey         = 0;
     uint32_t lastKeyMs       = 0;
     bool     bsRepeatActive  = false;
+    uint32_t bsLastBsMs = 0;           // last time \x08 was delivered; arm only when cold
     uint32_t bsRepeatStartMs = 0;
     uint32_t lastBsRepeatMs  = 0;
-    static const uint32_t BS_HOLD_DELAY = 1000; // hold 1s before repeat starts
+    static const uint32_t BS_HOLD_DELAY = 1500; // hold 1.5s before repeat starts
     static const uint32_t BS_RATE       = 60;   // ms between repeat keystrokes
     static const uint32_t BS_MAX_TIME   = 2000; // repeat for max 2s then stop
 
@@ -117,9 +118,23 @@ void UsbKeyboard::start() {
         char k = inputHandler.getKeyboardInput();
         if (k != 0) {
             sendKey(k);
-            lastKey        = k;
-            lastKeyMs      = now;
-            bsRepeatActive = false; // any key cancels repeat
+            if (k == '\x08') {
+                if (lastKey == '\x08') {
+                    // Timer armed: second tap cancels it — user is tapping, not holding
+                    lastKey = 0;   // lastKey != '\x08' → hold-timer branch won't fire
+                } else if (now - bsLastBsMs >= BS_HOLD_DELAY) {
+                    // Cold: arm hold timer
+                    lastKey   = k;
+                    lastKeyMs = now;
+                }
+                // else: hot — single delete, no arm
+                bsLastBsMs = now;
+            } else {
+                lastKey    = k;
+                lastKeyMs  = now;
+                bsLastBsMs = 0;  // reset: next \x08 is cold → fresh hold works immediately
+            }
+            bsRepeatActive = false;
             if ((uint8_t)k >= 0x20 && (uint8_t)k < 0x7F)
                 snprintf(lastKeyBuf, sizeof(lastKeyBuf), "'%c'    ", k);
             else
@@ -130,6 +145,7 @@ void UsbKeyboard::start() {
                 bsRepeatStartMs = now;
                 lastBsRepeatMs  = now;
                 sendKey('\x08');
+                bsLastBsMs = now;  // keep hot while auto-delete runs
             } else if (bsRepeatActive) {
                 if (now - bsRepeatStartMs >= BS_MAX_TIME) {
                     bsRepeatActive = false;
@@ -137,6 +153,7 @@ void UsbKeyboard::start() {
                 } else if (now - lastBsRepeatMs >= BS_RATE) {
                     lastBsRepeatMs = now;
                     sendKey('\x08');
+                    bsLastBsMs = now;  // keep hot while auto-delete runs
                 }
             }
         }

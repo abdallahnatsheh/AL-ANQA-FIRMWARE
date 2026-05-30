@@ -1,9 +1,10 @@
 ---
-title: Anti-Tracking
-nav_order: 5
+title: Tracking Detection
+parent: Bluetooth
+nav_order: 3
 ---
 
-# Anti-Tracking (`trackme`) — Full Guide
+# Tracking Detection (`trackme`) — Full Guide
 
 > **⚠️ Experimental:** `trackme` is a best-effort tool and may produce false positives. Radio signals alone cannot prove physical tracking — use results as a general indicator, not as conclusive evidence. GPS movement data (T-Deck Plus only) significantly improves accuracy.
 
@@ -13,7 +14,7 @@ CMD> trackme silent   # silent mode — no beeps
 CMD> tm [silent]
 ```
 
-`trackme` is a passive anti-tracking detector. It uses BLE scanning and (on T-Deck Plus) WiFi probe sniffing to detect devices that may be physically following you. The core challenge: your own phone, smartwatch, car Bluetooth, and passengers' phones all look identical to a tracker — they follow you perfectly because they are with you. The algorithm is specifically designed to handle this.
+`trackme` is a passive tracking detector. It uses BLE scanning and (on T-Deck Plus) WiFi probe sniffing to detect devices that may be physically following you. The core challenge: your own phone, smartwatch, car Bluetooth, and passengers' phones all look identical to a tracker — they follow you perfectly because they are with you. The algorithm is specifically designed to handle this.
 
 **T-Deck Plus tip:** Run `gpson` before starting `trackme`. If the GPS background task already has a fix, `trackme` skips its 90-second GPS warm-up and starts scanning immediately with location data ready.
 
@@ -146,3 +147,46 @@ Apple non-tracker entries are appended automatically regardless of SD content.
 - **MAC randomization**: iPhones and Android phones rotate BLE MACs every ~15 minutes. Commercial trackers (AirTag, Tile) use stable MACs and are reliably detected. Randomized MACs reset their history on rotation — this is expected behavior, not a bug.
 - **Shared radio**: BLE and WiFi share one antenna and cannot scan simultaneously. A brief advertisement may occasionally be missed — the 30-second gap minimum prevents this from counting as a gap-and-return.
 - **Cold GPS start**: The GPS module needs ~4 minutes for a cold fix outdoors. Run `gpson` in advance to have a fix ready before starting `trackme`. The `GPS:srch` status with a rising chars count confirms the module is alive during the wait.
+
+---
+
+## Resources
+
+### Tracker Hardware Protocols
+
+- [Apple AirTag — Find My network specification](https://developer.apple.com/find-my/) — Apple's official Find My accessory spec; AirTags use rotating cryptographic identifiers over BLE (company ID `0x004C`, payload byte `0x12`)
+- [Tile BLE protocol reverse-engineering](https://github.com/seemoo-lab/openhaystack) — OpenHaystack project documents Tile and AirTag BLE advertisement formats; basis for trackme's signature matching
+- [Samsung SmartTag2 — BLE advertisement analysis](https://csa-iot.org/developer-resource/specifications-download-request/) — Samsung uses company ID `0x0075` with SmartThings Find network beacons
+- [Chipolo — BLE tracker protocol](https://www.chipolo.net) — company ID `0x0003`, uses Nordic Semiconductor UART service
+- [Pebblebee — BLE advertisement format](https://www.pebblebee.com) — Google Find My Device network participant
+
+### Tracking Detection Research
+
+- [**AirGuard** — "Who Can Find My Devices?" (2022, PETS)](https://dl.acm.org/doi/10.1145/3517745.3561428) — Alexander Heinrich et al., TU Darmstadt; foundational paper on passive BLE tracker detection using gap-and-return analysis. trackme's 3-gate pipeline is directly inspired by this work.
+- [**"Stalkerware and the AirTag Problem"** — Princeton CITP (2022)](https://freedom-to-tinker.com/2022/05/11/airtag-privacy/) — analysis of AirTag stalking cases; motivates the 200m GPS movement threshold in Gate 3
+- [**"Tag, You Can See Me!"** (2023, IEEE S&P)](https://ieeexplore.ieee.org/document/10179390) — Crossley et al.; evaluates detection accuracy of gap-and-return algorithms against real-world stalking scenarios
+- [**Apple's AirTag anti-stalking design**](https://support.apple.com/en-us/HT212227) — Apple's own documentation on the 8–24 hour unknown-tracker alert; trackme detects in minutes using movement correlation
+
+### RSSI & Kalman Filtering
+
+- [**Kalman Filter for BLE RSSI smoothing**](https://arxiv.org/abs/1204.0375) — Welch & Bishop, "An Introduction to the Kalman Filter"; the discrete-time formulation used in trackme's RSSI smoothing stage
+- [**BLE RSSI distance estimation**](https://www.bluetooth.com/blog/proximity-and-rssi/) — Bluetooth SIG blog on RSSI-based proximity; explains why raw RSSI is noisy and requires filtering (log-distance path loss model)
+- [**"Indoor Localization using BLE RSSI"** (2019)](https://ieeexplore.ieee.org/document/8734838) — empirical study on RSSI variance and Kalman filter effectiveness; informs the RSSI consistency scoring (+35 pts in Gate 2)
+
+### MAC Address Randomization
+
+- [**IEEE 802.11-2020 §9.4.1.7**](https://standards.ieee.org/ieee/802.11/7028/) — locally administered address bit definition (bit 1 of byte 0 set = random/LA MAC)
+- [**"A Study of MAC Address Randomization in Mobile Devices"** (2017, PETS)](https://petsymposium.org/2017/papers/issue4/paper86-2017-4-source.pdf) — Vanhoef et al.; documents how iOS, Android, and Windows implement MAC rotation and what information still leaks
+- [**Android MAC randomization**](https://source.android.com/docs/core/connect/wifi-mac-randomization) — Google's per-network randomization implementation (Android 10+); explains why the same physical phone appears as new device every ~15 minutes
+- [**Apple privacy MAC randomization**](https://support.apple.com/guide/security/wi-fi-privacy-secb9cb3140c/web) — Apple's randomization implementation for iOS 14+
+
+### WiFi Probe Request Tracking
+
+- [**"Probe Request Tracking"** — Wireshark wiki](https://wiki.wireshark.org/Wi-Fi) — probe request frame format; contains the SSID list a device is searching for (used by trackme's WiFi sniff on T-Deck Plus)
+- [**"Why MAC Randomization is Not Enough"** (2016)](https://dl.acm.org/doi/10.1145/2939918.2939930) — Cunche et al.; shows probe request timing and IE fields still allow device fingerprinting even with random MACs; informs the 100m movement gate for WiFi-only devices
+
+### Related Open-Source Tools
+
+- [**AirGuard** (iOS/Android app)](https://github.com/seemoo-lab/AirGuard) — open-source phone app with similar gap-and-return detection; good reference for expected false-positive rates in real environments
+- [**OpenHaystack**](https://github.com/seemoo-lab/openhaystack) — TU Darmstadt; reverse-engineered Apple Find My network; source of AirTag BLE advertisement format used in trackme's signature database
+- [**nRF Connect** (Nordic Semiconductor)](https://www.nordicsemi.com/Products/Development-tools/nRF-Connect-for-mobile) — BLE scanner app; useful for manually verifying what trackme is seeing

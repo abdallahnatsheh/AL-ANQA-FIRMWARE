@@ -1,4 +1,10 @@
-# bleinfo / bi — BLE GATT Enumeration & Interaction
+---
+title: BLE Info
+parent: Bluetooth
+nav_order: 2
+---
+
+# BLE Info (`bleinfo` / `bi`) — GATT Enumeration & Interaction
 
 ## Overview
 

@@ -1,13 +1,25 @@
 ---
 title: Bluetooth
-nav_order: 4
+nav_order: 8
+has_children: true
 ---
 
-# Bluetooth Tools
+# Bluetooth
+
+| Guide | Command | What it does |
+|-------|---------|-------------|
+| [Scan BLE](scanblue) | `scanblue` / `sbl` | Scan nearby BLE devices |
+| [BLE Info](bleinfo) | `bleinfo` / `bi` | GATT enumeration, sniff, fuzz, write-cap |
+| [Tracking Detection](trackme) | `trackme` / `tm` | Detect devices physically following you |
+| [Fast Pair](fastpair) | `fastpair` / `fp` | Google Fast Pair attack suite |
+| [BLE Spam](blespam) | `blespam` / `bs` | BLE advertisement spam |
+| [Buddy](buddy) | `buddy` / `bd` | Claude Desktop BLE remote |
+| [BT Keyboard](btkbd) | `btkbd` / `bk` | T-DECK as BLE keyboard + mouse |
 
 ---
 
-## `scanblue` / `sbl` — BLE Device Scanner
+## `scanblue` / `sbl` — BLE Scanner
+
 
 ```
 CMD> scanblue
@@ -25,7 +37,7 @@ The scan result is cached — use `show ble` to view it again without rescanning
 
 ---
 
-## `trackme` / `tm` — Anti-Tracking Detector
+## `trackme` / `tm` — Tracking Detector
 
 ```
 CMD> trackme
@@ -51,6 +63,29 @@ Passive BLE + WiFi probe scanner that detects devices that may be physically fol
 | ALERT | Gate 3 confirmed, known tracker or score ≥ 80 | 3 beeps / 30s |
 
 → [Full guide: How trackme works](trackme.md)
+
+---
+
+## `bleinfo` / `bi` — BLE GATT Enumeration
+
+```
+CMD> bi <index|mac>    # connect to a device from last sbl scan
+CMD> bi all            # enumerate every device from last sbl scan
+```
+
+Connects to a BLE device, reads its full GATT service/characteristic tree, decodes values, and provides interactive tools for sniffing, writing, fuzzing, and auth-leak auditing.
+
+| Key | Action |
+|-----|--------|
+| `a` / `l` | Previous / next page |
+| `n` | Notify/indicate sniff (30 s) |
+| `w` | Write to a writable characteristic |
+| `f` | Fuzz a writable characteristic |
+| `b` | Auth leak audit — show only flagged characteristics |
+| `s` | Save GATT tree to SD |
+| `q` | Quit |
+
+→ [Full guide: bleinfo](bleinfo.md)
 
 ---
 

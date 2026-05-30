@@ -1,11 +1,18 @@
 ---
 title: Network Recon
-nav_order: 3
+nav_order: 7
+has_children: true
 ---
 
-# Network Recon Tools
+# Network Recon
 
 > All network tools require an active WiFi connection. Run `connectwifi` first.
+
+| Guide | Commands |
+|-------|---------|
+| [Net Discover](netdiscover) | `netdiscover` / `nd` — ARP scan local /24 |
+| [Port Scan](portscan) | `portscan` / `ps` · `topscan` / `ts` · banner grabber · OS fingerprint |
+| [Ping](ping) | `ping` / `pg` — ICMP ping |
 
 ---
 

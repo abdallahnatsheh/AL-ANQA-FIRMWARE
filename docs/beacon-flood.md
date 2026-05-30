@@ -1,6 +1,8 @@
 ---
 title: Beacon Flood
-nav_order: 11
+parent: WiFi Attacks
+grand_parent: WiFi
+nav_order: 6
 ---
 
 # Beacon Flood (`beaconflood` / `bf`)

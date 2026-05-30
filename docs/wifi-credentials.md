@@ -1,5 +1,6 @@
 ---
 title: WiFi Credentials
+parent: WiFi
 nav_order: 3
 ---
 
@@ -42,6 +43,17 @@ Header shows the active source in colour: **SD** (green) or **NVS** (yellow).
 |-----|--------|
 | `l` / `a` | Next / previous page |
 | `q` | Quit |
+
+---
+
+## `wifiexport` / `wex` — Export NVS to SD
+
+```
+CMD> wifiexport
+CMD> wex
+```
+
+Exports all WiFi networks stored in NVS (on-device flash) to `/wpa_supplicant.conf` on the SD card. Useful after connecting to networks without an SD card inserted — run `wex` once the card is inserted to sync them.
 
 ---
 

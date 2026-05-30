@@ -20,6 +20,7 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 **Display** (`display_manager.cpp/h`): all output via `displayManager` — never `tft` directly. `clearScreen()` = below header only. `tdeck_begin()` = full reset.
 
 **Input** (`input_handling.cpp/h`): `getKeyboardInput()` → `char` or `0`. Every blocking loop must poll for `q`.
+- Backspace hold-repeat: `_repeatKey` / `_repeatStart` / `_lastBsReturnMs`. Hold **1500 ms** → auto-delete at 80 ms intervals. Any char key stops repeat and resets `_lastBsReturnMs = 0` so the next `\b` press starts a fresh hold immediately. Second `\b` while timer is armed cancels it (prevents accidental auto-delete on rapid taps). usbkbd / btkbd use identical logic via `bsLastBsMs` / `lastKey == '\x08'`.
 
 **GpsManager** (`gps_manager.cpp/h`) — T-Deck Plus only, singleton:
 - FreeRTOS task core 0, 30 ms poll, volatile primitives (no mutex needed on ARM32)
@@ -48,7 +49,8 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 - Config: `/lockscreen.conf` (key=value: `timeout`, `hash`, `salt`). `saveConfig()` returns `bool` — all cmd functions check it and print yellow "No SD — active this session only" warning on false
 - Dormant screen: Nokia-style ASCII padlock art, instruction line, live locked-duration counter (HH:MM:SS, refreshed every 1 s)
 - **Display blocking**: `lock()` calls `displayManager.setBlocked(true)` — all `DisplayManager` output methods no-op while blocked; lock screen draw functions (`drawDormant`, `drawPinScreen`, `refreshDuration`) temporarily call `setBlocked(false)` → draw → `setBlocked(true)` to bypass
-- **Unlock redraw**: unlock paths call `setBlocked(false)` + set `_justUnlocked = true` + `clearScreen` + `printCommandScreen`. Interactive apps poll `consumeJustUnlocked()` each iteration — paginated tables (sw, sbl, nd, ps, ts, man) break their inner wait-loop triggering a re-render; wguard redraws full header+layout; cat viewer sets `needsRedraw`; ls redraws the "any key" prompt; beacon flood / trackme / hiddenssid skip timed draws while blocked
+- **Unlock redraw**: unlock paths call `setBlocked(false)` + set `_justUnlocked = true` + `clearScreen` + `printCommandScreen`. Interactive apps poll `consumeJustUnlocked()` each iteration — paginated tables (sw, sbl, nd, ps, ts, man) break their inner wait-loop triggering a re-render; wguard redraws full header+layout; cat viewer sets `needsRedraw`; ls redraws the "any key" prompt; beacon flood / trackme / hiddenssid skip timed draws while blocked; buddy redraws left panel + pet sprite (`lastPid[0] = '\1'` + `s_petDirty = true`)
+- **buddy lock guard**: `drawStatus()`, `drawPopup()`, `petTick()` all write directly to `tft` (bypassing `DisplayManager`) — each is guarded with `displayManager.isBlocked()` checks; `spr.pushSprite()` inside `petTick` returns early if blocked
 
 **EvilTwin** (`eviltwin.cpp/h`):
 - OPEN → clone exact MAC + channel; WPA2 → random LA-MAC (`(x & 0xFE) | 0x02`)

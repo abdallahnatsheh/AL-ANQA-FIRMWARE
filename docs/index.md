@@ -23,19 +23,68 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 
 ## Documentation
 
-| Guide | What's covered |
-|-------|---------------|
-| [WiFi Attacks](wifi-attacks) | scanwifi, connectwifi, wifimon, deauth, eviltwin, hiddenssid, wpasniff, macchanger, **wguard** (WiFi IDS), **beaconflood** |
-| [WiFi Credentials](wifi-credentials) | wifipass, saved passwords, Linux wpa_supplicant.conf sync, desktop migration |
-| [Network Recon](network) | netdiscover, portscan, topscan, ping, banner grabber, OS fingerprinting |
-| [Bluetooth](bluetooth) | scanblue, trackme, fastpair, blespam |
-| [Claude Desktop Buddy](buddy) | bd — BLE remote, permission approval, ASCII pet, stats |
-| [Anti-Tracking](trackme) | Full trackme algorithm guide — baseline, gates, GPS, alerts |
-| [USB Gadget](usb) | usbmsc — SD as USB drive · usbkbd — T-Deck as keyboard+mouse |
-| [Audio & Notifications](audio) | vol, notif levels, custom MP3 per level, spktest |
-| [Lock Screen](lock) | Idle timeout, trackpad-hold lock, no-PIN and PIN modes, recovery |
-| [System](system) | Trackpad, help, man pages, pwrsave, SD commands, diagnostics |
-| [SD Card](sdcard) | File layout, auto-created files, optional files, quick-start checklist |
+### Start Here
+| Guide | What's inside |
+|-------|--------------|
+| [Getting Started](getting-started) | Flash, first boot, SD setup, first commands — start here |
+| [Keyboard Reference](keyboard) | Sym key, autocomplete, history, cursor editing, trackball |
+| [Workflows](workflows) | End-to-end examples: WPA2 capture, network recon, IDS, tracker detection |
+| [T-Deck vs T-Deck Plus](hardware) | The only difference is GPS — what it changes |
+| [Troubleshooting](troubleshooting) | Upload failures, SD issues, WiFi, BLE, GPS, lock screen |
+
+### WiFi
+| Guide | Commands |
+|-------|---------|
+| [Scan & Connect](wifi-scan) | `scanwifi` `connectwifi` `clearwifi` |
+| [WiFi Monitor](wifimon) | `wifimon` |
+| [WiFi Credentials](wifi-credentials) | `wifipass` `wifiexport` |
+| [MAC Changer](macchanger) | `macchanger` |
+| [WiFi Attacks](wifi-attacks) | *(see below)* |
+| &nbsp;&nbsp;↳ [Deauth](deauth) | `deauth` |
+| &nbsp;&nbsp;↳ [Evil Twin](eviltwin) | `eviltwin` |
+| &nbsp;&nbsp;↳ [Hidden SSID](hiddenssid) | `hiddenssid` |
+| &nbsp;&nbsp;↳ [WPA Sniff](wpasniff) | `wpasniff` |
+| &nbsp;&nbsp;↳ [WGuard IDS](wguard) | `wguard` |
+| &nbsp;&nbsp;↳ [Beacon Flood](beacon-flood) | `beaconflood` |
+
+### Network
+| Guide | Commands |
+|-------|---------|
+| [Net Discover](netdiscover) | `netdiscover` |
+| [Port Scan](portscan) | `portscan` `topscan` + banner grabber + OS fingerprint |
+| [Ping](ping) | `ping` |
+
+### Bluetooth
+| Guide | Commands |
+|-------|---------|
+| [Scan BLE](scanblue) | `scanblue` |
+| [BLE Info](bleinfo) | `bleinfo` |
+| [Tracking Detection](trackme) | `trackme` |
+| [Fast Pair](fastpair) | `fastpair` |
+| [BLE Spam](blespam) | `blespam` |
+| [Buddy](buddy) | `buddy` |
+| [BT Keyboard](btkbd) | `btkbd` |
+
+### USB
+| Guide | Commands |
+|-------|---------|
+| [USB Mass Storage](usbmsc) | `usbmsc` |
+| [USB Keyboard](usbkbd) | `usbkbd` |
+| [BadUSB](usbexec) | `usbexec` |
+| [Mouse Jiggler](jiggle) | `jiggle` |
+
+### System
+| Guide | Commands |
+|-------|---------|
+| [Help & Manual](help-man) | `help` `man` `show` `clear` `MATRIX` |
+| [Device Info](info) | `info` |
+| [Power Save](pwrsave) | `pwrsave` |
+| [Lock Screen](lock) | `lock` |
+| [Timezone](tz) | `tz` |
+| [Audio & Notifications](audio) | `volume` `notif` `spktest` |
+| [SD Commands](sd-commands) | `sdinfo` `sdls` `cd` `cat` `rm` `sdformat` |
+| [Diagnostics](diagnostics) | `gpson` `gpsoff` `gpstest` `spktest` `loratest` |
+| [SD Card Layout](sdcard) | File layout reference |
 
 ---
 

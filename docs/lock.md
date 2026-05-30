@@ -1,6 +1,7 @@
 ---
 title: Lock Screen
-nav_order: 7
+parent: System
+nav_order: 4
 ---
 
 # Lock Screen

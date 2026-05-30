@@ -1,9 +1,22 @@
 ---
 title: System
-nav_order: 6
+nav_order: 10
+has_children: true
 ---
 
-# System Commands
+# System
+
+| Guide | Commands |
+|-------|---------|
+| [Help & Manual](help-man) | `help` / `hlp` · `man` / `mn` · `show` / `sh` · `clear` · `MATRIX` |
+| [Device Info](info) | `info` / `inf` |
+| [Power Save](pwrsave) | `pwrsave` / `psv` |
+| [Lock Screen](lock) | `lock` / `lk` |
+| [Timezone](tz) | `tz` |
+| [Audio & Notifications](audio) | `volume` / `vol` · `notif` / `nf` · `spktest` / `st` |
+| [SD Commands](sd-commands) | `sdinfo` · `sdls` · `cd` · `cat` · `rm` · `sdformat` |
+| [Diagnostics](diagnostics) | `gpson` · `gpsoff` · `gpstest` · `spktest` · `loratest` |
+| [SD Card Layout](sdcard) | File layout reference |
 
 ---
 
@@ -107,47 +120,13 @@ Two-tier inactivity system:
 
 **Battery-aware dim** — automatically dims when battery drops below threshold, regardless of inactivity timer.
 
-Config is saved to `/pwrsave.json` on the SD card and restored on boot.
+Config is saved to `/pwrsave.conf` on the SD card and restored on boot.
 
 ---
 
-## `volume` / `vol` — General Volume
+## Audio (`vol` / `notif`)
 
-```
-CMD> vol          # show current level
-CMD> vol 80       # set to 80%
-CMD> vol up       # +10%
-CMD> vol down     # -10%
-CMD> vol off      # mute
-```
-
-General audio volume for future music/voice features. This is **separate** from notification volume — use `nf vol` to control notification sounds.
-
----
-
-## `notif` / `nf` — Notification Manager
-
-```
-CMD> nf                        # show status
-CMD> nf on                     # enable all
-CMD> nf off                    # disable all
-CMD> nf vol 70                 # set notif volume (0-100)
-CMD> nf alert on|off           # enable/disable a level
-CMD> nf alert file alert.mp3   # set custom MP3 for a level
-CMD> nf alert file             # clear custom MP3 (back to tone)
-```
-
-Five notification levels used internally by T-REX:
-
-| Level | Used by |
-|-------|---------|
-| `alert` | Deauth storm, Evil Twin, PMKID, cracked password |
-| `warning` | Auth flood, probe storm, beacon flood |
-| `success` | Handshake captured, hidden SSID found |
-| `info` | General one-shot beep |
-| `ping` | BLE buddy prompt arrived |
-
-Config saved to `/notif.conf`. Custom MP3 files live in `/notification/` on the SD card. See [`docs/audio.md`](audio.md) for full setup.
+→ See [Audio & Notifications](audio.md) for the `vol` and `notif` commands.
 
 ---
 
@@ -176,8 +155,9 @@ Launches the Matrix digital rain animation. Press `q` to exit.
 ```
 CMD> sdinfo                  # SD card type and capacity
 CMD> sdls [path]             # list directory (default: CWD)
+CMD> cd <path>               # change working directory
 CMD> cat <path>              # read file — scrollable viewer, tpad UP/DN, q to quit
-CMD> sdrm <path>             # delete a file
+CMD> rm <path>               # delete a file
 CMD> sdformat [init]         # format SD card to FAT32 (WARNING: destroys all data)
 ```
 
@@ -185,21 +165,7 @@ CMD> sdformat [init]         # format SD card to FAT32 (WARNING: destroys all da
 
 `sdformat` prompts for confirmation before formatting. Use `sdf init` to format and re-initialise the directory structure in one step.
 
-### SD Layout
-
-```
-/logs/                  — attack output logs
-  eviltwin.csv          — captured portal credentials
-  trackme.csv           — anti-tracking session log
-  trackme_known.csv     — permanent device whitelist
-  hidden_ssids.csv      — revealed hidden SSIDs
-  cracked.csv           — cracked WPA2 passwords
-/evilportal/            — custom captive portal HTML templates
-/wordlist.txt           — WPA2 crack wordlist (one password per line)
-/signatures.csv         — custom BLE tracker signatures
-/macchanger.cfg         — MAC spoofer persistent config
-/pwrsave.json           — power save config
-```
+→ See [SD Card](sdcard.md) for the complete file layout and optional files.
 
 ---
 

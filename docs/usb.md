@@ -1,6 +1,21 @@
+---
+title: USB Gadget
+nav_order: 9
+has_children: true
+---
+
 # USB Gadget
 
-T-Rex can present the T-Deck as two different USB devices to a connected PC. Both modes are enabled at boot and selected by command — no reflashing required.
+T-Rex can present the T-Deck as USB devices to a connected PC. All modes are enabled at boot — no reflashing required.
+
+| Guide | Commands |
+|-------|---------|
+| [USB Mass Storage](usbmsc) | `usbmsc` / `um` — SD card as USB drive |
+| [USB Keyboard](usbkbd) | `usbkbd` / `uk` — T-Deck as keyboard + mouse |
+| [BadUSB](usbexec) | `usbexec` / `ux` — DuckyScript executor |
+| [Mouse Jiggler](jiggle) | `jiggle` / `jg` — prevent host screen lock |
+
+> MSC and KBD/BadUSB modes are mutually exclusive at runtime but share the same USB connection.
 
 ---
 
@@ -11,6 +26,7 @@ T-Rex can present the T-Deck as two different USB devices to a connected PC. Bot
 | `usbmsc` | `um` | Expose SD card as a USB Mass Storage drive |
 | `usbkbd` | `uk` | T-Deck as USB keyboard + mouse |
 | `usbexec` | `ux` | BadUSB — execute a DuckyScript payload |
+| `jiggle` | `jg` | Mouse jiggler — prevent host screen lock |
 
 ---
 
@@ -60,7 +76,7 @@ Special keys:
 | ESC | Escape |
 | DEL | Delete |
 
-**Backspace auto-repeat:** Hold Backspace for 1 second — repeat starts at ~16 chars/sec for up to 2 seconds, then stops. Press any other key to cancel repeat early.
+**Backspace auto-repeat:** Hold Backspace for **1.5 seconds** — repeat starts at ~16 chars/sec for up to 2 seconds, then stops. Pressing Backspace a second time while repeat is active cancels it. Press any other key to cancel repeat early.
 
 ### Mouse
 
@@ -85,8 +101,6 @@ Roll the trackball to move the cursor. Speed is accelerated based on how fast yo
 ### Exiting
 
 Hold the trackball center button for 1.5 seconds. The T-Deck returns to the command screen.
-
----
 
 ---
 

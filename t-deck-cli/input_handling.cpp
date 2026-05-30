@@ -101,11 +101,20 @@ char InputHandling::getKeyboardInput() {
         if (key != 0) {
             // Only backspace repeats on hold — all other keys cancel any pending repeat.
             if (key == '\b') {
-                _repeatKey   = '\b';
-                _repeatStart = now;
-                _repeatLast  = now;
+                if (_repeatKey != 0) {
+                    // Timer already armed: second tap cancels it — user is tapping, not holding
+                    _repeatKey = 0;
+                } else if (now - _lastBsReturnMs >= kRepeatDelayMs) {
+                    // Cold (long gap since last \b): arm the hold timer
+                    _repeatKey   = '\b';
+                    _repeatStart = now;
+                    _repeatLast  = now;
+                }
+                // else: hot (recent \b, no timer) — single delete, no re-arm
+                _lastBsReturnMs = now;
             } else {
-                _repeatKey = 0;
+                _repeatKey      = 0;
+                _lastBsReturnMs = 0;  // reset: next \b is cold → fresh hold works immediately
             }
             updateActivity();
             PowerSaveManager::getInstance().updateActivity();
@@ -118,7 +127,8 @@ char InputHandling::getKeyboardInput() {
         now - _repeatStart >= kRepeatDelayMs &&
         now - _repeatLast  >= kRepeatRateMs) {
         key = _repeatKey;
-        _repeatLast = now;
+        _repeatLast     = now;
+        _lastBsReturnMs = now;  // keep state hot while auto-delete is running
     }
 
     return LockScreenManager::getInstance().intercept(key, now);

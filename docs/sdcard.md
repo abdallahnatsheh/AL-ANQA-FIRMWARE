@@ -1,6 +1,7 @@
 ---
 title: SD Card
-nav_order: 7
+parent: System
+nav_order: 9
 ---
 
 # SD Card Layout
@@ -42,7 +43,7 @@ Do nothing — firmware creates these when the relevant feature is first used.
 | `/wpa_supplicant.conf` | `connectwifi` on successful connect | saved WiFi credentials (Linux-compatible) |
 | `/wpa_supplicant.bak` | first T-Rex write to conf | backup of original file before T-Rex modifies it |
 | `/logs/eviltwin.csv` | `eviltwin` on capture or `[s]` | `user,password` per line |
-| `/logs/trackme.txt` | `trackme` on alert | tracking event log |
+| `/logs/trackme.csv` | `trackme` on alert | tracking event log |
 | `/logs/trackme_known.csv` | `trackme` on whitelist | `mac,label` per line |
 | `/logs/hidden_ssids.csv` | `hiddenssid` on find | `bssid,ssid,channel` per line |
 | `/logs/cracked.csv` | `wpasniff` on crack | `bssid,ssid,password` per line |
@@ -54,6 +55,8 @@ Do nothing — firmware creates these when the relevant feature is first used.
 | `/logs/ports.txt` | `portscan` / `topscan` | port scan results |
 | `/pwrsave.conf` | `pwrsave set ...` | power save settings (key=value) |
 | `/macchanger.conf` | `macchanger` on save | MAC spoof state + address |
+| `/lockscreen.conf` | `lock new` / `lock timeout` | PIN hash + salt + idle timeout |
+| `/notif.conf` | `notif` on any change | notification levels + volume + MP3 paths |
 
 ---
 
@@ -78,11 +81,26 @@ iloveyou
 
 Required for: `trackme` custom tracker signatures  
 Without it: uses built-in AirTag / Tile / SmartTag signatures only  
-Format: `name,uuid_fragment` — one per line, no header
+Format: `type,company_id_hex,name,severity` — one per line, no header
 
 ```
-MyTracker,FDA50693
-CustomTag,0000FE9F
+BLE,0x004C,Apple AirTag,HIGH
+BLE,0x00D7,Tile Tracker,HIGH
+BLE,0x0157,Samsung SmartTag,MEDIUM
+```
+
+---
+
+### `/wordlist_beacons.txt`
+
+Required for: `beaconflood` → `[4] file` mode  
+Without it: the file mode is unavailable (other modes work fine)  
+Format: one SSID per line, plain UTF-8
+
+```
+FreeAirport_WiFi
+Starbucks_Guest
+xfinitywifi
 ```
 
 ---

@@ -24,11 +24,13 @@ private:
     // Backspace key-repeat state.
     // No release detection: I2C keyboard sends one byte on press then silence.
     // Any non-backspace key cancels the pending repeat.
-    char     _repeatKey   = 0;
-    uint32_t _repeatStart = 0;   // time of last physical keypress
-    uint32_t _repeatLast  = 0;   // last time we returned this key (physical or synthetic)
+    char     _repeatKey        = 0;
+    uint32_t _repeatStart      = 0;     // time of last physical backspace press
+    uint32_t _repeatLast       = 0;     // last time we returned this key (physical or synthetic)
+    uint32_t _lastBsReturnMs = 0;       // last time \b was actually delivered (physical or
+                                        // synthetic); arm only when gap >= kRepeatDelayMs
 
-    static constexpr uint32_t kRepeatDelayMs = 700;  // hold time before first repeat
+    static constexpr uint32_t kRepeatDelayMs = 1500; // hold time before first repeat
     static constexpr uint32_t kRepeatRateMs  = 80;   // interval between repeats
 };
 

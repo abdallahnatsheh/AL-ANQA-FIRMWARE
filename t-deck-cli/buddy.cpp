@@ -13,6 +13,7 @@
 #include "display_manager.h"
 #include "input_handling.h"
 #include "notification_manager.h"
+#include "lockscreen_manager.h"
 
 #include <NimBLEDevice.h>
 #include <ArduinoJson.h>
@@ -249,6 +250,7 @@ static void petTick(uint8_t personaState) {
     }
     if (!s_petDirty) return;
     s_petDirty = false;
+    if (displayManager.isBlocked()) return;   // lock screen owns the display
 
     if (personaState >= 7) personaState = B_IDLE;
     spr.fillSprite(BUDDY_BG);
@@ -867,6 +869,13 @@ void buddyCommand(char* args) {
     s_promptArrivedMs = 0;
 
     while (true) {
+        // Unlock: force full redraw of left panel + pet so they reappear correctly
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            lastPid[0] = '\1';   // force drawStatus on next changed-check
+            s_petDirty = true;   // force pet sprite redraw
+            s_popupDrawMs = 0;   // force popup redraw if open
+        }
+
         dataPoll(&tama);
 
         char k = inputHandler.getKeyboardInput();
@@ -913,7 +922,7 @@ void buddyCommand(char* args) {
 
         if (s_popupOpen) {
             // Redraw popup every second to update the "waiting Ns" timer
-            if (millis() - s_popupDrawMs >= 1000) {
+            if (millis() - s_popupDrawMs >= 1000 && !displayManager.isBlocked()) {
                 drawPopup(tama);
                 s_popupDrawMs = millis();
             }
@@ -926,7 +935,7 @@ void buddyCommand(char* args) {
                         || (tama.sessionsWaiting  != lastWait)
                         || (tama.lineGen          != lastGen);
             if (changed) {
-                drawStatus(tama, s_connected, btName);
+                if (!displayManager.isBlocked()) drawStatus(tama, s_connected, btName);
                 s_petDirty = true;
                 lastConn = s_connected;
                 strncpy(lastPid, tama.promptId, sizeof(lastPid)-1);

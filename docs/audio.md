@@ -1,6 +1,7 @@
 ---
 title: Audio & Notifications
-nav_order: 9
+parent: System
+nav_order: 5
 ---
 
 # Audio & Notifications

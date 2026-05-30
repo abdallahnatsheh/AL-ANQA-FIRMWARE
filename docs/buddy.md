@@ -1,5 +1,6 @@
 ---
 title: Claude Desktop Buddy
+parent: Bluetooth
 nav_order: 6
 ---
 
@@ -191,9 +192,11 @@ The T-Deck advertises continuously. Claude Desktop reconnects automatically afte
 | Transport | BLE Nordic UART Service (NUS) |
 | Service UUID | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` |
 | Protocol | Line-delimited JSON |
-| BLE stack | NimBLE 1.4.x |
+| BLE stack | NimBLE 2.5.x |
 | NVS namespace | `buddy` |
 | Security | Plain NUS (no bonding/passkey) |
+
+**Lock screen:** The device can be locked while `bd` is running. The pet animation and left panel stop drawing immediately (all `tft` writes are gated). On unlock, both the left panel and the pet sprite redraw automatically — no keypress required.
 
 **Known quirk:** On a cold boot (BLE never initialized), run `sbl` once before `bd` to warm up the BLE controller — or just wait for the 200ms init delay added to `bd` which handles this automatically.
 

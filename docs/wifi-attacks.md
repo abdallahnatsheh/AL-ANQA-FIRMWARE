@@ -1,11 +1,24 @@
 ---
 title: WiFi Attacks
-nav_order: 2
+parent: WiFi
+nav_order: 5
+has_children: true
 ---
 
-# WiFi Attack Tools
+# WiFi Attacks
 
-> All WiFi attacks require being in range of the target. Always run `scanwifi` first to populate the network list.
+> All attacks require being in range of the target. Run `scanwifi` (`sw`) first to populate the network index.
+
+| Guide | Command | What it does |
+|-------|---------|-------------|
+| [Deauth](deauth) | `deauth` / `da` | Disconnect clients from an AP |
+| [Evil Twin](eviltwin) | `eviltwin` / `et` | Rogue AP + captive portal |
+| [Hidden SSID](hiddenssid) | `hiddenssid` / `hs` | Reveal hidden network names |
+| [WPA Sniff](wpasniff) | `wpasniff` / `ws` | Capture + crack WPA2 handshake |
+| [WGuard IDS](wguard) | `wguard` / `wg` | Passive WiFi intrusion detection |
+| [Beacon Flood](beacon-flood) | `beaconflood` / `bf` | Flood WiFi scan lists with fake SSIDs |
+
+---
 
 ---
 
@@ -188,7 +201,7 @@ Spoofs the STA MAC address at the driver level. The spoofed MAC is a locally-adm
 - `deauth` / `da`
 - `wpasniff` / `ws`
 
-Config is saved to `/macchanger.cfg` on the SD card and restored on boot.
+Config is saved to `/macchanger.conf` on the SD card and restored on boot.
 
 ---
 
