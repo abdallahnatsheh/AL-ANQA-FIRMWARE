@@ -60,7 +60,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
   - **Auth leak detector** (`[b]` audit) — inline risk scoring flags AES-sized binary blobs, hex-encoded secrets, and PIN-shaped values; `[b]` key shows filtered triage view
   - **Write-cap** (`[r]wcap`) — replay any captured notification back to a writable char; sniff auto-saves `.ble` packet archives to SD; load captures from previous sessions
   - **Protocol reverse engineering** — sniff baseline → trigger action on device → identify new packet → replay or write back; works on proprietary protocols with no documentation
-- Anti-tracking detector — BLE + WiFi probe surveillance with 3-gate confirmation and GPS movement awareness
+- **Tracking detector** (`tm`) — passive BLE + WiFi probe surveillance; 60s baseline learning period; 3-gate pipeline (signature → behaviour score → GPS/time confirmation); Kalman-filtered RSSI; known tracker signatures (AirTag, Tile, SmartTag, Chipolo, Pebblebee); GPS movement gate on T-Deck Plus — [full guide](docs/trackme.md)
 - **Fast Pair attack** (`fp`) — scan for Fast Pair devices, flood Google FP advertisements with per-cycle MAC randomization, GATT probe (WhisperPair) to read anti-spoofing keys
 - **BLE notification spam** (`bs`) — Apple Continuity (Proximity Pairing + Nearby Info popups), Google Fast Pair flood, Microsoft Swift Pair, Samsung Galaxy accessory popups
 - **BLE Keyboard + Mouse** (`bk`) — T-Deck as a wireless BLE HID keyboard + mouse; same features as USB keyboard (`uk`) but over Bluetooth; MITM-protected bonding (passkey shown on screen, typed on host); tap = left click, hold = right click, hold 1.5s = exit; auto-reconnects on drop
@@ -104,7 +104,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 **Requirements:** [VSCode](https://code.visualstudio.com/) + [PlatformIO](https://platformio.org/) extension
 
 ```bash
-git clone https://github.com/abdallahnatsheh/T-Rex
+git clone https://github.com/abdallahnatsheh/T-DECK-CLI
 # Open in VSCode → select env:T-Deck or env:T-Deck-Plus → click Upload
 ```
 
@@ -123,6 +123,9 @@ git clone https://github.com/abdallahnatsheh/T-Rex
 | `clear` | `clr` | — | Clear screen |
 | `pwrsave` | `psv` | `[status\|on\|off\|set ...]` | Power save config |
 | `lock` | `lk` | `[new\|update\|clean\|timeout <s>\|status]` | Screen lock — PIN optional; hold trackpad 3 s or run `lock` to lock |
+| `volume` | `vol` | `[0-100\|up\|down\|off]` | General audio volume |
+| `notif` | `nf` | `[on\|off\|vol <n>\|<lvl> on\|off\|file <f>]` | Notification manager — per-level enable/disable, custom MP3 |
+| `tz` | `tz` | `[+HH\|-HH:MM\|<posix>\|status]` | Set device timezone (NVS, survives reboot) |
 | **WiFi** | | | |
 | `scanwifi` | `sw` | — | Scan WiFi networks |
 | `connectwifi` | `cw` | `<index\|ssid>` | Connect by scan index or SSID name |
@@ -156,6 +159,7 @@ git clone https://github.com/abdallahnatsheh/T-Rex
 | `cd` | `cd` | `<dir\|..>` | Change working directory — `cd badusb`, `cd ..`, `cd /` |
 | `cat` | `cat` | `<path>` | Read file — scrollable viewer, tpad UP/DN, `q` quit |
 | `rm` | `rm` | `<path>` | Delete file (relative to CWD) |
+| `sdformat` | `sdf` | `[init]` | Format SD to FAT32 (`sdf init` also recreates directory structure) |
 | **USB** | | | |
 | `usbmsc` | `um` | — | Expose SD card as USB Mass Storage drive |
 | `usbkbd` | `uk` | — | T-Deck as USB keyboard + mouse (trackball = cursor, tap = left click, hold = right click) |
@@ -190,6 +194,10 @@ All scan tables share the same keys:
 | Left / Right | Move cursor within the current command |
 | Up / Down | Scroll through command history (16 entries) |
 | Click | Execute command |
+| Double-click | Toggle screen off / on |
+| Hold 3 seconds | Lock screen (works from any screen) |
+
+**Backspace auto-repeat:** Hold Backspace for **1.5 seconds** → auto-deletes at ~16 chars/sec. Press any char key to stop — the timer resets immediately so the next hold starts fresh. Pressing Backspace a second time while repeat is armed cancels it (tap safety).
 
 **Autocomplete:** Press `'` (Sym+K) at any point in a command.
 - At the start → completes command names and short names (`sc` + `'` → `scanwifi`; `ps` + `'` → `portscan`)
@@ -248,6 +256,9 @@ All scan tables share the same keys:
 - [x] `wguard` WiFi IDS — deauth flood, evil twin (two-tier RSSI-filtered detection), handshake harvest, PMKID grab, auth flood, probe storm, beacon flood, BSSID cloning, Karma attack; background mode with shield icon + popup bars; session CSV logs (session-relative timestamps, no duplicate events across save blocks)
 - [x] Notification manager — I2S WAV playback from SD, per-level volume, screen wake callback; wired into Buddy, TrackMe, wguard
 - [x] Lock screen — idle-timeout auto-lock (keyboard + trackpad both reset timer) + hold-trackpad-3s trigger; no-PIN (Space ×3) or SHA-256-hashed PIN (salt via esp_random, mbedTLS); live locked-duration HH:MM:SS; yellow warning when no SD card; recovery = remove SD + reboot; status bar stays live (clock/WiFi/battery update every 1 s while locked)
+- [x] Lock screen display blocking — all interactive apps (`buddy`, `wguard`, `trackme`, `beaconflood`, `cat`, `ls`, etc.) correctly freeze on lock and fully restore on unlock
+- [x] Backspace hold-repeat redesigned — cold/hot state via `_lastBsReturnMs`; char cancel resets timer to cold so next hold is immediately available; 1500ms hold delay; second tap while armed cancels (prevents accidental auto-delete on rapid taps); same fix in CLI, USB keyboard, and BLE keyboard
+- [x] Full docs overhaul — 44 pages, every command documented; Getting Started, Keyboard Reference, Workflows, Troubleshooting, T-Deck vs T-Deck Plus guides; wguard + trackme algorithm docs with academic references; clean nav hierarchy (Just the Docs parent/child/grandchild)
 - [ ] LoRa packet logger
 - [ ] MAC proximity watchlist
 - [ ] DNS enumeration
