@@ -17,6 +17,7 @@ has_children: true
 | [SD Commands](sd-commands) | `sdinfo` · `sdls` · `cd` · `cat` · `rm` · `sdformat` |
 | [Diagnostics](diagnostics) | `gpson` · `gpsoff` · `gpstest` · `spktest` · `loratest` |
 | [SD Card Layout](sdcard) | File layout reference |
+| [Custom Splash Screen](splash) | Replace the boot image with your own PNG |
 
 ---
 

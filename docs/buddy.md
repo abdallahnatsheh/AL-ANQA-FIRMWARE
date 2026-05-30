@@ -206,8 +206,8 @@ The T-Deck advertises continuously. Claude Desktop reconnects automatically afte
 
 | File | Purpose |
 |------|---------|
-| `t-deck-cli/buddy.cpp` | Command entry point, NimBLE NUS server, stats engine, display |
-| `t-deck-cli/buddy.h` | Command declaration |
-| `t-deck-cli/buddy_common.h` | Shared geometry, colors, Species struct for species files |
-| `t-deck-cli/M5StickCPlus.h` | Compatibility shim (`typedef LGFX_Sprite TFT_eSprite`) |
-| `t-deck-cli/buddies/*.cpp` | 19 species animation files (ported unchanged from official repo) |
+| `t-rex-firmware/buddy.cpp` | Command entry point, NimBLE NUS server, stats engine, display |
+| `t-rex-firmware/buddy.h` | Command declaration |
+| `t-rex-firmware/buddy_common.h` | Shared geometry, colors, Species struct for species files |
+| `t-rex-firmware/M5StickCPlus.h` | Compatibility shim (`typedef LGFX_Sprite TFT_eSprite`) |
+| `t-rex-firmware/buddies/*.cpp` | 19 species animation files (ported unchanged from official repo) |

@@ -8,7 +8,7 @@ except NameError:
     _project_dir = os.path.dirname(os.path.abspath(__file__))
 
 PNG_PATH    = os.path.join(_project_dir, "images", "T-REX-LOADING SCREEN.png")
-HEADER_PATH = os.path.join(_project_dir, "t-deck-cli", "splash_image.h")
+HEADER_PATH = os.path.join(_project_dir, "t-rex-firmware", "splash_image.h")
 TARGET_W, TARGET_H = 320, 240
 
 # ── PNG decode (pure Python, no Pillow) ──────────────────────────────────────
@@ -119,9 +119,18 @@ def png_encode(width, height, pixels):
             + mk_chunk(b'IEND', b''))
 
 # ── main ──────────────────────────────────────────────────────────────────────
+# Run manually:  python convert_splash.py
+# As pre-script: only regenerates when PNG is newer than the existing header,
+#                so repeated builds are a fast no-op.
+
+_force = "--force" in sys.argv or "-f" in sys.argv
 
 if not os.path.exists(PNG_PATH):
-    print("WARNING: splash image not found: " + PNG_PATH)
+    print("WARNING: splash image not found, using existing header: " + PNG_PATH)
+elif (not _force
+      and os.path.exists(HEADER_PATH)
+      and os.path.getmtime(HEADER_PATH) >= os.path.getmtime(PNG_PATH)):
+    print("splash_image.h is up to date — skipping (run with --force to regenerate).")
 else:
     print("Reading " + PNG_PATH + " ...")
     with open(PNG_PATH, 'rb') as f:
