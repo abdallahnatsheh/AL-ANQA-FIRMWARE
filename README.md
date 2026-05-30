@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://abdallahnatsheh.github.io/T-DECK-CLI"><b>📖 Documentation</b></a>
+  <a href="https://abdallahnatsheh.github.io/T-REX-FIRMWARE"><b>📖 Documentation</b></a>
 </p>
 
 <p align="center">
@@ -104,7 +104,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 **Requirements:** [VSCode](https://code.visualstudio.com/) + [PlatformIO](https://platformio.org/) extension
 
 ```bash
-git clone https://github.com/abdallahnatsheh/T-DECK-CLI
+git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 # Open in VSCode → select env:T-Deck or env:T-Deck-Plus → click Upload
 ```
 

@@ -1,7 +1,7 @@
 title: T-Rex Docs
-description: Offensive security firmware for LilyGo T-Deck — hacker CLI in your pocket.
+description: T-Rex offensive security firmware for LilyGo T-Deck — hacker CLI in your pocket.
 url: "https://abdallahnatsheh.github.io"
-baseurl: "/T-DECK-CLI"
+baseurl: "/T-REX-FIRMWARE"
 
 remote_theme: just-the-docs/just-the-docs@v0.10.0
 color_scheme: trex
@@ -17,7 +17,7 @@ plugins:
 
 aux_links:
   "GitHub":
-    - "https://github.com/abdallahnatsheh/T-DECK-CLI"
+    - "https://github.com/abdallahnatsheh/T-REX-FIRMWARE"
 
 aux_links_new_tab: true
 
@@ -26,7 +26,7 @@ back_to_top_text: "Back to top"
 
 gh_edit_link: true
 gh_edit_link_text: "Edit this page on GitHub"
-gh_edit_repository: "https://github.com/abdallahnatsheh/T-DECK-CLI"
+gh_edit_repository: "https://github.com/abdallahnatsheh/T-REX-FIRMWARE"
 gh_edit_branch: "main"
 gh_edit_source: docs
 gh_edit_view_mode: "edit"

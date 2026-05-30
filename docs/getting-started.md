@@ -23,7 +23,7 @@ nav_order: 2
 ## Step 1 — Build and Flash
 
 ```bash
-git clone https://github.com/abdallahnatsheh/T-DECK-CLI
+git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 ```
 
 Open the cloned folder in VSCode. PlatformIO will detect the project automatically.

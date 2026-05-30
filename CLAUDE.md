@@ -1,4 +1,4 @@
-# T-DECK-CLI — Claude Project Context
+# T-REX-FIRMWARE — Claude Project Context
 
 ## Project
 Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Arduino. All source in `t-deck-cli/`. Build: `env:T-Deck` / `env:T-Deck-Plus` (GPS + speaker). Screen: 320×240, status bar 30px, `outputY=38`.
