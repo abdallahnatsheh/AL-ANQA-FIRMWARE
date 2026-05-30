@@ -7,8 +7,5 @@ lib/
 .vscode/launch.json
 .vscode/ipch
 
-# Claude Code editor files — keep memory, ignore everything else
-.claude/settings.json
-.claude/settings.local.json
-.claude/worktrees/
-.claude/todos/
+# Claude Code editor files — ignore entire directory
+.claude/
