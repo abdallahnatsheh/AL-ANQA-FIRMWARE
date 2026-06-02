@@ -119,7 +119,17 @@ The classic handshake-capture attack: send deauths to force re-association, then
 
 Every AP increments its BSS timestamp continuously from boot. If two radios are advertising on the same BSSID (a clone scenario), the timestamps from the two radios will be out of sync — wguard sees a backward jump when frames from each radio interleave in the capture.
 
-> **Clock-skew note:** A rebooting AP also resets its timestamp to ~0, triggering both a backward-jump detection and a clock-skew anomaly simultaneously. This is indistinguishable from a real BSSID clone at the firmware level. wguard fires the detection but the RSSI and beacon interval data in the event log can help a human operator decide which scenario it is.
+Clone confirmation uses **three-signal logic** to avoid false positives in enterprise environments:
+
+| Signals seen | Severity | Event |
+|---|---|---|
+| ts-jump only (`0xFD`) | WARNING | `BSSID CLONED … ts-jump` |
+| ts-jump + beacon compression (`0xFA`) | WARNING | `BCN COMPRESS+TS-JUMP (no deauth, possible enterprise AP)` |
+| ts-jump + beacon compression + **deauth burst** | **CRITICAL** | `CLONE CONFIRMED (deauth+ts-jump+bcn-compress)` |
+
+**Why deauth is required for CRITICAL:** Enterprise WiFi systems (Fortinet, Cisco mesh) deploy multiple radios on the same BSSID, which produces both a backward timestamp jump and beacon interval compression naturally. These legitimate APs never deauthenticate their own clients. A real evil twin almost always sends a deauth burst to force clients to reconnect to the rogue AP. Requiring deauth as the third signal eliminates false alarms in busy enterprise environments while still catching real attacks.
+
+> **Clock-skew note:** A rebooting AP also resets its timestamp to ~0, triggering both a backward-jump and a clock-skew anomaly simultaneously. Clock skew alone (`0xF9`) never upgrades the severity — it fires as INFO only — because it is indistinguishable from a reboot and can be spoofed by an attacker who synchronises their TSF.
 
 ---
 

@@ -144,6 +144,8 @@ private:
     bool         _cloneWarnActive  = false;  // 0xFD fired WARNING — watching for upgrade signal
     uint32_t     _cloneWarnTs      = 0;
     int8_t       _cloneWarnRssi    = -127;
+    bool         _cloneDeauthSeen  = false;  // deauth burst seen during clone watch window
+    uint32_t     _cloneDeauthTs    = 0;
 
     // ── New detection cooldowns ────────────────────────────────────────────
     uint32_t     _seqGapFiredTs    = 0;      // millis() of last SEQ GAP event (60s cooldown)

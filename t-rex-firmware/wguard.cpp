@@ -499,6 +499,12 @@ void WGuard::processFrame(const WgFrame& f) {
             }
             _pendingForeignN = 0;
         }
+        // Mark deauth seen for clone upgrade gate — real evil twins always deauth first.
+        // Legitimate enterprise APs (Fortinet, Cisco mesh) never deauth on their own channel.
+        if (_cloneWarnActive && now - _cloneWarnTs < 60000) {
+            _cloneDeauthSeen = true;
+            _cloneDeauthTs   = now;
+        }
         break;
     }
     case 11: {   // Auth
@@ -743,11 +749,21 @@ void WGuard::processFrame(const WgFrame& f) {
             addEvent(1, msg, f.rssi, nullptr);   // WARNING
             _threatBiCompress++;
             notifyThrottled(NOTIF_WARNING, now);
-            // Upgrade: interval compression after a clone WARNING = confirmed different radio
+            // Upgrade: interval compression after a clone WARNING.
+            // Require deauth also seen — enterprise multi-AP setups (Fortinet, Cisco mesh)
+            // produce ts-jump + interval compression legitimately but NEVER deauth their
+            // own clients. A real evil twin almost always deauths to force reconnection.
             if (_cloneWarnActive && now - _cloneWarnTs < 60000) {
                 _cloneWarnActive = false;
-                addEvent(2, "CLONE CONFIRMED (ts-jump + interval compress)", _cloneWarnRssi, nullptr);
-                notifyThrottled(NOTIF_ALERT, now);
+                if (_cloneDeauthSeen && now - _cloneDeauthTs < 90000) {
+                    // 3 signals: ts-jump + interval compression + deauth = confirmed evil twin
+                    addEvent(2, "CLONE CONFIRMED (deauth+ts-jump+bcn-compress)", _cloneWarnRssi, nullptr);
+                    notifyThrottled(NOTIF_ALERT, now);
+                } else {
+                    // Only 2 signals — could be enterprise mesh, stay at WARNING
+                    addEvent(1, "BCN COMPRESS+TS-JUMP (no deauth, possible enterprise AP)", _cloneWarnRssi, nullptr);
+                    notifyThrottled(NOTIF_WARNING, now);
+                }
             }
         }
         break;
@@ -1033,6 +1049,7 @@ void WGuard::beginBackground(char* args) {
     _deauthBurstStart = 0; _deauthBurstCount = 0;
     _bcastBurstStart  = 0; _bcastBurstCount  = 0;
     _cloneWarnActive  = false; _cloneWarnTs = 0; _cloneWarnRssi = -127;
+    _cloneDeauthSeen  = false; _cloneDeauthTs = 0;
     _seqGapFiredTs    = 0;
     _biCompressFired  = false; _biCompressFiredTs = 0;
     _clkSkewFired     = false; _clkSkewFiredTs    = 0;
@@ -1443,6 +1460,7 @@ void WGuard::run(const uint8_t* bssid, int channel, const char* ssid) {
     _deauthBurstStart = 0; _deauthBurstCount = 0;
     _bcastBurstStart  = 0; _bcastBurstCount  = 0;
     _cloneWarnActive  = false; _cloneWarnTs = 0; _cloneWarnRssi = -127;
+    _cloneDeauthSeen  = false; _cloneDeauthTs = 0;
     _seqGapFiredTs    = 0;
     _biCompressFired  = false; _biCompressFiredTs = 0;
     _clkSkewFired     = false; _clkSkewFiredTs    = 0;
