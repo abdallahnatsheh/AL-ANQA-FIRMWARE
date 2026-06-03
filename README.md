@@ -37,7 +37,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 ## Features
 
 **📡 WiFi Attacks** — [full guide](docs/wifi-attacks.md)
-- Scan, connect, monitor mode, deauth attack
+- Scan, connect, monitor mode, targeted deauth, raw PCAP capture (Wireshark-compatible)
 - Evil Twin AP with adaptive deauth + captive portal
 - Hidden SSID reveal, WPA2 handshake capture + on-device crack
 - MAC spoofer, WPS flag detection
@@ -132,7 +132,7 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `wifipass` | `wp` | — | View all saved WiFi passwords (SD + NVS merged) |
 | `wifiexport` | `wex` | — | Export NVS credentials → wpa_supplicant.conf |
 | `clearwifi` | `clrw` | — | Erase saved credentials |
-| `wifimon` | `wm` | `[ch]` | Monitor mode (ch 1-13, 0=hop) |
+| `wifimon` | `wm` | `[ch]` | Monitor mode — nets view (client count, RSSI) + clients view (vendor/type/AP, trackpad cursor, `[d]` targeted deauth); raw PCAP sniffer to `/logs/wm/*.cap` (Wireshark-compatible); `[s]` toggle capture |
 | `deauth` | `da` | `<bssid\|#> [ch] [client]` | Deauth attack |
 | `eviltwin` | `et` | — | Evil Twin AP + captive portal |
 | `hiddenssid` | `hs` | `<idx\|bssid> [ch] [silent]` | Reveal hidden SSID |

@@ -88,6 +88,27 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 - GDMA: all SD writes pause promiscuous (`s_active=false`), write, resume.
 - Background: `pollBackground()` drains ring, triggers saves, shows popup bar + shield icon in status bar. After `doAutoSave()` clears the ring, `_lastBgHead` is reset to 0 — prevents stale popup on the next poll cycle.
 
+## WiFiMonitor (`wifimon_functions.cpp/h`) — enhanced `wm`
+- Two views: **Nets** (`[v]` to switch) shows BSSID/Ch/RSSI/client-count/SSID; **Clients** shows MAC/vendor/type/RSSI/AP
+- Client count is computed live from `_clients[]` on every draw — never stale
+- Client detection: data frame DS bits (ToDS/FromDS), probe requests (unassociated), assoc requests
+- Trackpad UP/DOWN moves cursor in Clients view; `[d]` deauths selected client (directed deauth to that STA only)
+- Targeted deauth: stop promiscuous → APSTA → inject AP→STA + STA→AP deauth+disassoc × 5 rounds → STA+promiscuous resume
+- **Raw PCAP sniffer**: dual ISR pipelines — parsed ring (display) + raw ring (PCAP file)
+  - Saves to `/logs/wm/<uptime_ms>.cap` — libpcap linktype 105 (LINKTYPE_IEEE802_11), Wireshark/aircrack-ng compatible
+  - Flush every 2s or ring 25% full: pause promiscuous ~5ms → write SD → resume (GDMA rule)
+  - Drop counter (`s_pcapDropped`) shown on screen as `1234 frm -N`; drops don't corrupt file
+  - `[s]` toggles PCAP on/off; auto-starts on launch if SD available
+  - Ring: 64 slots × 262 bytes = ~17KB DRAM
+- Client expiry: unassociated clients dropped after 90 s silence via `expireClients()`
+- Status banner: green = deauth ok, red = fail/unassoc, yellow = info; auto-clears after 3.5 s
+
+**OUI lookup** (`oui_lookup.h`) — shared header-only, ~350 entries, returns `{vendor, type}`:
+- Types: Phone / Laptop / Router / IoT / TV / Gaming / Attack / Embed / RandMAC
+- LA-MAC (locally administered bit) → `{"LA-MAC", "RandMAC"}` — no table entry needed
+- Covers: Apple, Samsung, Huawei, Xiaomi, OnePlus, Oppo, Sony, Nintendo, Xbox, LG, Motorola, Intel, Dell, HP, Lenovo, ASUS, TP-Link, Netgear, D-Link, Ubiquiti, Cisco/Linksys, MikroTik, Amazon, Google, Roku, Philips Hue, Alfa, Hak5, RPi, Espressif
+- `wguard.cpp` uses `ouiVendor()` (backward-compat wrapper); replaces old private `lookupOui()`
+
 ## Commands
 System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `lock/lk`
 WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `wguard/wg` `beaconflood/bf`
@@ -104,6 +125,7 @@ Diagnostics: `gps/gps` `spktest/st` `loratest/lt`
 `/macchanger.conf` — MAC changer config (key=value)
 `/lockscreen.conf` — lock screen config (key=value: `timeout`, `hash`, `salt`)
 `/logs/` — eviltwin.csv · trackme.csv · trackme_known.csv · hidden_ssids.csv · cracked.csv
+`/logs/wm/` — `<uptime_ms>.cap` raw 802.11 PCAP files from wifimon (linktype 105, Wireshark-compatible)
 `/logs/wguard/` — `001.csv`, `002.csv` … session files (never overwritten; new number on each boot/start)
 `/logs/hs/` — WPA handshake pcap files (`<BSSID>.cap`, libpcap format, linktype 105)
 `/evilportal/` — custom HTML portal pages

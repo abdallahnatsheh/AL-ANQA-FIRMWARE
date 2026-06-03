@@ -24,6 +24,7 @@
 #include "notification_manager.h"
 #include "lockscreen_manager.h"
 #include "clock_manager.h"
+#include "oui_lookup.h"
 #include <SD.h>
 
 extern DisplayManager displayManager;
@@ -349,57 +350,7 @@ void WGuard::notifyThrottled(NotifLevel level, uint32_t now) {
     NotificationManager::getInstance().notify(level);
 }
 
-// ── OUI vendor lookup (DFIR aid — log-only) ───────────────────────────────────
-// Returns a short vendor string for known attacker-relevant OUIs, or nullptr if unknown.
-// Locally-administered bit (0x02 in first octet) always means a spoofed / virtual MAC.
-
-static const char* lookupOui(const uint8_t* mac) {
-    if (mac[0] & 0x02) return "LA-MAC";   // bit 1 set = locally administered = spoofed
-    struct OuiEntry { uint8_t p0, p1, p2; const char* name; };
-    static const OuiEntry ouis[] = {
-        // Attack hardware / common security research tools
-        {0x00, 0xC0, 0xCA, "Alfa"},       // Alfa Network (USB attack adapters)
-        {0x00, 0x13, 0x37, "Hak5"},       // Hak5 LLC (WiFi Pineapple)
-        {0x00, 0xE0, 0x4C, "Realtek"},    // Realtek (cheap USB adapters)
-        // Raspberry Pi Foundation (all known OUI blocks)
-        {0xB8, 0x27, 0xEB, "RPi"},
-        {0xDC, 0xA6, 0x32, "RPi"},
-        {0xD8, 0x3A, 0xDD, "RPi"},
-        {0xE4, 0x5F, 0x01, "RPi"},
-        {0x28, 0xCD, 0xC1, "RPi"},
-        {0x2C, 0xCF, 0x67, "RPi"},
-        // Espressif Systems (DIY attack tools, ESP32-based firmware)
-        {0x18, 0xFE, 0x34, "Espressif"},
-        {0x24, 0x0A, 0xC4, "Espressif"},
-        {0x24, 0x6F, 0x28, "Espressif"},
-        {0x30, 0xAE, 0xA4, "Espressif"},
-        {0x40, 0xF5, 0x20, "Espressif"},
-        {0x54, 0x5A, 0xA6, "Espressif"},
-        {0x58, 0xBF, 0x25, "Espressif"},
-        {0x60, 0x01, 0x94, "Espressif"},
-        {0x68, 0xC6, 0x3A, "Espressif"},
-        {0x78, 0x21, 0x84, "Espressif"},
-        {0x84, 0xCC, 0xA8, "Espressif"},
-        {0x8C, 0xAA, 0xB5, "Espressif"},
-        {0x90, 0x97, 0xD5, "Espressif"},
-        {0xA0, 0x20, 0xA6, "Espressif"},
-        {0xA4, 0xCF, 0x12, "Espressif"},
-        {0xB4, 0xE6, 0x2D, "Espressif"},
-        {0xC4, 0x4F, 0x33, "Espressif"},
-        {0xCC, 0x50, 0xE3, "Espressif"},
-        {0xDC, 0x54, 0x75, "Espressif"},
-        {0xE8, 0xDB, 0x84, "Espressif"},
-        {0xEC, 0x15, 0xAD, "Espressif"},
-        {0xFC, 0xF5, 0xC4, "Espressif"},
-        {0x7C, 0x87, 0xCE, "Espressif"},  // ESP32-S3 (T-Deck family)
-        {0x80, 0xC5, 0x48, "Espressif"},  // ESP32 (Cardputer / M5Stack)
-        {0xAC, 0xD0, 0x74, "Espressif"},
-    };
-    for (uint8_t i = 0; i < sizeof(ouis)/sizeof(ouis[0]); i++)
-        if (mac[0] == ouis[i].p0 && mac[1] == ouis[i].p1 && mac[2] == ouis[i].p2)
-            return ouis[i].name;
-    return nullptr;
-}
+// OUI lookup delegated to oui_lookup.h (shared with wifimon, bleinfo, trackme)
 
 // ── Threat detection ──────────────────────────────────────────────────────────
 
@@ -433,7 +384,7 @@ void WGuard::processFrame(const WgFrame& f) {
                         snprintf(msg, sizeof(msg), "BCAST DEAUTH %02X:%02X:%02X:%02X:%02X:%02X",
                                  f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
                         char det[48];
-                        const char* vb = lookupOui(f.src);
+                        const char* vb = ouiVendor(f.src);
                         if (vb) snprintf(det, sizeof(det), "rc=%u Dth=%lu v=%s", f.eapolMsg, (unsigned long)_cntDeauths, vb);
                         else    snprintf(det, sizeof(det), "rc=%u Dth=%lu",       f.eapolMsg, (unsigned long)_cntDeauths);
                         addEvent(1, msg, f.rssi, det);
@@ -454,7 +405,7 @@ void WGuard::processFrame(const WgFrame& f) {
                     snprintf(msg, sizeof(msg), "DEAUTH storm %02X:%02X:%02X:%02X:%02X:%02X",
                              f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
                     char det[48];
-                    const char* vt = lookupOui(f.src);
+                    const char* vt = ouiVendor(f.src);
                     if (vt) snprintf(det, sizeof(det), "dst=%02X%02X%02X rc=%u Dth=%lu v=%s",
                                      f.dst[3],f.dst[4],f.dst[5], f.eapolMsg,
                                      (unsigned long)_cntDeauths, vt);
@@ -484,7 +435,7 @@ void WGuard::processFrame(const WgFrame& f) {
                              _pendingForeign[i][0], _pendingForeign[i][1], _pendingForeign[i][2],
                              _pendingForeign[i][3], _pendingForeign[i][4], _pendingForeign[i][5]);
                     char det[48];
-                    const char* vp = lookupOui(_pendingForeign[i]);
+                    const char* vp = ouiVendor(_pendingForeign[i]);
                     if (vp) snprintf(det, sizeof(det), "Dth=%lu v=%s", (unsigned long)_cntDeauths, vp);
                     else    snprintf(det, sizeof(det), "Dth=%lu",      (unsigned long)_cntDeauths);
                     addEvent(1, msg, _pendingForeignRssi[i], det);  // use AP beacon RSSI, not deauth RSSI
@@ -537,7 +488,7 @@ void WGuard::processFrame(const WgFrame& f) {
             snprintf(msg, sizeof(msg), "PROBE storm %02X:%02X:%02X:%02X:%02X:%02X 50/5s",
                      f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
             char det[48];
-            const char* vpr = lookupOui(f.src);
+            const char* vpr = ouiVendor(f.src);
             if (vpr) snprintf(det, sizeof(det), "Prb=%lu v=%s", (unsigned long)_cntProbes, vpr);
             else     snprintf(det, sizeof(det), "Prb=%lu",      (unsigned long)_cntProbes);
             addEvent(1, msg, f.rssi, det);
@@ -558,7 +509,7 @@ void WGuard::processFrame(const WgFrame& f) {
             snprintf(msg, sizeof(msg), "RAPID ASSOC (PMKID?) %02X:%02X:%02X:%02X:%02X:%02X",
                      f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
             char det[48];
-            const char* va = lookupOui(f.src);
+            const char* va = ouiVendor(f.src);
             if (va) snprintf(det, sizeof(det), "dst=%02X:%02X:%02X:%02X:%02X:%02X v=%s",
                              f.dst[0],f.dst[1],f.dst[2],f.dst[3],f.dst[4],f.dst[5], va);
             else    snprintf(det, sizeof(det), "dst=%02X:%02X:%02X:%02X:%02X:%02X",
@@ -594,7 +545,7 @@ void WGuard::processFrame(const WgFrame& f) {
             snprintf(msg, sizeof(msg), "KARMA %02X:%02X:%02X:%02X:%02X:%02X 3+SSIDs",
                      f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
             char det[48] = {};
-            const char* vk = lookupOui(f.src);
+            const char* vk = ouiVendor(f.src);
             if (vk) snprintf(det, sizeof(det), "v=%s", vk);
             addEvent(1, msg, f.rssi, det[0] ? det : nullptr);   // WARNING
             _threatKarma++;
@@ -629,7 +580,7 @@ void WGuard::processFrame(const WgFrame& f) {
             bool recentDeauth = (_deauthBurstCount >= 3 && (now - _deauthBurstStart) < 30000);
             char msg[44];
             char det[48];
-            const char* v8 = lookupOui(f.src);
+            const char* v8 = ouiVendor(f.src);
             if (sameOui) {
                 snprintf(msg, sizeof(msg), "CO-AP %02X:%02X:%02X:%02X:%02X:%02X same OUI",
                          f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
@@ -696,7 +647,7 @@ void WGuard::processFrame(const WgFrame& f) {
                 if (memcmp(_evilTwinSeen[i], _bssid, 4) == 0) { coApSamePrefix = true; break; }
             }
             char det[48] = {};
-            const char* vc = lookupOui(f.src);
+            const char* vc = ouiVendor(f.src);
             if (coApSamePrefix) {
                 snprintf(det, sizeof(det), "reboot? co-AP same prefix%s%s",
                          vc ? " v=" : "", vc ? vc : "");
@@ -728,7 +679,7 @@ void WGuard::processFrame(const WgFrame& f) {
             snprintf(msg, sizeof(msg), "SEQ GAP %02X:%02X:%02X:%02X:%02X:%02X gap=%u",
                      f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5], f.eapolMsg);
             char det[48] = {};
-            const char* vs = lookupOui(f.src);
+            const char* vs = ouiVendor(f.src);
             if (vs) snprintf(det, sizeof(det), "seq=%u v=%s", f.seqNum, vs);
             else    snprintf(det, sizeof(det), "seq=%u",       f.seqNum);
             addEvent(0, msg, f.rssi, det[0] ? det : nullptr);   // INFO
