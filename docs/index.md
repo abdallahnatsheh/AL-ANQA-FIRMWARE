@@ -44,6 +44,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
   - [Evil Twin](eviltwin) — `eviltwin`
   - [Hidden SSID](hiddenssid) — `hiddenssid`
   - [WPA Sniff](wpasniff) — `wpasniff`
+  - [PMKID Attack](pmkid) — `pmkid`
   - [WGuard IDS](wguard) — `wguard`
   - [Beacon Flood](beacon-flood) — `beaconflood`
 

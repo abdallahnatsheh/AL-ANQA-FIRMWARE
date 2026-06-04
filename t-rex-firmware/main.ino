@@ -16,6 +16,7 @@
 #include "eviltwin.h"
 #include "hidden_ssid.h"
 #include "handshake_capture.h"
+#include "pmkid_attack.h"
 #include "mac_changer.h"
 #include "man_pages.h"
 #include "usb_manager.h"
@@ -40,6 +41,7 @@ TrackMeScanner   trackMe(displayManager, sdCardManager);
 EvilTwin         evilTwin(displayManager, sdCardManager);
 HiddenSSID       hiddenSSID(displayManager, wifiFunctions, deauthAttack);
 HandshakeCapture handshakeCapture(displayManager, wifiFunctions, deauthAttack);
+PmkidAttack      pmkidAttack(displayManager, wifiFunctions, deauthAttack);
 WGuard           wGuard(displayManager, wifiFunctions);
 ManPages         manPages(displayManager);
 

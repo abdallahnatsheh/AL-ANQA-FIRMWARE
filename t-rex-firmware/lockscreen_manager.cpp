@@ -268,8 +268,7 @@ void LockScreenManager::tryUnlock() {
         _lastActivityMs = millis();
         _justUnlocked   = true;
         displayManager.setBlocked(false);
-        displayManager.clearScreen();
-        displayManager.printCommandScreen();
+        displayManager.tdeck_begin();   // full redraw: status bar + prompt
     } else {
         // Flash red for 1.5 s, then redraw PIN entry
         displayManager.setBlocked(false);
@@ -341,8 +340,7 @@ char LockScreenManager::intercept(char k, uint32_t now) {
                 _lastActivityMs = millis();
                 _justUnlocked   = true;
                 displayManager.setBlocked(false);
-                displayManager.clearScreen();
-                displayManager.printCommandScreen();
+                displayManager.tdeck_begin();   // full redraw: status bar + prompt
             } else {
                 DisplayManager& dm = displayManager;
                 dm.fillRect(0, outputY + LINE_HEIGHT * 10, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);

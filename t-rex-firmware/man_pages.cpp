@@ -279,13 +279,33 @@ static const ManEntry PAGES[] = {
         "",
         "ABOUT    Capture WPA2 handshake + crack.",
         "         EAPOL sniff + deauth every 4s.",
+        "         Needs M1+M2 (requires a client).",
         "",
         "STEPS    1. sw  2. ws <idx>  3. wait",
         "         4. c  to crack on-device",
         "KEYS     [c] crack  [q] quit",
         "FILES    /wordlist.txt  (SD wordlist)",
+        "         /logs/hs/<BSSID>.cap  (pcap)",
         "         /logs/cracked.csv  (results)",
         "NOTE     Built-in 100 pwds if no SD card.",
+        nullptr
+    }},
+
+    { "pmkid", "pm", {
+        "SYNTAX   pm <idx|bssid> [ch]",
+        "",
+        "ABOUT    PMKID capture + on-device crack.",
+        "         No client needed — sniffs EAPOL M1",
+        "         passively. Stealthier than ws.",
+        "",
+        "STEPS    1. sw  2. pm <idx>  3. wait",
+        "         4. c  to crack on-device",
+        "CRACK    PBKDF2 -> HMAC-SHA1-128 vs PMKID",
+        "KEYS     [c] crack  [q] quit",
+        "FILES    /logs/hs/pm_<BSSID>.cap  (pcap)",
+        "         /logs/cracked.csv  (results)",
+        "NOTE     Not all routers include PMKID.",
+        "         Fall back to ws if no PMKID seen.",
         nullptr
     }},
 

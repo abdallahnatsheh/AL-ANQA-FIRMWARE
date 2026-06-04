@@ -39,7 +39,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 **📡 WiFi Attacks** — [full guide](docs/wifi-attacks.md)
 - Scan, connect, monitor mode, targeted deauth, raw PCAP capture (Wireshark-compatible)
 - Evil Twin AP with adaptive deauth + captive portal
-- Hidden SSID reveal, WPA2 handshake capture + on-device crack
+- Hidden SSID reveal, WPA2 handshake capture + on-device crack, PMKID capture + crack (no client needed)
 - MAC spoofer, WPS flag detection
 - **Beacon flood** (`bf`) — inject hundreds of fake beacon frames/sec; 5 modes: built-in list, rickroll, sequential, SD file, or clone a real network from scan; ~90-100 frames/sec, random MAC per beacon, automatic channel hopping — [full guide](docs/beacon-flood.md)
 - **WiFi IDS** (`wguard`) — passive intrusion detection: deauth flood, evil twin, handshake harvest, PMKID grab, auth flood, probe storm, beacon flood, BSSID cloning, Karma attack; background mode with shield icon + popup alerts; session CSV logs with session-relative timestamps
@@ -137,7 +137,8 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `eviltwin` | `et` | — | Evil Twin AP + captive portal |
 | `hiddenssid` | `hs` | `<idx\|bssid> [ch] [silent]` | Reveal hidden SSID |
 | `macchanger` | `mc` | `on\|off\|random\|set <mac>` | Spoof STA MAC |
-| `wpasniff` | `ws` | `<idx\|bssid> [ch]` | Capture + crack WPA2 handshake |
+| `wpasniff` | `ws` | `<idx\|bssid> [ch]` | Capture + crack WPA2 handshake (needs client + deauth) |
+| `pmkid` | `pm` | `<idx\|bssid> [ch]` | PMKID capture + crack — passive, no client or deauth needed |
 | `wguard` | `wg` | `<idx\|bssid> [ch] [bg]` | WiFi IDS — passive intrusion detection; `wg stop` / `wg view` |
 | `beaconflood` | `bf` | `[list\|rickroll\|seq <base>\|file [path]\|clone]` | Beacon flood — fake AP injection; interactive mode picker; clone mirrors real network security |
 | **Network** | | | |
@@ -219,7 +220,7 @@ All scan tables share the same keys:
 /signatures.csv       — custom BLE tracker signatures
 /logs/                — eviltwin.csv, trackme.csv, hidden_ssids.csv, cracked.csv, fastpair.csv
 /logs/wguard/         — wguard session files (001.csv, 002.csv … — never overwritten)
-/logs/hs/             — WPA handshake captures (<BSSID>.cap, libpcap format)
+/logs/hs/             — WPA handshake captures (<BSSID>.cap) + PMKID captures (pm_<BSSID>.cap); libpcap format, hashcat/aircrack-ng compatible
 /logs/bleinfo/        — GATT dumps (<mac>.txt), sniff logs (<mac>_sniff.txt), write-cap archives (<mac>_replay.ble)
 /fastpair_keys.csv    — cached Fast Pair anti-spoofing keys (modelId,name,key64hex)
 /fastpair_paired.csv  — log of devices successfully paired via GATT
@@ -234,7 +235,7 @@ All scan tables share the same keys:
 
 ## Roadmap
 
-- [x] WiFi scan, connect, monitor, deauth, Evil Twin, hidden SSID, MAC spoof, WPA2 crack, WPS flag, saved credential manager, Linux wpa_supplicant.conf sync
+- [x] WiFi scan, connect, monitor, deauth, Evil Twin, hidden SSID, MAC spoof, WPA2 handshake capture+crack, PMKID capture+crack (passive, no client needed), WPS flag, saved credential manager, Linux wpa_supplicant.conf sync
 - [x] ARP discovery, port scan, ping, banner grabber, OS fingerprinting
 - [x] BLE scanner, anti-tracking detector
 - [x] BLE GATT enumeration (`bi`) — full service/char tree, 0x2904 auto-decode, write (trackpad cursor, write-without-response fallback), fuzz, notify/indicate sniff with write-while-connected, pairing/bonding, `bi all` sweep, full UUID + full hex saved to SD

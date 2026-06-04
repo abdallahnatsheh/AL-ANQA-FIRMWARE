@@ -111,7 +111,7 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 
 ## Commands
 System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `lock/lk`
-WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `wguard/wg` `beaconflood/bf`
+WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `wguard/wg` `beaconflood/bf`
 Network: `netdiscover/nd` `portscan/ps` `topscan/ts` `ping/pg`
 Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
 SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `sdrm/srm` `sdf/sdf`
@@ -144,6 +144,14 @@ Diagnostics: `gps/gps` `spktest/st` `loratest/lt`
 - On-device crack: PBKDF2(SSID,pass,4096,32) → PRF-512 → KCK → HMAC-SHA1 MIC verify
 - Wordlist: `/wordlist.txt` (SD, user choice) or built-in 100 passwords
 - Output: `/logs/hs/<BSSID>.cap` (aircrack-ng / hashcat hcxpcapngtool compatible) + `/logs/cracked.csv`
+
+**PmkidAttack** (`pmkid_attack.cpp/h`):
+- `pm <index|bssid> [ch]` — passive EAPOL M1 sniff; no deauth, no client needed
+- Extracts PMKID KDE from M1 Key Data: `DD 14 00:0F:AC 04 <16B PMKID>`
+- On-device crack: PBKDF2(SSID,pass,4096,32) → HMAC-SHA1-128(PMK, "PMK Name"||AP||STA) vs PMKID
+- Simpler than ws crack — no PRF-512, just one HMAC-SHA1 truncated to 16 bytes
+- Output: `/logs/hs/pm_<BSSID>.cap` + `/logs/cracked.csv` (tagged `,PMKID`)
+- Falls back gracefully: if no PMKID in M1 Key Data, shows `M1 seen — no PMKID in Key Data`
 
 **MACChanger** (`mac_changer.cpp/h`):
 - `applyIfEnabled()` only called in `scanWiFiNetworks()` and `connectToWiFiCommand()` — the two places where T-Rex's own MAC appears on the network
