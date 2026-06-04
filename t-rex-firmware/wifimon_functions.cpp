@@ -2,6 +2,7 @@
 #include "oui_lookup.h"
 #include "input_handling.h"
 #include "lockscreen_manager.h"
+#include "clock_manager.h"
 #include <SD.h>
 
 extern InputHandling inputHandler;
@@ -52,10 +53,17 @@ void WiFiMonitor::resetAll() {
     _hopping       = false;
     _statusMsg[0]  = '\0';
     _statusExpiry  = 0;
-    _pcapOpen      = false;
-    _pcapFrames    = 0;
-    _pcapPath[0]   = '\0';
-    _lastPcapFlush = 0;
+    _pcapOpen        = false;
+    _pcapFrames      = 0;
+    _pcapPath[0]     = '\0';
+    _lastPcapFlush   = 0;
+    _probeOpen       = false;
+    _probeCount      = 0;
+    _lastProbeFlush  = 0;
+    _probePath[0]    = '\0';
+    _dedupCount      = 0;
+    _dedupHead       = 0;
+    _probePendCount  = 0;
     s_head = s_tail = 0;
     s_pcapHead    = s_pcapTail = 0;
     s_pcapActive  = false;
@@ -174,8 +182,11 @@ void WiFiMonitor::handlePacket(const WmPkt& p) {
         case SUB_PROBE_REQ:
             _probePkts++;
             // addr2 = probing STA (unassociated)
-            if (!(p.addr2[0] & 0x01))   // skip multicast source
+            if (!(p.addr2[0] & 0x01)) { // skip multicast source
                 trackClient(p.addr2, ZERO6, false, p.rssi);
+                if (p.ssid[0])          // only log directed probes (not wildcard)
+                    logProbe(p.addr2, p.ssid, p.rssi, millis());
+            }
             break;
         case SUB_ASSOC_REQ:
             // addr1 = AP BSSID, addr2 = client STA
@@ -355,10 +366,16 @@ void WiFiMonitor::drawNets() {
     // ── stats row ─────────────────────────────────────────────────────────────
     _dm.setCursor(4, _dm.getCursorY());
     {
-        char b[52];
-        snprintf(b, sizeof(b), "Pkts:%lu Bcn:%lu Prb:%lu Dth:%lu",
-                 (unsigned long)_totalPkts, (unsigned long)_beaconPkts,
-                 (unsigned long)_probePkts, (unsigned long)_deauthPkts);
+        char b[64];
+        if (_probeOpen && _probeCount > 0)
+            snprintf(b, sizeof(b), "Pkts:%lu Bcn:%lu Prb:%lu Dth:%lu Log:%lu",
+                     (unsigned long)_totalPkts, (unsigned long)_beaconPkts,
+                     (unsigned long)_probePkts, (unsigned long)_deauthPkts,
+                     (unsigned long)_probeCount);
+        else
+            snprintf(b, sizeof(b), "Pkts:%lu Bcn:%lu Prb:%lu Dth:%lu",
+                     (unsigned long)_totalPkts, (unsigned long)_beaconPkts,
+                     (unsigned long)_probePkts, (unsigned long)_deauthPkts);
         _dm.setTextColor(0xBDF7);
         _dm.println(b);
     }
@@ -373,6 +390,8 @@ void WiFiMonitor::drawNets() {
     _dm.setTextColor(TFT_WHITE);  _dm.printText("ch ");
     _dm.setTextColor(TFT_GREEN);  _dm.printText("[s]");
     _dm.setTextColor(TFT_WHITE);  _dm.printText("pcap ");
+    _dm.setTextColor(_probeOpen ? TFT_CYAN : TFT_GREEN); _dm.printText("[p]");
+    _dm.setTextColor(TFT_WHITE);  _dm.printText("log ");
     _dm.setTextColor(TFT_GREEN);  _dm.printText("[q]");
     _dm.setTextColor(TFT_WHITE);  _dm.println("qt");
 
@@ -688,8 +707,42 @@ void WiFiMonitor::openPcap() {
     _sd.ensureDir("/logs");
     _sd.ensureDir("/logs/wm");
 
-    // filename: /logs/wm/<uptime_ms>.cap
-    snprintf(_pcapPath, sizeof(_pcapPath), "/logs/wm/%lu.cap", (unsigned long)millis());
+    // always use a sequential counter — scan existing files to continue the count
+    // format: 001.cap (no clock) or 001_20260604_143022.cap (clock synced)
+    int nextNum = 1;
+    {
+        File dir = SD.open("/logs/wm");
+        if (dir) {
+            File f = dir.openNextFile();
+            while (f) {
+                // f.name() returns full path — extract basename after last '/'
+                const char* fullName = f.name();
+                const char* base = strrchr(fullName, '/');
+                base = base ? base + 1 : fullName;
+                // parse leading digits (must be at least 3)
+                int n = 0, i = 0;
+                while (base[i] >= '0' && base[i] <= '9') { n = n * 10 + (base[i] - '0'); i++; }
+                if (i >= 3 && n >= nextNum) nextNum = n + 1;
+                f.close();
+                f = dir.openNextFile();
+            }
+            dir.close();
+        }
+    }
+    if (nextNum > 999) nextNum = 999;   // cap at 999
+
+    if (ClockManager::instance().isValid()) {
+        char ts[24];
+        ClockManager::instance().getTimestamp(ts, sizeof(ts));
+        // "YYYY-MM-DD HH:MM:SS" → NNN_YYYYMMDD_HHMMSS.cap
+        snprintf(_pcapPath, sizeof(_pcapPath),
+            "/logs/wm/%03d_%c%c%c%c%c%c%c%c_%c%c%c%c%c%c.cap",
+            nextNum,
+            ts[0],ts[1],ts[2],ts[3], ts[5],ts[6], ts[8],ts[9],
+            ts[11],ts[12], ts[14],ts[15], ts[17],ts[18]);
+    } else {
+        snprintf(_pcapPath, sizeof(_pcapPath), "/logs/wm/%03d.cap", nextNum);
+    }
     _pcapFile = SD.open(_pcapPath, FILE_WRITE);
     if (!_pcapFile) { _pcapPath[0] = '\0'; return; }
 
@@ -740,6 +793,10 @@ void WiFiMonitor::flushPcap() {
     _pcapFile.flush();
     _lastPcapFlush = millis();
 
+    // flush probe log in the same promiscuous-paused window (GDMA rule)
+    flushProbeLog();
+    _lastProbeFlush = millis();
+
     // resume promiscuous
     wifi_promiscuous_filter_t filt = {
         .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA
@@ -773,6 +830,80 @@ void WiFiMonitor::closePcap() {
     _pcapOpen = false;
 }
 
+// ── probe log: open (append mode) — call BEFORE promiscuous ──────────────────
+void WiFiMonitor::openProbeLog() {
+    if (!_sd.canAccessSD()) return;
+    _sd.ensureDir("/logs");
+    strncpy(_probePath, "/logs/probes.csv", sizeof(_probePath) - 1);
+    _probePath[sizeof(_probePath) - 1] = '\0';
+    bool isNew = !SD.exists(_probePath);
+    _probeFile = SD.open(_probePath, FILE_APPEND);
+    if (!_probeFile) { _probePath[0] = '\0'; return; }
+    if (isNew) {
+        _probeFile.println("time_ms,mac,vendor,ssid,rssi");
+        _probeFile.flush();
+    }
+    _probeOpen      = true;
+    _probeCount     = 0;
+    _dedupCount     = 0;
+    _dedupHead      = 0;
+    _probePendCount = 0;
+    _lastProbeFlush = millis();
+}
+
+// ── probe log: write pending entries — call with promiscuous paused ───────────
+void WiFiMonitor::flushProbeLog() {
+    if (!_probeOpen || _probePendCount == 0) return;
+    for (int i = 0; i < _probePendCount; i++) {
+        WmProbeEntry& e = _probePending[i];
+        OuiInfo info = ouiLookup(e.mac);
+        char line[108];
+        snprintf(line, sizeof(line), "%lu,%02X:%02X:%02X:%02X:%02X:%02X,%s,%s,%d",
+            (unsigned long)e.tsMs,
+            e.mac[0], e.mac[1], e.mac[2], e.mac[3], e.mac[4], e.mac[5],
+            info.vendor ? info.vendor : "?",
+            e.ssid, (int)e.rssi);
+        _probeFile.println(line);
+        _probeCount++;
+    }
+    _probeFile.flush();
+    _probePendCount = 0;
+}
+
+// ── probe log: final flush + close ───────────────────────────────────────────
+void WiFiMonitor::closeProbeLog() {
+    if (!_probeOpen) return;
+    flushProbeLog();
+    _probeFile.close();
+    _probeOpen = false;
+}
+
+// ── probe log: deduplicate and buffer one entry ───────────────────────────────
+void WiFiMonitor::logProbe(const uint8_t* mac, const char* ssid,
+                            int8_t rssi, uint32_t tsMs) {
+    if (!_probeOpen || !ssid || !ssid[0]) return;
+    // dedup: skip if this exact MAC+SSID was already logged this session
+    int check = (_dedupCount < WM_PROBE_DEDUP) ? _dedupCount : WM_PROBE_DEDUP;
+    for (int i = 0; i < check; i++) {
+        if (memcmp(_dedup[i].mac, mac, 6) == 0 &&
+            strcmp(_dedup[i].ssid, ssid) == 0) return;
+    }
+    // add to dedup ring (circular — overwrites oldest when full)
+    memcpy(_dedup[_dedupHead].mac, mac, 6);
+    strncpy(_dedup[_dedupHead].ssid, ssid, 32);
+    _dedup[_dedupHead].ssid[32] = '\0';
+    _dedupHead = (_dedupHead + 1) % WM_PROBE_DEDUP;
+    if (_dedupCount < WM_PROBE_DEDUP) _dedupCount++;
+    // buffer for next SD flush
+    if (_probePendCount < WM_PROBE_BUF) {
+        WmProbeEntry& e = _probePending[_probePendCount++];
+        memcpy(e.mac, mac, 6);
+        strncpy(e.ssid, ssid, 32); e.ssid[32] = '\0';
+        e.rssi = rssi;
+        e.tsMs = tsMs;
+    }
+}
+
 // ── main loop ─────────────────────────────────────────────────────────────────
 void WiFiMonitor::start(int fixedChannel) {
     resetAll();
@@ -780,7 +911,8 @@ void WiFiMonitor::start(int fixedChannel) {
     WiFi.disconnect(false);
     WiFi.mode(WIFI_STA);
 
-    // open PCAP file BEFORE promiscuous — GDMA rule
+    // open PCAP BEFORE promiscuous — GDMA rule
+    // probe log starts OFF — user presses [p] to start
     openPcap();
 
     // reset filter — prior ws/da sessions set DATA-only which hides beacons
@@ -827,7 +959,22 @@ void WiFiMonitor::start(int fixedChannel) {
         // flush PCAP ring every 2s or at 25% full — keeps pause time short
         uint16_t pcapUsed = (s_pcapHead - s_pcapTail + WM_PCAP_RING) % WM_PCAP_RING;
         if (_pcapOpen && (now - _lastPcapFlush > PCAP_FL_MS || pcapUsed >= WM_PCAP_RING/4)) {
-            flushPcap();
+            flushPcap();  // also flushes probe log inside same pause window
+        }
+
+        // probe log standalone flush (when PCAP is off) — same GDMA pause pattern
+        if (_probeOpen && !_pcapOpen && now - _lastProbeFlush > 5000 && _probePendCount > 0) {
+            s_pcapActive = false;
+            esp_wifi_set_promiscuous(false);
+            flushProbeLog();
+            _lastProbeFlush = now;
+            wifi_promiscuous_filter_t pf = {
+                .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA
+            };
+            esp_wifi_set_promiscuous_filter(&pf);
+            esp_wifi_set_promiscuous(true);
+            esp_wifi_set_promiscuous_rx_cb(rxCallback);
+            setChannel(_currentChannel);
         }
 
         processRing();
@@ -854,6 +1001,33 @@ void WiFiMonitor::start(int fixedChannel) {
         if (k == 'h' || k == 'H') {
             _hopping = !_hopping;
             if (_hopping) { _currentChannel = 1; lastHop = 0; }
+        }
+
+        // probe log toggle
+        if (k == 'p' || k == 'P') {
+            s_pcapActive = false;
+            esp_wifi_set_promiscuous(false);
+            if (_probeOpen) {
+                closeProbeLog();
+                setStatus("Probe log stopped");
+            } else {
+                openProbeLog();
+                if (_probeOpen) {
+                    char msg[44];
+                    snprintf(msg, sizeof(msg), "Probes -> %s", _probePath);
+                    setStatus(msg, 3000);
+                } else {
+                    setStatus("Probe log: no SD");
+                }
+            }
+            wifi_promiscuous_filter_t f2 = {
+                .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA
+            };
+            esp_wifi_set_promiscuous_filter(&f2);
+            esp_wifi_set_promiscuous(true);
+            esp_wifi_set_promiscuous_rx_cb(rxCallback);
+            setChannel(_currentChannel);
+            s_pcapActive = _pcapOpen;
         }
 
         // PCAP toggle
@@ -934,8 +1108,9 @@ void WiFiMonitor::start(int fixedChannel) {
     esp_wifi_set_promiscuous(false);
     esp_wifi_set_promiscuous_rx_cb(nullptr);
 
-    // final PCAP flush + close (promiscuous already off)
+    // final PCAP + probe log flush + close (promiscuous already off)
     closePcap();
+    closeProbeLog();
 
     _dm.clearScreen();
     _dm.setCursor(4, outputY);
@@ -950,6 +1125,13 @@ void WiFiMonitor::start(int fixedChannel) {
         snprintf(pcapMsg, sizeof(pcapMsg), "PCAP: %lu frm -> %s",
                  (unsigned long)_pcapFrames, _pcapPath);
         _dm.println(pcapMsg);
+    }
+    if (_probeCount > 0) {
+        _dm.setTextColor(TFT_CYAN);
+        char probeMsg[52];
+        snprintf(probeMsg, sizeof(probeMsg), "Probes: %lu unique -> /logs/probes.csv",
+                 (unsigned long)_probeCount);
+        _dm.println(probeMsg);
     }
     _dm.setTextColor(TFT_WHITE);
     vTaskDelay(pdMS_TO_TICKS(2000));

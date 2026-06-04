@@ -37,7 +37,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 ## Features
 
 **📡 WiFi Attacks** — [full guide](docs/wifi-attacks.md)
-- Scan, connect, monitor mode, targeted deauth, raw PCAP capture (Wireshark-compatible)
+- Scan, connect, monitor mode (Nets + Clients views), targeted deauth, raw PCAP capture (Wireshark-compatible), passive probe logger (MAC+SSID harvest → CSV)
 - Evil Twin AP with adaptive deauth + captive portal
 - Hidden SSID reveal, WPA2 handshake capture + on-device crack, PMKID capture + crack (no client needed)
 - MAC spoofer, WPS flag detection
@@ -132,7 +132,7 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `wifipass` | `wp` | — | View all saved WiFi passwords (SD + NVS merged) |
 | `wifiexport` | `wex` | — | Export NVS credentials → wpa_supplicant.conf |
 | `clearwifi` | `clrw` | — | Erase saved credentials |
-| `wifimon` | `wm` | `[ch]` | Monitor mode — nets view (client count, RSSI) + clients view (vendor/type/AP, trackpad cursor, `[d]` targeted deauth); raw PCAP sniffer to `/logs/wm/*.cap` (Wireshark-compatible); `[s]` toggle capture |
+| `wifimon` | `wm` | `[ch]` | Monitor mode — Nets view (BSSID/CH/RSSI/clients) + Clients view (vendor/type/AP, trackpad cursor, `[d]` targeted deauth); `[s]` raw PCAP → `/logs/wm/NNN_YYYYMMDD_HHMMSS.cap`; `[p]` probe logger → `/logs/probes.csv` (MAC+SSID harvest, deduped) |
 | `deauth` | `da` | `<bssid\|#> [ch] [client]` | Deauth attack |
 | `eviltwin` | `et` | — | Evil Twin AP + captive portal |
 | `hiddenssid` | `hs` | `<idx\|bssid> [ch] [silent]` | Reveal hidden SSID |
@@ -219,6 +219,8 @@ All scan tables share the same keys:
 /lockscreen.conf      — lock screen config (timeout, PIN hash+salt)
 /signatures.csv       — custom BLE tracker signatures
 /logs/                — eviltwin.csv, trackme.csv, hidden_ssids.csv, cracked.csv, fastpair.csv
+/logs/probes.csv      — probe request harvest from wm [p]: time_ms,mac,vendor,ssid,rssi (appended across sessions)
+/logs/wm/             — raw 802.11 PCAP files: 001.cap or 001_20260604_143022.cap (sequential, never overwritten)
 /logs/wguard/         — wguard session files (001.csv, 002.csv … — never overwritten)
 /logs/hs/             — WPA handshake captures (<BSSID>.cap) + PMKID captures (pm_<BSSID>.cap); libpcap format, hashcat/aircrack-ng compatible
 /logs/bleinfo/        — GATT dumps (<mac>.txt), sniff logs (<mac>_sniff.txt), write-cap archives (<mac>_replay.ble)

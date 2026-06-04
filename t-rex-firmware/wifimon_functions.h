@@ -16,6 +16,8 @@
 // PCAP ring — raw frames buffered in RAM, flushed to SD with promiscuous paused
 #define WM_PCAP_RING     64     // 64 × 262 bytes ≈ 17 KB — fits in DRAM
 #define WM_PCAP_SNAPLEN  256    // max raw bytes captured per frame
+#define WM_PROBE_DEDUP   64     // unique MAC+SSID pairs deduplicated in RAM
+#define WM_PROBE_BUF     16     // pending probe entries before SD flush
 
 enum WmView { VIEW_NETS, VIEW_CLIENTS };
 
@@ -53,6 +55,18 @@ struct WmRawFrame {
     uint32_t tsMs;
     uint16_t len;
     uint8_t  data[WM_PCAP_SNAPLEN];
+};
+
+struct WmProbeEntry {
+    uint8_t  mac[6];
+    char     ssid[33];
+    int8_t   rssi;
+    uint32_t tsMs;
+};
+
+struct WmProbeDedup {
+    uint8_t mac[6];
+    char    ssid[33];
 };
 
 class WiFiMonitor {
@@ -95,8 +109,20 @@ private:
     File     _pcapFile;
     bool     _pcapOpen;
     uint32_t _pcapFrames;
-    char     _pcapPath[36];
+    char     _pcapPath[44];
     uint32_t _lastPcapFlush;
+
+    // probe log
+    File         _probeFile;
+    bool         _probeOpen;
+    uint32_t     _probeCount;
+    uint32_t     _lastProbeFlush;
+    char         _probePath[40];
+    WmProbeDedup _dedup[WM_PROBE_DEDUP];
+    int          _dedupCount;
+    int          _dedupHead;
+    WmProbeEntry _probePending[WM_PROBE_BUF];
+    int          _probePendCount;
 
     void resetAll();
     void processRing();
@@ -115,6 +141,10 @@ private:
     void openPcap();
     void flushPcap();
     void closePcap();
+    void openProbeLog();
+    void flushProbeLog();
+    void closeProbeLog();
+    void logProbe(const uint8_t* mac, const char* ssid, int8_t rssi, uint32_t tsMs);
     void setStatus(const char* msg, uint32_t ms = 2500);
 
     static String macStr(const uint8_t* mac);

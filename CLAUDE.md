@@ -100,6 +100,13 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
   - Drop counter (`s_pcapDropped`) shown on screen as `1234 frm -N`; drops don't corrupt file
   - `[s]` toggles PCAP on/off; auto-starts on launch if SD available
   - Ring: 64 slots × 262 bytes = ~17KB DRAM
+- **Probe logger**: passive directed-probe harvest → `/logs/probes.csv`
+  - `[p]` toggles on/off; starts OFF — user must press `[p]` to begin logging
+  - Only logs directed probes (non-empty SSID) — wildcard broadcast probes skipped
+  - Dedup in RAM: 64-entry circular ring (MAC+SSID), never writes the same pair twice per session
+  - Flush piggybacked on PCAP pause window; standalone 5s flush when PCAP is off
+  - Stats row shows `Log:N` (unique pairs saved) when active; cyan `[p]` in controls when logging
+  - CSV: `time_ms,mac,vendor,ssid,rssi` — human-readable, no Wireshark needed
 - Client expiry: unassociated clients dropped after 90 s silence via `expireClients()`
 - Status banner: green = deauth ok, red = fail/unassoc, yellow = info; auto-clears after 3.5 s
 

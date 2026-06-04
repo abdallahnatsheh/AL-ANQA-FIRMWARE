@@ -10,7 +10,6 @@ nav_order: 2
 
 ```
 CMD> wm             # channel-hop across all 2.4 GHz channels
-CMD> wm 0           # same as above
 CMD> wm 6           # lock to channel 6
 CMD> wm 11          # lock to channel 11
 ```
@@ -19,30 +18,90 @@ Press `q` to stop.
 
 ---
 
-## How It Works
+## Two Views
 
-`wifimon` puts the ESP32-S3 radio into **promiscuous mode** — it stops filtering frames by destination MAC and captures everything in the air on the selected channel. Each captured frame is decoded and printed as a single line.
+Switch between views with `[v]`.
 
-Every line shows:
+### Nets View (default)
+Shows every AP in range:
 ```
-[TYPE]  SSID/name        SRC_MAC            BSSID              CH  RSSI
-[BCN]   HomeNetwork      AA:BB:CC:DD:EE:FF  AA:BB:CC:DD:EE:FF  6   -42
-[PRB]   MyPhone          11:22:33:44:55:66  FF:FF:FF:FF:FF:FF  0   -67
-[DTH]   -                AA:BB:CC:DD:EE:FF  CC:DD:EE:FF:00:11  6   -55
+BSSID             CH RSSI Cli SSID
+AA:BB:CC:DD:EE:FF  6  -42   3 HomeNetwork
+11:22:33:44:55:66  1  -71   0 <hidden>
 ```
+
+### Clients View
+Shows every device seen — associated or probing:
+```
+  MAC               Vendor   Type  RSSI  AP
+> AA:BB:CC:DD:EE:FF Apple    Phone  -55  HomeNet
+  11:22:33:44:55:66 Samsung  Phone  -71  ---
+```
+
+Use trackpad **UP/DOWN** to move the cursor. Press `[d]` to targeted-deauth the selected client.
 
 ---
 
-## Frame Types
+## Keys
 
-| Code | Frame | What it means |
-|------|-------|---------------|
-| `[BCN]` | Beacon | AP advertising itself — shows SSID, channel, RSSI |
-| `[PRB]` | Probe request | Device looking for a network — shows device MAC, requested SSID |
-| `[PRS]` | Probe response | AP responding to a probe |
-| `[DTH]` | Deauth / Disassoc | Client being kicked — useful to spot attacks |
-| `[DAT]` | Data frame | Encrypted payload (no content visible, just MACs + RSSI) |
-| `[MGT]` | Other management | Auth, assoc, reassoc frames |
+| Key | Action |
+|-----|--------|
+| `[v]` | Toggle Nets ↔ Clients view |
+| `[h]` | Toggle channel hop on/off |
+| `[1]`–`[9]` | Lock to channel 1–9 |
+| `[0]` | Cycle channels 10–13 |
+| `[s]` | Toggle raw PCAP capture on/off |
+| `[p]` | Toggle probe logger on/off |
+| `[d]` | Deauth selected client (Clients view) |
+| `[q]` | Quit |
+
+---
+
+## Raw PCAP Capture
+
+`[s]` toggles raw 802.11 frame capture. Auto-starts on launch if SD is present.
+
+- File naming:
+  - Clock synced (NTP/GPS): `/logs/wm/001_20260604_143022.cap`
+  - No clock: `/logs/wm/001.cap`
+  - Counter always increments — **never overwrites** previous sessions
+- Format: libpcap linktype 105 (LINKTYPE_IEEE802_11) — open directly in Wireshark or aircrack-ng
+- Drop counter shown on screen as `1234 frm -N` when ring overflows (file stays valid)
+
+---
+
+## Probe Logger
+
+`[p]` toggles passive probe request logging. Starts **OFF** — press `[p]` to begin.
+
+Devices broadcast **probe requests** to reconnect to remembered networks. Every directed probe (non-wildcard) is logged:
+
+```csv
+time_ms,mac,vendor,ssid,rssi
+18420,AA:BB:CC:DD:EE:FF,Apple,Marriott_Guest,-65
+18501,AA:BB:CC:DD:EE:FF,Apple,United_WiFi,-63
+18890,11:22:33:44:55:66,Samsung,CorpVPN,-71
+```
+
+- Saved to `/logs/probes.csv` (append mode — survives across sessions)
+- Deduplicated in RAM: same MAC+SSID pair logged only once per session
+- Stats row shows `Log:N` (unique pairs) when active
+- Works without SD card — silently stays off if no SD
+
+**Use case:** A device probing for `Marriott_Guest` + `CorpVPN` reveals travel patterns and corporate affiliation. Combine with `et` to create a matching fake AP for auto-connect.
+
+---
+
+## Targeted Deauth
+
+In Clients view, use trackpad to select a client and press `[d]`:
+
+1. Promiscuous stops
+2. Switches to APSTA mode
+3. Injects AP→STA + STA→AP deauth + disassoc × 5 rounds
+4. Returns to monitor mode
+
+Status banner shows result (green = ok, red = fail).
 
 ---
 
@@ -50,16 +109,24 @@ Every line shows:
 
 | Mode | Behaviour |
 |------|-----------|
-| `wm` / `wm 0` | Hops channels 1→2→…→13, dwelling ~200ms per channel. Sees all traffic but may miss short bursts on any given channel. |
-| `wm <ch>` | Locks to one channel. Captures every frame on that channel with no gaps — use this when targeting a specific AP. |
+| `wm` / `wm 0` | Hops 1→2→…→13, ~200 ms per channel. Sees all traffic but may miss short bursts. |
+| `wm <ch>` | Locks to one channel. Every frame on that channel captured with no gaps. |
 
 ---
 
-## Use Cases
+## SD Layout
 
-- **Passive recon** — see every AP and device in range without sending a single frame
-- **Verify deauth attack** — lock to the target channel and watch for `[DTH]` frames you're injecting
-- **Spot hidden SSIDs** — probe requests reveal what SSIDs nearby devices are looking for
-- **Catch rogue devices** — unusual MACs probing at night, unexpected data frames
+```
+/logs/wm/001.cap                     ← no NTP at capture time
+/logs/wm/002_20260604_143022.cap     ← NTP/GPS synced
+/logs/wm/003_20260604_151800.cap     ← NTP/GPS synced
+/logs/probes.csv                     ← probe harvest (all sessions, appended)
+```
 
-> BLE and WiFi share one antenna — they cannot run simultaneously. Stop any active BLE scan before starting `wm`.
+---
+
+## Notes
+
+- BLE and WiFi share one antenna — stop any BLE command before starting `wm`
+- SD writes pause promiscuous for ~5 ms (GDMA rule) — brief gap in capture, no data loss
+- Unassociated clients expire after 90 s of silence
