@@ -5,6 +5,7 @@
 #include "usb_manager.h"
 #include "display_manager.h"
 #include "input_handling.h"
+#include "lockscreen_manager.h"
 #include "sdcard_manager.h"
 #include "constants.h"
 #include "utilities.h"
@@ -180,27 +181,31 @@ void USBManager::startMSC() {
     }
 
     // ── UI ────────────────────────────────────────────────────────────────────
-    dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
-    dm.setTextColor(0x7BEF);    dm.printText("[");
-    dm.setTextColor(TFT_CYAN);  dm.printText("USB");
-    dm.setTextColor(0x7BEF);    dm.printText("::");
-    dm.setTextColor(TFT_YELLOW);dm.printText("MSC");
-    dm.setTextColor(0x7BEF);    dm.println("]");
-    dm.printSeparator();
-    dm.setCursor(10, dm.getCursorY());
-    dm.setTextColor(0x7BEF);    dm.printText("Mode    ");
-    dm.setTextColor(TFT_GREEN); dm.println("Mass Storage");
-    dm.setCursor(10, dm.getCursorY());
-    dm.setTextColor(0x7BEF);    dm.printText("Size    ");
-    dm.setTextColor(TFT_WHITE);
-    char buf[24]; snprintf(buf, sizeof(buf), "%u MB", (unsigned)(numSectors / 2048));
-    dm.println(buf);
-    dm.printSeparator();
-    dm.setCursor(10, dm.getCursorY());
-    dm.setTextColor(TFT_YELLOW);dm.println("SD visible on PC");
-    dm.setCursor(10, dm.getCursorY());
-    dm.setTextColor(0x7BEF);    dm.println("Eject on PC first, then [q]");
-    dm.setTextColor(TFT_WHITE);
+    uint32_t mscNumSectors = numSectors;   // captured for redraw lambda
+    auto drawMscScreen = [&]() {
+        dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+        dm.setTextColor(0x7BEF);    dm.printText("[");
+        dm.setTextColor(TFT_CYAN);  dm.printText("USB");
+        dm.setTextColor(0x7BEF);    dm.printText("::");
+        dm.setTextColor(TFT_YELLOW);dm.printText("MSC");
+        dm.setTextColor(0x7BEF);    dm.println("]");
+        dm.printSeparator();
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(0x7BEF);    dm.printText("Mode    ");
+        dm.setTextColor(TFT_GREEN); dm.println("Mass Storage");
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(0x7BEF);    dm.printText("Size    ");
+        dm.setTextColor(TFT_WHITE);
+        char buf[24]; snprintf(buf, sizeof(buf), "%u MB", (unsigned)(mscNumSectors / 2048));
+        dm.println(buf);
+        dm.printSeparator();
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(TFT_YELLOW);dm.println("SD visible on PC");
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(0x7BEF);    dm.println("Eject on PC first, then [q]");
+        dm.setTextColor(TFT_WHITE);
+    };
+    drawMscScreen();
 
     // ── Stop WiFi GDMA, drain display DMA, release SPI2 ──────────────────────
     wifi_mode_t wifiMode = WIFI_MODE_NULL;
@@ -235,6 +240,8 @@ void USBManager::startMSC() {
     uint32_t lastKeyMs = millis();
     while (s_mscActive) {
         serviceMscIO();
+        if (LockScreenManager::getInstance().consumeJustUnlocked())
+            drawMscScreen();
         if (millis() - lastKeyMs >= 200) {
             lastKeyMs = millis();
             char k = inputHandler.getKeyboardInput();
