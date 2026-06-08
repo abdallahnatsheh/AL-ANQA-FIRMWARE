@@ -697,9 +697,8 @@ void WGuard::processFrame(const WgFrame& f) {
             char msg[44];
             snprintf(msg, sizeof(msg), "BCN INTERVAL COMPRESSED %02X:%02X:%02X:%02X:%02X:%02X",
                      f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
-            addEvent(1, msg, f.rssi, nullptr);   // WARNING
+            addEvent(0, msg, f.rssi, nullptr);   // INFO — standalone compress is common on legit APs
             _threatBiCompress++;
-            notifyThrottled(NOTIF_WARNING, now);
             // Upgrade: interval compression after a clone WARNING.
             // Require deauth also seen — enterprise multi-AP setups (Fortinet, Cisco mesh)
             // produce ts-jump + interval compression legitimately but NEVER deauth their
@@ -733,9 +732,8 @@ void WGuard::processFrame(const WgFrame& f) {
             char msg[44];
             snprintf(msg, sizeof(msg), "CLOCK SKEW ANOMALY %02X:%02X:%02X:%02X:%02X:%02X",
                      f.src[0], f.src[1], f.src[2], f.src[3], f.src[4], f.src[5]);
-            addEvent(1, msg, f.rssi, "ts-fingerprint mismatch >2s");   // WARNING
+            addEvent(0, msg, f.rssi, "ts-fingerprint mismatch >2s");   // INFO — indistinguishable from AP reboot
             _threatClockSkew++;
-            notifyThrottled(NOTIF_WARNING, now);
         }
         break;
     }
