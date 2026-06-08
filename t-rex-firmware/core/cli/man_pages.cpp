@@ -15,7 +15,7 @@ static const int MAN_VISIBLE = 9;  // content lines visible at once
 struct ManEntry {
     const char* cmd;
     const char* shortName;
-    const char* lines[24]; // nullptr-terminated, max 23 content lines
+    const char* lines[32]; // nullptr-terminated, max 31 content lines
 };
 
 static const ManEntry PAGES[] = {
@@ -821,7 +821,7 @@ void ManPages::renderPage(int idx, int scrollTop, int total) {
 // Count non-null lines in a ManEntry
 static int countLines(const ManEntry& pg) {
     int n = 0;
-    while (n < 23 && pg.lines[n]) n++;
+    while (n < 31 && pg.lines[n]) n++;
     return n;
 }
 
