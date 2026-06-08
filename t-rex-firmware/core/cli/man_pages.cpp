@@ -669,6 +669,60 @@ static const ManEntry PAGES[] = {
         "KEYS     [q] stop RX monitor",
         nullptr
     }},
+
+    { "espchat", "ec", {
+        "SYNTAX   ec [pub|prv|bg|stop] [ch]",
+        "",
+        "ABOUT    ESP-NOW off-grid chat. No router.",
+        "         200m+ LOS. Any ESP32/8266 can join",
+        "         the public channel.",
+        "",
+        "MODES    ec          mode picker",
+        "         ec pub [ch] broadcast (open)",
+        "         ec prv <M>  private 1:1 AES-128",
+        "         ec bg [ch]  background listener",
+        "         ec stop     stop background",
+        "         ec pub set <ch>  save default ch",
+        "",
+        "PAIR     Initiator: [click] in pub to pair.",
+        "         PIN shown → receiver types it.",
+        "         3 attempts — fail = remove contact.",
+        "         Contact saved to SD or RAM (no SD).",
+        "         RAM contacts cleared on reboot.",
+        "",
+        "NOTIF    Public msg  = PING  (short beep)",
+        "         Private msg = INFO  (longer beep)",
+        "         Pair req    = WARN  (double beep)",
+        "",
+        "FILES    /espchat/pub/chN.log",
+        "         /espchat/prv/<MAC>.log",
+        "         /espchat/contacts.csv",
+        "KEYS     [+/-]ch  [trk]scroll  [hold trk]exit",
+        nullptr
+    }},
+
+    { "espsniff", "es", {
+        "SYNTAX   es [ch]",
+        "",
+        "ABOUT    Passive ESP-NOW frame sniffer.",
+        "         Captures all ESP-NOW action frames.",
+        "",
+        "KEYS     [c]hop/lock [+/-]ch [j/k]select",
+        "         [Enter]detail [a/l]page [s]save",
+        "         [f]filter [x]clear [q]quit",
+        "FILES    /logs/espsniff/NNN.csv + NNN.pcap",
+        nullptr
+    }},
+
+    { "esptest", "est", {
+        "SYNTAX   est [ch]",
+        "",
+        "ABOUT    ESP-NOW TX+RX test tool.",
+        "         Broadcasts every 2s, shows RX log.",
+        "",
+        "KEYS     [+/-]ch  [q]quit",
+        nullptr
+    }},
 };
 
 static const int PAGE_COUNT = (int)(sizeof(PAGES) / sizeof(PAGES[0]));

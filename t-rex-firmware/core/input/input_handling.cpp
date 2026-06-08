@@ -4,6 +4,7 @@
 #include "lockscreen_manager.h"
 #include "clock_manager.h"
 #include "wguard.h"
+#include "espchat.h"
 #include <Wire.h>
 #include <esp_timer.h>
 
@@ -88,6 +89,7 @@ char InputHandling::getKeyboardInput() {
     PowerSaveManager::getInstance().update();
     ClockManager::instance().update();
     wGuard.pollBackground();
+    pollEspchatBg();
 
     // Double-click screen-off — ISR captured it, we just act on the flag
     if (s_doubleClickPending) {

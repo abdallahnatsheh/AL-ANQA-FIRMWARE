@@ -707,42 +707,15 @@ void WiFiMonitor::openPcap() {
     _sd.ensureDir("/logs");
     _sd.ensureDir("/logs/wm");
 
-    // always use a sequential counter — scan existing files to continue the count
-    // format: 001.cap (no clock) or 001_20260604_143022.cap (clock synced)
-    int nextNum = 1;
-    {
-        File dir = SD.open("/logs/wm");
-        if (dir) {
-            File f = dir.openNextFile();
-            while (f) {
-                // f.name() returns full path — extract basename after last '/'
-                const char* fullName = f.name();
-                const char* base = strrchr(fullName, '/');
-                base = base ? base + 1 : fullName;
-                // parse leading digits (must be at least 3)
-                int n = 0, i = 0;
-                while (base[i] >= '0' && base[i] <= '9') { n = n * 10 + (base[i] - '0'); i++; }
-                if (i >= 3 && n >= nextNum) nextNum = n + 1;
-                f.close();
-                f = dir.openNextFile();
-            }
-            dir.close();
-        }
+    // probe for next free NNN — same pattern used by wguard/espsniff (never overwrites)
+    uint16_t nextNum = 1;
+    while (nextNum < 999) {
+        char probe[40];
+        snprintf(probe, sizeof(probe), "/logs/wm/%03u.cap", nextNum);
+        if (!SD.exists(probe)) break;
+        nextNum++;
     }
-    if (nextNum > 999) nextNum = 999;   // cap at 999
-
-    if (ClockManager::instance().isValid()) {
-        char ts[24];
-        ClockManager::instance().getTimestamp(ts, sizeof(ts));
-        // "YYYY-MM-DD HH:MM:SS" → NNN_YYYYMMDD_HHMMSS.cap
-        snprintf(_pcapPath, sizeof(_pcapPath),
-            "/logs/wm/%03d_%c%c%c%c%c%c%c%c_%c%c%c%c%c%c.cap",
-            nextNum,
-            ts[0],ts[1],ts[2],ts[3], ts[5],ts[6], ts[8],ts[9],
-            ts[11],ts[12], ts[14],ts[15], ts[17],ts[18]);
-    } else {
-        snprintf(_pcapPath, sizeof(_pcapPath), "/logs/wm/%03d.cap", nextNum);
-    }
+    snprintf(_pcapPath, sizeof(_pcapPath), "/logs/wm/%03u.cap", nextNum);
     _pcapFile = SD.open(_pcapPath, FILE_WRITE);
     if (!_pcapFile) { _pcapPath[0] = '\0'; return; }
 

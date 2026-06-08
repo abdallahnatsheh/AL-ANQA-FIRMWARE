@@ -44,6 +44,11 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 - **Beacon flood** (`bf`) — inject hundreds of fake beacon frames/sec; 5 modes: built-in list, rickroll, sequential, SD file, or clone a real network from scan; ~90-100 frames/sec, random MAC per beacon, automatic channel hopping — [full guide](docs/beacon-flood.md)
 - **WiFi IDS** (`wguard`) — passive intrusion detection: deauth flood, evil twin, handshake harvest, PMKID grab, auth flood, probe storm, beacon flood, BSSID cloning, Karma attack; background mode with shield icon + popup alerts; session CSV logs with session-relative timestamps
 
+**📻 ESP-NOW Radio** — [full guide](docs/espnow.md)
+- **Off-grid chat** (`ec`) — encrypted peer-to-peer messaging over ESP-NOW; no router, no WiFi association, 200 m+ LOS range; any ESP32/ESP8266 device can join the public channel; private mode uses AES-128 (CCMP) with PIN-derived LMK; 3-attempt PIN validation via encrypted round-trip — wrong PIN silently dropped by hardware; contacts saved to SD (persistent) or RAM (session-only, cleared on reboot); background mode (`ec bg`) with popup bar + notification sounds; timestamps, scroll slider, unread badge, private header shows contact name — [full guide](docs/espnow.md)
+- **ESP-NOW sniffer** (`es`) — passive action-frame capture; CSV + PCAP output; channel hop or lock; filter, detail view
+- **ESP-NOW diagnostic** (`est`) — broadcast ping every 2 s, RX log, channel select
+
 **🔑 WiFi Credentials** — [full guide](docs/wifi-credentials.md)
 - Saved credential manager (`wifipass`) — view all saved passwords
 - Auto-save on connect, NVS + SD dual storage
@@ -141,6 +146,9 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `pmkid` | `pm` | `<idx\|bssid> [ch]` | PMKID capture + crack — passive, no client or deauth needed |
 | `wguard` | `wg` | `<idx\|bssid> [ch] [bg]` | WiFi IDS — passive intrusion detection; `wg stop` / `wg view` |
 | `beaconflood` | `bf` | `[list\|rickroll\|seq <base>\|file [path]\|clone]` | Beacon flood — fake AP injection; interactive mode picker; clone mirrors real network security |
+| `espsniff` | `es` | `[ch 1-13]` | Passive ESP-NOW frame sniffer — CSV + PCAP output, filter, detail view |
+| `esptest` | `est` | `[ch 1-13]` | ESP-NOW TX/RX diagnostic — broadcasts every 2 s, shows RX log |
+| `espchat` | `ec` | `[pub\|prv\|bg\|stop] [ch]` | Off-grid ESP-NOW chat — public broadcast (any ESP32 compatible) or private AES-128 encrypted 1:1; `ec bg` runs in background |
 | **Network** | | | |
 | `netdiscover` | `nd` | — | ARP scan local /24 |
 | `portscan` | `ps` | `<ip\|#> <start> <end>` | TCP port scan |

@@ -8,7 +8,7 @@ except NameError:
     _project_dir = os.path.dirname(os.path.abspath(__file__))
 
 PNG_PATH    = os.path.join(_project_dir, "images", "T-REX-LOADING SCREEN.png")
-HEADER_PATH = os.path.join(_project_dir, "t-rex-firmware", "splash_image.h")
+HEADER_PATH = os.path.join(_project_dir, "t-rex-firmware", "ui", "splash", "splash_image.h")
 TARGET_W, TARGET_H = 320, 240
 
 # ── PNG decode (pure Python, no Pillow) ──────────────────────────────────────

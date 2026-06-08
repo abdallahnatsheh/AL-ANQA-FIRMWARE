@@ -187,6 +187,14 @@ void DisplayManager::updateStatusBar() {
     }
 #endif
 
+    // ── EC (ESPChat bg) badge — bottom-left strip, clear of all other elements ──
+    tft.fillRect(82, promptY + 20, 18, 8, 0x000F);  // clear area
+    if (_ecActive) {
+        tft.setTextColor(TFT_CYAN);
+        tft.setCursor(82, promptY + 20);
+        tft.print("EC");
+    }
+
     // ── BT icon ───────────────────────────────────────────────────────────────
     drawBTIcon(tft, 255, promptY + 15, _btActive);
 
@@ -205,6 +213,17 @@ void DisplayManager::setWGuardState(bool active, uint8_t maxSev) {
     _wgMaxSev = maxSev;
     // Redraw just the shield without a full status bar repaint
     drawWGuardIcon(tft, 215, promptY + 15, _wgActive, _wgMaxSev);
+}
+
+void DisplayManager::setEcActive(bool active) {
+    _ecActive = active;
+    // Partial redraw — just the EC badge area
+    tft.fillRect(82, promptY + 20, 18, 8, 0x000F);
+    if (_ecActive) {
+        tft.setTextColor(TFT_CYAN);
+        tft.setCursor(82, promptY + 20);
+        tft.print("EC");
+    }
 }
 
 void DisplayManager::tdeck_begin() {

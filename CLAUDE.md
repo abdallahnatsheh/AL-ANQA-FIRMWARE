@@ -118,11 +118,21 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 
 ## Commands
 System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `lock/lk`
-WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `wguard/wg` `beaconflood/bf`
+WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `wguard/wg` `beaconflood/bf` `espsniff/es` `esptest/est` `espchat/ec`
 Network: `netdiscover/nd` `portscan/ps` `topscan/ts` `ping/pg`
 Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
 SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `sdrm/srm` `sdf/sdf`
 Diagnostics: `gps/gps` `spktest/st` `loratest/lt`
+
+**ESPChat** (`espchat/ec`, `espsniff/es`, `esptest/est`) — `radio/espnow/espchat/`, `espsniff/`, `esptest/`:
+- Wire format: `EcMsg{type(1)+seq(1)+name[12]+text[100]}` = 114 bytes, type=0x01; broadcast ch compatible with any ESP32/ESP8266
+- Public chat: `WIFI_STA` + broadcast peer (FF:FF:FF:FF:FF:FF) unencrypted
+- Private chat: ESP-NOW CCMP AES-128, LMK = SHA-256(PIN + sorted(mac_A, mac_B))[:16]
+- Pairing: initiator derives LMK immediately, adds encrypted peer; receiver sends "* pair ok" encrypted; initiator replies "* pin ack" encrypted — wrong PIN = frame dropped; 3 attempts, fail = `ecRemoveContact()`
+- Background (`ec bg`): `pollEspchatBg()` hooked in `getKeyboardInput()`; `EC` badge in status bar; public=PING, private=INFO notification
+- Contacts: SD → `/espchat/contacts.csv`; no SD → `g_ecContacts[]` RAM only, cleared on reboot
+- UI layout: PAIR_Y(y=66) · MSG_Y0(y=80) · EC_VIS=7 rows · SEP2_Y(y=178) · FOOT_Y(y=192) · INPUT_Y(y=206); 4px scroll slider at x=316
+- All WiFi commands call `stopEspchatBg()` before starting to avoid ESP-NOW/WiFi mode conflicts
 
 ## SD Layout
 `/wpa_supplicant.conf` — saved WiFi credentials (Linux-compatible key=value)
@@ -132,11 +142,16 @@ Diagnostics: `gps/gps` `spktest/st` `loratest/lt`
 `/macchanger.conf` — MAC changer config (key=value)
 `/lockscreen.conf` — lock screen config (key=value: `timeout`, `hash`, `salt`)
 `/logs/` — eviltwin.csv · trackme.csv · trackme_known.csv · hidden_ssids.csv · cracked.csv
-`/logs/wm/` — `<uptime_ms>.cap` raw 802.11 PCAP files from wifimon (linktype 105, Wireshark-compatible)
+`/logs/wm/` — `NNN.cap` raw 802.11 PCAP files from wifimon (linktype 105, Wireshark-compatible)
 `/logs/wguard/` — `001.csv`, `002.csv` … session files (never overwritten; new number on each boot/start)
 `/logs/hs/` — WPA handshake pcap files (`<BSSID>.cap`, libpcap format, linktype 105)
+`/logs/espsniff/` — `NNN.csv` + `NNN.pcap` ESP-NOW capture files
 `/evilportal/` — custom HTML portal pages
 `/signatures.csv` — custom BLE tracker signatures
+`/espchat/contacts.csv` — ESPChat paired contacts (MAC, name, channel, LMK hex)
+`/espchat/config.conf` — ESPChat default public channel
+`/espchat/pub/chN.log` — public chat logs per channel
+`/espchat/prv/<MAC>.log` — private chat logs per contact
 
 ## WiFi / SD — ESP32-S3 GDMA Rule
 **Never write to SD while WiFi is in APSTA or promiscuous mode** — WiFi and SPI share the GDMA controller on ESP32-S3; concurrent DMA corrupts FatFS.
@@ -179,4 +194,5 @@ Diagnostics: `gps/gps` `spktest/st` `loratest/lt`
 - LoRa scanner / packet logger
 - bmon — passive BLE advertisement sniffer (iBeacon/Eddystone/cleartext detector, PCAP linktype 251)
 - macwatch — MAC watchlist with proximity alert
+- espvoice — ESP-NOW voice over I2S (requires ES7210 mic on T-Deck Plus)
 - wguard: Karma detection needs real-world testing (probe-response sniff for 3+ SSIDs/60s from same BSSID)

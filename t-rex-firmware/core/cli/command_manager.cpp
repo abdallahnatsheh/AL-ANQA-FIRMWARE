@@ -28,6 +28,9 @@
 #include "notification_manager.h"
 #include "wguard.h"
 #include "beacon_flood.h"
+#include "espsniff.h"
+#include "esptest.h"
+#include "espchat.h"
 #include "lockscreen_manager.h"
 #include "clock_manager.h"
 extern DisplayManager     displayManager;
@@ -301,6 +304,13 @@ static const ArgHintEntry kArgHints[] = {
     { "sdf",         "",              "init" },
     // gps
     { "gps",         "",              "on off test" },
+    // espchat / ec
+    { "espchat",     "",              "pub prv bg stop" },
+    { "ec",          "",              "pub prv bg stop" },
+    { "espchat",     "pub",           "set" },
+    { "ec",          "pub",           "set" },
+    // espsniff / es  (channel arg is numeric, no static hints)
+    // esptest / est  (channel arg is numeric, no static hints)
     { nullptr, nullptr, nullptr }
 };
 
@@ -615,15 +625,18 @@ void CommandManager::setupCommands() {
     registerCommand("scanwifi",    "sw",     [](char* a) { wifiFunctions.scanWiFiNetworks(); },                              "Scan WiFi networks",                      false, "WiFi");
     registerCommand("connectwifi", "cw",     [](char* a) { wifiFunctions.connectToWiFiCommand(a); },                        "Connect to WiFi: cw <index>",             true,  "WiFi");
     registerCommand("clearwifi",   "clrw",   [](char* a) { wifiFunctions.clearAllWiFiCredentials(); },                      "Clear saved WiFi credentials",            false, "WiFi");
-    registerCommand("wifimon",     "wm",     [](char* a) { wifiMonitor.start(a && *a ? atoi(a) : 0); },                    "WiFi monitor [ch 1-13, 0=hop]",           true,  "WiFi");
-    registerCommand("deauth",      "da",     [](char* a) { deauthAttack.start(a); },                                        "Deauth: da <bssid> [ch] [client]",        true,  "WiFi");
-    registerCommand("eviltwin",    "et",     [](char* a) { evilTwin.start(a); },                                            "Evil Twin AP + captive portal",           true,  "WiFi");
-    registerCommand("hiddenssid",  "hs",     [](char* a) { hiddenSSID.start(a); },                                          "Uncover hidden SSID: hs <idx|bssid> [ch] [silent]", true,  "WiFi");
-    registerCommand("macchanger",  "mc",     [](char* a) { MacChanger::getInstance().handleCommand(a); },                   "MAC spoof: mc on/off/random/set <mac>",              true,  "WiFi");
-    registerCommand("wpasniff",    "ws",     [](char* a) { handshakeCapture.start(a); },                                      "WPA2 handshake: ws <idx|bssid> [ch]",                true,  "WiFi");
-    registerCommand("pmkid",       "pm",     [](char* a) { pmkidAttack.start(a); },                                              "PMKID capture+crack: pm <idx|bssid> [ch]",           true,  "WiFi");
-    registerCommand("wguard",      "wg",     [](char* a) { handleWGuardCmd(a); },                                           "WiFi IDS: wg <idx> [bg|stop]",                       true,  "WiFi");
-    registerCommand("beaconflood", "bf",     [](char* a) { runBeaconFlood(a); },                                              "Beacon flood: bf [list|seq <base>|file [path]]",     true,  "WiFi");
+    registerCommand("wifimon",     "wm",     [](char* a) { stopEspchatBg(); wifiMonitor.start(a && *a ? atoi(a) : 0); },  "WiFi monitor [ch 1-13, 0=hop]",           true,  "WiFi");
+    registerCommand("deauth",      "da",     [](char* a) { stopEspchatBg(); deauthAttack.start(a); },                       "Deauth: da <bssid> [ch] [client]",        true,  "WiFi");
+    registerCommand("eviltwin",    "et",     [](char* a) { stopEspchatBg(); evilTwin.start(a); },                           "Evil Twin AP + captive portal",           true,  "WiFi");
+    registerCommand("hiddenssid",  "hs",     [](char* a) { stopEspchatBg(); hiddenSSID.start(a); },                         "Uncover hidden SSID: hs <idx|bssid> [ch] [silent]", true,  "WiFi");
+    registerCommand("macchanger",  "mc",     [](char* a) { stopEspchatBg(); MacChanger::getInstance().handleCommand(a); },  "MAC spoof: mc on/off/random/set <mac>",              true,  "WiFi");
+    registerCommand("wpasniff",    "ws",     [](char* a) { stopEspchatBg(); handshakeCapture.start(a); },                   "WPA2 handshake: ws <idx|bssid> [ch]",                true,  "WiFi");
+    registerCommand("pmkid",       "pm",     [](char* a) { stopEspchatBg(); pmkidAttack.start(a); },                        "PMKID capture+crack: pm <idx|bssid> [ch]",           true,  "WiFi");
+    registerCommand("wguard",      "wg",     [](char* a) { stopEspchatBg(); handleWGuardCmd(a); },                          "WiFi IDS: wg <idx> [bg|stop]",                       true,  "WiFi");
+    registerCommand("beaconflood", "bf",     [](char* a) { stopEspchatBg(); runBeaconFlood(a); },                           "Beacon flood: bf [list|seq <base>|file [path]]",     true,  "WiFi");
+    registerCommand("espsniff",    "es",     [](char* a) { runEspSniff(a); },                                                  "ESP-NOW sniffer: es [ch 1-13]",                      true,  "WiFi");
+    registerCommand("esptest",     "est",    [](char* a) { runEspTest(a); },                                                   "ESP-NOW test TX/RX: est [ch 1-13]",                  true,  "WiFi");
+    registerCommand("espchat",     "ec",     [](char* a) { runEspchat(a); },                                                   "ESP-NOW chat: ec [pub [set <ch>]|prv <M>|bg|stop]",  true,  "WiFi");
     registerCommand("wifipass",    "wp",     [](char* a) { wifiPassCommand(); },                                               "Saved WiFi passwords",                    false, "WiFi");
     registerCommand("wifiexport",  "wex",    [](char* a) { wifiExportCommand(); },                                             "Export NVS networks to wpa_supplicant",   false, "WiFi");
     // ── Network ───────────────────────────────────────────────────────────────
