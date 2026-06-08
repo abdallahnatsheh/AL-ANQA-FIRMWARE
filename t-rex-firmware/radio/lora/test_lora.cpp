@@ -3,6 +3,7 @@
 
 #include "display_manager.h"
 #include "input_handling.h"
+#include "lockscreen_manager.h"
 #include "utilities.h"
 #include <RadioLib.h>
 #include <SPI.h>
@@ -149,6 +150,10 @@ static void runRxMode(SX1262& radio, float freq, int& rxPkts,
     }
 
     while (true) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            redraw = true;
+        }
+
         if (redraw) { drawRxScreen(freq, pkts, total); redraw = false; }
 
         char k = inputHandler.getKeyboardInput();
@@ -220,6 +225,10 @@ void runLoraTest() {
     int   txSeq   = 0;
 
     while (true) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            redraw = true;
+        }
+
         if (redraw) {
             drawInfo(ok, state, freq, txPkts, rxPkts, lastRssi, lastSnr, hasRx);
             redraw = false;

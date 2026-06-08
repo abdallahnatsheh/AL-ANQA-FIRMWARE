@@ -6,6 +6,7 @@
 #include "usb_manager.h"
 #include "display_manager.h"
 #include "input_handling.h"
+#include "lockscreen_manager.h"
 #include "utilities.h"
 
 #include "freertos/FreeRTOS.h"
@@ -113,6 +114,23 @@ void UsbKeyboard::start() {
     bool running = true;
     while (running) {
         uint32_t now = millis();
+
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+            dm.setTextColor(0x7BEF);    dm.printText("[");
+            dm.setTextColor(TFT_CYAN);  dm.printText("USB");
+            dm.setTextColor(0x7BEF);    dm.printText("::");
+            dm.setTextColor(TFT_YELLOW);dm.printText("KBD");
+            dm.setTextColor(0x7BEF);    dm.println("]");
+            dm.printSeparator();
+            dm.setCursor(10, dm.getCursorY());
+            dm.setTextColor(TFT_WHITE); dm.println("Keyboard + Mouse active.");
+            dm.setCursor(10, dm.getCursorY());
+            dm.setTextColor(0x7BEF); dm.println("L=tap R=hold Exit=hold 1.5s");
+            dm.printSeparator();
+            statusY = dm.getCursorY();
+            lastDisplayMs = 0;
+        }
 
         // ── Keyboard passthrough + hold-to-repeat backspace ──────────────────
         char k = inputHandler.getKeyboardInput();
@@ -256,6 +274,23 @@ void UsbKeyboard::jiggle() {
 
     while (true) {
         uint32_t now = millis();
+
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+            dm.setTextColor(0x7BEF);     dm.printText("[");
+            dm.setTextColor(TFT_CYAN);   dm.printText("USB");
+            dm.setTextColor(0x7BEF);     dm.printText("::");
+            dm.setTextColor(TFT_GREEN);  dm.printText("JIGGLE");
+            dm.setTextColor(0x7BEF);     dm.println("]");
+            dm.printSeparator();
+            dm.setCursor(10, dm.getCursorY());
+            dm.setTextColor(TFT_WHITE);  dm.println("Jiggling every 30s.");
+            dm.setCursor(10, dm.getCursorY());
+            dm.setTextColor(0x7BEF);     dm.println("Press q to stop.");
+            dm.printSeparator();
+            statusY = dm.getCursorY();
+            lastDisplayMs = 0;
+        }
 
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;

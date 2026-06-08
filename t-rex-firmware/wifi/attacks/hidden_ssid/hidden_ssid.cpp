@@ -7,6 +7,7 @@
 #include "wifimon_functions.h"
 #include "utilities.h"
 #include "sdcard_manager.h"
+#include "lockscreen_manager.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <driver/i2s.h>
@@ -222,6 +223,29 @@ void HiddenSSID::run(const uint8_t* bssid, int channel, bool silent) {
     bool sdSaved  = false;
 
     while (true) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            _dm.clearScreen();
+            _dm.setCursor(10, outputY);
+            _dm.setTextColor(0x7BEF);    _dm.printText("[");
+            _dm.setTextColor(TFT_CYAN);  _dm.printText("SCAN");
+            _dm.setTextColor(0x7BEF);    _dm.printText("::");
+            _dm.setTextColor(TFT_YELLOW);_dm.println("HIDDEN]");
+            _dm.printSeparator();
+            _dm.setCursor(10, _dm.getCursorY());
+            _dm.setTextColor(0x7BEF);    _dm.printText("Target  ");
+            _dm.setTextColor(TFT_WHITE);  _dm.println(macStr(bssid).c_str());
+            _dm.setCursor(10, _dm.getCursorY());
+            _dm.setTextColor(0x7BEF);    _dm.printText("Channel ");
+            _dm.setTextColor(TFT_WHITE);  _dm.println(channel);
+            _dm.setCursor(10, _dm.getCursorY());
+            _dm.setTextColor(0x7BEF);    _dm.printText("Deauth + sniff...  [q] stop");
+            if (silent) { _dm.setTextColor(TFT_YELLOW); _dm.printText("  [MUTE]"); }
+            _dm.println();
+            _dm.setTextColor(TFT_WHITE);
+            counterY = _dm.getCursorY();
+            lastBurst = 0;  // force immediate status redraw
+        }
+
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
 

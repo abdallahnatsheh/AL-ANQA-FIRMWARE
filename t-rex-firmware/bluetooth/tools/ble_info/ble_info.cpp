@@ -3,6 +3,7 @@
 #include "display_manager.h"
 #include "input_handling.h"
 #include "sdcard_manager.h"
+#include "lockscreen_manager.h"
 #include <NimBLEDevice.h>
 #include <SD.h>
 #include <cstring>
@@ -1701,6 +1702,7 @@ void runBleInfo(char* arg) {
     while (true) {
         renderPage(macStr, page);
         while (true) {
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) break;
             char k = inputHandler.getKeyboardInput();
             if (k == 'l' || k == 'L') { if (page < totalPages - 1) { page++; break; } }
             if (k == 'a' || k == 'A') { if (page > 0)              { page--; break; } }

@@ -6,6 +6,7 @@
 #include "input_handling.h"
 #include "sdcard_manager.h"
 #include "clock_manager.h"
+#include "lockscreen_manager.h"
 #include <SD.h>
 #include <mbedtls/pkcs5.h>
 #include <mbedtls/md.h>
@@ -649,6 +650,10 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
 
     // ── Main loop ─────────────────────────────────────────────────────────────
     while (true) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            lastRefresh = 0;  // force immediate status redraw
+        }
+
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
         if ((k == 'c' || k == 'C') && captured) {

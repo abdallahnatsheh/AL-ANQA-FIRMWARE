@@ -7,6 +7,7 @@
 #include "sdcard_manager.h"
 #include "usb_manager.h"
 #include "input_handling.h"
+#include "lockscreen_manager.h"
 #include "utilities.h"
 
 #include "freertos/FreeRTOS.h"
@@ -395,6 +396,7 @@ bool BadUsb::executeLine(const char* rawLine, int& defaultDelay) {
 bool BadUsb::scriptDelay(uint32_t ms) {
     uint32_t end = millis() + ms;
     while (millis() < end) {
+        LockScreenManager::getInstance().consumeJustUnlocked(); // display blocked; script keeps running
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') { _aborted = true; return false; }
         vTaskDelay(pdMS_TO_TICKS(20));

@@ -12,6 +12,7 @@
 #include "eviltwin.h"
 #include "input_handling.h"
 #include "clock_manager.h"
+#include "lockscreen_manager.h"
 #include <WiFi.h>
 #include <SD.h>
 
@@ -206,6 +207,10 @@ void EvilTwin::start(const char* ssid) {
             millis() - _deauthLastMs >= 8000) {
             sendDeauthBurst();
             _deauthLastMs = millis();
+        }
+
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            _dirty = true;
         }
 
         if (_dirty || millis() - lastDraw >= 2000) {

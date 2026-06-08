@@ -10,6 +10,7 @@
 #include "fast_pair_keys.h"
 #include "display_manager.h"
 #include "input_handling.h"
+#include "lockscreen_manager.h"
 #include "constants.h"
 
 #include <NimBLEDevice.h>
@@ -275,6 +276,7 @@ void FastPair::scan() {
         if (promptY < outputY) promptY = SCREEN_HEIGHT - LINE_HEIGHT * 2;
         int tp = max(1, ((int)s_fpCount + perPage - 1) / perPage);
         while (true) {
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) break;
             char k = inputHandler.getKeyboardInput();
             if ((k == 'l' || k == 'L') && page < tp - 1) { page++; break; }
             if ((k == 'a' || k == 'A') && page > 0)       { page--; break; }
@@ -314,6 +316,16 @@ void FastPair::spam() {
 
     int i = 0;
     while (true) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+            dm.setTextColor(0x7BEF); dm.printText("[");
+            dm.setTextColor(TFT_CYAN); dm.printText("SPAM");
+            dm.setTextColor(0x7BEF); dm.printText("::");
+            dm.setTextColor(TFT_YELLOW); dm.printText("FP");
+            dm.setTextColor(0x7BEF); dm.println("]");
+            dm.printSeparator();
+        }
+
         uint32_t    mid = FP_KNOWN_DEVICES[i % FP_KNOWN_COUNT].modelId;
         const char* n   = FP_KNOWN_DEVICES[i % FP_KNOWN_COUNT].name;
 

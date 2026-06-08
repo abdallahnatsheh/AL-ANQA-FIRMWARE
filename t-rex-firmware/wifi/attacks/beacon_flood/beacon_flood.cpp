@@ -11,6 +11,7 @@
 #include "input_handling.h"
 #include "sdcard_manager.h"
 #include "wifi_functions.h"
+#include "lockscreen_manager.h"
 #include "constants.h"
 #include <WiFi.h>
 #include <SD.h>
@@ -259,6 +260,12 @@ static void floodList(const char* modeLabel, const char* ssidList, bool isOpen =
         // Walk SSID list from PROGMEM
         const char* p = ssidList;
         while (true) {
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+                drawHeader(modeLabel);
+                statsY = displayManager.getCursorY();
+                lastDraw = 0;
+            }
+
             // Check quit
             char k = inputHandler.getKeyboardInput();
             if (k == 'q' || k == 'Q') return;
@@ -304,6 +311,12 @@ static void floodSeq(const char* base, const char* modeLabel) {
     char     curSsid[33] = {};
 
     while (true) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            drawHeader(modeLabel);
+            statsY = displayManager.getCursorY();
+            lastDraw = 0;
+        }
+
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') return;
 
@@ -343,6 +356,12 @@ static void floodFile(File& f, const char* modeLabel) {
         // One pass through the file, then loop back to start
         f.seek(0);
         while (f.available() && running) {
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+                drawHeader(modeLabel);
+                statsY = displayManager.getCursorY();
+                lastDraw = 0;
+            }
+
             char k = inputHandler.getKeyboardInput();
             if (k == 'q' || k == 'Q') { running = false; break; }
 
@@ -401,6 +420,12 @@ static void floodClone(const char* ssid, uint8_t targetCh, bool isOpen) {
     uint8_t varIdx  = 0;
 
     while (true) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            drawHeader(modeLabel);
+            statsY = displayManager.getCursorY();
+            lastDraw = 0;
+        }
+
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') return;
 

@@ -1,5 +1,6 @@
 #include "display_manager.h"
 #include "input_handling.h"
+#include "lockscreen_manager.h"
 #include "utilities.h"
 #include <Arduino.h>
 #include <TinyGPS++.h>
@@ -132,6 +133,10 @@ void runGpsTest() {
     uint32_t lastDraw = 0;
 
     while (true) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            lastDraw = 0;  // force immediate screen redraw
+        }
+
         // Feed TinyGPS++
         while (gpsSerial.available()) {
             gps.encode((char)gpsSerial.read());

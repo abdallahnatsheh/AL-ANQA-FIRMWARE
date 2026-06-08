@@ -9,6 +9,7 @@
 #include "deauth_functions.h"
 #include "input_handling.h"
 #include "task_manager.h"
+#include "lockscreen_manager.h"
 
 extern InputHandling inputHandler;
 
@@ -227,6 +228,32 @@ void DeauthAttack::sendDeauthFrames(const uint8_t* bssid, const uint8_t* client,
 
     unsigned long lastUpd = 0;
     while (TaskManager::isRunning()) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            displayManager.clearScreen();
+            displayManager.setCursor(10, outputY);
+            displayManager.setTextColor(TFT_RED);
+            displayManager.println("-- DEAUTH ATTACK --");
+            displayManager.setTextColor(TFT_WHITE);
+            displayManager.setCursor(10, displayManager.getCursorY());
+            displayManager.printText("AP:      ");
+            displayManager.setTextColor(TFT_CYAN);
+            displayManager.println(macStr(bssid).c_str());
+            displayManager.setTextColor(TFT_WHITE);
+            displayManager.setCursor(10, displayManager.getCursorY());
+            displayManager.printText("Target:  ");
+            displayManager.setTextColor(directed ? TFT_YELLOW : TFT_MAGENTA);
+            displayManager.println(directed ? macStr(client).c_str() : "BROADCAST");
+            displayManager.setTextColor(TFT_WHITE);
+            displayManager.setCursor(10, displayManager.getCursorY());
+            displayManager.printText("Channel: "); displayManager.println(channel);
+            displayManager.setCursor(10, displayManager.getCursorY());
+            displayManager.setTextColor(TFT_GREEN);
+            displayManager.println("Running on Core 0  q=stop");
+            displayManager.setTextColor(TFT_WHITE);
+            counterY = displayManager.getCursorY();
+            lastUpd = 0;
+        }
+
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') TaskManager::requestStop();
 

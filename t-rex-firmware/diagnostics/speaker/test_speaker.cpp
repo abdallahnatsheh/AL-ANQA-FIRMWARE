@@ -1,6 +1,7 @@
 #include "display_manager.h"
 #include "input_handling.h"
 #include "notification_manager.h"
+#include "lockscreen_manager.h"
 #include "utilities.h"
 #include <Arduino.h>
 #include <driver/i2s.h>
@@ -166,6 +167,10 @@ void runSpeakerTest() {
     };
 
     while (true) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            drawSpeakerMenu(i2sOk, lastPlayed);
+        }
+
         char k = inputHandler.getKeyboardInput();
         if (!k) continue;
         if (k == 'q' || k == 'Q') break;

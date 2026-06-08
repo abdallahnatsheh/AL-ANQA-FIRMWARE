@@ -4,6 +4,7 @@
 #include "utilities.h"
 #include "notification_manager.h"
 #include "clock_manager.h"
+#include "lockscreen_manager.h"
 #include "wguard.h"
 #include <WiFi.h>
 #include <SD.h>
@@ -1060,6 +1061,7 @@ void TrackMeScanner::start(bool silent) {
             }
         }
 
+        LockScreenManager::getInstance().consumeJustUnlocked(); // consume flag; drawScreen redraws unconditionally
         drawScreen(highestLevel, alertName, alertSec);
 
         // Keyboard (checked between scan cycles ~every 2.5 s)

@@ -9,6 +9,7 @@
 #include "ble_spam.h"
 #include "display_manager.h"
 #include "input_handling.h"
+#include "lockscreen_manager.h"
 #include "constants.h"
 #include "fast_pair_keys.h"
 
@@ -68,10 +69,16 @@ static void bsStatus(const char* name, const char* detail, uint32_t count) {
     displayManager.println(buf);
 }
 
+static bool s_bsUnlocked = false;  // set by bsWait when unlock detected; checked by spam loops
+
 // Returns 0=timeout, +1=next, -1=prev, 'q'=stop
 static int bsWait(uint32_t ms) {
     uint32_t t = millis();
     while (millis() - t < ms) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            s_bsUnlocked = true;
+            return 0;
+        }
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') return 'q';
         if (k == 'l' || k == 'L') return +1;
@@ -145,8 +152,10 @@ static void sourAppleAdvert(uint8_t typeByte) {
 void BleSpam::spamApple() {
     bsDrawHeader("APPLE");
     bsReinit();
+    s_bsUnlocked = false;
     int i = 0; uint32_t count = 0;
     while (true) {
+        if (s_bsUnlocked) { s_bsUnlocked = false; bsDrawHeader("APPLE"); }
         char name[24], detail[24];
         if (i < IOS1_COUNT) {
             snprintf(name,   sizeof(name),   "AppleJuice #%d", i);
@@ -192,8 +201,10 @@ static void androidFpAdvert(uint32_t mid) {
 void BleSpam::spamAndroid() {
     bsDrawHeader("ANDROID");
     NimBLEDevice::init("");   // ensure initialized before first per-cycle deinit
+    s_bsUnlocked = false;
     int i = 0; uint32_t count = 0;
     while (true) {
+        if (s_bsUnlocked) { s_bsUnlocked = false; bsDrawHeader("ANDROID"); }
         // New random MAC every cycle — Android deduplicates by MAC+modelId pair
         NimBLEDevice::deinit(true);
         vTaskDelay(pdMS_TO_TICKS(20));
@@ -250,8 +261,10 @@ static void msAdvert(const char* devName) {
 void BleSpam::spamMicrosoft() {
     bsDrawHeader("MS");
     bsReinit();
+    s_bsUnlocked = false;
     int i = 0; uint32_t count = 0;
     while (true) {
+        if (s_bsUnlocked) { s_bsUnlocked = false; bsDrawHeader("MS"); }
         const char* name = MS_TYPES[i].name;
         msAdvert(name);
         count++;
@@ -306,8 +319,10 @@ static void samsungAdvert(uint8_t modelByte) {
 void BleSpam::spamSamsung() {
     bsDrawHeader("SAMSUNG");
     bsReinit();
+    s_bsUnlocked = false;
     int i = 0; uint32_t count = 0;
     while (true) {
+        if (s_bsUnlocked) { s_bsUnlocked = false; bsDrawHeader("SAMSUNG"); }
         const SamsungType& t = SAMSUNG_TYPES[i];
         samsungAdvert(t.modelByte);
         count++;
@@ -329,11 +344,13 @@ void BleSpam::spamSamsung() {
 void BleSpam::spamAll() {
     bsDrawHeader("ALL");
     bsReinit();
+    s_bsUnlocked = false;
     uint32_t count = 0;
     int ai = 0, andi = 0, mi = 0, si = 0;
     int vendor = 0;  // 0=apple, 1=android, 2=ms, 3=samsung
 
     while (true) {
+        if (s_bsUnlocked) { s_bsUnlocked = false; bsDrawHeader("ALL"); }
         const char* name = nullptr;
         char detail[28] = {};
 

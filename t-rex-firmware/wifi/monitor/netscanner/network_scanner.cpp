@@ -1069,6 +1069,21 @@ void NetworkScanner::pingHost(char* args) {
     const int count = 10;
 
     for (int i = 1; i <= count; i++) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            displayManager.clearScreen();
+            displayManager.setCursor(10, outputY);
+            displayManager.setTextColor(TFT_CYAN);
+            displayManager.println("-- Ping --");
+            displayManager.setTextColor(TFT_WHITE);
+            displayManager.setCursor(10, displayManager.getCursorY());
+            displayManager.printText("Host: ");
+            displayManager.println(host);
+            displayManager.setCursor(10, displayManager.getCursorY());
+            displayManager.setTextColor(0x7BEF);
+            displayManager.println("q=stop  ─────────────────");
+            displayManager.setTextColor(TFT_WHITE);
+        }
+
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
 

@@ -2,6 +2,7 @@
 #include <SD.h>
 #include <esp_system.h>
 #include "mac_changer.h"
+#include "lockscreen_manager.h"
 #if __has_include(<esp_mac.h>)
 #include <esp_mac.h>   // IDF 5.x — esp_read_mac moved here
 #endif
@@ -243,6 +244,7 @@ void ESPInfoPrinter::printESPInfo() {
             redraw = false;
         }
 
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) { redraw = true; }
         char k = inputHandler.getKeyboardInput();
         if (!k) continue;
         if (k == 'q' || k == 'Q') break;
