@@ -702,6 +702,38 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "i2cscan", "isc", {
+        "SYNTAX   isc",
+        "         isc r <addr> <reg> [len]",
+        "         isc raw <addr> [len]",
+        "         isc w <addr> <reg> <val>",
+        "         isc d <addr>",
+        "",
+        "ABOUT    I2C bus scanner (SDA:18 SCL:8).",
+        "         Probes 0x08-0x77. Rows color-coded by",
+        "         device type. Detail pane auto-reads.",
+        "         Raw fallback for stream/16-bit devices.",
+        "",
+        "CMDS     isc           scan + interactive UI",
+        "         isc r 40 00 8 read 8B via reg ptr",
+        "         isc raw 5d 4  raw stream read (GT911)",
+        "         isc w 40 07 0 write reg 0x07 = 0x00",
+        "         isc d 55      256-byte hex dump",
+        "",
+        "KEYS     pad↑↓  select (auto-flip page)",
+        "         CLICK/[r]  register browser",
+        "         [d]  256-byte hex dump",
+        "         [p]  re-probe selected device",
+        "         [v]  verify ALL devices (live ACK)",
+        "         [w]  write reg (in reg browser)",
+        "         [s]  save to SD",
+        "         [f]  rescan bus  [q] quit",
+        "FILES    /logs/i2cscan.csv",
+        "",
+        "NOTE     [EXPERIMENTAL] Not field-tested.",
+        nullptr
+    }},
+
     { "espchat", "ec", {
         "SYNTAX   ec [pub|prv|bg|stop] [ch]",
         "",

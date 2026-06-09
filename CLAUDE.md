@@ -122,7 +122,7 @@ WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/c
 Network: `netdiscover/nd` `portscan/ps` `topscan/ts` `ping/pg`
 Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
 SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `sdrm/srm` `sdf/sdf`
-Diagnostics: `gps/gps` `spktest/st` `loratest/lt`
+Diagnostics: `gps/gps` `spktest/st` `loratest/lt` `i2cscan/isc [EXP]`
 
 **ESPChat** (`espchat/ec`, `espsniff/es`, `esptest/est`) — `radio/espnow/espchat/`, `espsniff/`, `esptest/`:
 - Wire format: `EcMsg{type(1)+seq(1)+name[12]+text[100]}` = 114 bytes, type=0x01; broadcast ch compatible with any ESP32/ESP8266
@@ -147,6 +147,7 @@ Diagnostics: `gps/gps` `spktest/st` `loratest/lt`
 `/logs/hs/` — WPA handshake pcap files (`<BSSID>.cap`, libpcap format, linktype 105)
 `/logs/bmon/` — `001.csv`, `002.csv` … BLE advertisement logs (never overwritten; sequential on each start)
 `/logs/espsniff/` — `NNN.csv` + `NNN.pcap` ESP-NOW capture files
+`/logs/i2cscan.csv` — I2C scanner results (`timestamp,0xADDR,chip_name,type,ACK/DEAD`)
 `/evilportal/` — custom HTML portal pages
 `/signatures.csv` — custom BLE tracker signatures
 `/espchat/contacts.csv` — ESPChat paired contacts (MAC, name, channel, LMK hex)
@@ -190,6 +191,17 @@ Diagnostics: `gps/gps` `spktest/st` `loratest/lt`
 - New modules: own `.cpp/.h` pair
 - Command buffer 128 bytes — keep syntax compact
 - SD + WiFi: follow the GDMA rule above — open files before WiFi, close after teardown
+
+**I2cScan (`i2cscan.cpp/h`)** — `diagnostics/i2cscan/` [EXPERIMENTAL]:
+- `i2cscan` / `isc` — interactive I2C bus scanner (0x08–0x77), 35-entry chip table
+- T-Deck Plus built-ins: 0x18 ES8311 · 0x40 ES7210 · 0x55 keyboard · 0x34 AXP2101 · 0x5D GT911 trackpad
+- Tagging: `[BUILTIN]` grey for known internal chips; `[EXT]` green for unknown (Grove/external)
+- Type color-coding: input=cyan, audio=orange, power=yellow, sensor=green, disp=magenta, rfid=red, accel=sky
+- Detail pane: auto-reads on row change; two-path — reg-ptr write (0x00) + `requestFrom`, fallback to raw stream (GT911 needs this — 16-bit regs return 0x00 for pointer path)
+- Register browser `[r]`/CLICK: 16 pages × 16 bytes, trackpad page, `[w]` write + 10ms re-read, `[RAW]` tag when reg-ptr unsupported
+- Subcommands: `isc r <addr> <reg> [len]` · `isc raw <addr> [len]` · `isc w <addr> <reg> <val>` · `isc d <addr>` (256-byte hex dump)
+- SD save: `[s]` → `/logs/i2cscan.csv` (`FILE_APPEND` only — never truncates)
+- Interactive: `[v]` verify all · `[f]` rescan · `[p]` re-probe selected · `[q]` quit
 
 **BleAdvMonitor (`bmon.cpp/h`)**:
 - `bmon` / `bm` — passive BLE advertisement sniffer
