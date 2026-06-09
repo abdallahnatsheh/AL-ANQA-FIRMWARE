@@ -77,7 +77,7 @@ private:
 
     uint8_t  _maxSev;
 
-    WgEvent  _events[WG_EVENT_MAX];
+    WgEvent* _events;              // ps_malloc'd — lives in PSRAM, not DRAM
     uint8_t  _evHead;
     uint8_t  _evCount;
 
@@ -111,8 +111,8 @@ private:
     int8_t       _pendingForeignRssi[4]; // beacon RSSI of each pending AP
     uint8_t      _pendingForeignN;
 
-    WgKarmaEntry _karma[WG_CTR_MAX];
-    uint8_t      _karmaN;
+    WgKarmaEntry* _karma;          // ps_malloc'd — lives in PSRAM, not DRAM
+    uint8_t       _karmaN;
     bool         _cloneFired;    // true after first detection — enables cooldown path
     uint32_t     _cloneFiredTs;  // millis() of last clone detection — 60s cooldown
 
@@ -164,6 +164,7 @@ private:
     uint32_t _lastBgPoll   = 0;
     uint8_t  _lastBgHead   = 0;   // tracks _evHead, not _evCount — avoids cap-at-8 deaf bug
 
+    void ensureBuffers();  // lazy PSRAM alloc — call at start of run/bg/view, not in ctor
     void run(const uint8_t* bssid, int channel, const char* ssid);
     void runUI();          // blocking UI loop — shared by run() and enterView()
     void processFrame(const WgFrame& f);

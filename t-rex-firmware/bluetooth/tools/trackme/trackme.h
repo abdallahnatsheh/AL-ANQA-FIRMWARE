@@ -74,16 +74,16 @@ private:
     DisplayManager& dm;
     SDCardManager&  sd;
 
-    TrackerSig  sigs[TM_SIG_MAX];
+    TrackerSig  sigs[TM_SIG_MAX];   // small (40×29B = ~1.2KB) — stays in DRAM for fast lookup
     int         sigCount;
 
-    TrackedDev  tier1[TM_TIER1_MAX];
+    TrackedDev* tier1;              // ps_malloc'd — ~1.8KB in PSRAM
     int         tier1Count;
-    TrackedDev  tier2[TM_TIER2_MAX];
+    TrackedDev* tier2;              // ps_malloc'd — ~8.8KB in PSRAM
     int         tier2Count;
 
-    KState      k1[TM_TIER1_MAX];
-    KState      k2[TM_TIER2_MAX];
+    KState*     k1;                 // ps_malloc'd — ~160B in PSRAM
+    KState*     k2;                 // ps_malloc'd — ~800B in PSRAM
 
     int      page;
     uint32_t startMs;
@@ -100,6 +100,8 @@ private:
     bool     matchKnown(const uint8_t* mac);
     void     loadWhitelist();
     bool     addToWhitelist(const uint8_t* mac, const char* label);
+
+    void ensureBuffers();   // lazy PSRAM alloc — call at start of start(), not in ctor
 
     // -- radio --
     void doBLEScan(int seconds);

@@ -56,15 +56,42 @@ static void fillBuiltinSigs(TrackerSig* sigs, int& count) {
 // ── constructor ───────────────────────────────────────────────────────────────
 TrackMeScanner::TrackMeScanner(DisplayManager& dm, SDCardManager& sd)
     : dm(dm), sd(sd), sigCount(0),
-      tier1Count(0), tier2Count(0),
+      tier1(nullptr), tier1Count(0),
+      tier2(nullptr), tier2Count(0),
+      k1(nullptr), k2(nullptr),
       page(0), startMs(0), _silent(false),
       _totalDistM(0.0f), _gpsMoving(false),
       _baselineDone(false), _knownCount(0)
 {
+    // Buffers allocated lazily in ensureBuffers() — NOT here, because ps_malloc
+    // requires the PSRAM heap allocator which isn't ready when global ctors run.
 #ifdef BOARD_TDECK_PLUS
     gpsLat = 0; gpsLon = 0; gpsValid = false;
     gpsSerial = nullptr;
 #endif
+}
+
+void TrackMeScanner::ensureBuffers() {
+    if (!tier1) {
+        tier1 = (TrackedDev*)ps_malloc(TM_TIER1_MAX * sizeof(TrackedDev));
+        if (!tier1) tier1 = (TrackedDev*)malloc(TM_TIER1_MAX * sizeof(TrackedDev));
+        if (tier1) memset(tier1, 0, TM_TIER1_MAX * sizeof(TrackedDev));
+    }
+    if (!tier2) {
+        tier2 = (TrackedDev*)ps_malloc(TM_TIER2_MAX * sizeof(TrackedDev));
+        if (!tier2) tier2 = (TrackedDev*)malloc(TM_TIER2_MAX * sizeof(TrackedDev));
+        if (tier2) memset(tier2, 0, TM_TIER2_MAX * sizeof(TrackedDev));
+    }
+    if (!k1) {
+        k1 = (KState*)ps_malloc(TM_TIER1_MAX * sizeof(KState));
+        if (!k1) k1 = (KState*)malloc(TM_TIER1_MAX * sizeof(KState));
+        if (k1) memset(k1, 0, TM_TIER1_MAX * sizeof(KState));
+    }
+    if (!k2) {
+        k2 = (KState*)ps_malloc(TM_TIER2_MAX * sizeof(KState));
+        if (!k2) k2 = (KState*)malloc(TM_TIER2_MAX * sizeof(KState));
+        if (k2) memset(k2, 0, TM_TIER2_MAX * sizeof(KState));
+    }
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -775,14 +802,18 @@ float TrackMeScanner::gpsDistance(float lat1, float lon1, float lat2, float lon2
 static bool s_bleInited = false;
 
 void TrackMeScanner::start(bool silent) {
+    ensureBuffers();
+    if (!tier1 || !tier2 || !k1 || !k2) {
+        dm.println("ERR: alloc failed"); dm.printCommandScreen(); return;
+    }
 
     _silent = silent;
     loadSignatures();
 
-    memset(tier1, 0, sizeof(tier1)); tier1Count = 0;
-    memset(tier2, 0, sizeof(tier2)); tier2Count = 0;
-    memset(k1, 0, sizeof(k1));
-    memset(k2, 0, sizeof(k2));
+    if (tier1) memset(tier1, 0, TM_TIER1_MAX * sizeof(TrackedDev)); tier1Count = 0;
+    if (tier2) memset(tier2, 0, TM_TIER2_MAX * sizeof(TrackedDev)); tier2Count = 0;
+    if (k1)    memset(k1,    0, TM_TIER1_MAX * sizeof(KState));
+    if (k2)    memset(k2,    0, TM_TIER2_MAX * sizeof(KState));
     _rHead = 0; _rTail = 0;
     page          = 0;
     startMs       = millis();
@@ -1070,9 +1101,10 @@ void TrackMeScanner::start(bool silent) {
         if (k == 'l' || k == 'L') page++;
         if (k == 'a' || k == 'A') page = max(0, page - 1);
         if (k == 'c' || k == 'C') {
-            memset(tier1, 0, sizeof(tier1)); tier1Count = 0;
-            memset(tier2, 0, sizeof(tier2)); tier2Count = 0;
-            memset(k1, 0, sizeof(k1)); memset(k2, 0, sizeof(k2));
+            if (tier1) memset(tier1, 0, TM_TIER1_MAX * sizeof(TrackedDev)); tier1Count = 0;
+            if (tier2) memset(tier2, 0, TM_TIER2_MAX * sizeof(TrackedDev)); tier2Count = 0;
+            if (k1)    memset(k1,   0, TM_TIER1_MAX * sizeof(KState));
+            if (k2)    memset(k2,   0, TM_TIER2_MAX * sizeof(KState));
             page = 0; alertActive = false;
         }
         if (k == 's' || k == 'S') {

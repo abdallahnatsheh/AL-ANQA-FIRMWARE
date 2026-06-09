@@ -288,7 +288,24 @@ void IRAM_ATTR WGuard::rxCallback(void* buf, wifi_promiscuous_pkt_type_t pktType
 
 // ── Constructor ───────────────────────────────────────────────────────────────
 
-WGuard::WGuard(DisplayManager& dm, WiFiFunctions& wf) : _dm(dm), _wf(wf) {}
+WGuard::WGuard(DisplayManager& dm, WiFiFunctions& wf) : _dm(dm), _wf(wf),
+    _events(nullptr), _karma(nullptr) {}
+
+void WGuard::ensureBuffers() {
+    // Called at the start of run()/beginBackground()/enterView() — NOT in the
+    // constructor, because ps_malloc requires the PSRAM heap to be registered
+    // by initArduino() which hasn't run yet when global ctors execute.
+    if (!_events) {
+        _events = (WgEvent*)ps_malloc(WG_EVENT_MAX * sizeof(WgEvent));
+        if (!_events) _events = (WgEvent*)malloc(WG_EVENT_MAX * sizeof(WgEvent));  // DRAM fallback
+        if (_events) memset(_events, 0, WG_EVENT_MAX * sizeof(WgEvent));
+    }
+    if (!_karma) {
+        _karma = (WgKarmaEntry*)ps_malloc(WG_CTR_MAX * sizeof(WgKarmaEntry));
+        if (!_karma) _karma = (WgKarmaEntry*)malloc(WG_CTR_MAX * sizeof(WgKarmaEntry));
+        if (_karma)  memset(_karma,  0, WG_CTR_MAX * sizeof(WgKarmaEntry));
+    }
+}
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
 
@@ -958,6 +975,8 @@ uint32_t WGuard::rollCount(WgCounter* ctr, uint32_t windowMs, uint32_t now) {
 // ── Background mode ───────────────────────────────────────────────────────────
 
 void WGuard::beginBackground(char* args) {
+    ensureBuffers();
+    if (!_events || !_karma) { _dm.println("ERR: alloc failed"); _dm.printCommandScreen(); return; }
     if (_bgMode) stopBackground();
 
     if (!args || !*args) {
@@ -1385,6 +1404,7 @@ void WGuard::runUI() {
 // No WiFi setup/teardown — bg promiscuous stays running throughout.
 
 void WGuard::enterView() {
+    ensureBuffers();
     _bgMode = false;   // disable so processFrame notifies normally during live view
     runUI();
     _bgMode = true;    // restore bg mode
@@ -1397,6 +1417,8 @@ void WGuard::enterView() {
 // ── Fresh interactive session ─────────────────────────────────────────────────
 
 void WGuard::run(const uint8_t* bssid, int channel, const char* ssid) {
+    ensureBuffers();
+    if (!_events || !_karma) { _dm.println("ERR: alloc failed"); _dm.printCommandScreen(); return; }
     if (_bgMode) stopBackground();   // clean slate — stop bg if it was running
 
     memcpy(_bssid, bssid, 6);
