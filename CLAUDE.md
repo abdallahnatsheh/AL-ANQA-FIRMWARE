@@ -145,6 +145,7 @@ Diagnostics: `gps/gps` `spktest/st` `loratest/lt`
 `/logs/wm/` — `NNN.cap` raw 802.11 PCAP files from wifimon (linktype 105, Wireshark-compatible)
 `/logs/wguard/` — `001.csv`, `002.csv` … session files (never overwritten; new number on each boot/start)
 `/logs/hs/` — WPA handshake pcap files (`<BSSID>.cap`, libpcap format, linktype 105)
+`/logs/bmon/` — `001.csv`, `002.csv` … BLE advertisement logs (never overwritten; sequential on each start)
 `/logs/espsniff/` — `NNN.csv` + `NNN.pcap` ESP-NOW capture files
 `/evilportal/` — custom HTML portal pages
 `/signatures.csv` — custom BLE tracker signatures
@@ -190,9 +191,22 @@ Diagnostics: `gps/gps` `spktest/st` `loratest/lt`
 - Command buffer 128 bytes — keep syntax compact
 - SD + WiFi: follow the GDMA rule above — open files before WiFi, close after teardown
 
+**BleAdvMonitor (`bmon.cpp/h`)**:
+- `bmon` / `bm` — passive BLE advertisement sniffer
+- Decodes: iBeacon (Apple MFR 0x004C + type 0x02 + len 0x15 → UUID+Major+Minor+TxPow), Eddystone-UID/URL/TLM (service UUID 0xFEAA), cleartext device names, unknown MFR (shows company ID + first 4 bytes)
+- NimBLE passive scan (`setActiveScan(false)`), continuous (`start(0)`), duplicates enabled for live RSSI updates
+- Ring buffer (32 entries, BT task → main task) → 64-entry device table sorted newest-first
+- `[s]` toggle SD logging → `/logs/bmon/NNN.csv` (sequential, never overwrite); dedup 60s per MAC
+- Log columns: `timestamp,first_seen,mac,addr_type,type,rssi,sightings,info,extended`
+- `info` = truncated screen string; `extended` = full decoded data (full iBeacon UUID, full Eddystone NS/instance, TLM adv_count+uptime, full MFR hex)
+- `addr_type`: `pub` (public MAC) or `rnd` (random MAC); timestamps from ClockManager (GPS/NTP), fall back to `@NNNms`
+- **UI layout** (fixed pixel grid, `outputY + n × LINE_HEIGHT`): row 0 = header, row 1 = column headers (TYPE/MAC/AT/RSSI/INFO), row 2 = separator, rows 3-9 = 7 data rows, row 10 = separator, rows 11-12 = extended detail pane (2 lines) for selected device, row 13 = footer
+- **Row selection**: trackpad UP/DOWN (`TBALL_UP`/`TBALL_DOWN`) moves selection within page; selected row gets dark-blue `fillRect` highlight + `>` marker + yellow info text; detail pane auto-updates
+- **Column layout** (6px/char): CX_SEL=4, CX_TYPE=16, CX_MAC=52, CX_AT=160, CX_RSSI=184, CX_INFO=214
+- `[a/l]` page navigation (7 rows/page, resets selection to row 0) · `[q]` quit → stops scan + closes log
+
 ## Pending Features
 - LoRa scanner / packet logger
-- bmon — passive BLE advertisement sniffer (iBeacon/Eddystone/cleartext detector, PCAP linktype 251)
 - macwatch — MAC watchlist with proximity alert
 - espvoice — ESP-NOW voice over I2S (requires ES7210 mic on T-Deck Plus)
 - wguard: Karma detection needs real-world testing (probe-response sniff for 3+ SSIDs/60s from same BSSID)

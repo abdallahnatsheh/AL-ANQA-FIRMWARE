@@ -461,6 +461,38 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "bmon", "bm", {
+        "SYNTAX   bmon",
+        "",
+        "ABOUT    Passive BLE advertisement sniffer.",
+        "         Decodes iBeacon, Eddystone-UID/URL/TLM,",
+        "         cleartext names, and unknown MFR data.",
+        "         Passive only — does not send SCAN_REQ.",
+        "",
+        "TYPES    iBCN  Apple iBeacon (UUID+Major+Minor+TxPow)",
+        "         E-UID Eddystone namespace+instance",
+        "         E-URL Eddystone URL beacon",
+        "         E-TLM Eddystone telemetry (batt/temp/uptime)",
+        "         CLRT  cleartext device name",
+        "         UNKN  unknown manufacturer data",
+        "",
+        "DISPLAY  TYPE  MAC               AT   RSSI  INFO",
+        "         iBCN  AA:BB:CC:DD:EE:FF rnd  -055  UUID...",
+        "         AT = addr type: pub=public rnd=random",
+        "         Detail pane below list shows full extended data",
+        "         for the selected row (trackpad up/down to select).",
+        "",
+        "LOG      [s] start/stop → /logs/bmon/NNN.csv",
+        "         Cols: timestamp,first_seen,mac,addr_type,",
+        "               type,rssi,sightings,info,extended",
+        "         extended = full UUID / NS+Instance / TLM /",
+        "           full MFR hex · dedup 60s per MAC",
+        "         Timestamp from GPS/NTP if available.",
+        "",
+        "KEYS     [s]log  [a/l]page  trackpad↑↓ select  [q]quit",
+        nullptr
+    }},
+
     { "fastpair", "fp", {
         "SYNTAX   fp [scan|spam|h <idx>|h all]",
         "",
