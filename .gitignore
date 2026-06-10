@@ -8,4 +8,4 @@ lib/
 .vscode/ipch
 
 # Claude Code editor files — ignore entire directory
-.claude/
+.claude/setting*
