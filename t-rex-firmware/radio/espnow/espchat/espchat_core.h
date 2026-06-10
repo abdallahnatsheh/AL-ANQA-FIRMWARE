@@ -22,10 +22,10 @@ struct EcMsg {
 #define EC_RX_MAX       8   // ISR-safe two-pointer ring (WiFi task → main loop)
 #define EC_LOG_MAX     16   // display + scroll history (main loop only)
 #define EC_VIS          7   // visible message rows on screen
-#define EC_CONTACT_MAX 16   // max contacts in /espchat/contacts.csv
+#define EC_CONTACT_MAX 16   // max contacts in /apps/espchat/contacts.csv
 
 // ── Contact ───────────────────────────────────────────────────────────────────
-// Stored in /espchat/contacts.csv:  MAC,name,channel,lmk_hex
+// Stored in /apps/espchat/contacts.csv:  MAC,name,channel,lmk_hex
 // lmk_hex = 32 hex chars (16-byte AES-128 key derived at pairing time)
 struct EcContact {
     uint8_t mac[6];
@@ -109,7 +109,7 @@ void    ecSendPairReq(const uint8_t* dstMac);  // broadcast pair beacon to dstMa
 bool    ecDrainPairReq(uint8_t* mac, char* name); // drain one entry; returns true if got one
 
 // Contact management
-bool ecLoadContacts();    // load /espchat/contacts.csv → g_ecContacts[]
+bool ecLoadContacts();    // load /apps/espchat/contacts.csv → g_ecContacts[]
 bool ecSaveContact(const uint8_t* mac, const char* name, uint8_t ch,
                    const uint8_t* lmk);
 void ecAddContactPeers();
@@ -118,8 +118,8 @@ const EcContact* ecFindContact(const uint8_t* mac);
 // Channel helpers
 // g_ecPublicChannel: default channel for public/no-contacts bg mode (from config)
 extern uint8_t g_ecPublicChannel;
-bool    ecLoadConfig();              // load /espchat/config.conf
-bool    ecSaveConfig();              // write /espchat/config.conf
+bool    ecLoadConfig();              // load /apps/espchat/config.conf
+bool    ecSaveConfig();              // write /apps/espchat/config.conf
 uint8_t ecAutoChannel();             // most common contact channel, else g_ecPublicChannel
 
 // Crypto
@@ -137,8 +137,8 @@ void ecSdLogLoad(uint8_t ch, const uint8_t* peerMac = nullptr);
 
 // SD log helpers
 // Foreground: open a session file and keep it open until ecSdLogClose()
-//   public  → /espchat/pub/ch<N>.log
-//   private → /espchat/prv/<AABBCCDDEEFF>.log
+//   public  → /apps/espchat/pub/ch<N>.log
+//   private → /apps/espchat/prv/<AABBCCDDEEFF>.log
 void ecSdLogOpen(uint8_t ch, const uint8_t* peerMac = nullptr); // peerMac=null → public
 void ecSdLogAppend(bool isTx, const char* macStr, const char* name, const char* text);
 void ecSdLogClose();
@@ -148,5 +148,5 @@ void ecSdLogClose();
 void ecSdLogDirect(bool isTx, const uint8_t* mac, const char* name, const char* text);
 
 // Path builders (public, for use by UI if needed)
-void ecPubLogPath(uint8_t ch,          char* buf, int n); // /espchat/pub/chN.log
-void ecPrvLogPath(const uint8_t* mac,  char* buf, int n); // /espchat/prv/AABBCC.log
+void ecPubLogPath(uint8_t ch,          char* buf, int n); // /apps/espchat/pub/chN.log
+void ecPrvLogPath(const uint8_t* mac,  char* buf, int n); // /apps/espchat/prv/AABBCC.log

@@ -191,19 +191,19 @@ static void initSession() {
     s_fileOk         = false;
 
     if (!sdCardManager.canAccessSD()) return;
-    sdCardManager.ensureDir("/logs/espsniff");
+    sdCardManager.ensureDir(SD_DIR_ESPSNIFF);
 
     // find next free NNN — never overwrite existing sessions
     uint16_t num = 1;
     while (num < 999) {
         char probe[48];
-        snprintf(probe, sizeof(probe), "/logs/espsniff/%03u.csv", num);
+        snprintf(probe, sizeof(probe), SD_DIR_ESPSNIFF "/%03u.csv", num);
         if (!SD.exists(probe)) break;
         num++;
     }
     s_sessionNum = num;
-    snprintf(s_csvPath,  sizeof(s_csvPath),  "/logs/espsniff/%03u.csv",  num);
-    snprintf(s_pcapPath, sizeof(s_pcapPath), "/logs/espsniff/%03u.pcap", num);
+    snprintf(s_csvPath,  sizeof(s_csvPath),  SD_DIR_ESPSNIFF "/%03u.csv",  num);
+    snprintf(s_pcapPath, sizeof(s_pcapPath), SD_DIR_ESPSNIFF "/%03u.pcap", num);
 
     // create CSV with header
     File csv = SD.open(s_csvPath, FILE_WRITE);

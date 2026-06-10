@@ -57,7 +57,7 @@ void LockScreenManager::init() {
         prefs.putBool("wipe", false);
         prefs.end();
         if (sdCardManager.canAccessSD())
-            SD.remove("/lockscreen.conf");
+            SD.remove("/config/lockscreen.conf");
         return;   // start with no PIN — don't call loadConfig()
     }
     prefs.end();
@@ -71,7 +71,7 @@ bool LockScreenManager::loadConfig() {
     _hashHex[0] = '\0'; _saltHex[0] = '\0';
     _timeout = 0; _hasPassword = false;
     if (!sdCardManager.canAccessSD()) return false;
-    File f = SD.open("/lockscreen.conf", FILE_READ);
+    File f = SD.open("/config/lockscreen.conf", FILE_READ);
     if (!f) return false;
     while (f.available()) {
         String line = f.readStringUntil('\n');
@@ -92,7 +92,8 @@ bool LockScreenManager::loadConfig() {
 
 bool LockScreenManager::saveConfig() {
     if (!sdCardManager.canAccessSD()) return false;
-    File f = SD.open("/lockscreen.conf", FILE_WRITE);
+    sdCardManager.ensureDir("/config");
+    File f = SD.open("/config/lockscreen.conf", FILE_WRITE);
     if (!f) return false;
     f.printf("timeout=%u\nhash=%s\nsalt=%s\n", _timeout, _hashHex, _saltHex);
     f.close();
@@ -577,7 +578,7 @@ void LockScreenManager::cmdWipe() {
     }
     // SD accessible right now — delete the file directly
     if (sdCardManager.canAccessSD()) {
-        SD.remove("/lockscreen.conf");
+        SD.remove("/config/lockscreen.conf");
         dm.setTextColor(TFT_GREEN); dm.println("PIN config removed from SD.");
         dm.println("Run 'lock new' to set a new PIN.");
         dm.setTextColor(TFT_WHITE); return;

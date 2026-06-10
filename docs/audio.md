@@ -67,7 +67,7 @@ CMD> nf alert file                    # clear — back to built-in tone
 
 On notification, T-REX checks if an MP3 is configured for that level. If the SD card is available and the file exists, it plays the MP3. Otherwise it falls back to the built-in I2S tone.
 
-### Config file — `/notif.conf`
+### Config file — `/config/notif.conf`
 
 Auto-created by `sdf init`. Key=value format:
 

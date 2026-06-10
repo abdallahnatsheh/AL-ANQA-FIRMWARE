@@ -229,10 +229,10 @@ void NotificationManager::enableAll(bool on) {
     for (int i = 0; i < NOTIF_COUNT; i++) _enabled[i] = on;
 }
 
-// ── SD config (/notif.conf, key=value) ───────────────────────────────────────
+// ── SD config (/config/notif.conf, key=value) ────────────────────────────────
 
-static const char* NM_CONFIG   = "/notif.conf";
-static const char* NM_NOTIF_DIR = "/notification";
+static const char* NM_CONFIG   = "/config/notif.conf";
+static const char* NM_NOTIF_DIR = SD_DIR_CONFIG_NOTIF;
 
 static const char* levelName(int i) {
     switch (i) {
@@ -263,7 +263,7 @@ void NotificationManager::loadConfig() {
             String lvlName = key.substring(0, key.length() - 5);  // strip "_file"
             for (int i = 0; i < NOTIF_COUNT; i++) {
                 if (lvlName == levelName(i)) {
-                    // Prepend /notification/ if path has no slash
+                    // Prepend /config/notification/ if path has no slash
                     if (val.length() > 0 && val[0] != '/') {
                         String full = String(NM_NOTIF_DIR) + "/" + val;
                         strncpy(_mp3File[i], full.c_str(), sizeof(_mp3File[i]) - 1);
@@ -284,6 +284,7 @@ void NotificationManager::loadConfig() {
 }
 
 void NotificationManager::saveConfig() {
+    sdCardManager.ensureDir("/config");
     File f = SD.open(NM_CONFIG, FILE_WRITE);
     if (!f) return;
     f.printf("notif_volume=%d\n", _notifVol);

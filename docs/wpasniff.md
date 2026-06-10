@@ -31,10 +31,10 @@ T-Rex computes PBKDF2-SHA1(passphrase, SSID, 4096) → PMK → PTK → KCK → H
 
 | Wordlist source | Path | Behaviour |
 |-----------------|------|-----------|
-| SD wordlist | `/wordlist.txt` | Tried first, unlimited size |
+| SD wordlist | `/apps/wpasniff/wordlist.txt` | Tried first, unlimited size |
 | Built-in list | (embedded) | 101 common WPA passwords, used as fallback |
 
-Results are saved to `/logs/cracked.csv`. The handshake pcap is written to `/logs/hs/<BSSID>.cap` (aircrack-ng / hashcat hcxpcapngtool compatible).
+Results are saved to `/apps/wpasniff/cracked.csv`. The handshake pcap is written to `/apps/wpasniff/<BSSID>.cap` (aircrack-ng / hashcat hcxpcapngtool compatible).
 
 ### Keys
 

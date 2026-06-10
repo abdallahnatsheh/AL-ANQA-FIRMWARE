@@ -340,11 +340,11 @@ void HandshakeCapture::crack() {
     _dm.printSeparator();
 
     // ── Wordlist selection ────────────────────────────────────────────────────
-    bool hasWl = sdCardManager.isReady() && SD.exists("/wordlist.txt");
+    bool hasWl = sdCardManager.isReady() && SD.exists(SD_CFG_WORDLIST_WS);
     bool useSD = hasWl;
     if (hasWl) {
         _dm.setCursor(10, _dm.getCursorY());
-        _dm.setTextColor(TFT_GREEN);  _dm.println("[1] /wordlist.txt (SD)");
+        _dm.setTextColor(TFT_GREEN);  _dm.println("[1] /apps/wpasniff/wordlist.txt (SD)");
         _dm.setCursor(10, _dm.getCursorY());
         _dm.setTextColor(0x7BEF);    _dm.println("[2] Built-in (100 pwds)");
         _dm.setCursor(10, _dm.getCursorY());
@@ -400,13 +400,13 @@ void HandshakeCapture::crack() {
 
         _dm.setCursor(10, _dm.getCursorY());
         _dm.setTextColor(useSD ? TFT_CYAN : TFT_YELLOW);
-        _dm.println(useSD ? "Source: /wordlist.txt" : "Source: built-in (100)");
+        _dm.println(useSD ? "Source: /apps/wpasniff/wordlist.txt" : "Source: built-in (100)");
         _dm.setTextColor(TFT_WHITE);
     };
 
     // ── SD wordlist (up to 1000 lines) ───────────────────────────────────────
     if (useSD) {
-        wl = SD.open("/wordlist.txt", FILE_READ);
+        wl = SD.open(SD_CFG_WORDLIST_WS, FILE_READ);
         if (wl) {
             char line[64];
             while (wl.available() && !done) {
@@ -477,7 +477,7 @@ void HandshakeCapture::crack() {
 
         // Save to SD if available
         if (sdCardManager.isReady()) {
-            sdCardManager.ensureDir("/logs");
+            sdCardManager.ensureDir(SD_DIR_WPASNIFF);
             char ts[22] = "";
             ClockManager::instance().getTimestamp(ts, sizeof(ts));
             char logLine[152];
@@ -487,7 +487,7 @@ void HandshakeCapture::crack() {
             else
                 snprintf(logLine, sizeof(logLine), "%s,%s,%s",
                          macStr(g_whs.apMac).c_str(), g_whs.ssid, found);
-            sdCardManager.appendLine("/logs/cracked.csv", logLine);
+            sdCardManager.appendLine(SD_LOG_CRACKED_WS, logLine);
         }
     } else {
         _dm.setTextColor(TFT_RED); _dm.println("No match.");
@@ -527,10 +527,9 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
     bool fileOk = false;
     File pcap;
     if (sdCardManager.isReady()) {
-        sdCardManager.ensureDir("/logs");
-        sdCardManager.ensureDir("/logs/hs");
-        char fname[40];
-        snprintf(fname, sizeof(fname), "/logs/hs/%02X-%02X-%02X-%02X-%02X-%02X.cap",
+        sdCardManager.ensureDir(SD_DIR_WPASNIFF);
+        char fname[44];
+        snprintf(fname, sizeof(fname), SD_DIR_WPASNIFF "/%02X-%02X-%02X-%02X-%02X-%02X.cap",
                  bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
         pcap = SD.open(fname, FILE_WRITE);
         fileOk = (bool)pcap;

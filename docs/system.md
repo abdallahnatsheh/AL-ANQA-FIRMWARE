@@ -121,7 +121,7 @@ Two-tier inactivity system:
 
 **Battery-aware dim** — automatically dims when battery drops below threshold, regardless of inactivity timer.
 
-Config is saved to `/pwrsave.conf` on the SD card and restored on boot.
+Config is saved to `/config/pwrsave.conf` on the SD card and restored on boot.
 
 ---
 

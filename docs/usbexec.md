@@ -12,10 +12,10 @@ Executes keystroke injection scripts against the connected PC. Compatible with F
 
 ```
 CMD> ux demo                      # built-in demo (opens Notepad, draws T-Rex)
-CMD> ux /badusb/payload.txt       # run from SD card
+CMD> ux /apps/badusb/scripts/payload.txt       # run from SD card
 ```
 
-Scripts live in `/badusb/` on the SD card (auto-created on first boot).
+Scripts live in `/apps/badusb/scripts/` on the SD card (auto-created on first boot).
 
 ### Supported commands
 

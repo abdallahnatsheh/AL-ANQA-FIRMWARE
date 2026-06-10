@@ -13,7 +13,7 @@
 extern DisplayManager displayManager;
 extern SDCardManager  sdCardManager;
 
-#define CFG_PATH "/macchanger.conf"
+#define CFG_PATH "/config/macchanger.conf"
 
 MacChanger& MacChanger::getInstance() {
     static MacChanger instance;
@@ -123,6 +123,7 @@ void MacChanger::loadConfig() {
 
 void MacChanger::saveConfig() {
     if (!sdCardManager.isReady()) return;
+    sdCardManager.ensureDir("/config");
     SD.remove(CFG_PATH);
     File f = SD.open(CFG_PATH, FILE_WRITE);
     if (!f) return;

@@ -61,8 +61,18 @@ static volatile uint8_t s_tail = 0;
 
 // ── device table ─────────────────────────────────────────────────────────────
 #define BMON_MAX 64
-static BmonDev s_devs[BMON_MAX];
+static BmonDev* s_devs = nullptr;  // ps_malloc'd — ~12KB in PSRAM, see ensureBmonBuffers()
 static int     s_count = 0;
+
+// Lazy PSRAM alloc — ps_malloc requires the heap allocator set up by initArduino(),
+// which hasn't run yet during global ctors, so allocate on first use instead.
+static void ensureBmonBuffers() {
+    if (!s_devs) {
+        s_devs = (BmonDev*)ps_malloc(BMON_MAX * sizeof(BmonDev));
+        if (!s_devs) s_devs = (BmonDev*)malloc(BMON_MAX * sizeof(BmonDev));
+        if (s_devs) memset(s_devs, 0, BMON_MAX * sizeof(BmonDev));
+    }
+}
 
 // ── log state ─────────────────────────────────────────────────────────────────
 static bool   s_logOpen  = false;
@@ -270,12 +280,12 @@ static bool processEntry(const BmonRingEntry& e) {
 // ── log file ──────────────────────────────────────────────────────────────────
 static bool openLog() {
     if (!sdCardManager.isReady()) return false;
-    sdCardManager.ensureDir("/logs/bmon");
+    sdCardManager.ensureDir(SD_DIR_BMON);
 
     uint16_t n = 1;
     char probe[36];
     while (n <= 999) {
-        snprintf(probe, sizeof(probe), "/logs/bmon/%03u.csv", n);
+        snprintf(probe, sizeof(probe), SD_DIR_BMON "/%03u.csv", n);
         if (!SD.exists(probe)) break;
         n++;
     }
@@ -570,6 +580,7 @@ static void drawBmon(int page) {
 void runBmon(char* args) {
     (void)args;
 
+    ensureBmonBuffers();
     s_count      = 0;
     s_head       = s_tail = 0;
     s_logOpen    = false;

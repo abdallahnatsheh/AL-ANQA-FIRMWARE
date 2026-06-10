@@ -15,7 +15,7 @@
 #define TM_RSSI_HISTORY   8
 #define TM_SIG_MAX       40
 #define TM_PROBE_RING    16
-#define SD_LOG_TRACKME   "/logs/trackme.txt"
+#define TM_BLE_RING      24
 
 enum ThreatLevel : uint8_t {
     THREAT_NONE    = 0,
@@ -63,9 +63,13 @@ struct TrackedDev {
     bool        isCompanion;         // seen during baseline or on SD whitelist — never scored
     uint8_t     crowdAtArrival;      // tier1Count when device first appeared
     float       followDistM;         // metres the user moved while this device was in range (GPS)
+    uint32_t    lastSightingMs;       // millis of last ~1Hz-gated scoring update
 };
 
+class TmBleScanCb;
+
 class TrackMeScanner {
+    friend class TmBleScanCb;
 public:
     TrackMeScanner(DisplayManager& dm, SDCardManager& sd);
     void start(bool silent = false);
@@ -88,6 +92,15 @@ private:
     int      page;
     uint32_t startMs;
 
+    // -- UI state --
+    enum TmView { TM_VIEW_TIER1, TM_VIEW_TIER2 };
+    enum TmSort { TM_SORT_NONE, TM_SORT_SCORE, TM_SORT_RSSI };
+    TmView   viewMode;
+    int      page2;
+    TmSort   sortMode;
+    bool     filterAlerts;
+    char     _pendingKey;
+
     // GPS movement tracking (always present; stays 0 when no GPS available)
     float    _totalDistM;   // cumulative distance moved this session
     bool     _gpsMoving;    // true once _totalDistM >= 50 m
@@ -104,7 +117,7 @@ private:
     void ensureBuffers();   // lazy PSRAM alloc — call at start of start(), not in ctor
 
     // -- radio --
-    void doBLEScan(int seconds);
+    void drainBleRing();
     void doWiFiSniff(uint32_t durationMs);
 
     // -- device pool --
@@ -127,6 +140,7 @@ private:
     // -- display --
     void drawScreen(ThreatLevel highestLevel, const char* alertName, uint32_t alertSec);
     void drawHeader();
+    void drawHelp();
 
     bool _silent;
 
@@ -136,6 +150,11 @@ private:
     void     appendLog(const TrackedDev& d);
     void     drawSdNotice(const char* msg);
     uint32_t _sdNoticeMs;
+
+    // Transient feedback for view/sort/filter toggles, shown in the alert bar
+    uint32_t _uiNoticeMs;
+    char     _uiNoticeText[40];
+    uint16_t _uiNoticeColor;
 
     // -- helpers --
     String macStr(const uint8_t* m);
@@ -147,6 +166,19 @@ private:
     static volatile uint8_t    _rHead;
     static volatile uint8_t    _rTail;
     static void IRAM_ATTR wifiCb(void* buf, wifi_promiscuous_pkt_type_t type);
+
+    // BLE continuous-scan ring (filled by NimBLEScanCallbacks::onResult)
+    struct TmBleEntry {
+        uint8_t  mac[6];
+        char     name[20];
+        uint16_t companyId;
+        uint8_t  mfrType;
+        uint8_t  mfrLen;
+        int8_t   rssi;
+    };
+    static volatile TmBleEntry _bleRing[TM_BLE_RING];
+    static volatile uint8_t    _bleHead;
+    static volatile uint8_t    _bleTail;
 
 #ifdef BOARD_TDECK_PLUS
     float gpsDistance(float lat1, float lon1, float lat2, float lon2);

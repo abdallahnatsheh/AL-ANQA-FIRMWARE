@@ -263,7 +263,7 @@ void HiddenSSID::run(const uint8_t* bssid, int channel, bool silent) {
             if (_wf.isHiddenKnown(bssid)) {
                 sdSaved = true;  // already in the database
             } else {
-                sdCardManager.ensureDir("/logs");
+                sdCardManager.ensureDir(SD_DIR_HIDDENSSID);
                 sdSaved = sdCardManager.appendLine(SD_LOG_HIDDEN_SSIDS,
                               String(macBuf) + "," + String((const char*)g_hsSsid) + "," + String(channel));
             }

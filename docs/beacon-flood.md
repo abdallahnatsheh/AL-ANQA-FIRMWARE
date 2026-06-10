@@ -27,7 +27,7 @@ Typing `bf` with no arguments opens the mode picker:
 [1] list      funny SSIDs
 [2] rickroll  Never gonna...
 [3] seq       base + number
-[4] file      /wordlist_beacons.txt
+[4] file      /apps/beaconflood/wordlist.txt
 [5] clone     pick from scan
 ──────────────────────────
 [q] cancel
@@ -93,9 +93,9 @@ CMD> bf file
 CMD> bf file /mylist.txt
 ```
 
-Reads SSIDs from `/wordlist_beacons.txt` on the SD card (one SSID per line, max 32 characters each). Loops the file continuously. Optionally pass a custom path as a second argument.
+Reads SSIDs from `/apps/beaconflood/wordlist.txt` on the SD card (one SSID per line, max 32 characters each). Loops the file continuously. Optionally pass a custom path as a second argument.
 
-**Example `/wordlist_beacons.txt`:**
+**Example `/apps/beaconflood/wordlist.txt`:**
 ```
 Free Airport WiFi
 Hotel Guest

@@ -145,7 +145,7 @@ subs:2 total:4 [w]write [q]stop
 - **Indicate** — device pushes and waits for your ACK before sending next
 
 Both are captured in the same ring buffer. After the session ends, the log is
-automatically saved to `/logs/bleinfo/<mac>_sniff.txt` if SD is present.
+automatically saved to `/apps/bleinfo/<mac>_sniff.txt` if SD is present.
 
 **Stop early:** press `q`. The partial log is still saved.
 
@@ -257,12 +257,12 @@ Write-cap lets you take a value captured during `[n]` sniff and write it back to
 - Challenge-response authentication: even if you replay the right bytes, the server changes its nonce each session
 - Devices that validate sequence numbers or timestamps embedded in the payload
 
-**Saved captures:** `[n]` sniff auto-saves a `.ble` file to `/logs/bleinfo/<mac>_replay.ble` after each session. Write-cap reads from this file or from the current in-memory sniff buffer.
+**Saved captures:** `[n]` sniff auto-saves a `.ble` file to `/apps/bleinfo/<mac>_replay.ble` after each session. Write-cap reads from this file or from the current in-memory sniff buffer.
 
 **Flow:**
 1. Press `[r]` — source picker appears:
    - `[1]` Use current sniff session (in memory)
-   - `[2]` Load from SD — lists `.ble` files in `/logs/bleinfo/`
+   - `[2]` Load from SD — lists `.ble` files in `/apps/bleinfo/`
 2. Packet picker — shows captured packets, select one
 3. Char picker — shows writable characteristics, select target
 4. `bi` reconnects and writes the selected bytes to the selected char
@@ -331,12 +331,12 @@ ok (3 svcs)
 [2/8] 11:22:33:44:55:66
 failed
 [3/8] ...
-Done. Results in /logs/bleinfo/
+Done. Results in /apps/bleinfo/
 ```
 
 - Timeout per device: 4 seconds
 - Press `q` to abort the sweep early
-- Saved files: `/logs/bleinfo/<mac>.txt` for each device that responded
+- Saved files: `/apps/bleinfo/<mac>.txt` for each device that responded
 - Devices that reject connection or have no services are logged as `failed` on screen
 
 Use this to map all BLE devices in a space without interacting with each manually.
@@ -345,7 +345,7 @@ Use this to map all BLE devices in a space without interacting with each manuall
 
 ## SD Card Output
 
-### GATT structure — `/logs/bleinfo/<mac>.txt`
+### GATT structure — `/apps/bleinfo/<mac>.txt`
 Saved by `[s]` key or `bi all`:
 ```
 MAC: aa:bb:cc:dd:ee:ff
@@ -358,7 +358,7 @@ SVC 0xfb005c~ []
   0xfb005d~ [W  ] (Control Point)
 ```
 
-### Notify log — `/logs/bleinfo/<mac>_sniff.txt`
+### Notify log — `/apps/bleinfo/<mac>_sniff.txt`
 Auto-saved after each sniff session (appended, not overwritten):
 ```
 MAC: aa:bb:cc:dd:ee:ff
@@ -367,7 +367,7 @@ MAC: aa:bb:cc:dd:ee:ff
    2.4s 0xfb005~  49 00 00 00..
 ```
 
-### Write-cap capture — `/logs/bleinfo/<mac>_replay.ble` ⚠️ Not yet tested
+### Write-cap capture — `/apps/bleinfo/<mac>_replay.ble` ⚠️ Not yet tested
 Auto-saved alongside the sniff log. Contains raw bytes for every captured notification.
 Can be loaded into `[r]wcap` on any T-Deck to replay the packets:
 ```
@@ -422,7 +422,7 @@ Signs of a poorly secured device (visible from `bi` without touching it):
 
 ### 4. Map BLE attack surface before a pentest
 
-Run `bi all` after `sbl`. Review `/logs/bleinfo/` on a PC. For each device note:
+Run `bi all` after `sbl`. Review `/apps/bleinfo/` on a PC. For each device note:
 - Services present → identifies device class
 - Write characteristics present → active attack surface
 - Notify without bonding → data leakage
@@ -479,7 +479,7 @@ bi 2                   # connect and enumerate full GATT tree
 q
 ```
 
-Results in `/logs/bleinfo/`:
+Results in `/apps/bleinfo/`:
 - `aa-bb-cc-dd-ee-ff.txt` — full GATT map with complete hex values and full UUIDs
 - `aa-bb-cc-dd-ee-ff_sniff.txt` — captured notification stream with full raw bytes
 - `aa-bb-cc-dd-ee-ff_replay.ble` — packet archive for write-cap replay

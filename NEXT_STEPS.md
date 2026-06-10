@@ -4,7 +4,7 @@
 
 | Command | Notes |
 |---------|-------|
-| `bmon` / `bm` | Passive BLE advertisement sniffer — iBeacon, Eddystone-UID/URL/TLM, cleartext names; 7-row table UI with trackpad row selection + extended detail pane; `/logs/bmon/NNN.csv` |
+| `bmon` / `bm` | Passive BLE advertisement sniffer — iBeacon, Eddystone-UID/URL/TLM, cleartext names; 7-row table UI with trackpad row selection + extended detail pane; `/apps/bmon/NNN.csv` |
 | Banner grab `[b]` | `grabAllBanners()` in `network_scanner.cpp`; available in `ps`/`ts` after port scan |
 | `jiggle` / `jg` | HID mouse jiggle to prevent screen lock |
 | WPS display | `sw` shows cyan "WPS" label from scan record — **detection only** |

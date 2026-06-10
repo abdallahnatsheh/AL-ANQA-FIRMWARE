@@ -182,7 +182,7 @@ When a threat fires in background mode a **coloured popup bar** appears at the b
 
 ## Session Logs
 
-Each `wg` run creates a new numbered file: `/logs/wguard/001.csv`, `/002.csv`, etc. The number increments on every boot and session start — **files are never overwritten**.
+Each `wg` run creates a new numbered file: `/apps/wguard/001.csv`, `/002.csv`, etc. The number increments on every boot and session start — **files are never overwritten**.
 
 ### CSV format
 

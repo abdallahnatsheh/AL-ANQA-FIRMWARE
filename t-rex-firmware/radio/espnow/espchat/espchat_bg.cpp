@@ -26,7 +26,7 @@ void startEspchatBg(uint8_t ch) {
     bool hasSd = sdCardManager.canAccessSD();
 
     if (hasSd) {
-        ecLoadConfig();    // reads public_channel from /espchat/config.conf
+        ecLoadConfig();    // reads public_channel from /apps/espchat/config.conf
         ecLoadContacts();  // fills g_ecContacts[] with LMKs
         // No ecSdLogOpen here — bg routes each message to its own file via ecSdLogDirect
     } else {

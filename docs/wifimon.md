@@ -62,8 +62,8 @@ Use trackpad **UP/DOWN** to move the cursor. Press `[d]` to targeted-deauth the 
 `[s]` toggles raw 802.11 frame capture. Auto-starts on launch if SD is present.
 
 - File naming:
-  - Clock synced (NTP/GPS): `/logs/wm/001_20260604_143022.cap`
-  - No clock: `/logs/wm/001.cap`
+  - Clock synced (NTP/GPS): `/apps/wifimon/001_20260604_143022.cap`
+  - No clock: `/apps/wifimon/001.cap`
   - Counter always increments — **never overwrites** previous sessions
 - Format: libpcap linktype 105 (LINKTYPE_IEEE802_11) — open directly in Wireshark or aircrack-ng
 - Drop counter shown on screen as `1234 frm -N` when ring overflows (file stays valid)
@@ -83,7 +83,7 @@ time_ms,mac,vendor,ssid,rssi
 18890,11:22:33:44:55:66,Samsung,CorpVPN,-71
 ```
 
-- Saved to `/logs/probes.csv` (append mode — survives across sessions)
+- Saved to `/apps/wifimon/probes.csv` (append mode — survives across sessions)
 - Deduplicated in RAM: same MAC+SSID pair logged only once per session
 - Stats row shows `Log:N` (unique pairs) when active
 - Works without SD card — silently stays off if no SD
@@ -117,10 +117,10 @@ Status banner shows result (green = ok, red = fail).
 ## SD Layout
 
 ```
-/logs/wm/001.cap                     ← no NTP at capture time
-/logs/wm/002_20260604_143022.cap     ← NTP/GPS synced
-/logs/wm/003_20260604_151800.cap     ← NTP/GPS synced
-/logs/probes.csv                     ← probe harvest (all sessions, appended)
+/apps/wifimon/001.cap                     ← no NTP at capture time
+/apps/wifimon/002_20260604_143022.cap     ← NTP/GPS synced
+/apps/wifimon/003_20260604_151800.cap     ← NTP/GPS synced
+/apps/wifimon/probes.csv                     ← probe harvest (all sessions, appended)
 ```
 
 ---

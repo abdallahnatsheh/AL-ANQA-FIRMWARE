@@ -2,6 +2,7 @@
 #include "command_manager.h"
 #include "display_manager.h"
 #include "input_handling.h"
+#include "lockscreen_manager.h"
 #include <cstring>
 #include <cctype>
 #include <stdio.h>
@@ -134,6 +135,7 @@ void Utils::printHelp(char* args) {
                 if      (subPage > 0) { subPage--; flip = true; }
                 else if (catIdx  > 0) { catIdx--;  subPage = 0; flip = true; }
             }
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) flip = true;
         }
     }
 }

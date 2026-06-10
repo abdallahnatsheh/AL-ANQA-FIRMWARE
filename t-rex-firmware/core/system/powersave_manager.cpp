@@ -5,7 +5,7 @@
 
 // Static instance and config file path
 PowerSaveManager* g_powerSaveInstance = nullptr;
-const char* PowerSaveManager::CONFIG_FILE_PATH = "/pwrsave.conf";
+const char* PowerSaveManager::CONFIG_FILE_PATH = "/config/pwrsave.conf";
 
 extern DisplayManager displayManager;
 

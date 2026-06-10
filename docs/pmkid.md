@@ -58,10 +58,10 @@ T-Rex computes `PBKDF2-SHA1(passphrase, SSID, 4096) → PMK → HMAC-SHA1-128("P
 
 | Wordlist source | Path | Behaviour |
 |-----------------|------|-----------|
-| SD wordlist | `/wordlist.txt` | Tried first, unlimited size |
+| SD wordlist | `/apps/pmkid/wordlist.txt` | Tried first, unlimited size |
 | Built-in list | (embedded) | 101 common WPA passwords, used as fallback |
 
-Results are saved to `/logs/cracked.csv` with a `PMKID` tag to distinguish from handshake cracks.
+Results are saved to `/apps/pmkid/cracked.csv` with a `PMKID` tag to distinguish from handshake cracks.
 
 ---
 
@@ -70,7 +70,7 @@ Results are saved to `/logs/cracked.csv` with a `PMKID` tag to distinguish from 
 Pull the PCAP from SD and convert:
 
 ```bash
-hcxpcapngtool -o hash.hc22000 /logs/hs/pm_AA-BB-CC-DD-EE-FF.cap
+hcxpcapngtool -o hash.hc22000 /apps/pmkid/AA-BB-CC-DD-EE-FF.cap
 hashcat -m 22000 hash.hc22000 wordlist.txt
 ```
 
@@ -89,9 +89,9 @@ hashcat -m 22000 hash.hc22000 wordlist.txt
 
 | Path | Contents |
 |------|----------|
-| `/logs/hs/pm_<BSSID>.cap` | Raw 802.11 PCAP (libpcap, linktype 105) |
-| `/logs/cracked.csv` | Cracked passwords (shared with `ws`) |
-| `/wordlist.txt` | Custom wordlist (one password per line, ≥8 chars) |
+| `/apps/pmkid/<BSSID>.cap` | Raw 802.11 PCAP (libpcap, linktype 105) |
+| `/apps/pmkid/cracked.csv` | Cracked PMKID passwords |
+| `/apps/pmkid/wordlist.txt` | Custom wordlist (one password per line, ≥8 chars) |
 
 ---
 

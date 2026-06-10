@@ -704,18 +704,17 @@ void WiFiMonitor::deauthClient(int absIdx) {
 // ── PCAP: open file and write global header (call BEFORE promiscuous) ────────
 void WiFiMonitor::openPcap() {
     if (!_sd.canAccessSD()) return;
-    _sd.ensureDir("/logs");
-    _sd.ensureDir("/logs/wm");
+    _sd.ensureDir(SD_DIR_WIFIMON);
 
     // probe for next free NNN — same pattern used by wguard/espsniff (never overwrites)
     uint16_t nextNum = 1;
     while (nextNum < 999) {
         char probe[40];
-        snprintf(probe, sizeof(probe), "/logs/wm/%03u.cap", nextNum);
+        snprintf(probe, sizeof(probe), SD_DIR_WIFIMON "/%03u.cap", nextNum);
         if (!SD.exists(probe)) break;
         nextNum++;
     }
-    snprintf(_pcapPath, sizeof(_pcapPath), "/logs/wm/%03u.cap", nextNum);
+    snprintf(_pcapPath, sizeof(_pcapPath), SD_DIR_WIFIMON "/%03u.cap", nextNum);
     _pcapFile = SD.open(_pcapPath, FILE_WRITE);
     if (!_pcapFile) { _pcapPath[0] = '\0'; return; }
 
@@ -806,8 +805,8 @@ void WiFiMonitor::closePcap() {
 // ── probe log: open (append mode) — call BEFORE promiscuous ──────────────────
 void WiFiMonitor::openProbeLog() {
     if (!_sd.canAccessSD()) return;
-    _sd.ensureDir("/logs");
-    strncpy(_probePath, "/logs/probes.csv", sizeof(_probePath) - 1);
+    _sd.ensureDir(SD_DIR_WIFIMON);
+    strncpy(_probePath, SD_LOG_PROBES, sizeof(_probePath) - 1);
     _probePath[sizeof(_probePath) - 1] = '\0';
     bool isNew = !SD.exists(_probePath);
     _probeFile = SD.open(_probePath, FILE_APPEND);
@@ -1101,8 +1100,8 @@ void WiFiMonitor::start(int fixedChannel) {
     }
     if (_probeCount > 0) {
         _dm.setTextColor(TFT_CYAN);
-        char probeMsg[52];
-        snprintf(probeMsg, sizeof(probeMsg), "Probes: %lu unique -> /logs/probes.csv",
+        char probeMsg[64];
+        snprintf(probeMsg, sizeof(probeMsg), "Probes: %lu unique -> " SD_LOG_PROBES,
                  (unsigned long)_probeCount);
         _dm.println(probeMsg);
     }

@@ -82,7 +82,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 **🔌 USB Gadget** — [full guide](docs/usb.md)
 - **Mass Storage** (`um`) — expose SD card as a USB drive; read and write files from any PC with no drivers
 - **USB Keyboard + Mouse** (`uk`) — T-Deck becomes a full USB input device; physical keyboard types into host, trackball moves the mouse cursor with hardware acceleration; tap = left click, hold = right click, hold 1.5s = exit
-- **BadUSB / DuckyScript** (`ux`) — execute keystroke injection payloads; Flipper Zero DuckyScript v1 compatible; built-in T-Rex demo; scripts in `/badusb/` on SD
+- **BadUSB / DuckyScript** (`ux`) — execute keystroke injection payloads; Flipper Zero DuckyScript v1 compatible; built-in T-Rex demo; scripts in `/apps/badusb/scripts/` on SD
 
 **🖥️ System** — [full guide](docs/system.md)
 - Man pages on-device (`man <cmd>`), paginated help, power save, Matrix animation
@@ -137,7 +137,7 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `wifipass` | `wp` | — | View all saved WiFi passwords (SD + NVS merged) |
 | `wifiexport` | `wex` | — | Export NVS credentials → wpa_supplicant.conf |
 | `clearwifi` | `clrw` | — | Erase saved credentials |
-| `wifimon` | `wm` | `[ch]` | Monitor mode — Nets view (BSSID/CH/RSSI/clients) + Clients view (vendor/type/AP, trackpad cursor, `[d]` targeted deauth); `[s]` raw PCAP → `/logs/wm/NNN_YYYYMMDD_HHMMSS.cap`; `[p]` probe logger → `/logs/probes.csv` (MAC+SSID harvest, deduped) |
+| `wifimon` | `wm` | `[ch]` | Monitor mode — Nets view (BSSID/CH/RSSI/clients) + Clients view (vendor/type/AP, trackpad cursor, `[d]` targeted deauth); `[s]` raw PCAP → `/apps/wifimon/NNN_YYYYMMDD_HHMMSS.cap`; `[p]` probe logger → `/apps/wifimon/probes.csv` (MAC+SSID harvest, deduped) |
 | `deauth` | `da` | `<bssid\|#> [ch] [client]` | Deauth attack |
 | `eviltwin` | `et` | — | Evil Twin AP + captive portal |
 | `hiddenssid` | `hs` | `<idx\|bssid> [ch] [silent]` | Reveal hidden SSID |
@@ -219,24 +219,27 @@ All scan tables share the same keys:
 ## SD Layout
 
 ```
-/wpa_supplicant.conf  — saved WiFi credentials (Linux-compatible format)
-/wpa_supplicant.bak   — auto-backup of original file before T-Rex modifies it
-/wordlist.txt         — custom WPA crack wordlist (one password per line, ≥8 chars)
-/pwrsave.conf         — power save config (key=value)
-/macchanger.conf      — MAC changer config (key=value)
-/lockscreen.conf      — lock screen config (timeout, PIN hash+salt)
-/signatures.csv       — custom BLE tracker signatures
-/logs/                — eviltwin.csv, trackme.csv, hidden_ssids.csv, cracked.csv, fastpair.csv
-/logs/probes.csv      — probe request harvest from wm [p]: time_ms,mac,vendor,ssid,rssi (appended across sessions)
-/logs/wm/             — raw 802.11 PCAP files: 001.cap or 001_20260604_143022.cap (sequential, never overwritten)
-/logs/wguard/         — wguard session files (001.csv, 002.csv … — never overwritten)
-/logs/hs/             — WPA handshake captures (<BSSID>.cap) + PMKID captures (pm_<BSSID>.cap); libpcap format, hashcat/aircrack-ng compatible
-/logs/bleinfo/        — GATT dumps (<mac>.txt), sniff logs (<mac>_sniff.txt), write-cap archives (<mac>_replay.ble)
-/fastpair_keys.csv    — cached Fast Pair anti-spoofing keys (modelId,name,key64hex)
-/fastpair_paired.csv  — log of devices successfully paired via GATT
-/evilportal/          — custom HTML portal templates
-/badusb/              — DuckyScript payload files (auto-created on boot)
-/captures/            — misc capture output (auto-created on boot)
+/wpa_supplicant.conf      — saved WiFi credentials (Linux-compatible format)
+/wpa_supplicant.bak       — auto-backup of original file before T-Rex modifies it
+/config/                  — device-wide settings: pwrsave, macchanger, lockscreen, notif, clock
+/config/notification/     — shared per-level alert MP3s
+/apps/                    — one self-contained folder per command (logs, captures, wordlists, config)
+/apps/eviltwin/creds.csv  — captured portal credentials
+/apps/eviltwin/portal/    — custom HTML portal templates
+/apps/trackme/            — session.csv, known.csv, signatures.csv
+/apps/hiddenssid/found.csv — discovered hidden SSIDs
+/apps/wpasniff/           — wordlist.txt, <BSSID>.cap, cracked.csv
+/apps/pmkid/              — wordlist.txt, <BSSID>.cap, cracked.csv
+/apps/wifimon/            — raw 802.11 PCAP files (NNN.cap) + probes.csv
+/apps/wguard/             — wguard session files (001.csv, 002.csv … — never overwritten)
+/apps/beaconflood/wordlist.txt — custom SSID list for bf file
+/apps/bmon/               — BLE advertisement logs (NNN.csv)
+/apps/i2cscan/results.csv — I2C scanner results
+/apps/fastpair/           — keys.csv, paired.csv, sniff.csv
+/apps/espsniff/           — ESP-NOW captures (NNN.csv + NNN.pcap)
+/apps/bleinfo/            — GATT dumps (<mac>.txt), sniff logs (<mac>_sniff.txt), write-cap archives (<mac>_replay.ble)
+/apps/espchat/            — contacts.csv, config.conf, pub/, prv/ chat logs
+/apps/badusb/scripts/     — DuckyScript payload files
 ```
 
 > See the [SD Card guide](docs/sdcard.md) for the full file reference and quick-start checklist.

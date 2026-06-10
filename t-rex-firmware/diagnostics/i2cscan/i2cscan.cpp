@@ -666,12 +666,12 @@ static void saveResults() {
         snprintf(s_status, sizeof(s_status), "ERR: SD not ready");
         s_statusClr = TFT_RED; return;
     }
-    if (!SD.exists("/logs") && !SD.mkdir("/logs")) {
-        snprintf(s_status, sizeof(s_status), "ERR: cannot create /logs");
+    if (!SD.exists(SD_DIR_I2CSCAN) && !SD.mkdir(SD_DIR_I2CSCAN)) {
+        snprintf(s_status, sizeof(s_status), "ERR: cannot create " SD_DIR_I2CSCAN);
         s_statusClr = TFT_RED; return;
     }
     // FILE_APPEND creates the file if absent and never truncates existing data
-    File f = SD.open("/logs/i2cscan.csv", FILE_APPEND);
+    File f = SD.open(SD_LOG_I2CSCAN, FILE_APPEND);
     if (!f) {
         snprintf(s_status, sizeof(s_status), "ERR: open failed");
         s_statusClr = TFT_RED; return;
@@ -691,7 +691,7 @@ static void saveResults() {
     }
     f.flush(); f.close();
 
-    snprintf(s_status, sizeof(s_status), "Saved %d dev -> /logs/i2cscan.csv", s_count);
+    snprintf(s_status, sizeof(s_status), "Saved %d dev -> " SD_LOG_I2CSCAN, s_count);
     s_statusClr = TFT_GREEN;
 }
 

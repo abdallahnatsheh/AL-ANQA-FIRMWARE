@@ -6,6 +6,7 @@
 #include "display_manager.h"
 #include "input_handling.h"
 #include "sdcard_manager.h"
+#include "lockscreen_manager.h"
 #include <SD.h>
 #include <Preferences.h>
 #include <nvs.h>
@@ -348,6 +349,7 @@ void wifiPassCommand() {
         if (k == 'q' || k == 'Q') break;
         if ((k == 'l' || k == 'L') && page < totalPages - 1) { page++; renderWpPage(nets, page, hasSD); }
         else if ((k == 'a' || k == 'A') && page > 0)          { page--; renderWpPage(nets, page, hasSD); }
+        else if (LockScreenManager::getInstance().consumeJustUnlocked()) renderWpPage(nets, page, hasSD);
     }
     displayManager.tdeck_begin();
 }

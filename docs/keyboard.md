@@ -113,7 +113,7 @@ Works for **command names** and **file paths** when using `sdls`, `cd`, `cat`, `
 Example:
 ```
 CMD> sca'       → completes to "scanwifi " or lists: scanwifi, scanblue
-CMD> cat /lo'   → completes to "cat /logs/"
+CMD> cat /ap'   → completes to "cat /apps/"
 ```
 
 ### Command History

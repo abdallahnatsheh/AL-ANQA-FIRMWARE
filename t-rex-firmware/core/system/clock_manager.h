@@ -11,7 +11,7 @@
 // Priority: NTP wins whenever WiFi is connected (more accurate, handles DST).
 //           GPS fills in when offline.
 //
-// TZ config: POSIX TZ string stored in /clock.conf (key tz=...).
+// TZ config: POSIX TZ string stored in /config/clock.conf (key tz=...).
 //   Set via `tz +3`, `tz -5:30`, or full POSIX string `tz IST-2IDT,M3.4.4/2,M10.5.0/2`.
 //   Default: UTC0 (UTC, no offset).
 //

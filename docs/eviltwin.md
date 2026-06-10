@@ -26,7 +26,7 @@ CMD> et
 
 ### Custom portal pages
 
-Drop `.html` files into `/evilportal/` on the SD card. Templates are picked from the picker menu.
+Drop `.html` files into `/apps/eviltwin/portal/` on the SD card. Templates are picked from the picker menu.
 
 ### Keys
 
@@ -36,4 +36,4 @@ Drop `.html` files into `/evilportal/` on the SD card. Templates are picked from
 | `s` | Save credentials to SD |
 | `q` | Stop Evil Twin |
 
-Up to 20 credentials are held in memory. All captures are appended live to `/logs/eviltwin.csv`.
+Up to 20 credentials are held in memory. All captures are appended live to `/apps/eviltwin/creds.csv`.

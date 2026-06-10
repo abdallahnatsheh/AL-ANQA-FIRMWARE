@@ -34,6 +34,6 @@ Press `q` to stop.
 
 ### `fp h <index>` — WhisperPair
 
-Connects to the target device via GATT and reads its anti-spoofing public key. The key is cached to `/fastpair_keys.csv` and logged to `/logs/fastpair.csv`.
+Connects to the target device via GATT and reads its anti-spoofing public key. The key is cached to `/apps/fastpair/keys.csv` and logged to `/apps/fastpair/sniff.csv`.
 
 > Put the target device in pairing mode for best results — devices in pairing mode expose the anti-spoofing key directly.

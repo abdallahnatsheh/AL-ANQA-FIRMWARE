@@ -603,7 +603,7 @@ void runBeaconFlood(char* arg) {
     bool rickrollMode  = false;
     bool fileMode      = false;
     bool cloneMode     = false;
-    char filePath[48]  = "/wordlist_beacons.txt";
+    char filePath[48]  = SD_CFG_WORDLIST_BCN;
 
     // Direct subcommand bypass
     if (arg && *arg) {
@@ -638,7 +638,7 @@ void runBeaconFlood(char* arg) {
         displayManager.setCursor(4, displayManager.getCursorY());
         displayManager.setTextColor(TFT_WHITE);  displayManager.println("[3] seq       base + number");
         displayManager.setCursor(4, displayManager.getCursorY());
-        displayManager.setTextColor(TFT_WHITE);  displayManager.println("[4] file      /wordlist_beacons.txt");
+        displayManager.setTextColor(TFT_WHITE);  displayManager.println("[4] file      /apps/beaconflood/wordlist.txt");
         displayManager.setCursor(4, displayManager.getCursorY());
         displayManager.setTextColor(TFT_CYAN);   displayManager.println("[5] clone     pick from scan");
         displayManager.printSeparator();

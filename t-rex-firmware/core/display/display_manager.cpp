@@ -456,6 +456,9 @@ void DisplayManager::launchMatrixAnimation() {
             tdeck_begin();
             return;
         }
+        // matrix_effect draws straight to tft, bypassing the DisplayManager
+        // block check — skip it while the lock screen owns the display.
+        if (isBlocked()) continue;
         matrix_effect.loop();
     }
 }

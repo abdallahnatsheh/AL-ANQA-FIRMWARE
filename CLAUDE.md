@@ -29,9 +29,15 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 
 **TrackMe** (`trackme.cpp/h`):
 - Gate1=signature · Gate2=score(max 100) · Gate3=GPS≥200m OR time≥5min — WARNING/ALERT need Gate3
-- BLE scan: always clears callback before each scan (`setAdvertisedDeviceCallbacks(nullptr)`) — prevents dangling-ptr crash from `scanblue` reusing the singleton
+- BLE scan: continuous (`pScan->start(0,false)`, `setScanCallbacks(&s_bleCb,true)`) — `TmBleScanCb::onResult()` writes into lock-free `volatile _bleRing[TM_BLE_RING]` (mirrors `bmon.cpp` ring pattern); `drainBleRing()` processes all pending entries every fast-loop tick. `pScan->stop()` + `setScanCallbacks(nullptr)` + `clearResults()` on exit — prevents dangling-ptr crash from `scanblue` reusing the singleton
+- `lastSightingMs` gates per-device scoring (sightings/rssiHistory/gap-return/distinctWindows) to ~1Hz so continuous scanning doesn't break Gate2/Gate3 time-based thresholds; RSSI Kalman smoothing still updates on every ring entry
+- Main loop: fast tick (~50ms) drains BLE ring + polls keyboard (`_pendingKey` lets `doWiFiSniff` exit early on keypress); slow tick (1s) runs GPS/WiFi-sniff/`markGaps`/`runScoring`/draw via `needDraw` flag
 - WiFi probe sniff: Plus only (`#ifdef BOARD_TDECK_PLUS`)
-- Whitelist: `/logs/trackme_known.csv` · Signatures: `/signatures.csv`
+- UI: RPP=7 rows · `[v]` toggles Tier1/Tier2 view (`viewMode`, separate `page`/`page2`) · `[o]` cycles sort `NONE→SCORE→RSSI→NONE` (Tier2 has no score, falls back to RSSI) — active sort column highlighted yellow in table header · `[f]` toggles alert-only filter on Tier1 (`[ALERTS]` tag in status line) · `[h]` opens full-screen help overlay (legend + keys, any key dismisses) · `[c]` clears, `[w]` whitelist, `[s]` save, `q` quit
+- Sort/filter build a local `int idx[]` index array (insertion sort, ≤100 entries) — never reorders `tier1[]`/`tier2[]` themselves
+- Transient `_uiNoticeMs`/`_uiNoticeText`/`_uiNoticeColor` (1.5s) confirms view/sort/filter toggles in the alert bar; `_sdNoticeMs` (3s) shows "Saved to SD"; empty-state messages shown when a view/filter has no rows
+- `drawHeader()` calls `dm.updateStatusBar()` only — no custom red banner (previously conflicted with `ClockManager`'s 3s global status bar refresh, both targeting y=0-30); `[MUTE]` indicator moved to the alert bar
+- Whitelist: `/apps/trackme/known.csv` · Signatures: `/apps/trackme/signatures.csv`
 
 **PowerSaveManager** (`powersave_manager.cpp/h`) — singleton:
 - Hooked into `getKeyboardInput()` — `update()` every poll, `updateActivity()` on keypress — works globally, no per-command changes needed
@@ -55,14 +61,14 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 **EvilTwin** (`eviltwin.cpp/h`):
 - OPEN → clone exact MAC + channel; WPA2 → random LA-MAC (`(x & 0xFE) | 0x02`)
 - Deauth pauses automatically when portal clients connected
-- Templates: built-in or `/evilportal/*.html` · Logs: `/logs/eviltwin.csv`
+- Templates: built-in or `/apps/eviltwin/portal/*.html` · Logs: `/apps/eviltwin/creds.csv`
 - `_creds[20]` in-memory · `[c]` shows table (portal keeps running) · `[s]` saves to SD
 - `handleRedirect()`: 302 + `Captive-Portal-URL` header + HTML meta-refresh body — empty body was breaking iOS/Windows
 
 **HiddenSSID** (`hidden_ssid.cpp/h`):
 - Deauth burst every 3s + promiscuous sniff for subtype 5 (probe response) or 0 (assoc request) matching target BSSID
 - `snifferCb` + `WiFiMonitor::extractSSID()` both `IRAM_ATTR` (callback chain cache safety)
-- On found: stop sniff immediately, I2S two-tone beep (unless `silent`), save `BSSID,SSID,ch` → `/logs/hidden_ssids.csv`
+- On found: stop sniff immediately, I2S two-tone beep (unless `silent`), save `BSSID,SSID,ch` → `/apps/hiddenssid/found.csv`
 - Dedup: `_wf.refreshHiddenCache()` + `isHiddenKnown()` before append — no duplicate lines
 - Scan table integration: known-hidden shows `~name` in cyan; unknown stays `<hidden>` in grey
 
@@ -95,12 +101,12 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 - Trackpad UP/DOWN moves cursor in Clients view; `[d]` deauths selected client (directed deauth to that STA only)
 - Targeted deauth: stop promiscuous → APSTA → inject AP→STA + STA→AP deauth+disassoc × 5 rounds → STA+promiscuous resume
 - **Raw PCAP sniffer**: dual ISR pipelines — parsed ring (display) + raw ring (PCAP file)
-  - Saves to `/logs/wm/<uptime_ms>.cap` — libpcap linktype 105 (LINKTYPE_IEEE802_11), Wireshark/aircrack-ng compatible
+  - Saves to `/apps/wifimon/<uptime_ms>.cap` — libpcap linktype 105 (LINKTYPE_IEEE802_11), Wireshark/aircrack-ng compatible
   - Flush every 2s or ring 25% full: pause promiscuous ~5ms → write SD → resume (GDMA rule)
   - Drop counter (`s_pcapDropped`) shown on screen as `1234 frm -N`; drops don't corrupt file
   - `[s]` toggles PCAP on/off; auto-starts on launch if SD available
   - Ring: 64 slots × 262 bytes = ~17KB DRAM
-- **Probe logger**: passive directed-probe harvest → `/logs/probes.csv`
+- **Probe logger**: passive directed-probe harvest → `/apps/wifimon/probes.csv`
   - `[p]` toggles on/off; starts OFF — user must press `[p]` to begin logging
   - Only logs directed probes (non-empty SSID) — wildcard broadcast probes skipped
   - Dedup in RAM: 64-entry circular ring (MAC+SSID), never writes the same pair twice per session
@@ -130,30 +136,64 @@ Diagnostics: `gps/gps` `spktest/st` `loratest/lt` `i2cscan/isc [EXP]`
 - Private chat: ESP-NOW CCMP AES-128, LMK = SHA-256(PIN + sorted(mac_A, mac_B))[:16]
 - Pairing: initiator derives LMK immediately, adds encrypted peer; receiver sends "* pair ok" encrypted; initiator replies "* pin ack" encrypted — wrong PIN = frame dropped; 3 attempts, fail = `ecRemoveContact()`
 - Background (`ec bg`): `pollEspchatBg()` hooked in `getKeyboardInput()`; `EC` badge in status bar; public=PING, private=INFO notification
-- Contacts: SD → `/espchat/contacts.csv`; no SD → `g_ecContacts[]` RAM only, cleared on reboot
+- Contacts: SD → `/apps/espchat/contacts.csv`; no SD → `g_ecContacts[]` RAM only, cleared on reboot
 - UI layout: PAIR_Y(y=66) · MSG_Y0(y=80) · EC_VIS=7 rows · SEP2_Y(y=178) · FOOT_Y(y=192) · INPUT_Y(y=206); 4px scroll slider at x=316
 - All WiFi commands call `stopEspchatBg()` before starting to avoid ESP-NOW/WiFi mode conflicts
 
 ## SD Layout
-`/wpa_supplicant.conf` — saved WiFi credentials (Linux-compatible key=value)
+v2 reorg: every tool gets its own self-contained folder under `/apps/<tool>/`
+(logs, captures, wordlists, and tool-specific config all together); device-wide
+settings live in `/config/`. `ensureTreeStructure()` creates the FULL `/config` +
+`/apps/<tool>` tree eagerly on `begin()`, `performFormat()`, and
+`initializeTDeckStructure()` — the tree exists from first boot/format, not
+created lazily on first use. `ensureAppsReadme()` writes `/apps/README.txt` once,
+mapping each `/apps/<folder>` to its owning command for anyone browsing the card
+on a PC. Fresh-start reorg — old files at pre-reorg paths (e.g. root
+`/pwrsave.conf`, old `/logs/...` or `/config/...` paths from the v1 layout) are
+orphaned, not migrated.
+
+**Root**
+`/wpa_supplicant.conf` — saved WiFi credentials (Linux-compatible key=value, stays at root by convention)
 `/wpa_supplicant.bak` — auto-backup before first T-Rex modification
-`/wordlist.txt` — custom WPA crack wordlist (one password per line, ≥8 chars)
-`/pwrsave.conf` — power save config (key=value, NOT JSON)
-`/macchanger.conf` — MAC changer config (key=value)
-`/lockscreen.conf` — lock screen config (key=value: `timeout`, `hash`, `salt`)
-`/logs/` — eviltwin.csv · trackme.csv · trackme_known.csv · hidden_ssids.csv · cracked.csv
-`/logs/wm/` — `NNN.cap` raw 802.11 PCAP files from wifimon (linktype 105, Wireshark-compatible)
-`/logs/wguard/` — `001.csv`, `002.csv` … session files (never overwritten; new number on each boot/start)
-`/logs/hs/` — WPA handshake pcap files (`<BSSID>.cap`, libpcap format, linktype 105)
-`/logs/bmon/` — `001.csv`, `002.csv` … BLE advertisement logs (never overwritten; sequential on each start)
-`/logs/espsniff/` — `NNN.csv` + `NNN.pcap` ESP-NOW capture files
-`/logs/i2cscan.csv` — I2C scanner results (`timestamp,0xADDR,chip_name,type,ACK/DEAD`)
-`/evilportal/` — custom HTML portal pages
-`/signatures.csv` — custom BLE tracker signatures
-`/espchat/contacts.csv` — ESPChat paired contacts (MAC, name, channel, LMK hex)
-`/espchat/config.conf` — ESPChat default public channel
-`/espchat/pub/chN.log` — public chat logs per channel
-`/espchat/prv/<MAC>.log` — private chat logs per contact
+
+**`/config/`** — device-wide settings, key=value unless noted
+`/config/pwrsave.conf` — power save config
+`/config/macchanger.conf` — MAC changer config
+`/config/lockscreen.conf` — lock screen config (`timeout`, `hash`, `salt`)
+`/config/clock.conf` — timezone (`tz=...`)
+`/config/notif.conf` — notification settings + per-level audio paths
+`/config/notification/*.mp3` — shared per-level notification audio, referenced by `/config/notif.conf` (`SD_DIR_CONFIG_NOTIF`)
+
+**`/apps/`** — one self-contained folder per command (see `/apps/README.txt` on-device)
+`/apps/README.txt` — auto-generated folder→command map (never overwritten)
+`/apps/trackme/session.csv` — trackme session log (`SD_LOG_TRACKME`)
+`/apps/trackme/known.csv` — trackme whitelist (`SD_LOG_TRACKME_KNOWN`)
+`/apps/trackme/signatures.csv` — custom BLE tracker signatures (`SD_CFG_SIGNATURES`)
+`/apps/eviltwin/creds.csv` — captured portal credentials (`ET_LOG_PATH`)
+`/apps/eviltwin/portal/*.html` — custom HTML portal pages (`ET_PORTAL_DIR`)
+`/apps/hiddenssid/found.csv` — discovered hidden SSIDs (`SD_LOG_HIDDEN_SSIDS`)
+`/apps/wpasniff/wordlist.txt` — custom WPA crack wordlist (one password per line, ≥8 chars) — used by `ws` (`SD_CFG_WORDLIST_WS`)
+`/apps/wpasniff/<BSSID>.cap` — WPA handshake pcap (`SD_DIR_WPASNIFF`, libpcap linktype 105)
+`/apps/wpasniff/cracked.csv` — on-device crack results from `ws` (`SD_LOG_CRACKED_WS`)
+`/apps/pmkid/wordlist.txt` — custom WPA crack wordlist for `pm` (`SD_CFG_WORDLIST_PM`)
+`/apps/pmkid/<BSSID>.cap` — PMKID capture pcap (`SD_DIR_PMKID`)
+`/apps/pmkid/cracked.csv` — on-device crack results from `pm` (`SD_LOG_CRACKED_PM`)
+`/apps/wifimon/NNN.cap` — raw 802.11 PCAP files from `wm` (`SD_DIR_WIFIMON`, linktype 105, Wireshark-compatible)
+`/apps/wifimon/probes.csv` — directed-probe log from `wm [p]` (`SD_LOG_PROBES`)
+`/apps/wguard/NNN.csv` — `001.csv`, `002.csv` … session files (never overwritten; new number on each boot/start)
+`/apps/beaconflood/wordlist.txt` — custom SSID list for `bf file` (`SD_CFG_WORDLIST_BCN`)
+`/apps/bmon/NNN.csv` — `001.csv`, `002.csv` … BLE advertisement logs (never overwritten; sequential on each start)
+`/apps/i2cscan/results.csv` — I2C scanner results (`timestamp,0xADDR,chip_name,type,ACK/DEAD`)
+`/apps/fastpair/keys.csv` — saved Fast Pair anti-spoofing keys
+`/apps/fastpair/paired.csv` — successful pairings log
+`/apps/fastpair/sniff.csv` — passive scan/sniff log
+`/apps/espsniff/NNN.csv` + `NNN.pcap` — ESP-NOW capture files
+`/apps/bleinfo/<mac>.txt` — BLE GATT enum/sniff/replay saves
+`/apps/espchat/contacts.csv` — ESPChat paired contacts (MAC, name, channel, LMK hex)
+`/apps/espchat/config.conf` — ESPChat default public channel
+`/apps/espchat/pub/chN.log` — public chat logs per channel
+`/apps/espchat/prv/<MAC>.log` — private chat logs per contact
+`/apps/badusb/scripts/*` — BadUSB DuckyScript files (`SD_DIR_BADUSB_SCRIPTS`)
 
 ## WiFi / SD — ESP32-S3 GDMA Rule
 **Never write to SD while WiFi is in APSTA or promiscuous mode** — WiFi and SPI share the GDMA controller on ESP32-S3; concurrent DMA corrupts FatFS.
@@ -166,15 +206,16 @@ Diagnostics: `gps/gps` `spktest/st` `loratest/lt` `i2cscan/isc [EXP]`
 - `ws <index|bssid> [ch]` — deauth + EAPOL sniff; stores M1+M2 in RAM (`g_whs`), writes pcap only after WiFi teardown
 - Promiscuous filter: `WIFI_PROMIS_FILTER_MASK_DATA` (EAPOL is a data frame)
 - On-device crack: PBKDF2(SSID,pass,4096,32) → PRF-512 → KCK → HMAC-SHA1 MIC verify
-- Wordlist: `/wordlist.txt` (SD, user choice) or built-in 100 passwords
-- Output: `/logs/hs/<BSSID>.cap` (aircrack-ng / hashcat hcxpcapngtool compatible) + `/logs/cracked.csv`
+- Wordlist: `/apps/wpasniff/wordlist.txt` (SD, user choice) or built-in 100 passwords
+- Output: `/apps/wpasniff/<BSSID>.cap` (aircrack-ng / hashcat hcxpcapngtool compatible) + `/apps/wpasniff/cracked.csv`
 
 **PmkidAttack** (`pmkid_attack.cpp/h`):
 - `pm <index|bssid> [ch]` — passive EAPOL M1 sniff; no deauth, no client needed
 - Extracts PMKID KDE from M1 Key Data: `DD 14 00:0F:AC 04 <16B PMKID>`
 - On-device crack: PBKDF2(SSID,pass,4096,32) → HMAC-SHA1-128(PMK, "PMK Name"||AP||STA) vs PMKID
 - Simpler than ws crack — no PRF-512, just one HMAC-SHA1 truncated to 16 bytes
-- Output: `/logs/hs/pm_<BSSID>.cap` + `/logs/cracked.csv` (tagged `,PMKID`)
+- Wordlist: `/apps/pmkid/wordlist.txt` (SD, user choice) or built-in 100 passwords
+- Output: `/apps/pmkid/<BSSID>.cap` + `/apps/pmkid/cracked.csv` (tagged `,PMKID`)
 - Falls back gracefully: if no PMKID in M1 Key Data, shows `M1 seen — no PMKID in Key Data`
 
 **MACChanger** (`mac_changer.cpp/h`):
@@ -200,7 +241,7 @@ Diagnostics: `gps/gps` `spktest/st` `loratest/lt` `i2cscan/isc [EXP]`
 - Detail pane: auto-reads on row change; two-path — reg-ptr write (0x00) + `requestFrom`, fallback to raw stream (GT911 needs this — 16-bit regs return 0x00 for pointer path)
 - Register browser `[r]`/CLICK: 16 pages × 16 bytes, trackpad page, `[w]` write + 10ms re-read, `[RAW]` tag when reg-ptr unsupported
 - Subcommands: `isc r <addr> <reg> [len]` · `isc raw <addr> [len]` · `isc w <addr> <reg> <val>` · `isc d <addr>` (256-byte hex dump)
-- SD save: `[s]` → `/logs/i2cscan.csv` (`FILE_APPEND` only — never truncates)
+- SD save: `[s]` → `/apps/i2cscan/results.csv` (`FILE_APPEND` only — never truncates)
 - Interactive: `[v]` verify all · `[f]` rescan · `[p]` re-probe selected · `[q]` quit
 
 **BleAdvMonitor (`bmon.cpp/h`)**:
@@ -208,7 +249,7 @@ Diagnostics: `gps/gps` `spktest/st` `loratest/lt` `i2cscan/isc [EXP]`
 - Decodes: iBeacon (Apple MFR 0x004C + type 0x02 + len 0x15 → UUID+Major+Minor+TxPow), Eddystone-UID/URL/TLM (service UUID 0xFEAA), cleartext device names, unknown MFR (shows company ID + first 4 bytes)
 - NimBLE passive scan (`setActiveScan(false)`), continuous (`start(0)`), duplicates enabled for live RSSI updates
 - Ring buffer (32 entries, BT task → main task) → 64-entry device table sorted newest-first
-- `[s]` toggle SD logging → `/logs/bmon/NNN.csv` (sequential, never overwrite); dedup 60s per MAC
+- `[s]` toggle SD logging → `/apps/bmon/NNN.csv` (sequential, never overwrite); dedup 60s per MAC
 - Log columns: `timestamp,first_seen,mac,addr_type,type,rssi,sightings,info,extended`
 - `info` = truncated screen string; `extended` = full decoded data (full iBeacon UUID, full Eddystone NS/instance, TLM adv_count+uptime, full MFR hex)
 - `addr_type`: `pub` (public MAC) or `rnd` (random MAC); timestamps from ClockManager (GPS/NTP), fall back to `@NNNms`

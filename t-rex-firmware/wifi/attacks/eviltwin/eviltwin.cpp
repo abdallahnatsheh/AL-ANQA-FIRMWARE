@@ -541,7 +541,7 @@ void EvilTwin::handlePost() {
             _creds[_captureCount].pass[47] = '\0';
         }
         if (sd.isReady()) {
-            sd.ensureDir("/logs");
+            sd.ensureDir(ET_DIR_PATH);
             char ts[22] = "";
             ClockManager::instance().getTimestamp(ts, sizeof(ts));
             String logRow = ts[0] ? (String(ts) + "," + user + "," + pass)
@@ -771,7 +771,7 @@ void EvilTwin::saveCredsToSD() {
         return;
     }
 
-    sd.ensureDir("/logs");
+    sd.ensureDir(ET_DIR_PATH);
 
     // Remove existing log and rewrite all in-memory creds cleanly
     if (SD.exists(ET_LOG_PATH)) SD.remove(ET_LOG_PATH);
@@ -810,9 +810,9 @@ bool EvilTwin::pickSdTemplate() {
 
     if (!sd.isReady()) { showErr("SD card not ready."); return false; }
 
-    File dir = SD.open("/evilportal");
+    File dir = SD.open(ET_PORTAL_DIR);
     if (!dir || !dir.isDirectory()) {
-        showErr("No /evilportal/ folder on SD.", "Create it and add .html files.");
+        showErr("No /apps/eviltwin/portal/ folder on SD.", "Create it and add .html files.");
         return false;
     }
 
@@ -836,7 +836,7 @@ bool EvilTwin::pickSdTemplate() {
     dir.close();
 
     if (count == 0) {
-        showErr("No .html files in /evilportal/");
+        showErr("No .html files in /apps/eviltwin/portal/");
         return false;
     }
 
@@ -865,7 +865,7 @@ bool EvilTwin::pickSdTemplate() {
         if (k >= '1' && k <= '0' + min(count, ET_PER_PAGE)) {
             int idx = k - '1';
             snprintf(_sdTemplatePath, sizeof(_sdTemplatePath),
-                     "/evilportal/%s", names[idx]);
+                     ET_PORTAL_DIR "/%s", names[idx]);
             strncpy(_sdTemplateName, names[idx], 31);
             _sdTemplateName[31] = '\0';
             _useCustomTemplate  = true;

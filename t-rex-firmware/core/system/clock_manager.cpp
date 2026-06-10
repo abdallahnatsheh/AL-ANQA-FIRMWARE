@@ -91,7 +91,7 @@ void ClockManager::applyTZ() {
 
 bool ClockManager::loadConfig() {
     if (!sdCardManager.canAccessSD()) return false;
-    File f = SD.open("/clock.conf", FILE_READ);
+    File f = SD.open("/config/clock.conf", FILE_READ);
     if (!f) return false;
     while (f.available()) {
         String line = f.readStringUntil('\n');
@@ -110,7 +110,8 @@ bool ClockManager::loadConfig() {
 
 bool ClockManager::saveConfig() {
     if (!sdCardManager.canAccessSD()) return false;
-    File f = SD.open("/clock.conf", FILE_WRITE);
+    sdCardManager.ensureDir("/config");
+    File f = SD.open("/config/clock.conf", FILE_WRITE);
     if (!f) return false;
     f.printf("tz=%s\n", _tzStr);
     f.close();
@@ -353,7 +354,7 @@ static void runTzPicker() {
 
             displayManager.setCursor(4, displayManager.getCursorY());
             displayManager.setTextColor(TFT_GREEN);
-            displayManager.println(saved ? "Saved to /clock.conf" : "Saved to device memory");
+            displayManager.println(saved ? "Saved to /config/clock.conf" : "Saved to device memory");
             displayManager.printCommandScreen();
             return;
         }
@@ -432,7 +433,7 @@ void runTzCmd(char* args) {
     displayManager.println(msg);
     displayManager.setCursor(4, displayManager.getCursorY());
     displayManager.setTextColor(TFT_GREEN);
-    displayManager.println(saved ? "Saved to /clock.conf" : "Saved to device memory");
+    displayManager.println(saved ? "Saved to /config/clock.conf" : "Saved to device memory");
     if (cm.isValid()) {
         char t[10], d[12], line[32];
         cm.getTimeStr(t, sizeof(t));

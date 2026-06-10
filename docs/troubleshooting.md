@@ -110,8 +110,8 @@ The DHCP lease timed out or the AP rejected the connection.
 The password is not in the wordlist.
 
 **Fix:**
-1. Add a custom wordlist to `/wordlist.txt` on the SD card (one password per line)
-2. Copy the `.cap` file from `/logs/hs/<BSSID>.cap` to a PC using `usbmsc` and crack offline with hashcat or aircrack-ng — GPU cracking is orders of magnitude faster
+1. Add a custom wordlist to `/apps/wpasniff/wordlist.txt` on the SD card (one password per line)
+2. Copy the `.cap` file from `/apps/wpasniff/<BSSID>.cap` to a PC using `usbmsc` and crack offline with hashcat or aircrack-ng — GPU cracking is orders of magnitude faster
 
 ---
 

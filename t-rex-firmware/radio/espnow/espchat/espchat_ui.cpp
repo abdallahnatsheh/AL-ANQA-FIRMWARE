@@ -959,7 +959,7 @@ void runEspchat(char* args) {
             }
             g_ecPublicChannel = (uint8_t)ch;
             if (sdCardManager.canAccessSD()) {
-                sdCardManager.ensureDir("/espchat");
+                sdCardManager.ensureDir(SD_DIR_ESPCHAT);
                 ecSaveConfig();
                 displayManager.setTextColor(TFT_CYAN);
                 displayManager.printText("Public channel set to ");

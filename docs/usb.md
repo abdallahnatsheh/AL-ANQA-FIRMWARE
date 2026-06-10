@@ -111,10 +111,10 @@ Executes keystroke injection scripts (DuckyScript) against the connected PC. Com
 **Usage:**
 ```
 ux demo                      # built-in demo — opens Notepad and draws T-Rex ASCII art
-ux /badusb/payload.txt       # run a script from SD card
+ux /apps/badusb/scripts/payload.txt       # run a script from SD card
 ```
 
-Scripts live in `/badusb/` on the SD card (auto-created on first boot).
+Scripts live in `/apps/badusb/scripts/` on the SD card (auto-created on first boot).
 
 ### Supported commands
 

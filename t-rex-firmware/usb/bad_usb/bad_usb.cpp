@@ -160,9 +160,9 @@ void BadUsb::start(char* args) {
         dm.setCursor(10, dm.getCursorY());
         dm.setTextColor(TFT_WHITE); dm.println("Usage:");
         dm.setCursor(10, dm.getCursorY()); dm.println("  ux demo");
-        dm.setCursor(10, dm.getCursorY()); dm.println("  ux /badusb/payload.txt");
+        dm.setCursor(10, dm.getCursorY()); dm.println("  ux /apps/badusb/scripts/payload.txt");
         dm.setCursor(10, dm.getCursorY());
-        dm.setTextColor(0x7BEF);    dm.println("Scripts in /badusb/ on SD.");
+        dm.setTextColor(0x7BEF);    dm.println("Scripts in /apps/badusb/scripts/ on SD.");
         dm.printCommandScreen(); return;
     }
 

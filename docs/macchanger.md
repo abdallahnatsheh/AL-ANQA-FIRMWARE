@@ -20,7 +20,7 @@ CMD> mc target wifi|bt|both         # set which interface is spoofed
 CMD> mc status                      # show current MAC and state
 ```
 
-Config is saved to `/macchanger.conf` on the SD card and restored on boot.
+Config is saved to `/config/macchanger.conf` on the SD card and restored on boot.
 
 ### When it applies
 

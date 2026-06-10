@@ -14,23 +14,56 @@ Format the card as **FAT32**. Insert before power-on.
 
 - [ ] FAT32 formatted microSD (any size)
 - [ ] Insert card before powering on
-- [ ] Boot — `/logs/`, `/badusb/`, `/captures/` auto-created
+- [ ] Boot — `/config/`, `/config/notification/`, `/apps/<tool>/` (one per command), `/apps/README.txt` auto-created
 - [ ] Run `sdinfo` to confirm card is detected
 - [ ] Run `sdls /` to verify directory structure
 
-Everything else is created automatically as you use features.
+The full `/config` + `/apps/<tool>` tree is created **eagerly** on first
+boot/format by `ensureTreeStructure()` — every tool's folder exists from the
+start, even before you've used it. The on-device `/apps/README.txt` file always
+lists the current folder→command map — read it with `cat /apps/README.txt` if
+you forget where something lives.
+
+> **Note on layout (v2)**: the SD layout groups every tool's data — logs,
+> captures, wordlists, and tool-specific config — under its own
+> `/apps/<tool>/` folder. Device-wide settings (pwrsave, lockscreen, notif,
+> clock, macchanger) live in `/config/`. There is no `/logs/` folder anymore.
+> If you're upgrading from an older firmware build, files at old paths (e.g.
+> root `/pwrsave.conf`, v1 `/logs/<tool>/...`, or `/config/<tool-specific
+> file>`) are left in place but no longer read — move them manually into the
+> new locations below if you want to keep them.
 
 ---
 
 ## Directories — auto-created on first boot
 
-| Path | Created by |
+All of these are created up front by `ensureTreeStructure()` — nothing is
+created lazily.
+
+| Path | Notes |
 |------|-----------|
-| `/logs/` | SDCardManager on init |
-| `/badusb/` | SDCardManager on init |
-| `/captures/` | SDCardManager on init |
-| `/logs/hs/` | `wpasniff` on first capture |
-| `/logs/wguard/` | `wguard` on first session |
+| `/config/` | device-wide settings |
+| `/config/notification/` | shared per-level alert MP3s |
+| `/apps/` | one self-contained folder per command |
+| `/apps/trackme/` | session log, whitelist, custom signatures.csv |
+| `/apps/eviltwin/` | creds.csv |
+| `/apps/eviltwin/portal/` | custom captive portal HTML |
+| `/apps/hiddenssid/` | found.csv |
+| `/apps/wpasniff/` | wordlist.txt, `<BSSID>.cap`, cracked.csv |
+| `/apps/pmkid/` | wordlist.txt, `<BSSID>.cap`, cracked.csv |
+| `/apps/wifimon/` | PCAP captures + probes.csv |
+| `/apps/wguard/` | session CSV logs |
+| `/apps/beaconflood/` | wordlist.txt |
+| `/apps/bmon/` | BLE advertisement logs |
+| `/apps/i2cscan/` | results.csv |
+| `/apps/fastpair/` | keys.csv, paired.csv, sniff.csv |
+| `/apps/espsniff/` | ESP-NOW captures (CSV + pcap) |
+| `/apps/bleinfo/` | GATT enum/sniff/replay saves |
+| `/apps/espchat/` | contacts.csv, config.conf |
+| `/apps/espchat/pub/` | public chat logs |
+| `/apps/espchat/prv/` | private chat logs |
+| `/apps/badusb/` | (parent of scripts/) |
+| `/apps/badusb/scripts/` | DuckyScript payload files |
 
 ---
 
@@ -42,27 +75,35 @@ Do nothing — firmware creates these when the relevant feature is first used.
 |------|-----------|----------|
 | `/wpa_supplicant.conf` | `connectwifi` on successful connect | saved WiFi credentials (Linux-compatible) |
 | `/wpa_supplicant.bak` | first T-Rex write to conf | backup of original file before T-Rex modifies it |
-| `/logs/eviltwin.csv` | `eviltwin` on capture or `[s]` | `user,password` per line |
-| `/logs/trackme.csv` | `trackme` on alert | tracking event log |
-| `/logs/trackme_known.csv` | `trackme` on whitelist | `mac,label` per line |
-| `/logs/hidden_ssids.csv` | `hiddenssid` on find | `bssid,ssid,channel` per line |
-| `/logs/cracked.csv` | `wpasniff` on crack | `bssid,ssid,password` per line |
-| `/logs/hs/<BSSID>.cap` | `wpasniff` on EAPOL capture | raw pcap handshake file |
-| `/logs/wguard/001.csv` … `999.csv` | `wguard` — one file per session | CSV: `time,severity,rssi_dbm,message` + session header/footer |
-| `/logs/wifi.txt` | `wifimon` packet log | raw WiFi monitor log |
-| `/logs/packets.txt` | `wifimon` sniffer | raw packet log |
-| `/logs/bt.txt` | `scanblue` | BLE device log |
-| `/logs/ports.txt` | `portscan` / `topscan` | port scan results |
-| `/pwrsave.conf` | `pwrsave set ...` | power save settings (key=value) |
-| `/macchanger.conf` | `macchanger` on save | MAC spoof state + address |
-| `/lockscreen.conf` | `lock new` / `lock timeout` | PIN hash + salt + idle timeout |
-| `/notif.conf` | `notif` on any change | notification levels + volume + MP3 paths |
+| `/apps/README.txt` | SDCardManager on init/format | folder → owning command map (never overwritten) |
+| `/apps/eviltwin/creds.csv` | `eviltwin` on capture or `[s]` | `user,password` per line |
+| `/apps/trackme/session.csv` | `trackme` on alert / `[s]` save | tracking event log |
+| `/apps/trackme/known.csv` | `trackme` on `[w]` whitelist | `mac,label` per line |
+| `/apps/hiddenssid/found.csv` | `hiddenssid` on find | `bssid,ssid,channel` per line |
+| `/apps/wpasniff/cracked.csv` | `wpasniff` on crack | `bssid,ssid,password` per line |
+| `/apps/wpasniff/<BSSID>.cap` | `wpasniff` on EAPOL capture | raw pcap handshake file |
+| `/apps/pmkid/cracked.csv` | `pmkid` on crack | `bssid,ssid,password,PMKID` per line |
+| `/apps/pmkid/<BSSID>.cap` | `pmkid` on M1 capture | raw pcap PMKID file |
+| `/apps/wguard/001.csv` … `999.csv` | `wguard` — one file per session | CSV: `time,severity,rssi_dbm,message` + session header/footer |
+| `/apps/wifimon/NNN.cap` | `wifimon` — one file per session | raw 802.11 PCAP (libpcap, linktype 105) |
+| `/apps/wifimon/probes.csv` | `wifimon` `[p]` probe logger | `time_ms,mac,vendor,ssid,rssi` |
+| `/apps/i2cscan/results.csv` | `i2cscan` `[s]` save | `timestamp,0xADDR,chip_name,type,ACK/DEAD` |
+| `/apps/bmon/001.csv` … `NNN.csv` | `bmon` `[s]` toggle — one file per session | BLE advertisement log |
+| `/apps/espsniff/NNN.csv` + `NNN.pcap` | `espsniff` capture | ESP-NOW capture (CSV + pcap) |
+| `/apps/fastpair/keys.csv` | `fastpair` on key capture | cached anti-spoofing keys |
+| `/apps/fastpair/paired.csv` | `fastpair` on pairing | `addr,name` per line |
+| `/apps/fastpair/sniff.csv` | `fastpair scan` | `mac,modelId,name,rssi,status` per line |
+| `/config/pwrsave.conf` | `pwrsave set ...` | power save settings (key=value) |
+| `/config/macchanger.conf` | `macchanger` on save | MAC spoof state + address |
+| `/config/lockscreen.conf` | `lock new` / `lock timeout` | PIN hash + salt + idle timeout |
+| `/config/notif.conf` | `notif` on any change | notification levels + volume + MP3 paths |
+| `/config/clock.conf` | `tz` on save | timezone (`tz=<POSIX TZ string>`) |
 
 ---
 
 ## Files — create manually (optional)
 
-### `/wordlist.txt`
+### `/apps/wpasniff/wordlist.txt`
 
 Required for: `wpasniff` → `[c]` crack with custom wordlist  
 Without it: falls back to built-in 100-word list (weak, demo only)  
@@ -77,7 +118,15 @@ iloveyou
 
 ---
 
-### `/signatures.csv`
+### `/apps/pmkid/wordlist.txt`
+
+Required for: `pmkid` → `[c]` crack with custom wordlist  
+Without it: falls back to built-in 100-word list (weak, demo only)  
+Format: one password per line, plain UTF-8, no size limit (same format as `wpasniff`)
+
+---
+
+### `/apps/trackme/signatures.csv`
 
 Required for: `trackme` custom tracker signatures  
 Without it: uses built-in AirTag / Tile / SmartTag signatures only  
@@ -91,7 +140,7 @@ BLE,0x0157,Samsung SmartTag,MEDIUM
 
 ---
 
-### `/wordlist_beacons.txt`
+### `/apps/beaconflood/wordlist.txt`
 
 Required for: `beaconflood` → `[4] file` mode  
 Without it: the file mode is unavailable (other modes work fine)  
@@ -105,7 +154,7 @@ xfinitywifi
 
 ---
 
-### `/evilportal/<name>.html`
+### `/apps/eviltwin/portal/<name>.html`
 
 Required for: `eviltwin` custom captive portal page  
 Without it: uses the built-in T-Rex portal (works fine out of the box)  

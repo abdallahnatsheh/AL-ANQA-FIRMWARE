@@ -23,10 +23,7 @@ bool SDCardManager::begin() {
         if (SD.begin(BOARD_SDCARD_CS, SPI, 4000000)) {
             // Set ready BEFORE ensureDir — ensureDir gates on this flag
             ready = true;
-            ensureDir("/logs");
-            ensureDir("/evilportal");
-            ensureDir(SD_DIR_SCRIPTS);
-            ensureDir(SD_DIR_CAPTURES);
+            ensureTreeStructure();
             return true;
         }
         SD.end();
@@ -50,6 +47,73 @@ bool SDCardManager::ensureDir(const char* path) {
         return isDir;
     }
     return SD.mkdir(path);
+}
+
+// Writes a one-time map of /apps/<folder> -> owning command, so files are
+// identifiable when the SD card is browsed on a PC. Never overwritten.
+void SDCardManager::ensureAppsReadme() {
+    if (!canAccessSD()) return;
+    if (SD.exists("/apps/README.txt")) return;
+    File f = SD.open("/apps/README.txt", FILE_WRITE);
+    if (!f) return;
+    f.println("T-Rex Firmware -- /apps folder map");
+    f.println("====================================");
+    f.println("Each subfolder holds the data + logs of one command.");
+    f.println("");
+    f.println("badusb/     ux          DuckyScript payloads in badusb/scripts/");
+    f.println("beaconflood/ bf         custom SSID list (wordlist.txt)");
+    f.println("bleinfo/    bi          GATT enum dumps + sniff captures (<mac>.txt)");
+    f.println("bmon/       bm          BLE advertisement logs (NNN.csv)");
+    f.println("espchat/    ec          contacts.csv, config.conf, pub/, prv/ chat logs");
+    f.println("espsniff/   es          ESP-NOW captures (NNN.csv + NNN.pcap)");
+    f.println("eviltwin/   et          creds.csv + custom portal HTML in portal/");
+    f.println("fastpair/   fp          FastPair keys/pairings/sniff log");
+    f.println("hiddenssid/ hs          discovered hidden SSIDs (found.csv)");
+    f.println("i2cscan/    isc         I2C bus scan results (results.csv)");
+    f.println("pmkid/      pm          PMKID captures (.cap), wordlist.txt, cracked.csv");
+    f.println("trackme/    tm          session log, whitelist, custom signatures.csv");
+    f.println("wguard/     wg          WiFi IDS session logs (NNN.csv)");
+    f.println("wifimon/    wm          raw 802.11 PCAP captures + probe log");
+    f.println("wpasniff/   ws          WPA handshake captures (.cap), wordlist.txt,");
+    f.println("                        cracked.csv");
+    f.println("");
+    f.println("/config/ holds device-wide settings: pwrsave, macchanger,");
+    f.println("lockscreen, notif, clock; /config/notification/ holds alert MP3s.");
+    f.println("");
+    f.println("/wpa_supplicant.conf holds saved WiFi credentials.");
+    f.close();
+}
+
+// Creates the full /config + /apps/<tool> directory tree on first boot/format.
+// Idempotent — ensureDir() is a no-op if the directory already exists.
+void SDCardManager::ensureTreeStructure() {
+    if (!canAccessSD()) return;
+
+    ensureDir(SD_DIR_CONFIG);
+    ensureDir(SD_DIR_CONFIG_NOTIF);
+
+    ensureDir(SD_DIR_APPS);
+    ensureDir(SD_DIR_TRACKME);
+    ensureDir(SD_DIR_EVILTWIN);
+    ensureDir(SD_DIR_EVILPORTAL);
+    ensureDir(SD_DIR_HIDDENSSID);
+    ensureDir(SD_DIR_WPASNIFF);
+    ensureDir(SD_DIR_PMKID);
+    ensureDir(SD_DIR_WIFIMON);
+    ensureDir(SD_DIR_WGUARD);
+    ensureDir(SD_DIR_BEACONFLOOD);
+    ensureDir(SD_DIR_BMON);
+    ensureDir(SD_DIR_I2CSCAN);
+    ensureDir(SD_DIR_FASTPAIR);
+    ensureDir(SD_DIR_ESPSNIFF);
+    ensureDir(SD_DIR_BLEINFO);
+    ensureDir(SD_DIR_ESPCHAT);
+    ensureDir(SD_DIR_ESPCHAT_PUB);
+    ensureDir(SD_DIR_ESPCHAT_PRV);
+    ensureDir(SD_DIR_BADUSB);
+    ensureDir(SD_DIR_BADUSB_SCRIPTS);
+
+    ensureAppsReadme();
 }
 
 void SDCardManager::printInfo() {
@@ -503,10 +567,7 @@ bool SDCardManager::performFormat() {
     }
 
     ready = true;
-    ensureDir("/logs");
-    ensureDir("/evilportal");
-    ensureDir(SD_DIR_SCRIPTS);
-    ensureDir(SD_DIR_CAPTURES);
+    ensureTreeStructure();
     return true;
 }
 
@@ -590,19 +651,32 @@ bool SDCardManager::initializeTDeckStructure() {
     displayManager.println("Initializing T-DECK structure...");
     displayManager.setTextColor(TFT_WHITE);
 
+    static const char* dirs[] = {
+        SD_DIR_CONFIG, SD_DIR_CONFIG_NOTIF,
+        SD_DIR_APPS, SD_DIR_TRACKME, SD_DIR_EVILTWIN, SD_DIR_EVILPORTAL,
+        SD_DIR_HIDDENSSID, SD_DIR_WPASNIFF, SD_DIR_PMKID, SD_DIR_WIFIMON,
+        SD_DIR_WGUARD, SD_DIR_BEACONFLOOD, SD_DIR_BMON, SD_DIR_I2CSCAN,
+        SD_DIR_FASTPAIR, SD_DIR_ESPSNIFF, SD_DIR_BLEINFO, SD_DIR_ESPCHAT,
+        SD_DIR_ESPCHAT_PUB, SD_DIR_ESPCHAT_PRV, SD_DIR_BADUSB, SD_DIR_BADUSB_SCRIPTS
+    };
     bool ok = true;
-    if (!ensureDir("/logs"))          { displayManager.println("Failed: /logs");      ok = false; }
-    if (!ensureDir("/evilportal"))    { displayManager.println("Failed: /evilportal");ok = false; }
-    if (!ensureDir(SD_DIR_SCRIPTS))  { displayManager.println("Failed: /badusb");    ok = false; }
-    if (!ensureDir(SD_DIR_CAPTURES)) { displayManager.println("Failed: /captures");  ok = false; }
+    for (const char* d : dirs) {
+        if (!ensureDir(d)) {
+            displayManager.printText("Failed: ");
+            displayManager.println(d);
+            ok = false;
+        }
+    }
 
     if (!ok) {
         displayManager.printCommandScreen();
         return false;
     }
 
-    if (!SD.exists("/pwrsave.conf")) {
-        File f = SD.open("/pwrsave.conf", FILE_WRITE);
+    ensureAppsReadme();
+
+    if (!SD.exists("/config/pwrsave.conf")) {
+        File f = SD.open("/config/pwrsave.conf", FILE_WRITE);
         if (f) {
             f.println("# pwrsave.conf — generated by T-Rex");
             f.println("# Power save configuration (key=value)");
@@ -616,12 +690,12 @@ bool SDCardManager::initializeTDeckStructure() {
             f.println("batteryThreshold=20");
             f.println("batteryDimBrightness=30");
             f.close();
-            displayManager.println("Created /pwrsave.conf");
+            displayManager.println("Created /config/pwrsave.conf");
         }
     }
 
-    if (!SD.exists("/macchanger.conf")) {
-        File f = SD.open("/macchanger.conf", FILE_WRITE);
+    if (!SD.exists("/config/macchanger.conf")) {
+        File f = SD.open("/config/macchanger.conf", FILE_WRITE);
         if (f) {
             f.println("# macchanger.conf — generated by T-Rex");
             f.println("# MAC address changer configuration (key=value)");
@@ -630,17 +704,17 @@ bool SDCardManager::initializeTDeckStructure() {
             f.println("restore_on_exit=true");
             f.println("target=wifi");
             f.close();
-            displayManager.println("Created /macchanger.conf");
+            displayManager.println("Created /config/macchanger.conf");
         }
     }
 
-    if (!SD.exists("/signatures.csv")) {
-        File f = SD.open("/signatures.csv", FILE_WRITE);
+    if (!SD.exists(SD_CFG_SIGNATURES)) {
+        File f = SD.open(SD_CFG_SIGNATURES, FILE_WRITE);
         if (f) {
             f.println("Name,Signature,Confidence");
             f.println("# Add custom BLE tracker signatures below");
             f.close();
-            displayManager.println("Created /signatures.csv");
+            displayManager.println("Created " SD_CFG_SIGNATURES);
         }
     }
 

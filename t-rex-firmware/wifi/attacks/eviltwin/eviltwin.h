@@ -8,7 +8,9 @@
 #include "display_manager.h"
 #include "sdcard_manager.h"
 
-#define ET_LOG_PATH       "/logs/eviltwin.csv"
+#define ET_DIR_PATH       "/apps/eviltwin"
+#define ET_LOG_PATH       "/apps/eviltwin/creds.csv"
+#define ET_PORTAL_DIR     "/apps/eviltwin/portal"
 #define ET_PER_PAGE       8
 #define ET_MAX_CREDS      20
 #define ET_CREDS_PER_PAGE 5
@@ -54,7 +56,7 @@ private:
 
     // SD custom template
     bool  _useCustomTemplate;
-    char  _sdTemplatePath[64];
+    char  _sdTemplatePath[96];
     char  _sdTemplateName[32];
 
     // -- setup UI --

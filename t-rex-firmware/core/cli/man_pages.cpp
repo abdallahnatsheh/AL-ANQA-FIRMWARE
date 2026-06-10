@@ -84,7 +84,7 @@ static const ManEntry PAGES[] = {
         "         UP/DN to move, Enter to select, q to quit.",
         "         WiFi: NTP syncs local time automatically.",
         "         No WiFi: GPS used as source (Plus only).",
-        "         Saved to /clock.conf on SD.",
+        "         Saved to /config/clock.conf on SD.",
         nullptr
     }},
 
@@ -94,7 +94,7 @@ static const ManEntry PAGES[] = {
         "         pwrsave save|reset",
         "",
         "ABOUT    Dim + screen-off on inactivity, battery-aware dim.",
-        "         Config saved to /pwrsave.conf.",
+        "         Config saved to /config/pwrsave.conf.",
         "",
         "SET      timeout <s>           — inactivity dim delay",
         "         dimto <0-255>         — dim brightness level",
@@ -134,8 +134,8 @@ static const ManEntry PAGES[] = {
         "",
         "LEVELS   alert  warning  success  info  ping",
         "ABOUT    Per-level audio notifications.",
-        "         Custom MP3 from /notification/*.mp3",
-        "         Config saved to /notif.conf",
+        "         Custom MP3 from /config/notification/*.mp3",
+        "         Config saved to /config/notif.conf",
         "",
         "EXAMPLE  notif alert off",
         "         notif vol 80",
@@ -225,8 +225,8 @@ static const ManEntry PAGES[] = {
         "         [d] deauth selected client",
         "         [^v] move cursor  [q] quit",
         "",
-        "FILES    /logs/wm/NNN_YYYYMMDD_HHMMSS.cap",
-        "         /logs/probes.csv",
+        "FILES    /apps/wifimon/NNN.cap",
+        "         /apps/wifimon/probes.csv",
         nullptr
     }},
 
@@ -251,7 +251,8 @@ static const ManEntry PAGES[] = {
         "         Deauth pauses on client connect.",
         "",
         "KEYS     [c] creds  [s] save  [q] quit",
-        "FILES    /evilportal/*.html  /logs/eviltwin.csv",
+        "FILES    /apps/eviltwin/portal/*.html",
+        "         /apps/eviltwin/creds.csv",
         nullptr
     }},
 
@@ -275,7 +276,7 @@ static const ManEntry PAGES[] = {
         "",
         "ABOUT    Spoof WiFi/BLE MAC. Auto-random",
         "         on scan/connect when enabled.",
-        "         Config: /macchanger.conf",
+        "         Config: /config/macchanger.conf",
         "",
         "EXAMPLE  mc on  |  mc random  |  mc off",
         "         mc set 02:AB:CD:EF:12:34",
@@ -293,9 +294,9 @@ static const ManEntry PAGES[] = {
         "STEPS    1. sw  2. ws <idx>  3. wait",
         "         4. c  to crack on-device",
         "KEYS     [c] crack  [q] quit",
-        "FILES    /wordlist.txt  (SD wordlist)",
-        "         /logs/hs/<BSSID>.cap  (pcap)",
-        "         /logs/cracked.csv  (results)",
+        "FILES    /apps/wpasniff/wordlist.txt  (SD wordlist)",
+        "         /apps/wpasniff/<BSSID>.cap  (pcap)",
+        "         /apps/wpasniff/cracked.csv  (results)",
         "NOTE     Built-in 100 pwds if no SD card.",
         nullptr
     }},
@@ -311,8 +312,8 @@ static const ManEntry PAGES[] = {
         "         4. c  to crack on-device",
         "CRACK    PBKDF2 -> HMAC-SHA1-128 vs PMKID",
         "KEYS     [c] crack  [q] quit",
-        "FILES    /logs/hs/pm_<BSSID>.cap  (pcap)",
-        "         /logs/cracked.csv  (results)",
+        "FILES    /apps/pmkid/<BSSID>.cap  (pcap)",
+        "         /apps/pmkid/cracked.csv  (results)",
         "NOTE     Not all routers include PMKID.",
         "         Fall back to ws if no PMKID seen.",
         nullptr
@@ -332,7 +333,7 @@ static const ManEntry PAGES[] = {
         "         handshake harvest, BSSID clone,",
         "         beacon/auth/probe flood, Karma",
         "KEYS     [s] save  [q] quit",
-        "FILES    /logs/wguard/NNN.csv",
+        "FILES    /apps/wguard/NNN.csv",
         "NOTE     bg blocks WiFi cmds; wg stop first.",
         nullptr
     }},
@@ -440,10 +441,10 @@ static const ManEntry PAGES[] = {
         "         [b] audit — risk-flagged chars only",
         "         [r] wcap — replay captured notif",
         "         [p] pair — bond + MITM + passkey",
-        "         [s] save — GATT tree to /logs/bleinfo/",
+        "         [s] save — GATT tree to /apps/bleinfo/",
         "",
         "RISK     ! high   ~ med   orange low",
-        "FILES    /logs/bleinfo/<mac>.txt",
+        "FILES    /apps/bleinfo/<mac>.txt",
         nullptr
     }},
 
@@ -456,8 +457,10 @@ static const ManEntry PAGES[] = {
         "",
         "STEPS    1. gps on  2. tm (start before leaving)",
         "         3. Move 200m to confirm Gate3",
-        "KEYS     [w] whitelist  [s] save  [q] quit",
-        "FILES    /logs/trackme_known.csv  whitelist",
+        "KEYS     [v] view  [o] sort  [f] filter  [h] help",
+        "         [w] whitelist  [s] save  [c] clear  [q] quit",
+        "FILES    /apps/trackme/known.csv  whitelist",
+        "         /apps/trackme/session.csv  log",
         nullptr
     }},
 
@@ -482,7 +485,7 @@ static const ManEntry PAGES[] = {
         "         Detail pane below list shows full extended data",
         "         for the selected row (trackpad up/down to select).",
         "",
-        "LOG      [s] start/stop → /logs/bmon/NNN.csv",
+        "LOG      [s] start/stop → /apps/bmon/NNN.csv",
         "         Cols: timestamp,first_seen,mac,addr_type,",
         "               type,rssi,sightings,info,extended",
         "         extended = full UUID / NS+Instance / TLM /",
@@ -503,7 +506,9 @@ static const ManEntry PAGES[] = {
         "         h all  — test all scanned devices.",
         "",
         "KEYS     [h+#] hijack  [s] spam  [q] quit",
-        "FILES    /fastpair_keys.csv  /logs/fastpair.csv",
+        "FILES    /apps/fastpair/keys.csv",
+        "         /apps/fastpair/sniff.csv",
+        "         /apps/fastpair/paired.csv",
         "NOTE     Device needs pairing mode for h <idx>.",
         nullptr
     }},
@@ -585,7 +590,7 @@ static const ManEntry PAGES[] = {
         "",
         "ABOUT    BadUSB / DuckyScript executor.",
         "         demo=Notepad T-Rex art.",
-        "         Scripts in /badusb/ on SD.",
+        "         Scripts in /apps/badusb/scripts/ on SD.",
         "",
         "CMDS     REM // DELAY DEFAULT_DELAY",
         "         STRING STRINGLN REPEAT F1-F24",
@@ -624,8 +629,8 @@ static const ManEntry PAGES[] = {
         "         Relative and absolute paths supported.",
         "         cd with no arg or / returns to root.",
         "",
-        "EXAMPLE  cd badusb",
-        "         cd /logs",
+        "EXAMPLE  cd /apps/badusb",
+        "         cd /apps",
         "         cd ..",
         nullptr
     }},
@@ -637,8 +642,8 @@ static const ManEntry PAGES[] = {
         "         Scrollable viewer — up to 400 lines.",
         "         Paths resolve from current directory.",
         "",
-        "EXAMPLE  cat /logs/cracked.csv",
-        "         cat /pwrsave.conf",
+        "EXAMPLE  cat /apps/wpasniff/cracked.csv",
+        "         cat /config/pwrsave.conf",
         "KEYS     tpad UP/DN scroll  [q] quit",
         nullptr
     }},
@@ -649,7 +654,7 @@ static const ManEntry PAGES[] = {
         "ABOUT    Delete a file from SD card.",
         "WARNING  No confirmation — immediate.",
         "",
-        "EXAMPLE  rm /logs/eviltwin.csv",
+        "EXAMPLE  rm /apps/eviltwin/creds.csv",
         nullptr
     }},
 
@@ -728,7 +733,7 @@ static const ManEntry PAGES[] = {
         "         [w]  write reg (in reg browser)",
         "         [s]  save to SD",
         "         [f]  rescan bus  [q] quit",
-        "FILES    /logs/i2cscan.csv",
+        "FILES    /apps/i2cscan/results.csv",
         "",
         "NOTE     [EXPERIMENTAL] Not field-tested.",
         nullptr
@@ -758,9 +763,9 @@ static const ManEntry PAGES[] = {
         "         Private msg = INFO  (longer beep)",
         "         Pair req    = WARN  (double beep)",
         "",
-        "FILES    /espchat/pub/chN.log",
-        "         /espchat/prv/<MAC>.log",
-        "         /espchat/contacts.csv",
+        "FILES    /apps/espchat/pub/chN.log",
+        "         /apps/espchat/prv/<MAC>.log",
+        "         /apps/espchat/contacts.csv",
         "KEYS     [+/-]ch  [trk]scroll  [hold trk]exit",
         nullptr
     }},
@@ -774,7 +779,7 @@ static const ManEntry PAGES[] = {
         "KEYS     [c]hop/lock [+/-]ch [j/k]select",
         "         [Enter]detail [a/l]page [s]save",
         "         [f]filter [x]clear [q]quit",
-        "FILES    /logs/espsniff/NNN.csv + NNN.pcap",
+        "FILES    /apps/espsniff/NNN.csv + NNN.pcap",
         nullptr
     }},
 

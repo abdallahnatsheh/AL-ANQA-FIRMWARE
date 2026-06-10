@@ -130,7 +130,7 @@ PIN is never stored in plaintext. The following happens when you run `lock new`:
 
 1. **Salt** — 8 random bytes generated via `esp_random()`, stored as 16 hex chars
 2. **Hash** — SHA-256(`saltHex` + `pin`) computed via mbedTLS, stored as 64 hex chars
-3. Both written to `/lockscreen.conf` on the SD card
+3. Both written to `/config/lockscreen.conf` on the SD card
 
 When you enter a PIN to unlock, the same hash is computed and compared. The original PIN cannot be recovered from the stored hash.
 
@@ -171,7 +171,7 @@ Done — the config file is deleted immediately.
 Wipe scheduled in NVS.
 Insert SD card and reboot to apply.
 ```
-T-Rex writes a wipe flag to internal NVS flash. Power off → insert SD → power on. On the next boot T-Rex detects the flag, deletes `/lockscreen.conf`, clears the flag, and starts with no PIN.
+T-Rex writes a wipe flag to internal NVS flash. Power off → insert SD → power on. On the next boot T-Rex detects the flag, deletes `/config/lockscreen.conf`, clears the flag, and starts with no PIN.
 
 ### Step 3 — Set a new PIN
 
@@ -185,7 +185,7 @@ CMD> lock new
 
 ## Config File
 
-`/lockscreen.conf` — key=value format, written by the `lock` command.
+`/config/lockscreen.conf` — key=value format, written by the `lock` command.
 
 ```
 timeout=120

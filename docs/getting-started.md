@@ -77,9 +77,9 @@ CMD> sdf init
 This formats the card (if not already FAT32) and creates the standard directory structure in one step:
 
 ```
-/logs/          ← attack and scan logs
-/badusb/        ← DuckyScript payloads
-/captures/      ← reserved
+/apps/          ← one folder per command (logs, captures, wordlists, etc.)
+/apps/badusb/scripts/  ← DuckyScript payloads
+/config/        ← device-wide settings (pwrsave, lockscreen, notif, etc.)
 ```
 
 Confirm it worked:

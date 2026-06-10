@@ -83,7 +83,7 @@ bool ecRemoveContact(const uint8_t* mac) {
     if (!sdCardManager.canAccessSD()) return false;
     EcContact tmp[EC_CONTACT_MAX];
     uint8_t   tmpCount = 0;
-    File f = SD.open("/espchat/contacts.csv", FILE_READ);
+    File f = SD.open(SD_DIR_ESPCHAT "/contacts.csv", FILE_READ);
     if (f) {
         char line[96];
         while (f.available() && tmpCount < EC_CONTACT_MAX) {
@@ -122,7 +122,7 @@ bool ecRemoveContact(const uint8_t* mac) {
     }
     if (filteredCount == tmpCount) return false;  // not found
     // Rewrite
-    File wf = SD.open("/espchat/contacts.csv", FILE_WRITE);
+    File wf = SD.open(SD_DIR_ESPCHAT "/contacts.csv", FILE_WRITE);
     if (!wf) return false;
     wf.println("# ESPChat contacts — MAC,name,channel,lmk_hex");
     char lmk_hex[33];
@@ -232,8 +232,8 @@ static void bytesToHex(const uint8_t* in, int len, char* out) {
 bool ecLoadContacts() {
     g_ecContactCount = 0;
     if (!sdCardManager.canAccessSD()) return false;
-    sdCardManager.ensureDir("/espchat");
-    File f = SD.open("/espchat/contacts.csv", FILE_READ);
+    sdCardManager.ensureDir(SD_DIR_ESPCHAT);
+    File f = SD.open(SD_DIR_ESPCHAT "/contacts.csv", FILE_READ);
     if (!f) return false;
 
     char line[96];
@@ -274,12 +274,12 @@ bool ecLoadContacts() {
 bool ecSaveContact(const uint8_t* mac, const char* name, uint8_t ch,
                    const uint8_t* lmk) {
     if (!sdCardManager.canAccessSD()) return false;
-    sdCardManager.ensureDir("/espchat");
+    sdCardManager.ensureDir(SD_DIR_ESPCHAT);
 
     // Load existing contacts into a fresh array
     EcContact tmp[EC_CONTACT_MAX];
     uint8_t   tmpCount = 0;
-    File f = SD.open("/espchat/contacts.csv", FILE_READ);
+    File f = SD.open(SD_DIR_ESPCHAT "/contacts.csv", FILE_READ);
     if (f) {
         char line[96];
         while (f.available() && tmpCount < EC_CONTACT_MAX) {
@@ -329,7 +329,7 @@ bool ecSaveContact(const uint8_t* mac, const char* name, uint8_t ch,
     }
 
     // Rewrite the file
-    File wf = SD.open("/espchat/contacts.csv", FILE_WRITE);
+    File wf = SD.open(SD_DIR_ESPCHAT "/contacts.csv", FILE_WRITE);
     if (!wf) return false;
     wf.println("# ESPChat contacts — MAC,name,channel,lmk_hex");
     char lmk_hex[33];
@@ -366,10 +366,10 @@ const EcContact* ecFindContact(const uint8_t* mac) {
 }
 
 // ── Config (public_channel) ───────────────────────────────────────────────────
-// File: /espchat/config.conf   format: key=value (one per line)
+// File: /apps/espchat/config.conf   format: key=value (one per line)
 bool ecLoadConfig() {
     if (!sdCardManager.canAccessSD()) return false;
-    File f = SD.open("/espchat/config.conf", FILE_READ);
+    File f = SD.open(SD_DIR_ESPCHAT "/config.conf", FILE_READ);
     if (!f) return false;
     char line[48];
     while (f.available()) {
@@ -397,8 +397,8 @@ bool ecLoadConfig() {
 
 bool ecSaveConfig() {
     if (!sdCardManager.canAccessSD()) return false;
-    sdCardManager.ensureDir("/espchat");
-    File f = SD.open("/espchat/config.conf", FILE_WRITE);
+    sdCardManager.ensureDir(SD_DIR_ESPCHAT);
+    File f = SD.open(SD_DIR_ESPCHAT "/config.conf", FILE_WRITE);
     if (!f) return false;
     f.printf("public_channel=%d\n", g_ecPublicChannel);
     f.close();
@@ -584,11 +584,11 @@ bool ecDrainPairReq(uint8_t* mac, char* name13) {
 // ── SD log ────────────────────────────────────────────────────────────────────
 
 void ecPubLogPath(uint8_t ch, char* buf, int n) {
-    snprintf(buf, n, "/espchat/pub/ch%d.log", ch);
+    snprintf(buf, n, SD_DIR_ESPCHAT_PUB "/ch%d.log", ch);
 }
 
 void ecPrvLogPath(const uint8_t* mac, char* buf, int n) {
-    snprintf(buf, n, "/espchat/prv/%02X%02X%02X%02X%02X%02X.log",
+    snprintf(buf, n, SD_DIR_ESPCHAT_PRV "/%02X%02X%02X%02X%02X%02X.log",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
@@ -623,13 +623,13 @@ static void openWithHeader(File& f, const char* path) {
 void ecSdLogOpen(uint8_t ch, const uint8_t* peerMac) {
     if (s_sdOpen) return;
     if (!sdCardManager.canAccessSD()) return;
-    sdCardManager.ensureDir("/espchat");          // parent must exist first
+    sdCardManager.ensureDir(SD_DIR_ESPCHAT);          // parent must exist first
     char path[48];
     if (peerMac) {
-        sdCardManager.ensureDir("/espchat/prv");
+        sdCardManager.ensureDir(SD_DIR_ESPCHAT_PRV);
         ecPrvLogPath(peerMac, path, sizeof(path));
     } else {
-        sdCardManager.ensureDir("/espchat/pub");
+        sdCardManager.ensureDir(SD_DIR_ESPCHAT_PUB);
         ecPubLogPath(ch, path, sizeof(path));
     }
     openWithHeader(s_sdLog, path);
@@ -745,18 +745,18 @@ void ecSdLogLoad(uint8_t ch, const uint8_t* peerMac) {
 }
 
 // ── Background: route each message to its own file ────────────────────────────
-// Contact MAC → /espchat/prv/AABBCCDDEEFF.log
-// Unknown MAC → /espchat/pub/chN.log  (N = g_ecChannel)
+// Contact MAC → /apps/espchat/prv/AABBCCDDEEFF.log
+// Unknown MAC → /apps/espchat/pub/chN.log  (N = g_ecChannel)
 void ecSdLogDirect(bool isTx, const uint8_t* mac, const char* name, const char* text) {
     if (!sdCardManager.canAccessSD()) return;
-    sdCardManager.ensureDir("/espchat");          // parent must exist first
+    sdCardManager.ensureDir(SD_DIR_ESPCHAT);          // parent must exist first
     char path[48];
     const EcContact* ct = ecFindContact(mac);
     if (ct) {
-        sdCardManager.ensureDir("/espchat/prv");
+        sdCardManager.ensureDir(SD_DIR_ESPCHAT_PRV);
         ecPrvLogPath(mac, path, sizeof(path));
     } else {
-        sdCardManager.ensureDir("/espchat/pub");
+        sdCardManager.ensureDir(SD_DIR_ESPCHAT_PUB);
         ecPubLogPath(g_ecChannel, path, sizeof(path));
     }
     File f;

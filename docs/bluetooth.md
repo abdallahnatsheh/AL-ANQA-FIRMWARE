@@ -52,8 +52,13 @@ Passive BLE + WiFi probe scanner that detects devices that may be physically fol
 | Key | Action |
 |-----|--------|
 | `l` / `a` | Next / previous page |
+| `v` | Toggle Tier 1 / Tier 2 view |
+| `o` | Cycle sort: none → score → RSSI |
+| `f` | Toggle alert-only filter (Tier 1) |
+| `h` | Help overlay (legend + keys) |
 | `w` | Whitelist selected device (saves to SD) |
 | `s` | Save session log to SD |
+| `c` | Clear current session data |
 | `q` | Quit |
 
 | Alert level | Meaning | Speaker |
@@ -119,7 +124,7 @@ Press `q` to stop.
 
 ### `fp h <index>` — GATT Hijack (WhisperPair)
 
-Connects to the target device via GATT and reads its anti-spoofing public key. The key is cached in `/fastpair_keys.csv` and logged to `/logs/fastpair.csv`. Put the target in pairing mode for best results — devices in pairing mode expose the anti-spoofing key directly.
+Connects to the target device via GATT and reads its anti-spoofing public key. The key is cached in `/apps/fastpair/keys.csv` and logged to `/apps/fastpair/sniff.csv`. Put the target in pairing mode for best results — devices in pairing mode expose the anti-spoofing key directly.
 
 ---
 

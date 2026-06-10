@@ -87,6 +87,8 @@ WiFi probe sniffing is disabled on the standard T-Deck (no GPS) because without 
 
 Devices below −85 dBm are dropped immediately. Tier 2 devices can be promoted to Tier 1 if RSSI improves or sightings reach 3+.
 
+Press **`v`** to switch between the Tier 1 table (full score/alert columns) and the Tier 2 table (background pool — name/type, RSSI, last seen, sighting count). Each view keeps its own page position.
+
 ---
 
 ## Alert levels
@@ -107,21 +109,28 @@ Devices below −85 dBm are dropped immediately. Tier 2 devices can be promoted 
 | Key | Action |
 |-----|--------|
 | `a` / `l` | Previous / next page |
+| `v` | Toggle Tier 1 / Tier 2 view |
+| `o` | Cycle sort order: none → score → RSSI → none (Tier 2 always sorts by RSSI) |
+| `f` | Toggle alert-only filter on Tier 1 (status line shows `[ALERTS]` when active) |
+| `h` | Show help overlay (color legend, columns, all keys) — any key dismisses |
 | `w` | Whitelist highest-threat non-companion device (saves to SD) |
 | `s` | Save current session log to SD |
+| `c` | Clear current session data |
 | `q` | Quit |
+
+The active sort column is highlighted yellow in the table header, and a brief on-screen notice confirms each `v`/`o`/`f` toggle so you always know the current view/sort/filter state.
 
 ---
 
 ## Permanent whitelist
 
-If a device slips through (e.g. your phone connected after baseline), press **`w`** to whitelist it permanently. The MAC is saved to `/logs/trackme_known.csv` on the SD card and recognized on all future sessions.
+If a device slips through (e.g. your phone connected after baseline), press **`w`** to whitelist it permanently. The MAC is saved to `/apps/trackme/known.csv` on the SD card and recognized on all future sessions.
 
 ---
 
 ## Custom tracker signatures
 
-Drop `/signatures.csv` on the SD card to extend the database without reflashing:
+Drop `/config/signatures.csv` on the SD card to extend the database without reflashing:
 
 ```csv
 BLE,0x004C,Apple AirTag,HIGH
@@ -136,9 +145,9 @@ Apple non-tracker entries are appended automatically regardless of SD content.
 
 | Path | Contents |
 |------|---------|
-| `/logs/trackme.csv` | Session alert log |
-| `/logs/trackme_known.csv` | Permanent device whitelist |
-| `/signatures.csv` | Custom tracker signatures |
+| `/apps/trackme/session.csv` | Session alert log |
+| `/apps/trackme/known.csv` | Permanent device whitelist |
+| `/config/signatures.csv` | Custom tracker signatures |
 
 ---
 

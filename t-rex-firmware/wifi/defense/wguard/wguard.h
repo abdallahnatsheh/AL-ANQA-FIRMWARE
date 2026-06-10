@@ -116,7 +116,7 @@ private:
     bool         _cloneFired;    // true after first detection — enables cooldown path
     uint32_t     _cloneFiredTs;  // millis() of last clone detection — 60s cooldown
 
-    char         _sessionFile[48];   // e.g. /logs/wguard/003.csv
+    char         _sessionFile[48];   // e.g. /apps/wguard/003.csv
     bool         _autoSaveNeeded;    // set by addEvent when ring is full
     uint32_t     _totalEvents;       // total events since session start (never reset)
     uint8_t      _saveCount;         // auto + manual + checkpoint saves done this session

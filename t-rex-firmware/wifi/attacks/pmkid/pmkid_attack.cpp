@@ -272,11 +272,11 @@ void PmkidAttack::crack() {
     _dm.setTextColor(0x7BEF); _dm.printText("AP    "); _dm.setTextColor(TFT_WHITE); _dm.println(macStr(g_pm.apMac).c_str());
     _dm.printSeparator();
 
-    bool hasWl = sdCardManager.isReady() && SD.exists("/wordlist.txt");
+    bool hasWl = sdCardManager.isReady() && SD.exists(SD_CFG_WORDLIST_PM);
     bool useSD = hasWl;
     if (hasWl) {
         _dm.setCursor(10, _dm.getCursorY());
-        _dm.setTextColor(TFT_GREEN); _dm.println("[1] /wordlist.txt (SD)");
+        _dm.setTextColor(TFT_GREEN); _dm.println("[1] /apps/pmkid/wordlist.txt (SD)");
         _dm.setCursor(10, _dm.getCursorY());
         _dm.setTextColor(0x7BEF);   _dm.println("[2] Built-in (100 pwds)");
         _dm.setCursor(10, _dm.getCursorY());
@@ -325,12 +325,12 @@ void PmkidAttack::crack() {
         _dm.setTextColor(0x4208); _dm.println(stat);
         _dm.setCursor(10, _dm.getCursorY());
         _dm.setTextColor(useSD ? TFT_CYAN : TFT_YELLOW);
-        _dm.println(useSD ? "Source: /wordlist.txt" : "Source: built-in (100)");
+        _dm.println(useSD ? "Source: /apps/pmkid/wordlist.txt" : "Source: built-in (100)");
         _dm.setTextColor(TFT_WHITE);
     };
 
     if (useSD) {
-        File wl = SD.open("/wordlist.txt", FILE_READ);
+        File wl = SD.open(SD_CFG_WORDLIST_PM, FILE_READ);
         if (wl) {
             char line[64];
             while (wl.available() && !done) {
@@ -389,7 +389,7 @@ void PmkidAttack::crack() {
         _dm.setTextColor(TFT_GREEN); _dm.printText("[CRACKED] ");
         _dm.setTextColor(TFT_WHITE); _dm.println(found);
         if (sdCardManager.isReady()) {
-            sdCardManager.ensureDir("/logs");
+            sdCardManager.ensureDir(SD_DIR_PMKID);
             char ts[22] = "";
             ClockManager::instance().getTimestamp(ts, sizeof(ts));
             char logLine[152];
@@ -399,7 +399,7 @@ void PmkidAttack::crack() {
             else
                 snprintf(logLine, sizeof(logLine), "%s,%s,%s,PMKID",
                          macStr(g_pm.apMac).c_str(), g_pm.ssid, found);
-            sdCardManager.appendLine("/logs/cracked.csv", logLine);
+            sdCardManager.appendLine(SD_LOG_CRACKED_PM, logLine);
         }
     } else {
         _dm.setTextColor(TFT_RED); _dm.println("No match.");
@@ -436,10 +436,9 @@ void PmkidAttack::run(const uint8_t* bssid, int channel, const char* ssid) {
     bool fileOk = false;
     File pcap;
     if (sdCardManager.isReady()) {
-        sdCardManager.ensureDir("/logs");
-        sdCardManager.ensureDir("/logs/hs");
+        sdCardManager.ensureDir(SD_DIR_PMKID);
         char fname[48];
-        snprintf(fname, sizeof(fname), "/logs/hs/pm_%02X-%02X-%02X-%02X-%02X-%02X.cap",
+        snprintf(fname, sizeof(fname), SD_DIR_PMKID "/%02X-%02X-%02X-%02X-%02X-%02X.cap",
                  bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
         pcap = SD.open(fname, FILE_WRITE);
         fileOk = (bool)pcap;
@@ -520,7 +519,7 @@ void PmkidAttack::run(const uint8_t* bssid, int channel, const char* ssid) {
         _dm.setTextColor(0x7BEF); _dm.printText("SD  ");
         if (fileOk) {
             char shortName[22];
-            snprintf(shortName, sizeof(shortName), "pm_%02X-%02X-%02X...cap", bssid[0], bssid[1], bssid[2]);
+            snprintf(shortName, sizeof(shortName), "%02X-%02X-%02X...cap", bssid[0], bssid[1], bssid[2]);
             _dm.setTextColor(TFT_GREEN); _dm.println(shortName);
         } else {
             _dm.setTextColor(TFT_RED); _dm.println("none — RAM only");

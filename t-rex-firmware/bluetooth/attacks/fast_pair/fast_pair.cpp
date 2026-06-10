@@ -11,6 +11,7 @@
 #include "display_manager.h"
 #include "input_handling.h"
 #include "lockscreen_manager.h"
+#include "sdcard_manager.h"
 #include "constants.h"
 
 #include <NimBLEDevice.h>
@@ -19,17 +20,20 @@
 #include <mbedtls/sha256.h>
 #include <mbedtls/aes.h>
 #include "esp_random.h"
+#include <cstring>
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
+extern SDCardManager  sdCardManager;
 
 FastPair fastPair;
 bool     g_fpBtInited = false;   // kept for any legacy references; NimBLE init is idempotent
 
 // ── SD paths ─────────────────────────────────────────────────────────────────
-#define FP_SD_KEYS   "/fastpair_keys.csv"
-#define FP_SD_PAIRED "/fastpair_paired.csv"
-#define FP_SD_LOG    "/logs/fastpair.csv"
+#define FP_SD_DIR    SD_DIR_FASTPAIR
+#define FP_SD_KEYS   SD_DIR_FASTPAIR "/keys.csv"
+#define FP_SD_PAIRED SD_DIR_FASTPAIR "/paired.csv"
+#define FP_SD_LOG    SD_DIR_FASTPAIR "/sniff.csv"
 
 // ── Fast Pair GATT UUIDs ──────────────────────────────────────────────────────
 static const char* FP_SVC_UUID = "0000FE2C-0000-1000-8000-00805F9B34FB";
@@ -43,9 +47,19 @@ struct FpScanned {
     int8_t   rssi;
     char     name[32];
 };
-static FpScanned    s_fpScanned[32];
+static FpScanned*   s_fpScanned = nullptr;  // ps_malloc'd — ~1.9KB in PSRAM, see ensureFpBuffers()
 static volatile int s_fpCount  = 0;
 static volatile bool s_scanDone = false;
+
+// Lazy PSRAM alloc — ps_malloc requires the heap allocator set up by initArduino(),
+// which hasn't run yet during global ctors, so allocate on first use instead.
+static void ensureFpBuffers() {
+    if (!s_fpScanned) {
+        s_fpScanned = (FpScanned*)ps_malloc(32 * sizeof(FpScanned));
+        if (!s_fpScanned) s_fpScanned = (FpScanned*)malloc(32 * sizeof(FpScanned));
+        if (s_fpScanned) memset(s_fpScanned, 0, 32 * sizeof(FpScanned));
+    }
+}
 
 // ── BLE init (idempotent via NimBLE) ─────────────────────────────────────────
 static void fpBleInit() {
@@ -64,6 +78,7 @@ static inline void fpSdRemount() { SD.begin(39); }
 
 void FastPair::saveLog(const char* mac, uint32_t modelId, const char* name,
                        int8_t rssi, const char* status) {
+    sdCardManager.ensureDir(FP_SD_DIR);
     File f = SD.open(FP_SD_LOG, FILE_APPEND);
     if (!f) return;
     char line[80];
@@ -73,6 +88,7 @@ void FastPair::saveLog(const char* mac, uint32_t modelId, const char* name,
 }
 
 void FastPair::savePaired(const char* addr, const char* name) {
+    sdCardManager.ensureDir(FP_SD_DIR);
     File f = SD.open(FP_SD_PAIRED, FILE_APPEND);
     if (!f) return;
     f.printf("%s,%s\n", addr, name ? name : "Unknown");
@@ -118,6 +134,7 @@ bool FastPair::loadFromSD(uint32_t modelId, uint8_t* out64) {
 }
 
 void FastPair::saveToSD(uint32_t modelId, const char* name, const uint8_t* key64) {
+    sdCardManager.ensureDir(FP_SD_DIR);
     File f = SD.open(FP_SD_KEYS, FILE_APPEND);
     if (!f) return;
     char line[160]; int pos = snprintf(line, 10, "%06X,", modelId);
@@ -170,6 +187,7 @@ static void renderFpPage(int page, int perPage, int total) {
 
 // ── FastPair::command() ───────────────────────────────────────────────────────
 void FastPair::command(const char* args) {
+    ensureFpBuffers();
     if (!args || !*args || strncmp(args, "scan", 4) == 0) { scan(); return; }
     if (strncmp(args, "spam", 4) == 0)                    { spam(); return; }
     const char* p = args;
@@ -585,7 +603,7 @@ void FastPair::hijackAll() {
     snprintf(buf, sizeof(buf), "Vulnerable: %d", vulnerable);
     dm.setTextColor(vulnerable > 0 ? TFT_RED : TFT_GREEN); dm.println(buf);
     dm.setCursor(10, dm.getCursorY()); dm.setTextColor(0x7BEF);
-    dm.println("Log: /logs/fastpair.csv");
+    dm.println("Log: /apps/fastpair/sniff.csv");
     dm.setCursor(10, dm.getCursorY()); dm.println("[q]=quit");
 
     while (inputHandler.getKeyboardInput() != 'q') vTaskDelay(pdMS_TO_TICKS(50));
@@ -603,6 +621,6 @@ void FastPair::listenTo(const uint8_t* classicBda, const char* name) {
              classicBda[0], classicBda[1], classicBda[2],
              classicBda[3], classicBda[4], classicBda[5]);
     dm.println(buf);
-    dm.setCursor(10, dm.getCursorY()); dm.println("Saved to /fastpair_paired.csv");
+    dm.setCursor(10, dm.getCursorY()); dm.println("Saved to /apps/fastpair/paired.csv");
     fpSdRemount(); dm.printCommandScreen();
 }

@@ -65,9 +65,9 @@ A pair-request bar (amber) appears when an incoming pairing request is received.
 
 | Path | Contents |
 |------|----------|
-| `/espchat/contacts.csv` | Saved contacts (MAC, name, LMK). RAM-only if no SD — cleared on reboot. |
-| `/espchat/pub/chN.log` | Public channel N message log |
-| `/espchat/prv/<MAC>.log` | Private conversation log per peer |
+| `/apps/espchat/contacts.csv` | Saved contacts (MAC, name, LMK). RAM-only if no SD — cleared on reboot. |
+| `/apps/espchat/pub/chN.log` | Public channel N message log |
+| `/apps/espchat/prv/<MAC>.log` | Private conversation log per peer |
 
 ---
 
@@ -98,8 +98,8 @@ Passive promiscuous capture of ESP-NOW action frames. Does not transmit.
 
 | Path | Contents |
 |------|----------|
-| `/logs/espsniff/NNN.csv` | Decoded frame log (session-numbered, never overwritten) |
-| `/logs/espsniff/NNN.pcap` | Raw PCAP capture (same session number) |
+| `/apps/espsniff/NNN.csv` | Decoded frame log (session-numbered, never overwritten) |
+| `/apps/espsniff/NNN.pcap` | Raw PCAP capture (same session number) |
 
 ---
 

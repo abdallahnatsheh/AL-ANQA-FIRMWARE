@@ -28,7 +28,7 @@ CMD> hs 4 11 silent
 
 - Plays a two-tone beep (unless `silent`)
 - Displays the SSID on screen
-- Saves `BSSID,SSID,ch` to `/logs/hidden_ssids.csv`
+- Saves `BSSID,SSID,ch` to `/apps/hiddenssid/found.csv`
 - The SSID appears as `~name` in cyan on the next `sw` scan
 
 Press `q` to stop.

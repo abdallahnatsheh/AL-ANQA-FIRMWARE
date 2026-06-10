@@ -45,7 +45,7 @@ struct BiSvc {
     uint8_t nChars;
 };
 
-static BiSvc   s_svcs[BI_MAX_SVCS];
+static BiSvc*  s_svcs = nullptr;  // ps_malloc'd — ~11KB in PSRAM, see ensureBiBuffers()
 static uint8_t s_svcCount;
 static bool    s_hasNotify;
 static bool    s_hasWrite;
@@ -59,7 +59,7 @@ static BiWriteRef s_writable[16];
 static uint8_t    s_writableCount;
 
 struct BiLine { char text[52]; uint16_t color; };
-static BiLine s_lines[BI_MAX_LINES];
+static BiLine* s_lines = nullptr;  // ps_malloc'd — ~4.2KB in PSRAM, see ensureBiBuffers()
 static int    s_lineCount;
 
 // Notification ring buffer (written from NimBLE task, read from main task)
@@ -71,17 +71,42 @@ struct BiNotif {
     uint8_t raw[20];        // raw bytes for replay
     uint8_t rawLen;
 };
-static BiNotif           s_notifs[BI_NOTIF_MAX];
+static BiNotif*          s_notifs = nullptr;  // ps_malloc'd — ~1.6KB in PSRAM, see ensureBiBuffers()
 static volatile uint16_t s_nfTotal = 0;
 static volatile uint8_t  s_nfWrite = 0;
 static volatile bool     s_nfFlag  = false;
 static uint32_t          s_sniffT0 = 0;
 
 // Packet buffer for loaded .ble replay files
-static BiNotif  s_loadedPkts[BI_NOTIF_MAX];
+static BiNotif* s_loadedPkts = nullptr;  // ps_malloc'd — ~1.6KB in PSRAM, see ensureBiBuffers()
 static uint8_t  s_loadedCount = 0;
 static char     s_loadedMac[18] = {};
 static uint8_t  s_loadedType   = BLE_ADDR_RANDOM;
+
+// Lazy PSRAM alloc — ps_malloc requires the heap allocator set up by initArduino(),
+// which hasn't run yet during global ctors, so allocate on first use instead.
+static void ensureBiBuffers() {
+    if (!s_svcs) {
+        s_svcs = (BiSvc*)ps_malloc(BI_MAX_SVCS * sizeof(BiSvc));
+        if (!s_svcs) s_svcs = (BiSvc*)malloc(BI_MAX_SVCS * sizeof(BiSvc));
+        if (s_svcs) memset(s_svcs, 0, BI_MAX_SVCS * sizeof(BiSvc));
+    }
+    if (!s_lines) {
+        s_lines = (BiLine*)ps_malloc(BI_MAX_LINES * sizeof(BiLine));
+        if (!s_lines) s_lines = (BiLine*)malloc(BI_MAX_LINES * sizeof(BiLine));
+        if (s_lines) memset(s_lines, 0, BI_MAX_LINES * sizeof(BiLine));
+    }
+    if (!s_notifs) {
+        s_notifs = (BiNotif*)ps_malloc(BI_NOTIF_MAX * sizeof(BiNotif));
+        if (!s_notifs) s_notifs = (BiNotif*)malloc(BI_NOTIF_MAX * sizeof(BiNotif));
+        if (s_notifs) memset(s_notifs, 0, BI_NOTIF_MAX * sizeof(BiNotif));
+    }
+    if (!s_loadedPkts) {
+        s_loadedPkts = (BiNotif*)ps_malloc(BI_NOTIF_MAX * sizeof(BiNotif));
+        if (!s_loadedPkts) s_loadedPkts = (BiNotif*)malloc(BI_NOTIF_MAX * sizeof(BiNotif));
+        if (s_loadedPkts) memset(s_loadedPkts, 0, BI_NOTIF_MAX * sizeof(BiNotif));
+    }
+}
 
 // ── Known UUID names ──────────────────────────────────────────────────────────
 
@@ -430,7 +455,7 @@ static bool loadReplayFromSd(const char* path) {
 
 static int listReplayFiles(char names[][48], int maxFiles) {
     if (!sdCardManager.canAccessSD()) return 0;
-    File dir = SD.open("/logs/bleinfo");
+    File dir = SD.open(SD_DIR_BLEINFO);
     if (!dir || !dir.isDirectory()) { if (dir) dir.close(); return 0; }
     int count = 0;
     while (count < maxFiles) {
@@ -439,7 +464,7 @@ static int listReplayFiles(char names[][48], int maxFiles) {
         const char* nm = entry.name();
         size_t len = strlen(nm);
         if (len > 11 && strcmp(nm + len - 11, "_replay.ble") == 0) {
-            snprintf(names[count], 48, "/logs/bleinfo/%s", nm);
+            snprintf(names[count], 48, SD_DIR_BLEINFO "/%s", nm);
             count++;
         }
         entry.close();
@@ -557,7 +582,7 @@ static void runReplay(const char* macStr, uint8_t addrType) {
         if (fileCount == 0) {
             displayManager.setCursor(4, displayManager.getCursorY());
             displayManager.setTextColor(TFT_RED);
-            displayManager.println("No .ble files in /logs/bleinfo/");
+            displayManager.println("No .ble files in /apps/bleinfo/");
             vTaskDelay(pdMS_TO_TICKS(1500));
             return;
         }
@@ -1141,12 +1166,12 @@ static void macToFilename(const char* mac, char* out, size_t outLen) {
 
 static bool saveGattToSd(const char* macStr) {
     if (!sdCardManager.canAccessSD()) return false;
-    sdCardManager.ensureDir("/logs/bleinfo");
+    sdCardManager.ensureDir(SD_DIR_BLEINFO);
 
     char fname[40];
     char stem[18];
     macToFilename(macStr, stem, sizeof(stem));
-    snprintf(fname, sizeof(fname), "/logs/bleinfo/%s.txt", stem);
+    snprintf(fname, sizeof(fname), SD_DIR_BLEINFO "/%s.txt", stem);
 
     File f = SD.open(fname, FILE_WRITE);
     if (!f) return false;
@@ -1188,12 +1213,12 @@ static bool saveGattToSd(const char* macStr) {
 
 static bool saveSniffToSd(const char* macStr) {
     if (!sdCardManager.canAccessSD() || s_nfTotal == 0) return false;
-    sdCardManager.ensureDir("/logs/bleinfo");
+    sdCardManager.ensureDir(SD_DIR_BLEINFO);
 
     char fname[46];
     char stem[18];
     macToFilename(macStr, stem, sizeof(stem));
-    snprintf(fname, sizeof(fname), "/logs/bleinfo/%s_sniff.txt", stem);
+    snprintf(fname, sizeof(fname), SD_DIR_BLEINFO "/%s_sniff.txt", stem);
 
     File f = SD.open(fname, FILE_APPEND);
     if (!f) return false;
@@ -1233,11 +1258,11 @@ static bool saveSniffToSd(const char* macStr) {
 //   PKT <uuid> <elapsed_ms> <HEXBYTES>
 static bool saveReplayToSd(const char* macStr, uint8_t addrType) {
     if (!sdCardManager.canAccessSD() || s_nfTotal == 0) return false;
-    sdCardManager.ensureDir("/logs/bleinfo");
+    sdCardManager.ensureDir(SD_DIR_BLEINFO);
 
     char fname[46], stem[18];
     macToFilename(macStr, stem, sizeof(stem));
-    snprintf(fname, sizeof(fname), "/logs/bleinfo/%s_replay.ble", stem);
+    snprintf(fname, sizeof(fname), SD_DIR_BLEINFO "/%s_replay.ble", stem);
 
     File f = SD.open(fname, FILE_WRITE);
     if (!f) return false;
@@ -1560,6 +1585,7 @@ static void runSniff(const char* macStr, uint8_t addrType) {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 void runBleInfo(char* arg) {
+    ensureBiBuffers();
     displayManager.clearScreen();
     displayManager.setDefaultTextSize();
     displayManager.setCursor(4, outputY);
@@ -1621,7 +1647,7 @@ void runBleInfo(char* arg) {
         }
         displayManager.setCursor(4, displayManager.getCursorY());
         displayManager.setTextColor(0x7BEF);
-        displayManager.println("Done. Results in /logs/bleinfo/");
+        displayManager.println("Done. Results in /apps/bleinfo/");
         vTaskDelay(pdMS_TO_TICKS(2000));
         displayManager.printCommandScreen();
         return;

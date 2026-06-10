@@ -829,15 +829,15 @@ void WGuard::initSession() {
     // Find next available session number — scans SD so we never overwrite across reboots.
     uint16_t sessionNum = 1;
     if (sdCardManager.canAccessSD()) {
-        sdCardManager.ensureDir("/logs/wguard");
+        sdCardManager.ensureDir(SD_DIR_WGUARD);
         char probe[48];
         while (sessionNum < 999) {
-            snprintf(probe, sizeof(probe), "/logs/wguard/%03u.csv", sessionNum);
+            snprintf(probe, sizeof(probe), SD_DIR_WGUARD "/%03u.csv", sessionNum);
             if (!SD.exists(probe)) break;
             sessionNum++;
         }
     }
-    snprintf(_sessionFile, sizeof(_sessionFile), "/logs/wguard/%03u.csv", sessionNum);
+    snprintf(_sessionFile, sizeof(_sessionFile), SD_DIR_WGUARD "/%03u.csv", sessionNum);
     _autoSaveNeeded    = false;
     _totalEvents       = 0;
     _saveCount         = 0;
@@ -846,7 +846,7 @@ void WGuard::initSession() {
     _lastCheckpointMs  = _sessionStartMs;
 
     if (!sdCardManager.canAccessSD()) return;
-    sdCardManager.ensureDir("/logs/wguard");
+    sdCardManager.ensureDir(SD_DIR_WGUARD);
     File f = SD.open(_sessionFile, FILE_WRITE);   // create / truncate
     if (!f) return;
     char hdr[128];
@@ -1458,7 +1458,7 @@ void WGuard::run(const uint8_t* bssid, int channel, const char* ssid) {
     memcpy((void*)s_bssid, bssid, 6);
     strncpy((char*)s_ssid, ssid, 32); ((char*)s_ssid)[32] = '\0';
 
-    initSession();   // create /logs/wguard_NNN.csv — SD safe before promiscuous
+    initSession();   // create /apps/wguard/NNN.csv — SD safe before promiscuous
 
     WiFi.disconnect(false);   // drop any existing association before promiscuous
     WiFi.mode(WIFI_STA);
