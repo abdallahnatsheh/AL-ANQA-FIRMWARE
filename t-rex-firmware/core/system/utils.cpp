@@ -1,4 +1,4 @@
-#include "Utils.h"
+#include "utils.h"
 #include "command_manager.h"
 #include "display_manager.h"
 #include "input_handling.h"
