@@ -3,6 +3,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/abdallahnatsheh/T-REX-FIRMWARE/actions/workflows/build.yml"><img src="https://github.com/abdallahnatsheh/T-REX-FIRMWARE/actions/workflows/build.yml/badge.svg?style=flat-square"/></a>
   <img src="https://img.shields.io/badge/platform-LilyGo%20T--Deck%20%7C%20T--Deck%20Plus-blue?style=flat-square"/>
   <img src="https://img.shields.io/badge/language-C%2FC%2B%2B-yellow?style=flat-square"/>
   <img src="https://img.shields.io/badge/license-AGPL--3.0-red?style=flat-square"/>
