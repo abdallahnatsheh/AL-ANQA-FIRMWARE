@@ -38,6 +38,8 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 - Transient `_uiNoticeMs`/`_uiNoticeText`/`_uiNoticeColor` (1.5s) confirms view/sort/filter toggles in the alert bar; `_sdNoticeMs` (3s) shows "Saved to SD"; empty-state messages shown when a view/filter has no rows
 - `drawHeader()` calls `dm.updateStatusBar()` only — no custom red banner (previously conflicted with `ClockManager`'s 3s global status bar refresh, both targeting y=0-30); `[MUTE]` indicator moved to the alert bar
 - Whitelist: `/apps/trackme/known.csv` · Signatures: `/apps/trackme/signatures.csv`
+- **Two-mode signature matching** (`TrackerSig` carries both `companyId`/`payloadByte`/`minMfrLen` AND `svcUuid`/`svcByte`): Apple matched by **manufacturer data** (company `0x004C` + payload type, AirTag=`0x12`); non-Apple trackers matched by **16-bit service-data UUID** — Tile `0xFEED`, Samsung SmartTag `0xFD5A`, Chipolo `0xFE33`, Pebblebee `0xFA25`, Google FMDN `0xFEAA` (requires service-data[0]==`0x40` to skip Eddystone beacons). Verified against seemoo-lab/AirGuard. (Eufy/Motorola/Hama/Jio/Rolling Square tags ride Google FMDN → caught by `0xFEAA`.) `onResult()` extracts the tracker service UUID via `dev->getServiceData(NimBLEUUID((uint16_t)x))` (same API bmon uses) into the ring (`TmBleEntry.svcUuid/svcByte`); `matchSig(companyId,mfrType,mfrLen,svcUuid,svcByte)` checks service-UUID sigs first, then manufacturer. Old company-ID rows for Tile/Samsung/Chipolo/Google were removed — they rarely matched real tags in finding mode and Samsung/Google IDs also matched ordinary phones (false positives). Eufy/Pebblebee tags ride Apple Find My (`0x12`) or Google FMDN and are caught by those.
+- **Signatures = built-ins + SD (merge, not replace)** (`loadSignatures()`): `fillBuiltinSigs()` always loads first, then the SD file is **appended** (exact dup on companyId+payloadByte skipped). CSV format: `name,companyId,payloadByte,minLen,level` — only name+companyId required; `payloadByte` blank/`any`=wildcard, `minLen` blank=0, `level` `NONE|NOTICE|WARNING|ALERT` (blank=WARNING, `tmParseLevel()`). SD rows are company-ID only (`svcUuid=0`); service-UUID trackers are built-in and not addable via CSV. SD file should contain only EXTRAS (e.g. extra Apple message types `0x03/0x0A/0x0B/0x0C/0x0D/0x0E`→NONE). Ready-made extras CSV in `sd_dropins/apps/trackme/`
 
 **PowerSaveManager** (`powersave_manager.cpp/h`) — singleton:
 - Hooked into `getKeyboardInput()` — `update()` every poll, `updateActivity()` on keypress — works globally, no per-command changes needed
@@ -167,7 +169,7 @@ orphaned, not migrated.
 `/config/lockscreen.conf` — lock screen config (`timeout`, `hash`, `salt`)
 `/config/clock.conf` — timezone (`tz=...`)
 `/config/notif.conf` — notification settings + per-level audio paths
-`/config/notification/*.mp3` — shared per-level notification audio, referenced by `/config/notif.conf` (`SD_DIR_CONFIG_NOTIF`)
+`/config/notification/*.wav` — shared per-level notification audio (raw WAV: 16-bit PCM, 22050Hz, mono — `playWav()`, NOT MP3), referenced by `/config/notif.conf` (`SD_DIR_CONFIG_NOTIF`)
 
 **`/apps/`** — one self-contained folder per command (see `/apps/README.txt` on-device)
 `/apps/README.txt` — auto-generated folder→command map (never overwritten)

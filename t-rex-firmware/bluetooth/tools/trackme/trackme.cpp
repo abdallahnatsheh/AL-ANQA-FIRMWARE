@@ -50,6 +50,22 @@ class TmBleScanCb : public NimBLEScanCallbacks {
                 e.mfrType = (uint8_t)mfr[2];
         }
 
+        // Service-data UUID — how non-Apple trackers actually advertise in finding
+        // mode (Tile/Samsung/Chipolo/Google). Verified against seemoo-lab/AirGuard.
+        e.svcUuid = 0;
+        e.svcByte = 0;
+        if (dev->haveServiceData()) {
+            static const uint16_t kTrackerSvc[] = { 0xFEED, 0xFD5A, 0xFE33, 0xFEAA, 0xFA25 };
+            for (uint16_t want : kTrackerSvc) {
+                std::string sd = dev->getServiceData(NimBLEUUID((uint16_t)want));
+                if (!sd.empty()) {
+                    e.svcUuid = want;
+                    e.svcByte = (uint8_t)sd[0];
+                    break;
+                }
+            }
+        }
+
         ((char*)e.name)[0] = '\0';
         std::string nm = dev->getName();
         if (!nm.empty()) {
@@ -69,22 +85,30 @@ static void fillBuiltinSigs(TrackerSig* sigs, int& count) {
     // payloadByte: required mfr[2] in BLE advertisement; 0x00 = any
     // Apple 0x004C is shared by ALL Apple devices — require 0x12 (Offline Finding / Find My)
     // to distinguish AirTag / separated AirPods from iPhones and Macs.
-    const struct { const char* name; uint16_t cid; uint8_t pb; uint8_t ml; ThreatLevel lvl; } entries[] = {
-        { "Apple AirTag",     0x004C, 0x12, 27, THREAT_WARNING },
-        { "Apple Device",     0x004C, 0x10,  0, THREAT_NONE    },
-        { "Apple Device",     0x004C, 0x09,  0, THREAT_NONE    },
-        { "Apple Device",     0x004C, 0x07,  0, THREAT_NONE    },
-        { "Apple Device",     0x004C, 0x02,  0, THREAT_NONE    },
-        { "Apple Device",     0x004C, 0x0F,  0, THREAT_NONE    },
-        { "Apple Device",     0x004C, 0x05,  0, THREAT_NONE    },
-        { "Apple Device",     0x004C, 0x06,  0, THREAT_NONE    },
-        { "Apple Device",     0x004C, 0x08,  0, THREAT_NONE    },
-        { "Tile Tracker",     0x00D7, 0x00,  0, THREAT_WARNING },
-        { "Samsung SmartTag", 0x0075, 0x00,  0, THREAT_WARNING },
-        { "Chipolo",          0x00F0, 0x00,  0, THREAT_WARNING },
-        { "Google FindMy",    0x00E0, 0x00,  0, THREAT_WARNING },
-        { "Eufy SmartTrack",  0x006B, 0x00,  0, THREAT_WARNING },
-        { "Pebblebee",        0x0157, 0x00,  0, THREAT_WARNING },
+    // Apple = manufacturer-data (company 0x004C) matched by payload type.
+    // Non-Apple trackers = SERVICE-DATA UUID (verified from seemoo-lab/AirGuard):
+    // in finding mode they advertise a 16-bit service UUID, NOT their company ID,
+    // so company-ID rows for them rarely matched real tags (and Samsung/Google
+    // company IDs also matched ordinary phones → false positives). Service-UUID
+    // rows fix both. Eufy/Pebblebee tags ride Apple Find My (0x12) or Google FMDN
+    // (0xFEAA) and are caught by those rows.
+    const struct { const char* name; uint16_t cid; uint8_t pb; uint8_t ml;
+                   ThreatLevel lvl; uint16_t svc; uint8_t svb; } entries[] = {
+        { "Apple AirTag",     0x004C, 0x12, 27, THREAT_WARNING, 0,      0 },
+        { "Apple Device",     0x004C, 0x10,  0, THREAT_NONE,    0,      0 },
+        { "Apple Device",     0x004C, 0x09,  0, THREAT_NONE,    0,      0 },
+        { "Apple Device",     0x004C, 0x07,  0, THREAT_NONE,    0,      0 },
+        { "Apple Device",     0x004C, 0x02,  0, THREAT_NONE,    0,      0 },
+        { "Apple Device",     0x004C, 0x0F,  0, THREAT_NONE,    0,      0 },
+        { "Apple Device",     0x004C, 0x05,  0, THREAT_NONE,    0,      0 },
+        { "Apple Device",     0x004C, 0x06,  0, THREAT_NONE,    0,      0 },
+        { "Apple Device",     0x004C, 0x08,  0, THREAT_NONE,    0,      0 },
+        // service-data UUID trackers (companyId unused)
+        { "Tile Tracker",     0, 0, 0, THREAT_WARNING, 0xFEED, 0x00 },
+        { "Samsung SmartTag", 0, 0, 0, THREAT_WARNING, 0xFD5A, 0x00 },
+        { "Chipolo",          0, 0, 0, THREAT_WARNING, 0xFE33, 0x00 },
+        { "Pebblebee",        0, 0, 0, THREAT_WARNING, 0xFA25, 0x00 },
+        { "Google FindMy",    0, 0, 0, THREAT_WARNING, 0xFEAA, 0x40 }, // 0x40 = FMDN frame, avoids Eddystone
     };
     for (auto& e : entries) {
         if (count >= TM_SIG_MAX) break;
@@ -94,6 +118,8 @@ static void fillBuiltinSigs(TrackerSig* sigs, int& count) {
         sigs[count].payloadByte = e.pb;
         sigs[count].minMfrLen   = e.ml;
         sigs[count].level       = e.lvl;
+        sigs[count].svcUuid     = e.svc;
+        sigs[count].svcByte     = e.svb;
         count++;
     }
 }
@@ -221,8 +247,20 @@ float TrackMeScanner::calcVariance(const TrackedDev& d) {
 }
 
 // ── signature matching ────────────────────────────────────────────────────────
-// mfrType = mfr[2] from BLE advertisement; 0x00 means "not available / any"
-int TrackMeScanner::matchSig(uint16_t companyId, uint8_t mfrType, uint8_t mfrDataLen) {
+// mfrType = mfr[2] from BLE advertisement; 0x00 means "not available / any".
+// svcUuid = 16-bit service-data UUID seen in the advert (0 = none).
+int TrackMeScanner::matchSig(uint16_t companyId, uint8_t mfrType, uint8_t mfrDataLen,
+                             uint16_t svcUuid, uint8_t svcByte) {
+    // 1) Service-data UUID trackers (Tile/Samsung/Chipolo/Google) — checked first
+    //    since that's how those tags actually advertise in finding mode.
+    if (svcUuid != 0) {
+        for (int i = 0; i < sigCount; i++) {
+            if (sigs[i].svcUuid == 0 || sigs[i].svcUuid != svcUuid) continue;
+            if (sigs[i].svcByte != 0 && sigs[i].svcByte != svcByte) continue;
+            return i;
+        }
+    }
+    // 2) Manufacturer/company-ID trackers (Apple + any custom company-ID sigs).
     if (companyId == 0) return -1;
     // Apple with unreadable payload → classify as Apple Device (THREAT_NONE), never as AirTag
     if (companyId == 0x004C && mfrType == 0x00) {
@@ -231,6 +269,7 @@ int TrackMeScanner::matchSig(uint16_t companyId, uint8_t mfrType, uint8_t mfrDat
         }
     }
     for (int i = 0; i < sigCount; i++) {
+        if (sigs[i].svcUuid != 0) continue;          // skip service-UUID sigs here
         if (sigs[i].companyId != companyId) continue;
         if (sigs[i].payloadByte != 0x00 && mfrType != 0x00 &&
             mfrType != sigs[i].payloadByte) continue;
@@ -240,73 +279,91 @@ int TrackMeScanner::matchSig(uint16_t companyId, uint8_t mfrType, uint8_t mfrDat
     return -1;
 }
 
+// Parse a threat-level token (case-insensitive name, or 0-3) → ThreatLevel.
+// Empty / unknown defaults to WARNING (a custom sig is a tracker unless stated).
+static ThreatLevel tmParseLevel(String s) {
+    s.trim(); s.toLowerCase();
+    if (s == "none"   || s == "0")              return THREAT_NONE;
+    if (s == "notice" || s == "info" || s == "1") return THREAT_NOTICE;
+    if (s == "alert"  || s == "3")              return THREAT_ALERT;
+    return THREAT_WARNING; // "warning"/"warn"/"2"/empty/anything else
+}
+
 // ── signature loading ─────────────────────────────────────────────────────────
+// The built-in list ALWAYS loads first; a custom SD file then EXPANDS it
+// (entries appended, exact duplicates of an existing signature are skipped).
+// So the built-ins (Apple handling + major tracker brands) are always active,
+// and the SD file only needs YOUR extras. SD format, one signature per line:
+//   name , companyId , payloadByte , minLen , level
+//   - name        : label shown in the table (≤23 chars)
+//   - companyId    : BLE manufacturer ID, hex (0x004C or 004C)   [required]
+//   - payloadByte  : mfr-data[2] to require, hex; empty/any/* = match any
+//   - minLen       : min mfr-data length, decimal; empty/0 = no check
+//   - level        : NONE|NOTICE|WARNING|ALERT (default WARNING); NONE = benign
+// Only name+companyId are required; trailing columns optional. '#' = comment.
 void TrackMeScanner::loadSignatures() {
-    sigCount = 0;
-    bool loadedFromSD = false;
+    // 1) Always start from the built-in signatures.
+    fillBuiltinSigs(sigs, sigCount);
 
-    if (sd.isReady() && SD.exists(SD_CFG_SIGNATURES)) {
-        File f = SD.open(SD_CFG_SIGNATURES, FILE_READ);
-        if (f) {
-            while (f.available() && sigCount < TM_SIG_MAX) {
-                String line = f.readStringUntil('\n');
-                line.trim();
-                if (line.length() == 0 || line[0] == '#') continue;
-                int f1 = line.indexOf(',');
-                int f2 = line.indexOf(',', f1 + 1);
-                int f3 = line.indexOf(',', f2 + 1);
-                if (f1 < 0 || f2 < 0 || f3 < 0) continue;
+    // 2) Expand with custom signatures from SD, if present.
+    if (!sd.isReady() || !SD.exists(SD_CFG_SIGNATURES)) return;
+    File f = SD.open(SD_CFG_SIGNATURES, FILE_READ);
+    if (!f) return;
 
-                String cidStr = line.substring(f1 + 1, f2);
-                String name   = line.substring(f2 + 1, f3);
-                cidStr.trim(); name.trim();
+    while (f.available() && sigCount < TM_SIG_MAX) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0 || line[0] == '#') continue;
 
-                uint16_t cid = (uint16_t)strtoul(cidStr.c_str(), nullptr, 16);
-                strncpy(sigs[sigCount].name, name.c_str(), 23);
-                sigs[sigCount].name[23]    = '\0';
-                sigs[sigCount].companyId   = cid;
-                sigs[sigCount].payloadByte = 0x00;
-                sigs[sigCount].minMfrLen   = 0;
-                sigs[sigCount].level       = THREAT_WARNING;
-                sigCount++;
+        // Split into up to 5 fields: name,companyId,payloadByte,minLen,level
+        String col[5]; int nc = 0;
+        int start = 0;
+        for (int i = 0; i <= (int)line.length() && nc < 5; i++) {
+            if (i == (int)line.length() || line[i] == ',') {
+                col[nc++] = line.substring(start, i);
+                start = i + 1;
             }
-            f.close();
-            if (sigCount > 0) loadedFromSD = true;
         }
-    }
+        for (int i = 0; i < nc; i++) col[i].trim();
+        if (nc < 2) continue;                          // need name + companyId
 
-    if (!loadedFromSD) {
-        fillBuiltinSigs(sigs, sigCount);
-        return;
-    }
+        uint16_t cid = (uint16_t)strtoul(col[1].c_str(), nullptr, 16);
+        if (col[0].length() == 0 || cid == 0) continue;
 
-    // Ensure Apple THREAT_NONE entries exist even with a custom SD file,
-    // to prevent iPhones/Macs from being misidentified as AirTags.
-    bool hasAppleNone = false;
-    for (int i = 0; i < sigCount; i++) {
-        if (sigs[i].companyId == 0x004C && sigs[i].level == THREAT_NONE) {
-            hasAppleNone = true; break;
+        uint8_t pb = 0x00;                             // payloadByte (any)
+        if (nc >= 3) {
+            String p = col[2]; p.toLowerCase();
+            if (p.length() && p != "any" && p != "*")
+                pb = (uint8_t)strtoul(col[2].c_str(), nullptr, 16);
         }
+        uint8_t ml = (nc >= 4 && col[3].length()) ? (uint8_t)col[3].toInt() : 0;
+        ThreatLevel lvl = (nc >= 5) ? tmParseLevel(col[4]) : THREAT_WARNING;
+
+        // Skip if an identical signature (same companyId + payloadByte) already
+        // exists — built-ins win, and the file can't accidentally duplicate them.
+        bool dup = false;
+        for (int i = 0; i < sigCount; i++)
+            if (sigs[i].companyId == cid && sigs[i].payloadByte == pb) { dup = true; break; }
+        if (dup) continue;
+
+        strncpy(sigs[sigCount].name, col[0].c_str(), 23);
+        sigs[sigCount].name[23]    = '\0';
+        sigs[sigCount].companyId   = cid;
+        sigs[sigCount].payloadByte = pb;
+        sigs[sigCount].minMfrLen   = ml;
+        sigs[sigCount].level       = lvl;
+        sigs[sigCount].svcUuid     = 0;   // SD signatures are company-ID based
+        sigs[sigCount].svcByte     = 0;
+        sigCount++;
     }
-    if (!hasAppleNone) {
-        const uint8_t appleTypes[] = { 0x10, 0x09, 0x07, 0x02, 0x0F, 0x05, 0x06, 0x08 };
-        for (uint8_t pb : appleTypes) {
-            if (sigCount >= TM_SIG_MAX) break;
-            strncpy(sigs[sigCount].name, "Apple Device", 23);
-            sigs[sigCount].name[23]    = '\0';
-            sigs[sigCount].companyId   = 0x004C;
-            sigs[sigCount].payloadByte = pb;
-            sigs[sigCount].minMfrLen   = 0;
-            sigs[sigCount].level       = THREAT_NONE;
-            sigCount++;
-        }
-    }
+    f.close();
 }
 
 // ── device init helper ────────────────────────────────────────────────────────
 void TrackMeScanner::initDev(TrackedDev& d, const uint8_t* mac, const char* name,
                               uint16_t companyId, int8_t rssi, bool isWiFi, uint8_t t,
-                              uint8_t mfrType, uint8_t mfrDataLen, uint8_t crowd) {
+                              uint8_t mfrType, uint8_t mfrDataLen, uint8_t crowd,
+                              uint16_t svcUuid, uint8_t svcByte) {
     memset(&d, 0, sizeof(TrackedDev));
     memcpy(d.mac, mac, 6);
     strncpy(d.name, name, 27); d.name[27] = '\0';
@@ -318,7 +375,7 @@ void TrackMeScanner::initDev(TrackedDev& d, const uint8_t* mac, const char* name
     d.rssiHistory[0] = rssi;
     d.rssiIdx        = 1 % TM_RSSI_HISTORY;
     d.rssiCount      = 1;
-    d.sigIdx         = matchSig(companyId, mfrType, mfrDataLen);
+    d.sigIdx         = matchSig(companyId, mfrType, mfrDataLen, svcUuid, svcByte);
     d.isKnown        = (d.sigIdx >= 0 && sigs[d.sigIdx].level != THREAT_NONE);
     d.isAppleDevice  = (d.sigIdx >= 0 && sigs[d.sigIdx].level == THREAT_NONE
                         && companyId == 0x004C);
@@ -333,7 +390,8 @@ void TrackMeScanner::initDev(TrackedDev& d, const uint8_t* mac, const char* name
 // ── process one detected device ───────────────────────────────────────────────
 void TrackMeScanner::processDevice(const uint8_t* mac, const char* name,
                                     uint16_t companyId, uint8_t mfrType,
-                                    int8_t rssi, bool isWiFi, uint8_t mfrDataLen) {
+                                    int8_t rssi, bool isWiFi, uint8_t mfrDataLen,
+                                    uint16_t svcUuid, uint8_t svcByte) {
     // Locate in tier1 or tier2
     TrackedDev* existing = nullptr;
     KState*     ks       = nullptr;
@@ -385,9 +443,10 @@ void TrackMeScanner::processDevice(const uint8_t* mac, const char* name,
             if (name[0] != '\0' && existing->name[0] == '\0') {
                 strncpy(existing->name, name, 27); existing->name[27] = '\0';
             }
-            if (companyId != 0 && existing->companyId == 0) {
-                existing->companyId = companyId;
-                int idx = matchSig(companyId, mfrType, mfrDataLen);
+            if ((companyId != 0 && existing->companyId == 0) ||
+                (svcUuid != 0 && !existing->isKnown)) {
+                if (companyId != 0) existing->companyId = companyId;
+                int idx = matchSig(companyId, mfrType, mfrDataLen, svcUuid, svcByte);
                 if (idx >= 0) {
                     existing->sigIdx        = idx;
                     existing->isKnown       = (sigs[idx].level != THREAT_NONE);
@@ -411,7 +470,7 @@ void TrackMeScanner::processDevice(const uint8_t* mac, const char* name,
         }
     } else {
         KState newK = { smooth, 10.0f };
-        int  preSig  = matchSig(companyId, mfrType, mfrDataLen);
+        int  preSig  = matchSig(companyId, mfrType, mfrDataLen, svcUuid, svcByte);
         bool isApple = (preSig >= 0 && sigs[preSig].level == THREAT_NONE && companyId == 0x004C);
         // Device is a companion if seen during baseline OR on the permanent whitelist
         bool isCpn   = matchKnown(mac) || !_baselineDone;
@@ -419,7 +478,7 @@ void TrackMeScanner::processDevice(const uint8_t* mac, const char* name,
         if (isApple || smooth <= -70.0f) {
             if (tier2Count < TM_TIER2_MAX) {
                 initDev(tier2[tier2Count], mac, name, companyId, rssi, isWiFi, 2,
-                        mfrType, mfrDataLen, (uint8_t)tier1Count);
+                        mfrType, mfrDataLen, (uint8_t)tier1Count, svcUuid, svcByte);
                 tier2[tier2Count].isCompanion = isCpn;
                 k2[tier2Count] = newK;
                 tier2Count++;
@@ -427,7 +486,7 @@ void TrackMeScanner::processDevice(const uint8_t* mac, const char* name,
         } else {
             if (tier1Count < TM_TIER1_MAX) {
                 initDev(tier1[tier1Count], mac, name, companyId, rssi, isWiFi, 1,
-                        mfrType, mfrDataLen, (uint8_t)tier1Count);
+                        mfrType, mfrDataLen, (uint8_t)tier1Count, svcUuid, svcByte);
                 tier1[tier1Count].isCompanion = isCpn;
                 k1[tier1Count] = newK;
                 tier1Count++;
@@ -562,7 +621,8 @@ void TrackMeScanner::drainBleRing() {
         TmBleEntry e;
         memcpy(&e, (const void*)&_bleRing[_bleTail], sizeof(TmBleEntry));
         _bleTail = (_bleTail + 1) % TM_BLE_RING;
-        processDevice(e.mac, e.name, e.companyId, e.mfrType, e.rssi, false, e.mfrLen);
+        processDevice(e.mac, e.name, e.companyId, e.mfrType, e.rssi, false, e.mfrLen,
+                      e.svcUuid, e.svcByte);
     }
 }
 

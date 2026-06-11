@@ -19,7 +19,7 @@ public:
 
     void begin();
     void setWakeCallback(std::function<void()> cb) { _wakeCallback = cb; }
-    void notify(NotifLevel level);
+    void notify(NotifLevel level, bool force = false);  // force=true ignores per-level enable (for testing)
     void setNotifVol(uint8_t vol);
     void enable(NotifLevel level, bool on);
     void enableAll(bool on);

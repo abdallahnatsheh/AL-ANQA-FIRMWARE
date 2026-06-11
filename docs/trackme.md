@@ -36,7 +36,10 @@ After baseline, every new device is processed through a 3-gate pipeline. RSSI is
 
 ### Gate 1 — Signature check
 
-BLE manufacturer data is matched against known tracker signatures. AirTags, Tile, Samsung SmartTag, Chipolo, Eufy, and Pebblebee are identified by company ID, payload byte, and minimum data length. Apple non-trackers (iPhones, Macs, AirPods) are excluded — matching the Apple company ID alone is not sufficient.
+BLE advertisements are matched against known tracker signatures using **two methods**, mirroring how real trackers actually advertise in "separated from owner" (finding) mode:
+
+- **Apple Find My / AirTag** — by manufacturer data: company ID `0x004C` + payload type `0x12`. Apple non-trackers (iPhones, Macs, AirPods doing handoff/tethering/etc.) are excluded by payload type, so matching the Apple company ID alone never flags them.
+- **Tile, Samsung SmartTag, Chipolo, Pebblebee, Google Find My Device** — by **16-bit service-data UUID** (`0xFEED`, `0xFD5A`, `0xFE33`, `0xFA25`, `0xFEAA` respectively), which is how these tags advertise when separated from their owner. (Google's `0xFEAA` additionally requires the FMDN frame byte `0x40` so ordinary Eddystone beacons aren't flagged.) These constants are verified against the [AirGuard](https://github.com/seemoo-lab/AirGuard) reference implementation. Other Google Find My Device brands (Eufy, Motorola, Hama, Jio, Rolling Square) ride the `0xFEAA` network and are caught by that row.
 
 ### Gate 2 — Behaviour scoring *(unknown BLE devices only)*
 
@@ -130,14 +133,32 @@ If a device slips through (e.g. your phone connected after baseline), press **`w
 
 ## Custom tracker signatures
 
-Drop `/config/signatures.csv` on the SD card to extend the database without reflashing:
+The built-in tracker list is **always active**. Drop `/apps/trackme/signatures.csv` on the SD card to **add your own** signatures on top — the file is merged with the built-ins (it does not replace them), so you only list your extras. One signature per line:
 
-```csv
-BLE,0x004C,Apple AirTag,HIGH
-BLE,0x00D7,Tile Tracker,HIGH
+```
+name , companyId , payloadByte , minLen , level
 ```
 
-Apple non-tracker entries are appended automatically regardless of SD content.
+| Field | Meaning |
+|-------|---------|
+| `name` | Label shown in the table (≤23 chars) |
+| `companyId` | BLE manufacturer ID, hex — e.g. `0x004C` (**required**) |
+| `payloadByte` | Require `mfr-data[2]` to equal this hex byte; blank/`any` = match any |
+| `minLen` | Minimum manufacturer-data length; blank/`0` = no check |
+| `level` | `NONE` \| `NOTICE` \| `WARNING` \| `ALERT` (blank = `WARNING`). `NONE` = benign/suppressed |
+
+Only `name` and `companyId` are required; trailing columns are optional. Lines starting with `#` are comments.
+
+```
+# extra Apple message types → benign (NONE) so phones/watches don't false-alarm
+Apple Handoff,0x004C,0x0C,,NONE
+# flag a specific vendor's gadget by company ID
+Suspicious Tag,0x1234,,,ALERT
+```
+
+> The CSV is **manufacturer/company-ID** based. Service-UUID trackers (Tile, Samsung SmartTag, Chipolo, Google Find My) are detected by the firmware automatically and don't need — and can't be added via — this file.
+
+The file is **merged on top of the built-ins** — the built-in Apple handling and tracker brands stay active, and your lines are appended (exact duplicates of a built-in are ignored). So you only list extras: additional tracker brands, or extra Apple message types to mark `NONE`. A ready-made extras `signatures.csv` is provided in the project's `sd_dropins/` folder. No SD card / no file → the built-ins run exactly as before.
 
 ---
 
@@ -147,7 +168,7 @@ Apple non-tracker entries are appended automatically regardless of SD content.
 |------|---------|
 | `/apps/trackme/session.csv` | Session alert log |
 | `/apps/trackme/known.csv` | Permanent device whitelist |
-| `/config/signatures.csv` | Custom tracker signatures |
+| `/apps/trackme/signatures.csv` | Custom tracker signatures |
 
 ---
 

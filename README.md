@@ -66,7 +66,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
   - **Auth leak detector** (`[b]` audit) — inline risk scoring flags AES-sized binary blobs, hex-encoded secrets, and PIN-shaped values; `[b]` key shows filtered triage view
   - **Write-cap** (`[r]wcap`) — replay any captured notification back to a writable char; sniff auto-saves `.ble` packet archives to SD; load captures from previous sessions
   - **Protocol reverse engineering** — sniff baseline → trigger action on device → identify new packet → replay or write back; works on proprietary protocols with no documentation
-- **Tracking detector** (`tm`) — passive BLE + WiFi probe surveillance; 60s baseline learning period; 3-gate pipeline (signature → behaviour score → GPS/time confirmation); Kalman-filtered RSSI; known tracker signatures (AirTag, Tile, SmartTag, Chipolo, Pebblebee); GPS movement gate on T-Deck Plus — [full guide](docs/trackme.md)
+- **Tracking detector** (`tm`) — passive BLE + WiFi probe surveillance; 60s baseline learning period; 3-gate pipeline (signature → behaviour score → GPS/time confirmation); Kalman-filtered RSSI; detects AirTag (Apple Find My), Tile, Samsung SmartTag, Chipolo, Pebblebee, and Google Find My Device tags by **service-data UUID** (the way tags actually advertise when separated), verified against AirGuard; GPS movement gate on T-Deck Plus — [full guide](docs/trackme.md)
 - **Fast Pair attack** (`fp`) — scan for Fast Pair devices, flood Google FP advertisements with per-cycle MAC randomization, GATT probe (WhisperPair) to read anti-spoofing keys
 - **BLE notification spam** (`bs`) — Apple Continuity (Proximity Pairing + Nearby Info popups), Google Fast Pair flood, Microsoft Swift Pair, Samsung Galaxy accessory popups
 - **BLE Keyboard + Mouse** (`bk`) — T-Deck as a wireless BLE HID keyboard + mouse; same features as USB keyboard (`uk`) but over Bluetooth; MITM-protected bonding (passkey shown on screen, typed on host); tap = left click, hold = right click, hold 1.5s = exit; auto-reconnects on drop
@@ -130,7 +130,7 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `pwrsave` | `psv` | `[status\|on\|off\|set ...]` | Power save config |
 | `lock` | `lk` | `[new\|update\|clean\|timeout <s>\|status]` | Screen lock — PIN optional; hold trackpad 3 s or run `lock` to lock |
 | `volume` | `vol` | `[0-100\|up\|down\|off]` | General audio volume |
-| `notif` | `nf` | `[on\|off\|vol <n>\|<lvl> on\|off\|file <f>]` | Notification manager — per-level enable/disable, custom MP3 |
+| `notif` | `nf` | `[on\|off\|vol <n>\|test [lvl]\|<lvl> on\|off\|file <f>]` | Notification manager — per-level enable/disable, custom WAV, `test` sound picker |
 | `tz` | `tz` | `[+HH\|-HH:MM\|<posix>\|status]` | Set device timezone (NVS, survives reboot) |
 | **WiFi** | | | |
 | `scanwifi` | `sw` | — | Scan WiFi networks |
@@ -223,7 +223,7 @@ All scan tables share the same keys:
 /wpa_supplicant.conf      — saved WiFi credentials (Linux-compatible format)
 /wpa_supplicant.bak       — auto-backup of original file before T-Rex modifies it
 /config/                  — device-wide settings: pwrsave, macchanger, lockscreen, notif, clock
-/config/notification/     — shared per-level alert MP3s
+/config/notification/     — shared per-level alert WAVs (16-bit PCM, 22050Hz, mono)
 /apps/                    — one self-contained folder per command (logs, captures, wordlists, config)
 /apps/eviltwin/creds.csv  — captured portal credentials
 /apps/eviltwin/portal/    — custom HTML portal templates

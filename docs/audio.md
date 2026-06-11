@@ -45,6 +45,15 @@ CMD> nf vol 70           # set notif volume to 70% (0-100)
 
 Notification volume is independent of `vol`. You can have notifications loud and music quiet, or vice versa.
 
+### Test sounds
+
+```
+CMD> nf test            # interactive picker — press 1-5 to play, [a] all, [q] quit
+CMD> nf test alert      # play one level directly
+```
+
+`nf test` force-plays the sound even if that level is toggled off, so it's the quickest way to audition your custom WAVs. (The `spktest` keys `a`/`w`/`c`/`i`/`p` also play them, but respect the on/off toggle.)
+
 ### Notification levels
 
 | Level | Trigger | Default tone |
@@ -55,17 +64,23 @@ Notification volume is independent of `vol`. You can have notifications loud and
 | `info` | General one-shot beep | 500 Hz, 200 ms |
 | `ping` | BLE buddy prompt arrived | 600 Hz, 100 ms |
 
-### Custom MP3 per level
+### Custom WAV per level
 
-Place MP3 files in `/notification/` on the SD card. Then point a level to the file:
+The player is **raw WAV PCM** (not MP3). Convert any sound to **16-bit PCM, 22050 Hz, mono**:
 
 ```
-CMD> nf alert file alert.mp3          # resolves to /notification/alert.mp3
-CMD> nf success file /sounds/ok.mp3   # absolute path
+ffmpeg -i input.mp3 -ar 22050 -ac 1 -acodec pcm_s16le alert.wav
+```
+
+Place the `.wav` files in `/config/notification/` on the SD card, then point a level to the file:
+
+```
+CMD> nf alert file alert.wav          # resolves to /config/notification/alert.wav
+CMD> nf success file /sounds/ok.wav   # absolute path
 CMD> nf alert file                    # clear — back to built-in tone
 ```
 
-On notification, T-REX checks if an MP3 is configured for that level. If the SD card is available and the file exists, it plays the MP3. Otherwise it falls back to the built-in I2S tone.
+On notification, T-REX checks if a WAV is configured for that level. If the SD card is available and the file exists, it plays the WAV. Otherwise it falls back to the built-in I2S tone.
 
 ### Config file — `/config/notif.conf`
 
@@ -78,24 +93,24 @@ warning=on
 success=on
 info=on
 ping=on
-alert_file=/notification/alert.mp3
-success_file=/notification/success.mp3
+alert_file=alert.wav
+success_file=success.wav
 ```
 
-Changes made with `nf` commands are saved automatically. You can also edit the file directly on the SD card.
+Bare filenames resolve under `/config/notification/`. Changes made with `nf` commands are saved automatically. You can also edit the file directly on the SD card.
 
 ### SD folder structure
 
 ```
-/notification/
-  alert.mp3
-  warning.mp3
-  success.mp3
-  info.mp3
-  ping.mp3
+/config/notification/
+  alert.wav
+  warning.wav
+  success.wav
+  info.wav
+  ping.wav
 ```
 
-Any MP3 format supported by ESP8266Audio is accepted (MPEG Layer III, up to 320 kbps).
+All files must be **16-bit PCM WAV, 22050 Hz, mono**. Keep them short (<1 s) so alerts don't lag the UI.
 
 ---
 
@@ -123,6 +138,6 @@ CMD> spktest
 | `p` | Trigger NOTIF_PING |
 | `q` | Quit |
 
-Keys `1`–`6` and `s` play raw I2S tones at full amplitude — they bypass `nf vol` and are useful for verifying the speaker hardware is working at all. Keys `a`/`w`/`c`/`i`/`p` go through `NotificationManager` and will play your configured MP3 if one is set, at your configured `nf vol`.
+Keys `1`–`6` and `s` play raw I2S tones at full amplitude — they bypass `nf vol` and are useful for verifying the speaker hardware is working at all. Keys `a`/`w`/`c`/`i`/`p` go through `NotificationManager` and will play your configured WAV if one is set, at your configured `nf vol` (respecting each level's on/off toggle). To force-play regardless of toggle, use `nf test` instead.
 
 > **Note:** All audio on T-Deck Plus uses `i2s_driver_install()`. The `tone()` Arduino function does not work on this hardware.

@@ -43,7 +43,7 @@ created lazily.
 | Path | Notes |
 |------|-----------|
 | `/config/` | device-wide settings |
-| `/config/notification/` | shared per-level alert MP3s |
+| `/config/notification/` | shared per-level alert WAVs (16-bit PCM, 22050Hz, mono) |
 | `/apps/` | one self-contained folder per command |
 | `/apps/trackme/` | session log, whitelist, custom signatures.csv |
 | `/apps/eviltwin/` | creds.csv |
@@ -96,7 +96,7 @@ Do nothing — firmware creates these when the relevant feature is first used.
 | `/config/pwrsave.conf` | `pwrsave set ...` | power save settings (key=value) |
 | `/config/macchanger.conf` | `macchanger` on save | MAC spoof state + address |
 | `/config/lockscreen.conf` | `lock new` / `lock timeout` | PIN hash + salt + idle timeout |
-| `/config/notif.conf` | `notif` on any change | notification levels + volume + MP3 paths |
+| `/config/notif.conf` | `notif` on any change | notification levels + volume + WAV paths |
 | `/config/clock.conf` | `tz` on save | timezone (`tz=<POSIX TZ string>`) |
 
 ---

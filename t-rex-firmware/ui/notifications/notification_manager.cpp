@@ -2,9 +2,12 @@
 #include "powersave_manager.h"
 #include "display_manager.h"
 #include "sdcard_manager.h"
+#include "input_handling.h"
 #include <SD.h>
 #include <driver/i2s.h>
 #include <math.h>
+
+extern InputHandling inputHandler;
 
 // Pin fallbacks — audio lib headers may shadow the utilities.h defines
 #ifndef BOARD_I2S_BCK
@@ -176,8 +179,8 @@ bool NotificationManager::playWav(const char* path) {
 
 // ── Public notify ─────────────────────────────────────────────────────────────
 
-void NotificationManager::notify(NotifLevel level) {
-    if (!_enabled[level]) return;
+void NotificationManager::notify(NotifLevel level, bool force) {
+    if (!force && !_enabled[level]) return;
     if (_wakeCallback) _wakeCallback();
 
     // Try custom WAV from SD first; fall back to built-in tones
@@ -381,6 +384,71 @@ void NotificationManager::handleNotifCmd(char* args) {
         return;
     }
 
+    // "test [<level>]" — play sounds on demand (ignores per-level enable).
+    // With a level arg, plays it directly; with no arg, opens an interactive
+    // picker (press a number to play, [a] = all, [q] = quit).
+    if (strncmp(args, "test", 4) == 0 && (args[4] == ' ' || args[4] == '\0')) {
+        const char* lvlArg = args + 4;
+        while (*lvlArg == ' ') lvlArg++;
+
+        // Direct: "notif test <level>"
+        if (*lvlArg != '\0') {
+            int idx = -1;
+            for (int i = 0; i < NOTIF_COUNT; i++)
+                if (strcmp(lvlArg, levelName(i)) == 0) { idx = i; break; }
+            if (idx < 0) {
+                displayManager.setTextColor(TFT_RED);
+                displayManager.println("Unknown level");
+                displayManager.setTextColor(TFT_WHITE);
+            } else {
+                nm.notify((NotifLevel)idx, true);
+            }
+            displayManager.printCommandScreen();
+            return;
+        }
+
+        // Interactive picker
+        int last = -1;
+        auto drawMenu = [&]() {
+            displayManager.clearScreen();
+            displayManager.setDefaultTextSize();
+            displayManager.setCursor(4, outputY);
+            displayManager.setTextColor(TFT_CYAN);
+            displayManager.println("NOTIF TEST - pick a sound:");
+            for (int i = 0; i < NOTIF_COUNT; i++) {
+                displayManager.setCursor(4, displayManager.getCursorY());
+                displayManager.setTextColor(i == last ? TFT_GREEN : TFT_WHITE);
+                char b[28];
+                snprintf(b, sizeof(b), "%s[%d] %s", i == last ? "> " : "  ", i + 1, levelName(i));
+                displayManager.println(b);
+            }
+            displayManager.setCursor(4, displayManager.getCursorY());
+            displayManager.setTextColor(0x7BEF);
+            displayManager.println("[a] all   [q] quit");
+        };
+        drawMenu();
+
+        while (true) {
+            char k = inputHandler.getKeyboardInput();
+            if (!k) { delay(20); continue; }
+            if (k == 'q' || k == 'Q') break;
+            if (k == 'a' || k == 'A') {
+                for (int i = 0; i < NOTIF_COUNT; i++) {
+                    last = i; drawMenu();
+                    nm.notify((NotifLevel)i, true);
+                    delay(600);
+                }
+                last = -1; drawMenu();
+            } else if (k >= '1' && k <= '0' + NOTIF_COUNT) {
+                last = k - '1';
+                drawMenu();
+                nm.notify((NotifLevel)last, true);
+            }
+        }
+        displayManager.printCommandScreen();
+        return;
+    }
+
     // "vol [<0-100>]"
     if (strncmp(args, "vol", 3) == 0 && (args[3] == ' ' || args[3] == '\0')) {
         if (args[3] != '\0') {
@@ -403,7 +471,7 @@ void NotificationManager::handleNotifCmd(char* args) {
     char valBuf[64] = {};
     if (sscanf(args, "%15s %63[^\n]", lvlBuf, valBuf) < 2) {
         displayManager.setTextColor(0x7BEF);
-        displayManager.println("notif [on|off|vol <n>|<lvl> on|off|<lvl> file <f>]");
+        displayManager.println("notif [on|off|vol <n>|test [lvl]|<lvl> on|off|<lvl> file <f>]");
         displayManager.printCommandScreen();
         return;
     }

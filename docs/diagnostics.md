@@ -35,7 +35,7 @@ I2S speaker hardware verification and notification level test.
 | `a` / `w` / `c` / `i` / `p` | Trigger ALERT / WARNING / SUCCESS / INFO / PING notification levels |
 | `q` | Quit |
 
-Keys `a/w/c/i/p` go through NotificationManager and play the configured MP3 if one is set. Keys `1–6` bypass volume settings and play directly — use for hardware verification.
+Keys `a/w/c/i/p` go through NotificationManager and play the configured WAV if one is set (respecting each level's on/off toggle). Keys `1–6` bypass volume settings and play raw tones directly — use for hardware verification. To force-play a notification sound regardless of toggle, use `nf test`.
 
 ---
 

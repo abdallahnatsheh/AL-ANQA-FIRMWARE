@@ -279,8 +279,10 @@ static const ArgHintEntry kArgHints[] = {
     { "volume",      "",              "up down off" },
     { "vol",         "",              "up down off" },
     // notif / nf — first level includes level names; second level after each level
-    { "notif",       "",              "on off vol status alert warning success info ping" },
-    { "nf",          "",              "on off vol status alert warning success info ping" },
+    { "notif",       "",              "on off vol test status alert warning success info ping" },
+    { "nf",          "",              "on off vol test status alert warning success info ping" },
+    { "notif",       "test",          "alert warning success info ping" },
+    { "nf",          "test",          "alert warning success info ping" },
     { "notif",       "alert",         "on off file" },
     { "nf",          "alert",         "on off file" },
     { "notif",       "warning",       "on off file" },
@@ -622,7 +624,7 @@ void CommandManager::setupCommands() {
     registerCommand("lock",        "lk",     [](char* a) { LockScreenManager::getInstance().cmd(a); },                       "Screen lock  [new|update|clean|timeout <s>|status]", true,  "System");
     registerCommand("tz",          "tz",     [](char* a) { runTzCmd(a); },                                                    "Timezone  [+3 | -5:30 | <posix> | status]",          true,  "System");
     registerCommand("volume",      "vol",    [](char* a) { handleVolumeCmd(a); },                                             "General volume: vol [0-100|up|down|off]",   true,  "System");
-    registerCommand("notif",       "nf",     [](char* a) { NotificationManager::handleNotifCmd(a); },                        "Notifications: nf [on|off|vol <n>|<lvl> on|off|file <f>]", true, "System");
+    registerCommand("notif",       "nf",     [](char* a) { NotificationManager::handleNotifCmd(a); },                        "Notifications: nf [on|off|vol <n>|test|<lvl> on|off|file <f>]", true, "System");
     // ── WiFi ──────────────────────────────────────────────────────────────────
     registerCommand("scanwifi",    "sw",     [](char* a) { wifiFunctions.scanWiFiNetworks(); },                              "Scan WiFi networks",                      false, "WiFi");
     registerCommand("connectwifi", "cw",     [](char* a) { wifiFunctions.connectToWiFiCommand(a); },                        "Connect to WiFi: cw <index>",             true,  "WiFi");

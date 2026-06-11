@@ -26,10 +26,12 @@ enum ThreatLevel : uint8_t {
 
 struct TrackerSig {
     char        name[24];
-    uint16_t    companyId;
+    uint16_t    companyId;   // manufacturer-data match (0 = use svcUuid instead)
     uint8_t     payloadByte;
     uint8_t     minMfrLen;   // minimum mfr data length required; 0 = no check
     ThreatLevel level;
+    uint16_t    svcUuid;     // 16-bit service-DATA UUID match (0 = company-ID sig)
+    uint8_t     svcByte;     // require service-data[0] == this (0 = any)
 };
 
 struct KState {
@@ -123,17 +125,19 @@ private:
     // -- device pool --
     void processDevice(const uint8_t* mac, const char* name,
                        uint16_t companyId, uint8_t mfrType, int8_t rssi, bool isWiFi,
-                       uint8_t mfrDataLen = 0);
+                       uint8_t mfrDataLen = 0, uint16_t svcUuid = 0, uint8_t svcByte = 0);
     void initDev(TrackedDev& d, const uint8_t* mac, const char* name,
                  uint16_t companyId, int8_t rssi, bool isWiFi, uint8_t tier,
-                 uint8_t mfrType = 0x00, uint8_t mfrDataLen = 0, uint8_t crowd = 0);
+                 uint8_t mfrType = 0x00, uint8_t mfrDataLen = 0, uint8_t crowd = 0,
+                 uint16_t svcUuid = 0, uint8_t svcByte = 0);
     void markGaps(uint32_t cycleStart);
 
     // -- analysis --
     void        runScoring();
     void        runGate2(TrackedDev& d);
     bool        runGate3(const TrackedDev& d);
-    int         matchSig(uint16_t companyId, uint8_t mfrType, uint8_t mfrDataLen);
+    int         matchSig(uint16_t companyId, uint8_t mfrType, uint8_t mfrDataLen,
+                         uint16_t svcUuid = 0, uint8_t svcByte = 0);
     float       kalmanUpdate(KState& k, float z);
     float       calcVariance(const TrackedDev& d);
 
@@ -175,6 +179,8 @@ private:
         uint8_t  mfrType;
         uint8_t  mfrLen;
         int8_t   rssi;
+        uint16_t svcUuid;    // matched 16-bit service-data UUID (0 = none)
+        uint8_t  svcByte;    // first byte of that service data
     };
     static volatile TmBleEntry _bleRing[TM_BLE_RING];
     static volatile uint8_t    _bleHead;
