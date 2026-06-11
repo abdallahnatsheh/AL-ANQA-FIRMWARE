@@ -415,15 +415,32 @@ bool FastPair::doGattAttack(const char* bdaStr, uint8_t addrType,
 
     NimBLERemoteService* pSvc = pClient->getService(FP_SVC_UUID);
     if (!pSvc) {
-        dm.setTextColor(TFT_RED); dm.println("FP service not found.");
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(TFT_RED);  dm.println("FP service not found.");
+        dm.setTextColor(0x7BEF);   dm.setCursor(10, dm.getCursorY());
+        dm.println("Advertises Fast Pair but hosts no");
+        dm.setCursor(10, dm.getCursorY());
+        dm.println("GATT provider - likely advert-only/decoy.");
         pClient->disconnect(); NimBLEDevice::deleteClient(pClient);
+        delay(3000);
         fpSdRemount(); dm.printCommandScreen(); return false;
     }
 
     NimBLERemoteCharacteristic* pKBP = pSvc->getCharacteristic(FP_KBP_UUID);
     if (!pKBP) {
-        dm.setTextColor(TFT_RED); dm.println("KBP char not found.");
+        // FP service exists but the writable Key-Based Pairing characteristic
+        // (the endpoint the hijack/probe needs) is absent. Almost always the
+        // target isn't in pairing mode, or it's an advert-only / non-provider.
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(TFT_RED);  dm.println("Key-Based Pairing char not found.");
+        dm.setTextColor(0x7BEF);   dm.setCursor(10, dm.getCursorY());
+        dm.println("Service present, no pairing endpoint.");
+        dm.setCursor(10, dm.getCursorY());
+        dm.println("Put device in pairing mode & retry");
+        dm.setCursor(10, dm.getCursorY());
+        dm.println("(open case/hold btn), or check: bi <mac>");
         pClient->disconnect(); NimBLEDevice::deleteClient(pClient);
+        delay(3500);
         fpSdRemount(); dm.printCommandScreen(); return false;
     }
 
