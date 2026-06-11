@@ -250,7 +250,8 @@ static const ManEntry PAGES[] = {
         "         Open=clone MAC. WPA=random MAC.",
         "         Deauth pauses on client connect.",
         "",
-        "KEYS     [c] creds  [s] save  [q] quit",
+        "KEYS     [p] portal page  [c] creds",
+        "         [s] save  [q] quit",
         "FILES    /apps/eviltwin/portal/*.html",
         "         /apps/eviltwin/creds.csv",
         nullptr

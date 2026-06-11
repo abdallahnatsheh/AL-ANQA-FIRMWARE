@@ -61,9 +61,14 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 **EvilTwin** (`eviltwin.cpp/h`):
 - OPEN → clone exact MAC + channel; WPA2 → random LA-MAC (`(x & 0xFE) | 0x02`)
 - Deauth pauses automatically when portal clients connected
-- Templates: built-in or `/apps/eviltwin/portal/*.html` · Logs: `/apps/eviltwin/creds.csv`
-- `_creds[20]` in-memory · `[c]` shows table (portal keeps running) · `[s]` saves to SD
-- `handleRedirect()`: 302 + `Captive-Portal-URL` header + HTML meta-refresh body — empty body was breaking iOS/Windows
+- Templates: 2 built-in (Google/Router) + `/apps/eviltwin/portal/*.html` (up to `ET_TEMPLATE_MAX`=64) · Logs: `/apps/eviltwin/creds.csv`
+- `[p]` opens unified `pickTemplate()` picker — built-ins + all SD `.html`/`.htm` files, paginated `ET_PER_PAGE`=8, current selection highlighted green; switching stops/restarts `server`+`dns` (both must restart — `dns.start()` after `dns.stop()` was missing, broke captive-portal popup after switching)
+- Transient `_uiNoticeMs`/`_uiNoticeText`/`_uiNoticeColor` (1.5s) confirms portal switch in green; `handleRoot()` shows red "Portal file missing — fell back" if a custom template file disappears mid-session
+- **Cred capture is RAM-only** — `handlePost()` stores `{user,pass,ts}` into `_creds[ET_MAX_CREDS=30]` with no SD write (GDMA rule: never write SD while soft-AP/promiscuous DMA is live; the form-submit moment is the worst time to corrupt FatFS). `_captureCount` counts all POSTs; overflow past 30 is dropped (shown red in creds table), not silently "see SD log"
+- **Incremental GDMA-safe flush** — `flushCredsToSD(bool wifiSafe)` appends only `_creds[_savedCount..total)` (tracks `_savedCount`, never `SD.remove()`/rewrites, preserves timestamps). `[s]` calls it with `wifiSafe=false` → pauses promiscuous around the write, mirrors wguard pattern, shows "Saved N new"/"Already saved" in the transient notice (no full-screen takeover). Exit calls it with `wifiSafe=true` after AP down + promiscuous off + `WiFi.mode(STA)` — fully safe, persists the unflushed remainder
+- `[c]` creds table services `dns.processNextRequest()`+`server.handleClient()` in its wait loop so the portal stays live while the operator views captures
+- **Path- and field-agnostic capture** — portals disagree on form target and field names. Built-in templates POST to `/post` (`user`/`pass`); Bruce-style SD portals in `/apps/eviltwin/portal/` GET/POST to `/get` (`email`/`password`, `uname`/`psw`…). `setupRoutes()` registers BOTH `/post` and `/get` for `HTTP_ANY`, plus `onNotFound` → all funnel to `handleCapture()`. `captureArgs()` iterates `server.args()` and classifies each by case-insensitive substring (`etIsUserField`: email/user/login/uname/account/phone/identifier/id/name/tel · `etIsPassField`: pass/pwd/psw/passcode/pin · `etIsIgnoreField`: remember/token/csrf/captcha/submit/viewport… never taken as username in fallback). Fallback: if a password is found but no recognized username field, take the first non-junk non-empty arg. This is why SD portals that previously captured nothing now work — the old code only read POST args `user`/`pass` on `/post`, so every `/get`-based portal fell through to the redirect and lost the creds
+- `handleRedirect()`: 302 + `Captive-Portal-URL` header + HTML meta-refresh body — empty body was breaking iOS/Windows. `handleCapture()` reuses it after grabbing args (reload looks like a failed login → victim re-enters → captured again)
 
 **HiddenSSID** (`hidden_ssid.cpp/h`):
 - Deauth burst every 3s + promiscuous sniff for subtype 5 (probe response) or 0 (assoc request) matching target BSSID
@@ -201,6 +206,9 @@ orphaned, not migrated.
 - Do all SD writes **after** `WiFi.softAPdisconnect()` + `WiFi.mode(WIFI_STA)`
 - Never use `WiFi.disconnect(true)` — it calls `esp_wifi_stop()` which corrupts GDMA state; use `WiFi.disconnect(false)` instead
 - Never use `WiFi.mode(WIFI_OFF)` after attacks — use `WiFi.mode(WIFI_STA)` to leave WiFi initialized but idle
+- **For mid-session SD writes while promiscuous is live, use the RAII guard** `ScopedPromiscPause` (`wifi/core/wifi_sd_guard.h`) instead of hand-rolling `esp_wifi_set_promiscuous(false)`/`(true)` pairs: `{ ScopedPromiscPause _; sd.appendLine(...); }`. It reads the *current* promiscuous state in its ctor and restores only what it found — so it's a safe no-op when promiscuous is off, and impossible to forget the resume. Reference use: `EvilTwin::flushCredsToSD()`. Existing modules (wguard `doAutoSave`, wifimon pcap flush, handshake/pmkid) still use the hand-rolled pattern and can migrate incrementally — the guard is opt-in, not a forced refactor.
+
+**CI** (`.github/workflows/build.yml`): compile-gate — builds both `T-Deck` + `T-Deck-Plus` envs on every push/PR to `main`/`feature/pentest-enhancements` (paths-filtered to firmware/lib/platformio.ini). Catches build breaks without hardware; does not test runtime behavior.
 
 **HandshakeCapture** (`handshake_capture.cpp/h`):
 - `ws <index|bssid> [ch]` — deauth + EAPOL sniff; stores M1+M2 in RAM (`g_whs`), writes pcap only after WiFi teardown

@@ -1,0 +1,61 @@
+name: Firmware Build
+
+# Compile-gate: proves both board targets still build on every push / PR.
+# Does not test runtime behavior (that needs a physical T-Deck) — it answers
+# the one question that recurs on every change: "did this still compile?"
+
+on:
+  push:
+    branches: ["feature/pentest-enhancements", "main"]
+    paths:
+      - "t-rex-firmware/**"
+      - "lib/**"
+      - "platformio.ini"
+      - "convert_splash.py"
+      - ".github/workflows/build.yml"
+  pull_request:
+    paths:
+      - "t-rex-firmware/**"
+      - "lib/**"
+      - "platformio.ini"
+      - "convert_splash.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false        # report both boards even if one breaks
+      matrix:
+        env: [T-Deck, T-Deck-Plus]
+    name: build (${{ matrix.env }})
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false   # lib/ is vendored, not submodules
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ matrix.env }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio-${{ runner.os }}-${{ matrix.env }}-
+            pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build ${{ matrix.env }}
+        run: pio run -e ${{ matrix.env }}
