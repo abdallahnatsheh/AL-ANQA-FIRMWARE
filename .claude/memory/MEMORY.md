@@ -1,0 +1,23 @@
+# Memory Index
+
+## Rules (always apply)
+- [Collaboration + Coding Rules](feedback_rules.md) — no AskUserQuestion, reuse code, verify APIs, GDMA critical rule, user profile
+- [UI Rules](ui_rules.md) — `[CYAN::YELLOW] 01/02` header style + cursor corruption fix pattern
+- [NimBLE v2.x Rules](nimble_v2_rules.md) — scan response name, cleanup no re-init, scan non-blocking, auto-bond-delete
+
+## State
+- [Progress Log](progress_log.md) — last session 2026-05-29; not-yet-built list
+- [Next Steps](next_steps.md) — priority queue: WiFi(1-9)→BT(10-12)→GPS(13-14)→USB(15-18)→Other(19-26)
+
+## Feature References (look up when touching that feature)
+- [buddy/bd](project_buddy_port.md) — working; key NimBLE quirks
+- [BLE Info/bi](project_bleinfo.md) — working; critical compile quirks
+- [WGuard/wg](project_wguard_feature.md) — full IDS threat table, detection logic, save types
+- [Beacon Flood/bf](project_beacon_flood.md) — 5 modes, GDMA-safe, dynamic frame builder
+- [Lock screen blocking](project_lock_display_blocking.md) — setBlocked/consumeJustUnlocked per-command table
+- [GPS warm start](project_gps_warmstart.md) — L76K/M10Q NVS cache, init commands
+- [NotificationManager](project_notification_manager.md) — NOT YET BUILT; I2S WAV spec
+- [USB Gadget](project_usb_gadget_plan.md) — MSC+HID; key SPI fixes
+- [macwatch](project_macwatch_idea.md) — NOT YET BUILT; spec
+- [Remote CLI / screen mirror](project_remote_cli_screen_mirror.md) — NOT YET BUILT; USB-CDC text mirror of DisplayManager, Flipper-CLI style
+- [Future peripherals](project_future_peripherals.md) — ES7210 mic, GT911 touch pins
