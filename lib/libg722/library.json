@@ -1,0 +1,12 @@
+{
+    "name": "libg722",
+    "version": "1.0.0",
+    "description": "ITU-T G.722 wideband (16 kHz / 64 kbps) speech codec — public-domain core from sippy/libg722, vendored for T-REX espvoice walkie-talkie",
+    "keywords": "G722, codec, audio, voice, espnow, wideband",
+    "license": "Unlicense",
+    "frameworks": "arduino",
+    "platforms": "espressif32",
+    "build": {
+        "srcFilter": "+<*>"
+    }
+}

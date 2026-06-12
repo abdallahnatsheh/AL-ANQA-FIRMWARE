@@ -4,6 +4,13 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-06-12
+- **espvoice/ev** — ESP-NOW half-duplex walkie-talkie, field-tested working (both directions + sound). HD voice via **G.722** (16kHz/64kbps Mode 1), vendored public-domain `lib/libg722/` (sippy/libg722, auto-discovered by LDF, NOT in lib_deps). Wire: `EvMsg{type=0x02,kind,seq,g722[160]}`=163B, kind 0=voice 1=EOT. PTT = **TOGGLE** (keyboard has no key-up). Walkie signaling: `RECEIVING <mac>` tag + Roger beep both ends (EOT ×3 + 500ms silence fallback). App-local audio: RX vol 0-150% (`+/-`, capped — higher hard-clips/brownout), TX mic gain 0-37.5dB (`o/p`, clean louder) — neither touches global vol. Channel `,/.`
+- **CRASH FIX** — installing/uninstalling I2S drivers on every PTT toggle while ESP-NOW DMA live = crash (brownout). Fix: install BOTH I2S ports once at start, keep resident (mic=I2S1, speaker=I2S0, separate peripherals), gate by PTT state. Also explains "300% volume → crash": clipped full-scale audio at high gain browns out the rail.
+- **mictest/mt** — ES7210 mic diagnostic: live level meter, VAD, record 3s + replay. Fixed 2x-slow/devil-voice (ALL_LEFT delivers 2 int16/sample — must de-dup `raw[2*i]`).
+- **Board-gate correction** — mic+speaker are on BOTH T-Deck and T-Deck Plus; only GPS is Plus-only. Removed wrong `#ifdef BOARD_TDECK_PLUS` from mictest+espvoice. (Old peripherals memory wrongly said mic=I2S_NUM_0 — it's I2S_NUM_1.)
+- Docs/man/README/CLAUDE.md all updated for ev + mt.
+
 ## Session 2026-05-29
 - **buddy** — NimBLE v2.x name fix (`enableScanResponse`+`setName`); `onConnect` sets `s_connected` immediately; stale bond detection (reasons 0x05/0x06); cleanup removes `init("T-REX")` — field tested, working
 - **btkbd** — auto-bond-delete on auth fail; stale bond UI — field tested, working

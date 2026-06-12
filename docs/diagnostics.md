@@ -39,6 +39,35 @@ Keys `a/w/c/i/p` go through NotificationManager and play the configured WAV if o
 
 ---
 
+## `mictest` / `mt` — Microphone Test
+
+```
+CMD> mictest
+CMD> mt
+```
+
+ES7210 microphone hardware verification (the mic is on **both** T-Deck and
+T-Deck Plus — only the GPS is Plus-exclusive).
+
+- **Live level meter** — peak-hold bar + scrolling bar-graph that react to sound.
+- **Voice-activity detection** — `*** VOICE DETECTED ***` flashes when speech is
+  present (debounced).
+- **Record + replay** — capture 3 s to PSRAM and play it back through the speaker
+  to confirm the full capture→playback path.
+
+The capture de-duplicates the ES7210's `ALL_LEFT` stream (which delivers two
+identical samples per audio sample) so playback is true 16 kHz mono — correct
+pitch and duration.
+
+| Key | Action |
+|-----|--------|
+| `r` | Record 3 s |
+| `p` | Replay the recording |
+| `+` / `-` | Mic gain |
+| `q` | Quit |
+
+---
+
 ## `loratest` — LoRa Test
 
 ```

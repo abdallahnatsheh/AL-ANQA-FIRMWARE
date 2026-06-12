@@ -88,7 +88,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 - [Timezone](tz) — `tz`
 - [Audio & Notifications](audio) — `volume` · `notif` · `spktest`
 - [SD Commands](sd-commands) — `sdinfo` · `sdls` · `cd` · `cat` · `rm` · `sdformat`
-- [Diagnostics](diagnostics) — `gps on/off/test` · `spktest` · `loratest`
+- [Diagnostics](diagnostics) — `gps on/off/test` · `spktest` · `mictest` · `loratest`
 - [SD Card Layout](sdcard) — file layout reference
 - [Custom Splash Screen](splash) — replace the boot image with your own PNG
 

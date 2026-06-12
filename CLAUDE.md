@@ -131,11 +131,11 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 
 ## Commands
 System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `lock/lk`
-WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `wguard/wg` `beaconflood/bf` `espsniff/es` `esptest/est` `espchat/ec`
+WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `wguard/wg` `beaconflood/bf` `espsniff/es` `esptest/est` `espchat/ec` `espvoice/ev`
 Network: `netdiscover/nd` `portscan/ps` `topscan/ts` `ping/pg`
 Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
 SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `sdrm/srm` `sdf/sdf`
-Diagnostics: `gps/gps` `spktest/st` `loratest/lt` `i2cscan/isc [EXP]`
+Diagnostics: `gps/gps` `spktest/st` `mictest/mt` `loratest/lt` `i2cscan/isc [EXP]`
 
 **ESPChat** (`espchat/ec`, `espsniff/es`, `esptest/est`) — `radio/espnow/espchat/`, `espsniff/`, `esptest/`:
 - Wire format: `EcMsg{type(1)+seq(1)+name[12]+text[100]}` = 114 bytes, type=0x01; broadcast ch compatible with any ESP32/ESP8266
@@ -146,6 +146,17 @@ Diagnostics: `gps/gps` `spktest/st` `loratest/lt` `i2cscan/isc [EXP]`
 - Contacts: SD → `/apps/espchat/contacts.csv`; no SD → `g_ecContacts[]` RAM only, cleared on reboot
 - UI layout: PAIR_Y(y=66) · MSG_Y0(y=80) · EC_VIS=7 rows · SEP2_Y(y=178) · FOOT_Y(y=192) · INPUT_Y(y=206); 4px scroll slider at x=316
 - All WiFi commands call `stopEspchatBg()` before starting to avoid ESP-NOW/WiFi mode conflicts
+
+**ESPVoice** (`espvoice/ev`) — `radio/espnow/espvoice/espvoice.cpp` — half-duplex ESP-NOW walkie-talkie, HD voice:
+- **NOT board-gated** — ES7210 mic + speaker exist on both T-Deck and T-Deck Plus (only GPS is Plus-only). Same applies to `mictest/mt`.
+- **Codec**: ITU-T G.722 wideband (16 kHz, 64 kbps Mode 1) via vendored public-domain `lib/libg722/` (sippy/libg722, auto-discovered by PlatformIO LDF — NOT in `lib_deps`, same as `lib/es7210`). One 20 ms frame = 320 PCM samples → 160 G.722 bytes. Stateless across loss (dropped frame = 25 ms gap, no drift). Encoder/decoder ctx = `g722_encoder_new(64000, G722_DEFAULT)` / `g722_decoder_new(...)`, created at start, destroyed at end.
+- **Wire format**: `EvMsg{type=0x02, kind, seq, g722[160]}` = 163 B. `kind`: 0=voice, 1=EOT (end-of-transmission/Roger marker). Broadcast peer FF:FF:FF:FF:FF:FF, unencrypted.
+- **PTT is a TOGGLE** — the I2C keyboard reports no key-up (only `\b` auto-repeats), so true hold-to-talk is impossible. SPACE toggles TX↔RX.
+- **Both I2S ports stay resident** the whole session (mic=I2S_NUM_1 RX, speaker=I2S_NUM_0 TX — separate peripherals). Installing/uninstalling I2S drivers on every PTT toggle while ESP-NOW DMA is live CRASHED (brownout/DMA); coexist-resident fixed it. Audio gated by PTT state, not by driver install.
+- **Mic read**: ES7210 `ALL_LEFT` delivers 2 int16/sample (L/R dup) — de-dup (`raw[2*i]`) to mono 16 kHz before encode. RX: decode → duplicate mono→stereo → speaker 16 kHz. No resampling (G.722 is natively 16 kHz).
+- **Walkie-talkie signaling**: talker shows `TRANSMITTING`; listener shows `>> RECEIVING <mac>` while frames arrive; on PTT release talker broadcasts EOT ×3 (lossy net) → both ends play a 120 ms 1500 Hz Roger beep; silence-timeout fallback (500 ms, `EV_RX_SILENCE`) ends RX if all EOTs lost.
+- **App-local audio controls (never touch global `vol`/NotificationManager)**: `s_vol` RX playback 0–150 % (`+/-`, capped — >150 % hard-clips into distortion + brownout risk); `s_gain` TX mic gain 0–37.5 dB (`o/p`, ES7210 `es7210_adc_set_gain_all`, applied live — the CLEAN way to be louder). Both reset to defaults (100 %, GAIN_30DB) each launch. Channel on `,/.`.
+- RX ring `s_rxRing[EV_RING=24][160]` filled by `onRecv` (WiFi task), drained in main loop; lock-aware (`consumeJustUnlocked()` redraw, draws no-op while blocked); clean screen on quit. Registered with `stopEspchatBg()` prefix.
 
 ## SD Layout
 v2 reorg: every tool gets its own self-contained folder under `/apps/<tool>/`
@@ -271,5 +282,5 @@ orphaned, not migrated.
 ## Pending Features
 - LoRa scanner / packet logger
 - macwatch — MAC watchlist with proximity alert
-- espvoice — ESP-NOW voice over I2S (requires ES7210 mic on T-Deck Plus)
 - wguard: Karma detection needs real-world testing (probe-response sniff for 3+ SSIDs/60s from same BSSID)
+- espvoice: private/encrypted 1:1 mode (currently broadcast only); optional voice-activity TX gate

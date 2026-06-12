@@ -10,19 +10,8 @@
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
 
-#ifndef BOARD_TDECK_PLUS
-
-void runMicTest() {
-    displayManager.clearScreen();
-    displayManager.setDefaultTextSize();
-    displayManager.setCursor(4, outputY);
-    displayManager.setTextColor(TFT_YELLOW);
-    displayManager.println("Mic test: T-Deck Plus only (ES7210)");
-    displayManager.printCommandScreen();
-}
-
-#else // BOARD_TDECK_PLUS
-
+// Mic (ES7210) + speaker are present on BOTH T-Deck and T-Deck Plus — only the
+// GPS is Plus-exclusive, so this command is NOT board-gated.
 #include <Wire.h>
 #include "es7210.h"
 
@@ -395,5 +384,3 @@ void runMicTest() {
     displayManager.setCursor(10, outputY);
     displayManager.printCommandScreen();
 }
-
-#endif // BOARD_TDECK_PLUS

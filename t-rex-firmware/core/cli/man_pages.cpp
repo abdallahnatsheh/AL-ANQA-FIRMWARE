@@ -702,6 +702,18 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "mictest", "mt", {
+        "SYNTAX   mictest",
+        "",
+        "ABOUT    ES7210 mic test. Live level meter,",
+        "         voice-activity detect, record 3s",
+        "         + replay. Both T-Deck & Plus.",
+        "",
+        "KEYS     [r]ecord 3s  [p]lay  [+/-]gain",
+        "         [q] quit",
+        nullptr
+    }},
+
     { "loratest", "lt", {
         "SYNTAX   loratest",
         "",
@@ -795,6 +807,29 @@ static const ManEntry PAGES[] = {
         "         Broadcasts every 2s, shows RX log.",
         "",
         "KEYS     [+/-]ch  [q]quit",
+        nullptr
+    }},
+
+    { "espvoice", "ev", {
+        "SYNTAX   ev [ch]",
+        "",
+        "ABOUT    ESP-NOW walkie-talkie. G.722 HD",
+        "         voice (16kHz wideband). Broadcast —",
+        "         any T-Deck on same ch hears you.",
+        "         Mic on both T-Deck & Plus.",
+        "",
+        "TALK     [space] = push-to-talk TOGGLE",
+        "         (keyboard has no key-up, so press",
+        "         to talk, press again to listen).",
+        "         Roger beep + RECEIVING tag mark",
+        "         start/end like a real radio.",
+        "",
+        "AUDIO    [+/-] RX volume (local, 0-150%)",
+        "         [o/p] TX mic gain (clean louder)",
+        "         Neither touches global vol.",
+        "",
+        "KEYS     [space]talk [+/-]vol [o/p]gain",
+        "         [,/.]ch  [q]quit",
         nullptr
     }},
 };

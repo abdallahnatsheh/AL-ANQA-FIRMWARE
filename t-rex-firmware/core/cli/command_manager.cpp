@@ -32,6 +32,7 @@
 #include "espsniff.h"
 #include "esptest.h"
 #include "espchat.h"
+#include "espvoice.h"
 #include "lockscreen_manager.h"
 #include "clock_manager.h"
 extern DisplayManager     displayManager;
@@ -642,6 +643,7 @@ void CommandManager::setupCommands() {
     registerCommand("espsniff",    "es",     [](char* a) { runEspSniff(a); },                                                  "ESP-NOW sniffer: es [ch 1-13]",                      true,  "WiFi");
     registerCommand("esptest",     "est",    [](char* a) { runEspTest(a); },                                                   "ESP-NOW test TX/RX: est [ch 1-13]",                  true,  "WiFi");
     registerCommand("espchat",     "ec",     [](char* a) { runEspchat(a); },                                                   "ESP-NOW chat: ec [pub [set <ch>]|prv <M>|bg|stop]",  true,  "WiFi");
+    registerCommand("espvoice",    "ev",     [](char* a) { stopEspchatBg(); runEspVoice(a); },                                 "ESP-NOW walkie-talkie: ev [ch 1-13]",                true,  "WiFi");
     registerCommand("wifipass",    "wp",     [](char* a) { wifiPassCommand(); },                                               "Saved WiFi passwords",                    false, "WiFi");
     registerCommand("wifiexport",  "wex",    [](char* a) { wifiExportCommand(); },                                             "Export NVS networks to wpa_supplicant",   false, "WiFi");
     // ── Network ───────────────────────────────────────────────────────────────

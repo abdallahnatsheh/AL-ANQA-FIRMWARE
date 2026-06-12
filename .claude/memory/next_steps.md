@@ -53,5 +53,5 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
 
 ## Low Priority
 
-23. **Mic Record** — ES7210 mic; both boards; record to `/apps/micrec/rec_<ts>.wav`. Command: `micrec/mr`
+23. **Mic Record** — PARTIALLY DONE via `mictest/mt` (record 3s + replay, RAM-only, no SD/WAV yet). ES7210 mic, both boards. Remaining: WAV-to-SD save (`/apps/micrec/rec_<ts>.wav`). Also `espvoice/ev` (ESP-NOW G.722 walkie-talkie) DONE 2026-06-12.
 24. **NES Emulator** *(Easter egg)* — Nofrendo; ROMs from `/roms/*.nes`

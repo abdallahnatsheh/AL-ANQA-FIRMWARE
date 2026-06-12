@@ -6,8 +6,11 @@
 - [NimBLE v2.x Rules](nimble_v2_rules.md) — scan response name, cleanup no re-init, scan non-blocking, auto-bond-delete
 
 ## State
-- [Progress Log](progress_log.md) — last session 2026-05-29; not-yet-built list
+- [Progress Log](progress_log.md) — last session 2026-06-12 (espvoice/ev + mictest/mt); not-yet-built list
 - [Next Steps](next_steps.md) — priority queue: WiFi(1-9)→BT(10-12)→GPS(13-14)→USB(15-18)→Other(19-26)
+
+## Open Issues (verify / fix later)
+- [ESPVoice crash watch](project_espvoice_crash_watch.md) — `ev` sometimes crashes after a couple min; PS_NONE + draw-throttle applied (unconfirmed); read RESET REASON to classify (brownout vs panic vs WDT)
 
 ## Feature References (look up when touching that feature)
 - [buddy/bd](project_buddy_port.md) — working; key NimBLE quirks
@@ -20,4 +23,5 @@
 - [USB Gadget](project_usb_gadget_plan.md) — MSC+HID; key SPI fixes
 - [macwatch](project_macwatch_idea.md) — NOT YET BUILT; spec
 - [Remote CLI / screen mirror](project_remote_cli_screen_mirror.md) — NOT YET BUILT; USB-CDC text mirror of DisplayManager, Flipper-CLI style
-- [Future peripherals](project_future_peripherals.md) — ES7210 mic, GT911 touch pins
+- [Future peripherals](project_future_peripherals.md) — ES7210 mic (I2S_NUM_1, both boards), GT911 touch pins
+- [espvoice/ev + mictest/mt](progress_log.md) — ESP-NOW G.722 walkie-talkie + mic test; PTT toggle, coexist-resident I2S, libg722 vendored, app-local vol/gain (see 2026-06-12 in progress log)
