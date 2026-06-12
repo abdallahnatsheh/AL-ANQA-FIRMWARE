@@ -231,6 +231,8 @@ void ESPInfoPrinter::printESPInfo() {
     bool redraw = true;
 
     while (true) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) redraw = true;
+
         if (redraw) {
             iHeader(displayManager, TITLES[page], page, PAGES);
             switch (page) {
@@ -244,7 +246,6 @@ void ESPInfoPrinter::printESPInfo() {
             redraw = false;
         }
 
-        if (LockScreenManager::getInstance().consumeJustUnlocked()) { redraw = true; }
         char k = inputHandler.getKeyboardInput();
         if (!k) continue;
         if (k == 'q' || k == 'Q') break;
