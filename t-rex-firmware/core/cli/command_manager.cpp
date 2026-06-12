@@ -58,6 +58,7 @@ void runGpsTest();
 void runSpeakerTest();
 void runLoraTest();
 void runI2cScan(char* a);
+void runMicTest();
 
 CommandManager::CommandManager()
     : commandIndex(0), commandCount(0), _cursorPos(0),
@@ -674,4 +675,5 @@ void CommandManager::setupCommands() {
     registerCommand("spktest",     "st",     [](char* a) { runSpeakerTest(); },                                              "Speaker tone test",                       false, "Diagnostics");
     registerCommand("loratest",    "lt",     [](char* a) { runLoraTest(); },                                                 "LoRa SX1262 diagnostic",                  false, "Diagnostics");
     registerCommand("i2cscan",     "isc",    [](char* a) { runI2cScan(a); },                                                 "[EXP] I2C scanner: isc [r|w|d] <args>",  true,  "Diagnostics");
+    registerCommand("mictest",     "mt",     [](char* a) { runMicTest(); },                                                  "Mic test: level/VAD/record+play",        false, "Diagnostics");
 }
