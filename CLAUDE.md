@@ -132,7 +132,7 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 ## Commands
 System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `lock/lk`
 WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `wguard/wg` `beaconflood/bf` `espsniff/es` `esptest/est` `espchat/ec` `espvoice/ev`
-Network: `netdiscover/nd` `portscan/ps` `topscan/ts` `ping/pg`
+Network: `netdiscover/nd` `portscan/ps` `topscan/ts` `ping/pg` `ssh/sc`
 Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
 SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `sdrm/srm` `sdf/sdf`
 Diagnostics: `gps/gps` `spktest/st` `mictest/mt` `loratest/lt` `i2cscan/isc [EXP]`
@@ -157,6 +157,15 @@ Diagnostics: `gps/gps` `spktest/st` `mictest/mt` `loratest/lt` `i2cscan/isc [EXP
 - **Walkie-talkie signaling**: talker shows `TRANSMITTING`; listener shows `>> RECEIVING <mac>` while frames arrive; on PTT release talker broadcasts EOT ×3 (lossy net) → both ends play a 120 ms 1500 Hz Roger beep; silence-timeout fallback (500 ms, `EV_RX_SILENCE`) ends RX if all EOTs lost.
 - **App-local audio controls (never touch global `vol`/NotificationManager)**: `s_vol` RX playback 0–150 % (`+/-`, capped — >150 % hard-clips into distortion + brownout risk); `s_gain` TX mic gain 0–37.5 dB (`o/p`, ES7210 `es7210_adc_set_gain_all`, applied live — the CLEAN way to be louder). Both reset to defaults (100 %, GAIN_30DB) each launch. Channel on `,/.`.
 - RX ring `s_rxRing[EV_RING=24][160]` filled by `onRecv` (WiFi task), drained in main loop; lock-aware (`consumeJustUnlocked()` redraw, draws no-op while blocked); clean screen on quit. Registered with `stopEspchatBg()` prefix.
+
+**SSHClient** (`ssh/sc`) — `wifi/tools/sshcon/ssh_client.cpp`:
+- Interactive SSH client on **LibSSH-ESP32** (`ewpa/LibSSH-ESP32 @ ^5.8.0` in `lib_deps` — a real registry dep, unlike the vendored `lib/` ones; libssh 0.11.x, uses the SDK's mbedTLS + HW AES/SHA). Both boards.
+- **Runs in a dedicated ~50 KB FreeRTOS task** (`xTaskCreatePinnedToCore(..., 51200, ..., core 1)`) — libssh needs far more stack than the 8 KB main-loop task. `runSshCon()` (main task) prompts user/password, creates the task, then blocks on `while(!s_taskDone) vTaskDelay()`. Only the SSH task touches `tft`/`inputHandler` while main waits → no concurrency on display/keyboard.
+- Reuses the existing `cw` STA connection (checks `WiFi.status()==WL_CONNECTED`) — does NOT re-init WiFi. Password auth via `ssh_userauth_password`; `SSH_OPTIONS_PROCESS_CONFIG=0` to skip nonexistent `~/.ssh/config`. PTY = `xterm` (16-colour). Host-key verification SKIPPED for now (TOFU).
+- **Terminal**: scrollback ring `s_buf[SB=120][COLS=52]` + per-cell colour `s_col[][]` (hi nibble fg, lo bg, ANSI-16 → `PAL[16]` RGB565). Visible ROWS=13 below a 1-line header. Minimal VT100 (`termPut` state machine: SGR colours incl 256-skip, cursor `H/A/B/C/D`, erase `J/K`). Trackpad UP/DOWN scrolls `s_view`; typing snaps to live; CLICK disconnects. Per-row dirty + 30 fps throttle.
+- **KNOWN ISSUE**: docs recommend `CONFIG_MBEDTLS_HARDWARE_SHA` disabled for concurrency stability — impossible with precompiled Arduino core. Crash during connect/key-exchange → shared HW SHA engine is the suspect.
+- **Host profiles** (`ssh save/list/rm`): `/apps/ssh/hosts.csv` = `name,ip,port,user` (NO password — plaintext on removable card). `ssh <name>` resolves a saved profile first, else uses the token as ip/hostname directly. User precedence: arg > profile > prompt. Read/write at command time (WiFi idle), not during the session. `hostLoadAll/Find/Save/Remove/List` in ssh_client.cpp; `FILE_WRITE`="w" truncates on ESP32.
+- SD: `known_hosts`/`keys/` (host-key pinning, key auth) still planned. No SD writes during a live session (GDMA: SSH keeps WiFi DMA busy).
 
 ## SD Layout
 v2 reorg: every tool gets its own self-contained folder under `/apps/<tool>/`
@@ -212,6 +221,7 @@ orphaned, not migrated.
 `/apps/espchat/pub/chN.log` — public chat logs per channel
 `/apps/espchat/prv/<MAC>.log` — private chat logs per contact
 `/apps/badusb/scripts/*` — BadUSB DuckyScript files (`SD_DIR_BADUSB_SCRIPTS`)
+`/apps/ssh/hosts.csv` — SSH saved host profiles (`SD_SSH_HOSTS`, `name,ip,port,user`); `known_hosts`/`keys/` planned
 
 ## WiFi / SD — ESP32-S3 GDMA Rule
 **Never write to SD while WiFi is in APSTA or promiscuous mode** — WiFi and SPI share the GDMA controller on ESP32-S3; concurrent DMA corrupts FatFS.

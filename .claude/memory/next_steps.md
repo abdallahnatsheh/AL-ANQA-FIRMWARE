@@ -5,7 +5,7 @@ type: project
 ---
 
 ## Already implemented (do NOT re-add)
-`beaconflood/bf` · `bleinfo/bi` · `usbkbd/uk` · `usbexec/ux` (BadUSB) · `clock/ClockManager` · `buddy/bd` · `wguard/wg` · `hiddenssid/hs` · `blespam/bs` · `jiggle/jg` (mouse jiggler) · `fast_pair/fp` (Google Fast Pair scan/spam/hijack) · `show/sh` (last scan results) · `tz` (timezone config) · `volume/vol` (I2S volume) · `notif/nf` (per-level sound config) · `wifimon/wm` (airmon-ng rewrite: nets+clients views, targeted deauth, raw PCAP, probe logger `[p]` → `/apps/wifimon/probes.csv`) · `oui_lookup.h` (shared ~350-entry vendor+type table) · `pmkid/pm` (PMKID capture+crack, no client needed, passive M1 sniff) · `bmon/bm` (passive BLE adv sniffer — iBeacon/Eddystone/cleartext, PCAP) · `espvoice/ev` (ESP-NOW G.722 walkie-talkie) · `mictest/mt` (ES7210 mic test) · `trackme/tm` (anti-tracking, service-UUID sigs). SD layout
+`beaconflood/bf` · `bleinfo/bi` · `usbkbd/uk` · `usbexec/ux` (BadUSB) · `clock/ClockManager` · `buddy/bd` · `wguard/wg` · `hiddenssid/hs` · `blespam/bs` · `jiggle/jg` (mouse jiggler) · `fast_pair/fp` (Google Fast Pair scan/spam/hijack) · `show/sh` (last scan results) · `tz` (timezone config) · `volume/vol` (I2S volume) · `notif/nf` (per-level sound config) · `wifimon/wm` (airmon-ng rewrite: nets+clients views, targeted deauth, raw PCAP, probe logger `[p]` → `/apps/wifimon/probes.csv`) · `oui_lookup.h` (shared ~350-entry vendor+type table) · `pmkid/pm` (PMKID capture+crack, no client needed, passive M1 sniff) · `bmon/bm` (passive BLE adv sniffer — iBeacon/Eddystone/cleartext, PCAP) · `espvoice/ev` (ESP-NOW G.722 walkie-talkie) · `mictest/mt` (ES7210 mic test) · `trackme/tm` (anti-tracking, service-UUID sigs) · `ssh/sc` (interactive SSH client via LibSSH-ESP32). SD layout
 is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.md`.
 
 ---
@@ -17,7 +17,7 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
 3. **LAN MITM (Gateway Takeover)** — join real net as STA, ARP poison all devices + GW, relay traffic, sniff DNS/HTTP, `[b]` block / `[t]` throttle / `[d]` DNS spoof. Command: `lanmitm/lm`
 5. **AP Bridge** — transparent AP+STA bridge; clients get real internet; sniff + redirect. Command: `apbridge/ab [ssid]`
 6. **Responder** — LLMNR/NBT-NS/mDNS poisoner; capture NTLMv2 hashes. Command: `responder/rsp`
-7. **SSH Connect** — SSH client from `nd` scan or IP. Command: `sshcon/sc <ip|#> [user]`
+7. **SSH Connect** — ✅ DONE 2026-06-13 as `ssh/sc <ip> [user]` (LibSSH-ESP32, interactive PTY shell, colour terminal + trackpad scrollback). Remaining: `<#>` index from `nd`, host-key pinning + key auth on `/apps/ssh/`, Ctrl-C, fuller VT100.
 8. **TCP Listener/Client** — catch reverse shells / forward input. `tcplisten/tl <port>` · `tcpclient/tc <ip> <port>`
 9. **DPWO** — default credential checker against discovered hosts. Command: `dpwo/dw <ip|#>`
 

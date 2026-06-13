@@ -13,6 +13,7 @@
 - [ESPVoice crash watch](project_espvoice_crash_watch.md) — `ev` sometimes crashes after a couple min; PS_NONE + draw-throttle applied (unconfirmed); read RESET REASON to classify (brownout vs panic vs WDT)
 
 ## Feature References (look up when touching that feature)
+- [SSH client/ssh](project_ssh_client.md) — LibSSH-ESP32, 50KB task, colour terminal+scrollback; HW-SHA concurrency caveat
 - [buddy/bd](project_buddy_port.md) — working; key NimBLE quirks
 - [BLE Info/bi](project_bleinfo.md) — working; critical compile quirks
 - [WGuard/wg](project_wguard_feature.md) — full IDS threat table, detection logic, save types

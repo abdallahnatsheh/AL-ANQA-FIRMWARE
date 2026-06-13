@@ -55,6 +55,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 - [Net Discover](netdiscover) — `netdiscover`
 - [Port Scan](portscan) — `portscan` · `topscan` · banner grabber · OS fingerprint
 - [Ping](ping) — `ping`
+- [SSH Client](ssh) — `ssh` — interactive colour terminal + scrollback
 
 ---
 

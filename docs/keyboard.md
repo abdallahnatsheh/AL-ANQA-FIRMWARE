@@ -108,12 +108,15 @@ Press `'` at any point while typing to trigger autocomplete:
 | Common prefix | Prefix is filled, cursor advances |
 | No match | Nothing happens |
 
-Works for **command names** and **file paths** when using `sdls`, `cd`, `cat`, `rm`.
+Works for **command names**, **file paths** (`sdls`, `cd`, `cat`, `rm`), and
+**subcommand hints** for commands like `pwrsave`, `notif`, `macchanger`, `wguard`,
+`ssh` — typing the command + space + `'` lists its valid arguments in yellow.
 
 Example:
 ```
 CMD> sca'       → completes to "scanwifi " or lists: scanwifi, scanblue
 CMD> cat /ap'   → completes to "cat /apps/"
+CMD> ssh '      → lists subcommands: save list rm
 ```
 
 ### Command History

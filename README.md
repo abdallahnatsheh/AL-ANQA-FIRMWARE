@@ -60,6 +60,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 **🌐 Network** — [full guide](docs/network.md)
 - ARP host discovery, TCP port scan (4× parallel), top-31 ports
 - ICMP ping, banner grabber (HTTP/TLS/MySQL/Redis), OS fingerprinting
+- **SSH client** (`ssh`) — real interactive SSH via libssh; modern crypto (curve25519/AES/ChaCha20, HW-accelerated); password auth + PTY shell; 16-colour terminal with trackpad scrollback — [full guide](docs/ssh.md)
 
 **🔵 Bluetooth** — [full guide](docs/bluetooth.md)
 - BLE device scanner (paginated, RSSI, name)
@@ -157,6 +158,7 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `portscan` | `ps` | `<ip\|#> <start> <end>` | TCP port scan |
 | `topscan` | `ts` | `<ip\|#>` | Top 31 common ports |
 | `ping` | `pg` | `<ip\|hostname>` | ICMP ping |
+| `ssh` | `sc` | `<ip\|name> [user]` | Interactive SSH client (libssh) — password auth, PTY shell, 16-colour terminal + trackpad scrollback; saved host profiles (`ssh save/list/rm`); connect WiFi (`cw`) first |
 | **Bluetooth** | | | |
 | `scanblue` | `sbl` | — | BLE device scan |
 | `bleinfo` | `bi` | `<index\|mac\|all>` | GATT enum: services, chars, values, write, fuzz, sniff, pair |
@@ -211,9 +213,9 @@ All scan tables share the same keys:
 **Backspace auto-repeat:** Hold Backspace for **1.5 seconds** → auto-deletes at ~16 chars/sec. Press any char key to stop — the timer resets immediately so the next hold starts fresh. Pressing Backspace a second time while repeat is armed cancels it (tap safety).
 
 **Autocomplete:** Press `'` (Sym+K) at any point in a command.
-- At the start → completes command names and short names (`sc` + `'` → `scanwifi`; `ps` + `'` → `portscan`)
+- At the start → completes command names and short names (`net` + `'` → `netdiscover`; `por` + `'` → `portscan`)
 - After a command with file args → completes file/dir paths from the current working directory
-- After a command with subcommands → shows valid args in yellow (`psv ` + `'` → `on off status save reset set`)
+- After a command with subcommands → shows valid args in yellow (`psv ` + `'` → `on off status save reset set`; `ssh ` + `'` → `save list rm`)
 - Two-level context: `psv set ` + `'` → shows settable options; `mc target ` + `'` → `wifi bt both`
 - Smart filtering: `cd` suggests dirs only, `rm`/`ux` suggest files only, `ls`/`cat` suggest both
 - Fills common prefix automatically (Linux-style); single match adds a trailing space
