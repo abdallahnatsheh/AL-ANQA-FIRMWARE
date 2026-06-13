@@ -1009,21 +1009,37 @@ void runEspchat(char* args) {
         if (initCh < 1 || initCh > 13) initCh = 1;  // final safety clamp
     }
 
-    // ── PIN entry for private mode ─────────────────────────────────────────────
+    // ── Key setup for private mode ─────────────────────────────────────────────
+    // The PIN only ever DERIVES the LMK (= SHA-256(PIN + sorted MACs)), and that
+    // key is persisted in contacts.csv. So the PIN is needed for FIRST-TIME
+    // pairing only — for a known contact we reuse the stored key + channel and
+    // skip straight to chat.
     uint8_t derivedLmk[16] = {};
     if (!isPublic && hasPeer) {
         WiFi.mode(WIFI_STA);
         WiFi.disconnect(false);
         WiFi.macAddress(g_ecOwnMac);  // populate own MAC for PIN prompt display
-        if (!enterPin(pin, sizeof(pin), peerMac)) {
-            displayManager.clearScreen();
-            displayManager.printCommandScreen();
-            return;
+
+        ecLoadContacts();
+        const EcContact* known = ecFindContact(peerMac);
+        bool hasStoredKey = false;
+        if (known) for (int b = 0; b < 16; b++) if (known->lmk[b]) { hasStoredKey = true; break; }
+
+        if (hasStoredKey) {
+            // Already paired — use the saved key; PIN not needed.
+            memcpy(derivedLmk, known->lmk, 16);
+            if (initCh < 1 || initCh > 13) initCh = known->channel;
+        } else {
+            // First time — derive from a shared PIN, then offer to save.
+            if (!enterPin(pin, sizeof(pin), peerMac)) {
+                displayManager.clearScreen();
+                displayManager.printCommandScreen();
+                return;
+            }
+            if (initCh < 1 || initCh > 13) initCh = 1;
+            ecDeriveLmk(pin, g_ecOwnMac, peerMac, derivedLmk);
+            promptSaveContact(peerMac, (uint8_t)initCh, derivedLmk);
         }
-        // Derive LMK now so we can save the contact before starting chat
-        ecDeriveLmk(pin, g_ecOwnMac, peerMac, derivedLmk);
-        // Offer to save as contact (user can press Enter to skip)
-        promptSaveContact(peerMac, (uint8_t)initCh, derivedLmk);
     }
 
     // Safety clamp — initCh must be 1-13 before any WiFi/SD call
@@ -1034,9 +1050,14 @@ void runEspchat(char* args) {
         ecSdLogOpen((uint8_t)initCh, (!isPublic && hasPeer) ? peerMac : nullptr);
 
     // ── Init ESP-NOW ──────────────────────────────────────────────────────────
-    if (!ecCoreInit((uint8_t)initCh, !isPublic,
-                    hasPeer ? peerMac : nullptr,
-                    pin[0]  ? pin     : nullptr)) {
+    // Private always goes through the LMK path (derivedLmk holds the stored or
+    // freshly-derived key); public uses broadcast + known-contact peers. This
+    // also fixes a latent bug where private mode with an empty PIN fell through
+    // to public setup inside ecCoreInit.
+    bool initOk = (!isPublic && hasPeer)
+                  ? ecCoreInitWithLmk((uint8_t)initCh, peerMac, derivedLmk)
+                  : ecCoreInit((uint8_t)initCh, false, nullptr, nullptr);
+    if (!initOk) {
         displayManager.clearScreen();
         displayManager.setCursor(4, outputY);
         displayManager.setTextColor(TFT_RED);
