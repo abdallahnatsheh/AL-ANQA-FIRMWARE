@@ -116,7 +116,8 @@ Example:
 ```
 CMD> sca'       → completes to "scanwifi " or lists: scanwifi, scanblue
 CMD> cat /ap'   → completes to "cat /apps/"
-CMD> ssh '      → lists subcommands: save list rm
+CMD> ssh '      → save list rm + your saved host names (nas, vps, ...)
+CMD> ssh n'     → completes to "ssh nas " (saved host profile)
 ```
 
 ### Command History

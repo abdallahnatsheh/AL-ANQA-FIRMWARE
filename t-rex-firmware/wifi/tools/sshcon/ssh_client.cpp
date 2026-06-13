@@ -444,6 +444,16 @@ static void hostRemove(const char* name) {
     displayManager.println(hostWriteAll(arr, w) ? "Profile removed" : "Remove failed");
 }
 
+// Exposed for CLI autocomplete (ssh <name>).
+int sshGetHostNames(char names[][24], int maxNames) {
+    HostProfile arr[SSH_HOSTS_MAX];
+    int n = hostLoadAll(arr, SSH_HOSTS_MAX), c = 0;
+    for (int i = 0; i < n && c < maxNames; i++) {
+        strncpy(names[c], arr[i].name, 23); names[c][23] = '\0'; c++;
+    }
+    return c;
+}
+
 static void hostList() {
     HostProfile arr[SSH_HOSTS_MAX];
     int n = hostLoadAll(arr, SSH_HOSTS_MAX);

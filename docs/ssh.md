@@ -48,6 +48,8 @@ CMD> ssh nas                          # connects to admin@192.168.1.50, asks pas
   `ssh example.com` still work.
 - User precedence: an explicit arg overrides the profile's user, which overrides
   the prompt. Custom ports are kept per profile (`ssh save vps 203.0.113.9 root 2222`).
+- **Autocomplete** completes saved names: `ssh '` lists `save list rm` + your host
+  names, and `ssh n'` → `ssh nas`.
 
 ## Terminal
 

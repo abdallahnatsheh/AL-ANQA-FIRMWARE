@@ -45,9 +45,11 @@ engine. **Crash during connect/key-exchange → that shared engine is the prime 
 ip/hostname directly). User precedence: arg > profile > prompt. `hostLoadAll/Find/Save/Remove/
 List` in ssh_client.cpp; ESP32 `FILE_WRITE`="w" truncates (rewrites whole file). SshParams
 gained `port`. Read/write at command time only (WiFi idle) — GDMA-safe.
-Autocomplete: `kArgHints` in command_manager.cpp has `{"ssh"/"sc","","save list rm"}` so
-`ssh '` lists subcommands. (Note: `sc` is now ssh's short name — the old README autocomplete
-example that used `sc` as a prefix was fixed.)
+Autocomplete: `kArgHints` `{"ssh"/"sc","","save list rm"}` for static subcommands, PLUS a
+dynamic hook in command_manager.cpp's arg-hint branch that calls `sshGetHostNames()` (exposed
+from ssh_client.cpp, reads hosts.csv) to also complete **saved host names** at the first-arg
+level — `ssh n'` → `nas`. (Note: `sc` is now ssh's short name — the old README autocomplete
+example using `sc` as a prefix was fixed.)
 Still planned: `known_hosts` (host-key pinning), `keys/` (pubkey auth) under `/apps/ssh/`.
 
 ## Planned next

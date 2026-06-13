@@ -465,6 +465,19 @@ void CommandManager::doAutocomplete() {
                         tok = strtok(nullptr, " ");
                     }
                 }
+                // ssh: also complete saved host-profile names at the first-arg level
+                if ((strcmp(cmdWord, "ssh") == 0 || strcmp(cmdWord, "sc") == 0) &&
+                    strcmp(prevWord, cmdWord) == 0) {
+                    char hn[24][24];
+                    int nh = sshGetHostNames(hn, 24);
+                    for (int i = 0; i < nh && matchCount < kMaxMatch; i++) {
+                        if (strncmp(hn[i], prefix, prefixLen) != 0) continue;
+                        bool dup = false;
+                        for (int j = 0; j < matchCount; j++)
+                            if (strcmp(matches[j], hn[i]) == 0) { dup = true; break; }
+                        if (!dup) { strncpy(matches[matchCount], hn[i], 127); matches[matchCount++][127] = '\0'; }
+                    }
+                }
                 if (matchCount) argHintsMode = true;
             }
         }

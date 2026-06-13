@@ -11,4 +11,8 @@
 // PTY shell, basic terminal rendering. Trackpad CLICK disconnects.
 void runSshCon(char* args);
 
+// Fills `names[]` with saved host-profile names (from /apps/ssh/hosts.csv) for
+// autocomplete. Returns the count written (≤ maxNames). Each name ≤ 23 chars.
+int sshGetHostNames(char names[][24], int maxNames);
+
 #endif // SSH_CLIENT_H
