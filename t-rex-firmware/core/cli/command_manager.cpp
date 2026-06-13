@@ -33,6 +33,7 @@
 #include "esptest.h"
 #include "espchat.h"
 #include "espvoice.h"
+#include "ssh_client.h"
 #include "lockscreen_manager.h"
 #include "clock_manager.h"
 extern DisplayManager     displayManager;
@@ -271,6 +272,9 @@ static const ArgHintEntry kArgHints[] = {
     // wguard / wg
     { "wguard",      "",              "stop view" },
     { "wg",          "",              "stop view" },
+    // ssh / sc
+    { "ssh",         "",              "save list rm" },
+    { "sc",          "",              "save list rm" },
     // beaconflood / bf
     { "beaconflood", "",              "list rickroll seq file clone" },
     { "bf",          "",              "list rickroll seq file clone" },
@@ -651,6 +655,7 @@ void CommandManager::setupCommands() {
     registerCommand("portscan",    "ps",     [](char* a) { networkScanner.networkPortScan(a); },                            "Port scan: ps <ip|#> <start> <end>",      true,  "Network");
     registerCommand("topscan",     "ts",     [](char* a) { networkScanner.topPortScan(a); },                                "Top 26 ports: ts <ip|#>",                 true,  "Network");
     registerCommand("ping",        "pg",     [](char* a) { networkScanner.pingHost(a); },                                   "Ping: pg <ip or hostname>",               true,  "Network");
+    registerCommand("ssh",         "sc",     [](char* a) { runSshCon(a); },                                                 "SSH client: ssh <ip|name> [user] | save/list/rm", true,  "Network");
     // ── Bluetooth ─────────────────────────────────────────────────────────────
     registerCommand("scanblue",    "sbl",    [](char* a) { bluetoothFunctions.scanBluetoothDevices(); },                    "BLE device scan",                         false, "Bluetooth");
     registerCommand("bleinfo",     "bi",     [](char* a) { runBleInfo(a); },                                                         "GATT enumeration: bi <index|mac>",        true,  "Bluetooth");

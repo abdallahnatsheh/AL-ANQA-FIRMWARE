@@ -404,6 +404,29 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "ssh", "sc", {
+        "SYNTAX   ssh <ip|name> [user]",
+        "         ssh save <name> <ip> [user] [port]",
+        "         ssh list | ssh rm <name>",
+        "",
+        "ABOUT    Interactive SSH client (libssh).",
+        "         Password auth + PTY shell with a",
+        "         colour terminal + scrollback.",
+        "         Connect WiFi first (cw).",
+        "",
+        "HOSTS    Saved profiles in /apps/ssh/hosts.csv",
+        "         (name,ip,port,user — NO password).",
+        "         ssh save nas 192.168.1.50 admin",
+        "         ssh nas    -> connects, asks pass",
+        "",
+        "KEYS     type = send to remote shell",
+        "         [trackpad up/down] scroll history",
+        "         [click] disconnect",
+        "",
+        "NOTE     host-key check + key auth = planned.",
+        nullptr
+    }},
+
     { "buddy", "bd", {
         "SYNTAX   bd [name]",
         "",

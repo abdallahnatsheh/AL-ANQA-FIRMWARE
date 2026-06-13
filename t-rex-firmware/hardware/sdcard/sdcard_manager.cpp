@@ -71,6 +71,7 @@ void SDCardManager::ensureAppsReadme() {
     f.println("hiddenssid/ hs          discovered hidden SSIDs (found.csv)");
     f.println("i2cscan/    isc         I2C bus scan results (results.csv)");
     f.println("pmkid/      pm          PMKID captures (.cap), wordlist.txt, cracked.csv");
+    f.println("ssh/        ssh         hosts.csv host profiles; known_hosts/keys (planned)");
     f.println("trackme/    tm          session log, whitelist, custom signatures.csv");
     f.println("wguard/     wg          WiFi IDS session logs (NNN.csv)");
     f.println("wifimon/    wm          raw 802.11 PCAP captures + probe log");
@@ -112,6 +113,7 @@ void SDCardManager::ensureTreeStructure() {
     ensureDir(SD_DIR_ESPCHAT_PRV);
     ensureDir(SD_DIR_BADUSB);
     ensureDir(SD_DIR_BADUSB_SCRIPTS);
+    ensureDir(SD_DIR_SSH);
 
     ensureAppsReadme();
 }

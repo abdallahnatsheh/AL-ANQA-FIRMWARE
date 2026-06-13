@@ -57,6 +57,10 @@
 #define SD_DIR_BADUSB         "/apps/badusb"
 #define SD_DIR_BADUSB_SCRIPTS "/apps/badusb/scripts"
 
+#define SD_DIR_SSH            "/apps/ssh"            // ssh client — reserved for
+#define SD_SSH_KNOWNHOSTS     "/apps/ssh/known_hosts" // host-key pinning (planned)
+#define SD_SSH_HOSTS          "/apps/ssh/hosts.csv"   // saved host profiles (planned)
+
 class SDCardManager {
 public:
     SDCardManager(DisplayManager& displayManager);
