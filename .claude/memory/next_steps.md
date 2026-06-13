@@ -5,7 +5,7 @@ type: project
 ---
 
 ## Already implemented (do NOT re-add)
-`beaconflood/bf` · `bleinfo/bi` · `usbkbd/uk` · `usbexec/ux` (BadUSB) · `clock/ClockManager` · `buddy/bd` · `wguard/wg` · `hiddenssid/hs` · `blespam/bs` · `jiggle/jg` (mouse jiggler) · `fast_pair/fp` (Google Fast Pair scan/spam/hijack) · `show/sh` (last scan results) · `tz` (timezone config) · `volume/vol` (I2S volume) · `notif/nf` (per-level sound config) · `wifimon/wm` (airmon-ng rewrite: nets+clients views, targeted deauth, raw PCAP, probe logger `[p]` → `/apps/wifimon/probes.csv`) · `oui_lookup.h` (shared ~350-entry vendor+type table) · `pmkid/pm` (PMKID capture+crack, no client needed, passive M1 sniff). SD layout
+`beaconflood/bf` · `bleinfo/bi` · `usbkbd/uk` · `usbexec/ux` (BadUSB) · `clock/ClockManager` · `buddy/bd` · `wguard/wg` · `hiddenssid/hs` · `blespam/bs` · `jiggle/jg` (mouse jiggler) · `fast_pair/fp` (Google Fast Pair scan/spam/hijack) · `show/sh` (last scan results) · `tz` (timezone config) · `volume/vol` (I2S volume) · `notif/nf` (per-level sound config) · `wifimon/wm` (airmon-ng rewrite: nets+clients views, targeted deauth, raw PCAP, probe logger `[p]` → `/apps/wifimon/probes.csv`) · `oui_lookup.h` (shared ~350-entry vendor+type table) · `pmkid/pm` (PMKID capture+crack, no client needed, passive M1 sniff) · `bmon/bm` (passive BLE adv sniffer — iBeacon/Eddystone/cleartext, PCAP) · `espvoice/ev` (ESP-NOW G.722 walkie-talkie) · `mictest/mt` (ES7210 mic test) · `trackme/tm` (anti-tracking, service-UUID sigs). SD layout
 is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.md`.
 
 ---
@@ -49,9 +49,8 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
 19. **QR Code** — render QR from text/URL/WiFi cred. Command: `qrcode/qr <text>`
 20. **LoRa scanner** — SX1262 receive; 433/868/915 MHz; log RSSI/SNR/payload to `/apps/lorascan/lora.csv`. Command: `lorascan/ls` (note: `lt` has live RX display but no SD logging yet)
 21. **Chromecast Control** — Cast API port 8009; `cast rickroll` for all Chromecasts on LAN. Command: `cast/ca`
-22. **bmon** — passive BLE ad sniffer; iBeacon/Eddystone/cleartext; PCAP linktype 251. Command: `bmon/bm`
 
 ## Low Priority
 
-23. **Mic Record** — PARTIALLY DONE via `mictest/mt` (record 3s + replay, RAM-only, no SD/WAV yet). ES7210 mic, both boards. Remaining: WAV-to-SD save (`/apps/micrec/rec_<ts>.wav`). Also `espvoice/ev` (ESP-NOW G.722 walkie-talkie) DONE 2026-06-12.
-24. **NES Emulator** *(Easter egg)* — Nofrendo; ROMs from `/roms/*.nes`
+22. **Mic Record (WAV→SD)** — PARTIALLY DONE via `mictest/mt` (record 3s + replay, RAM-only). ES7210 mic, both boards. Remaining: WAV-to-SD save (`/apps/micrec/rec_<ts>.wav`).
+23. **NES Emulator** *(Easter egg)* — Nofrendo; ROMs from `/roms/*.nes`
