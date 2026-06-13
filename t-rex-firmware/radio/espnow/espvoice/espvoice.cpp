@@ -80,6 +80,11 @@ static uint8_t           s_ownMAC[6];
 static volatile uint8_t  s_rxMac[6]    = {0};
 static volatile bool     s_eotPending  = false;
 
+// Diagnostics for the intermittent long-session crash (see
+// .claude/memory/project_espvoice_crash_watch.md). Shown live on the stats line:
+// a climbing s_txDrop = WiFi TX buffer exhaustion; a falling heap = a leak.
+static uint32_t s_txDrop = 0;   // esp_now_send() failures
+
 // App-local playback volume (percent). Scales decoded audio + roger beep before
 // the speaker. 100% = full clean decoded level (the reference). Capped at 150%
 // because more than that hard-clips the speech into distortion and can brown
@@ -394,9 +399,11 @@ static void drawMicBar(int peak) {
 }
 
 static void drawStats() {
-    char buf[40];
-    snprintf(buf, sizeof(buf), "TX:%lu  RX:%lu frames",
-             (unsigned long)s_txTotal, (unsigned long)s_rxTotal);
+    char buf[64];
+    // drp climbing = WiFi TX exhaustion; heap falling = leak (crash diagnostics)
+    snprintf(buf, sizeof(buf), "TX:%lu RX:%lu drp:%lu heap:%uk",
+             (unsigned long)s_txTotal, (unsigned long)s_rxTotal,
+             (unsigned long)s_txDrop, (unsigned)(ESP.getFreeHeap() / 1024));
     displayManager.fillRect(4, Y_STATS, 312, LINE_HEIGHT, TFT_BLACK);
     displayManager.printText(buf, 4, Y_STATS, 0x4208);
 }
@@ -431,6 +438,7 @@ void runEspVoice(char* args) {
     s_channel = (uint8_t)initCh;
     s_vol     = 100;
     s_gain    = EV_MIC_GAIN;
+    s_txDrop  = 0;
 
     s_enc = g722_encoder_new(G722_BITRATE, G722_DEFAULT);
     s_dec = g722_decoder_new(G722_BITRATE, G722_DEFAULT);
@@ -517,7 +525,7 @@ void runEspVoice(char* args) {
             msg.seq  = s_txSeq++;
             msg.kind = EV_KIND_VOICE;
             int peak = captureFrame(raw, pcm, &msg);
-            esp_now_send(BCAST, (uint8_t*)&msg, sizeof(msg));
+            if (esp_now_send(BCAST, (uint8_t*)&msg, sizeof(msg)) != ESP_OK) s_txDrop++;
             s_txTotal++;
             if (peak > peakAccum) peakAccum = peak;
 
@@ -548,7 +556,12 @@ void runEspVoice(char* args) {
                     drawStats(); lastUi = now;
                 }
             } else {
-                vTaskDelay(pdMS_TO_TICKS(5));   // ring empty — yield
+                // Ring empty. Keep the mic's RX DMA cycling — it runs unread the
+                // whole time we listen; draining a little each idle tick prevents
+                // any descriptor buildup over a long session. Non-blocking.
+                size_t br = 0;
+                i2s_read(MIC_I2S_PORT, raw, sizeof(raw), &br, 0);
+                vTaskDelay(pdMS_TO_TICKS(5));   // yield
             }
 
             // End of transmission: explicit EOT marker, or silence timeout if lost.

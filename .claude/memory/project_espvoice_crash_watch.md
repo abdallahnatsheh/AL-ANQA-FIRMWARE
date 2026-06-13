@@ -9,15 +9,27 @@ type: project
 couple of minutes** of sustained use. Core feature committed; this is an open
 reliability issue to confirm/fix later.
 
-## Mitigations already applied (in espvoice.cpp at commit time)
-Two best-guess fixes for "runs fine then dies after minutes" — NOT yet confirmed
-to resolve it:
+## Mitigations already applied (in espvoice.cpp) — NOT yet confirmed to fix it
 1. **`esp_wifi_set_ps(WIFI_PS_NONE)`** after `WiFi.mode(WIFI_STA)` — keeps the
    radio awake for sustained 50 pkt/s ESP-NOW (modem sleep makes continuous
    ESP-NOW flaky / can wedge). Restored to `WIFI_PS_MIN_MODEM` on quit.
 2. **Mic-bar redraw throttled to ~15 Hz** (was ~50 Hz, every TX frame) with peak
    accumulation — 50 Hz of `fillRect` SPI/GDMA fights WiFi + I2S DMA over a long
    session.
+3. **RX-idle mic drain** — the mic's RX DMA runs unread the whole time we LISTEN;
+   a non-blocking `i2s_read(..., 0)` each idle tick keeps it cycling (rules out
+   descriptor buildup over minutes).
+
+## On-screen + serial diagnostics added (read these on the NEXT crash)
+- **Stats line now shows `drp:N heap:Nk`** — `drp` = `esp_now_send()` failures
+  (climbing ⇒ WiFi TX buffer exhaustion); `heap` = free heap KB (falling steadily
+  ⇒ a leak; ~stable ⇒ not a leap). Watch both for the minutes before it dies.
+- **`monitor_filters = esp32_exception_decoder`** added to platformio.ini (both
+  envs) — a Guru Meditation now prints a SYMBOLICATED backtrace automatically in
+  the serial monitor (file:line, no manual addr2line). Just copy it.
+
+Bottom line for next session: reproduce with the serial monitor open, note the
+last `drp`/`heap` values, and capture the reset reason + decoded backtrace.
 
 ## How to diagnose when it next crashes — READ THE RESET REASON
 Open serial monitor (115200) and reproduce. The FIRST line(s) after the reset
