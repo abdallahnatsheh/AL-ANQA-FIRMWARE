@@ -9,3 +9,4 @@ lib/
 
 # Claude Code editor files — ignore entire directory
 .claude/setting*
+sd_dropins

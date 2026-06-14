@@ -57,8 +57,11 @@ static const uint16_t PAL[16] = {
 #define DEF_ATTR ((uint8_t)((DEF_FG << 4) | 0))      // fg=7 (light grey), bg=0
 
 // Scrollback ring: logical line L (0..count-1) → s_buf[(head+L)%SB].
-static char    s_buf[SB][COLS];
-static uint8_t s_col[SB][COLS];
+// Both buffers (~12.5 KB total) live in PSRAM, ps_malloc'd at session start and
+// freed on exit — they're idle whenever no SSH session is running. Pointer-to-row
+// type keeps the existing s_buf[i][j] indexing unchanged.
+static char    (*s_buf)[COLS] = nullptr;  // ps_malloc'd — ~6.2KB in PSRAM
+static uint8_t (*s_col)[COLS] = nullptr;  // ps_malloc'd — ~6.2KB in PSRAM
 static int     s_head, s_count;       // ring base + valid line count
 static int     s_cr, s_cc;            // cursor within visible region (0..ROWS-1)
 static int     s_view;                // scroll-up offset (0 = live/bottom)
@@ -66,6 +69,18 @@ static uint8_t s_attr;                // current SGR attribute
 static int     s_fg, s_bg;            // current fg/bg index
 static bool    s_bold;
 static bool    s_rowDirty[ROWS], s_allDirty;
+
+// Lazy PSRAM alloc — ps_malloc needs the heap allocator set up by initArduino(),
+// so this is called from runSshCon() at command time, never at static-init.
+static bool ensureSshBuffers() {
+    if (!s_buf) s_buf = (char    (*)[COLS])ps_malloc((size_t)SB * COLS);
+    if (!s_col) s_col = (uint8_t (*)[COLS])ps_malloc((size_t)SB * COLS);
+    return s_buf && s_col;
+}
+static void freeSshBuffers() {
+    if (s_buf) { free(s_buf); s_buf = nullptr; }
+    if (s_col) { free(s_col); s_col = nullptr; }
+}
 
 static inline int ringIdx(int logical) { return (s_head + logical) % SB; }
 static inline int liveTop()  { return s_count - ROWS; }            // top live line
@@ -540,13 +555,21 @@ void runSshCon(char* args) {
     if (!readLine("SSH password:", s_p.pass, sizeof(s_p.pass), true)) { displayManager.printCommandScreen(); return; }
 
     displayManager.clearScreen();
+    if (!ensureSshBuffers()) {
+        freeSshBuffers();
+        displayManager.println("SSH: terminal buffer alloc failed (low PSRAM)");
+        displayManager.printCommandScreen();
+        return;
+    }
     s_taskDone = false; s_status[0] = '\0';
     if (xTaskCreatePinnedToCore(sshTask, "ssh", 51200, nullptr, tskIDLE_PRIORITY + 3, nullptr, 1) != pdPASS) {
+        freeSshBuffers();
         displayManager.println("SSH task create failed (low memory)");
         displayManager.printCommandScreen();
         return;
     }
     while (!s_taskDone) vTaskDelay(pdMS_TO_TICKS(50));
+    freeSshBuffers();                         // reclaim ~12.5 KB until next session
 
     memset(s_p.pass, 0, sizeof(s_p.pass));   // wipe password from RAM
 
