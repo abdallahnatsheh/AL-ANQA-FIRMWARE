@@ -15,8 +15,14 @@ type: feedback
 5. Reuse existing code — read the class before writing new functions. If a method exists, call it.
 5b. **No copy-paste duplication.** If the same code appears in several places unchanged, extract it
     into ONE global/shared function (e.g. `wifi/core/` — see oui_lookup, wifi_sd_guard, dot11,
-    pcap_writer, captive_portal). Don't reimplement a feature a sibling command already has —
-    lift it to core and have both call it. Prefer organizing code well over local convenience.
+    pcap_writer, captive_portal, wpa_crack). Don't reimplement a feature a sibling command already
+    has — lift it to core and have both call it. Prefer organizing code well over local convenience.
+5c. **Memory discipline — save now, win later (project is growing).** Don't keep sizable buffers
+    always-resident. Allocate transient/per-session buffers on demand and free on exit: big tables →
+    `ps_malloc` PSRAM (freed when the command exits, e.g. karma tables, ssh terminal, CaptivePortal,
+    portal picker `ents[]`); never a large `static`/global array that sits in DRAM while idle.
+    Exceptions: ISR-touched buffers MUST be internal DRAM (`heap_caps_malloc(MALLOC_CAP_INTERNAL)`,
+    still freed on exit) — PSRAM can't be hit from a true ISR. Watch the linker RAM% each build.
 6. Verify APIs before using — check actual header files (e.g. `getInitialized()` not `isInitialized()`).
 7. Test logic mentally — trace crash scenarios before submitting. Don't iterate fixes in chat.
 

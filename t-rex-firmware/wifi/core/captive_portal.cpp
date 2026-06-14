@@ -234,9 +234,10 @@ void CaptivePortal::routes() {
 bool cpPickTemplate(const char* sdDir, CpChoice& out) {
     DisplayManager& dm = displayManager;
 
-    static const int MAXE = 32;
+    const int MAXE = 32;
     struct Ent { char label[26]; int builtin; char path[88]; };
-    static Ent ents[MAXE];                      // static: keep off the small task stack
+    Ent* ents = (Ent*)ps_malloc((size_t)MAXE * sizeof(Ent));  // PSRAM, freed on every exit
+    if (!ents) return false;                    // no memory → caller keeps default page
     int n = 0;
 
     for (int i = 0; i < cpBuiltinCount() && n < MAXE; i++) {
@@ -298,7 +299,7 @@ bool cpPickTemplate(const char* sdDir, CpChoice& out) {
 
         while (true) {
             char k = inputHandler.getKeyboardInput();
-            if (k == 'q' || k == 'Q') return false;
+            if (k == 'q' || k == 'Q') { free(ents); return false; }
             if ((k == 'l' || k == 'L') && page < totalPages - 1) { page++; break; }
             if ((k == 'a' || k == 'A') && page > 0)              { page--; break; }
             if (k >= '1' && k <= '8') {
@@ -307,6 +308,7 @@ bool cpPickTemplate(const char* sdDir, CpChoice& out) {
                     out.builtin = ents[idx].builtin;
                     strncpy(out.sdPath, ents[idx].path, sizeof(out.sdPath) - 1);
                     out.sdPath[sizeof(out.sdPath) - 1] = '\0';
+                    free(ents);
                     return true;
                 }
             }
