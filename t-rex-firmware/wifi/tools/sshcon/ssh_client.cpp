@@ -444,13 +444,27 @@ static void hostRemove(const char* name) {
     displayManager.println(hostWriteAll(arr, w) ? "Profile removed" : "Remove failed");
 }
 
-// Exposed for CLI autocomplete (ssh <name>).
+// Exposed for CLI autocomplete (ssh <name>) — reloads names from hosts.csv on
+// every call so newly-saved profiles show up immediately. Reads the CSV directly
+// and extracts only the name field: this runs in the 8 KB main-loop task, so it
+// must NOT allocate a full HostProfile[] (~3.2 KB) on the stack like the other
+// helpers — doing so on top of doAutocomplete()'s own frame risked a stack
+// overflow / crash from the keyboard.
 int sshGetHostNames(char names[][24], int maxNames) {
-    HostProfile arr[SSH_HOSTS_MAX];
-    int n = hostLoadAll(arr, SSH_HOSTS_MAX), c = 0;
-    for (int i = 0; i < n && c < maxNames; i++) {
-        strncpy(names[c], arr[i].name, 23); names[c][23] = '\0'; c++;
+    if (!sdCardManager.canAccessSD()) return 0;
+    File f = SD.open(SD_SSH_HOSTS, FILE_READ);
+    if (!f) return 0;
+    int c = 0;
+    while (f.available() && c < maxNames) {
+        String line = f.readStringUntil('\n'); line.trim();
+        if (!line.length() || line[0] == '#') continue;
+        int comma = line.indexOf(',');
+        String nm = (comma >= 0) ? line.substring(0, comma) : line;
+        nm.trim();
+        if (!nm.length()) continue;
+        strncpy(names[c], nm.c_str(), 23); names[c][23] = '\0'; c++;
     }
+    f.close();
     return c;
 }
 
