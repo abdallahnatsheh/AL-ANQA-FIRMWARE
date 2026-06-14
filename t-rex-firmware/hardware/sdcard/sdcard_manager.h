@@ -41,6 +41,9 @@
 #define SD_DIR_BEACONFLOOD   "/apps/beaconflood"
 #define SD_CFG_WORDLIST_BCN  "/apps/beaconflood/wordlist.txt"
 
+#define SD_DIR_KARMA         "/apps/karma"           // karma harvest logs + handshakes
+#define SD_DIR_KARMA_PORTAL  "/apps/karma/portal"    // custom captive-portal .html pages
+
 #define SD_DIR_BMON          "/apps/bmon"
 
 #define SD_DIR_I2CSCAN       "/apps/i2cscan"

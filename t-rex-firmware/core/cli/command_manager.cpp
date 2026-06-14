@@ -29,6 +29,7 @@
 #include "notification_manager.h"
 #include "wguard.h"
 #include "beacon_flood.h"
+#include "karma.h"
 #include "espsniff.h"
 #include "esptest.h"
 #include "espchat.h"
@@ -278,6 +279,9 @@ static const ArgHintEntry kArgHints[] = {
     // beaconflood / bf
     { "beaconflood", "",              "list rickroll seq file clone" },
     { "bf",          "",              "list rickroll seq file clone" },
+    // karma / km
+    { "karma",       "",              "hs portal" },
+    { "km",          "",              "hs portal" },
     // show / sh
     { "show",        "",              "wifi ble hosts" },
     { "sh",          "",              "wifi ble hosts" },
@@ -657,6 +661,7 @@ void CommandManager::setupCommands() {
     registerCommand("pmkid",       "pm",     [](char* a) { stopEspchatBg(); pmkidAttack.start(a); },                        "PMKID capture+crack: pm <idx|bssid> [ch]",           true,  "WiFi");
     registerCommand("wguard",      "wg",     [](char* a) { stopEspchatBg(); handleWGuardCmd(a); },                          "WiFi IDS: wg <idx> [bg|stop]",                       true,  "WiFi");
     registerCommand("beaconflood", "bf",     [](char* a) { stopEspchatBg(); runBeaconFlood(a); },                           "Beacon flood: bf [list|seq <base>|file [path]]",     true,  "WiFi");
+    registerCommand("karma",       "km",     [](char* a) { stopEspchatBg(); runKarma(a); },                                "Karma: km (harvest) | km hs/portal <ssid> | [h]/[p] in list", true,  "WiFi");
     registerCommand("espsniff",    "es",     [](char* a) { runEspSniff(a); },                                                  "ESP-NOW sniffer: es [ch 1-13]",                      true,  "WiFi");
     registerCommand("esptest",     "est",    [](char* a) { runEspTest(a); },                                                   "ESP-NOW test TX/RX: est [ch 1-13]",                  true,  "WiFi");
     registerCommand("espchat",     "ec",     [](char* a) { runEspchat(a); },                                                   "ESP-NOW chat: ec [pub [set <ch>]|prv <M>|bg|stop]",  true,  "WiFi");

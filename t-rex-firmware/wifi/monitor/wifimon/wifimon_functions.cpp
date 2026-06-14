@@ -3,6 +3,8 @@
 #include "input_handling.h"
 #include "lockscreen_manager.h"
 #include "clock_manager.h"
+#include "pcap_writer.h"
+#include "dot11.h"
 #include <SD.h>
 
 extern InputHandling inputHandler;
@@ -136,23 +138,7 @@ void WiFiMonitor::parseFrame(const uint8_t* d, uint16_t len,
 // ── SSID extraction ───────────────────────────────────────────────────────────
 void IRAM_ATTR WiFiMonitor::extractSSID(const uint8_t* d, uint16_t len,
                                          uint8_t subtype, char* ssidOut) {
-    uint16_t off = 24;
-    if (subtype == SUB_BEACON || subtype == SUB_PROBE_RESP) off += 12;
-    else if (subtype == SUB_ASSOC_REQ)                      off +=  4;
-
-    while (off + 2 <= len) {
-        uint8_t id  = d[off];
-        uint8_t iel = d[off + 1];
-        if (off + 2 + iel > len) break;
-        if (id == 0) {
-            uint8_t sl = iel > 32 ? 32 : iel;
-            memcpy(ssidOut, d + off + 2, sl);
-            ssidOut[sl] = '\0';
-            return;
-        }
-        off += 2 + iel;
-    }
-    ssidOut[0] = '\0';
+    dot11::extractSSID(d, len, subtype, ssidOut, 33);   // ssidOut must be >= 33 bytes
 }
 
 // ── ring drain ────────────────────────────────────────────────────────────────
@@ -718,17 +704,7 @@ void WiFiMonitor::openPcap() {
     _pcapFile = SD.open(_pcapPath, FILE_WRITE);
     if (!_pcapFile) { _pcapPath[0] = '\0'; return; }
 
-    // libpcap global header — linktype 105 = LINKTYPE_IEEE802_11
-    struct __attribute__((packed)) {
-        uint32_t magic    = 0xa1b2c3d4;
-        uint16_t ver_maj  = 2;
-        uint16_t ver_min  = 4;
-        int32_t  tz       = 0;
-        uint32_t sig      = 0;
-        uint32_t snap     = 65535;
-        uint32_t linktype = 105;
-    } ghdr;
-    _pcapFile.write((uint8_t*)&ghdr, sizeof(ghdr));
+    pcap::writeGlobalHeader(_pcapFile);   // libpcap, linktype 105 (LINKTYPE_IEEE802_11)
     _pcapFile.flush();
 
     _pcapOpen      = true;
@@ -749,17 +725,11 @@ void WiFiMonitor::flushPcap() {
     esp_wifi_set_promiscuous(false);
 
     // drain ring → write PCAP records
-    struct __attribute__((packed)) { uint32_t ts_sec, ts_usec, incl_len, orig_len; } rh;
     while (s_pcapTail != s_pcapHead) {
         WmRawFrame rf;
         memcpy(&rf, (const void*)&s_pcapRing[s_pcapTail], sizeof(WmRawFrame));
         s_pcapTail = (s_pcapTail + 1) % WM_PCAP_RING;
-
-        rh.ts_sec  = rf.tsMs / 1000;
-        rh.ts_usec = (rf.tsMs % 1000) * 1000;
-        rh.incl_len = rh.orig_len = rf.len;
-        _pcapFile.write((uint8_t*)&rh, sizeof(rh));
-        _pcapFile.write(rf.data, rf.len);
+        pcap::writeRecord(_pcapFile, rf.data, rf.len, rf.tsMs);
         _pcapFrames++;
     }
     _pcapFile.flush();
@@ -785,16 +755,11 @@ void WiFiMonitor::closePcap() {
     if (!_pcapOpen) return;
     s_pcapActive = false;
     // drain remaining frames (promiscuous already off at call site)
-    struct __attribute__((packed)) { uint32_t ts_sec, ts_usec, incl_len, orig_len; } rh;
     while (s_pcapTail != s_pcapHead) {
         WmRawFrame rf;
         memcpy(&rf, (const void*)&s_pcapRing[s_pcapTail], sizeof(WmRawFrame));
         s_pcapTail = (s_pcapTail + 1) % WM_PCAP_RING;
-        rh.ts_sec  = rf.tsMs / 1000;
-        rh.ts_usec = (rf.tsMs % 1000) * 1000;
-        rh.incl_len = rh.orig_len = rf.len;
-        _pcapFile.write((uint8_t*)&rh, sizeof(rh));
-        _pcapFile.write(rf.data, rf.len);
+        pcap::writeRecord(_pcapFile, rf.data, rf.len, rf.tsMs);
         _pcapFrames++;
     }
     _pcapFile.flush();

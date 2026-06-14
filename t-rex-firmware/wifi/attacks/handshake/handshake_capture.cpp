@@ -7,41 +7,15 @@
 #include "sdcard_manager.h"
 #include "clock_manager.h"
 #include "lockscreen_manager.h"
+#include "pcap_writer.h"
+#include "dot11.h"
+#include "wpa_crack.h"
 #include <SD.h>
 #include <mbedtls/pkcs5.h>
 #include <mbedtls/md.h>
 
 extern InputHandling inputHandler;
 extern SDCardManager sdCardManager;
-
-// ── Built-in top-100 common WPA passwords (used when no SD) ──────────────────
-
-// Top-100 real-world WPA passwords — sourced from SecLists/berzerk0 WPA breach data.
-// All entries are >= 8 chars (WPA minimum). Ordered by real-world frequency.
-static const char* const kBuiltinPasswords[] = {
-    "password",    "123456789",   "12345678",    "1q2w3e4r",    "sunshine",
-    "football",    "1234567890",  "computer",    "superman",    "internet",
-    "iloveyou",    "1qaz2wsx",    "baseball",    "whatever",    "princess",
-    "abcd1234",    "starwars",    "trustno1",    "password1",   "jennifer",
-    "michelle",    "mercedes",    "benjamin",    "11111111",    "samantha",
-    "victoria",    "alexander",   "987654321",   "asdf1234",    "1234qwer",
-    "qwertyuiop",  "q1w2e3r4",    "elephant",    "garfield",    "chocolate",
-    "jonathan",    "caroline",    "maverick",    "midnight",    "88888888",
-    "creative",    "qwerty123",   "cocacola",    "passw0rd",    "liverpool",
-    "blink182",    "asdfghjkl",   "danielle",    "scorpion",    "veronica",
-    "nicholas",    "asdfasdf",    "metallica",   "december",    "patricia",
-    "christian",   "spiderman",   "security",    "slipknot",    "november",
-    "jordan23",    "qwertyui",    "butterfly",   "swordfish",   "carolina",
-    "hardcore",    "corvette",    "12341234",    "remember",    "qwer1234",
-    "leonardo",    "snickers",    "williams",    "angelina",    "anderson",
-    "123123123",   "pakistan",    "marlboro",    "kimberly",    "00000000",
-    "snowball",    "sebastian",   "godzilla",    "hello123",    "champion",
-    "precious",    "einstein",    "napoleon",    "mountain",    "dolphins",
-    "charlotte",   "fernando",    "basketball",  "barcelona",   "87654321",
-    "paradise",    "motorola",    "brooklyn",    "stephanie",   "elizabeth",
-    "0123456789",
-};
-static constexpr int kBuiltinCount = sizeof(kBuiltinPasswords) / sizeof(kBuiltinPasswords[0]);
 
 // ── WPA handshake crypto material ────────────────────────────────────────────
 
@@ -110,45 +84,11 @@ static void IRAM_ATTR rxCallback(void* buf, wifi_promiscuous_pkt_type_t pktType)
 
     if (len < 40) return;   // min: 24B header + 8B LLC + 4B EAPOL header + 4B key info
 
-    uint8_t frameType    = (d[0] >> 2) & 0x03;
-    uint8_t frameSubtype = (d[0] >> 4) & 0x0F;
-    if (frameType != 2) return;     // DATA only
-
-    uint8_t tods   = d[1] & 0x01;
-    uint8_t fromds = (d[1] >> 1) & 0x01;
-    if (tods && fromds) return;     // skip 4-addr WDS frames
-
-    int hdrLen = (frameSubtype & 0x08) ? 26 : 24;  // QoS adds 2B
-    if (len < (uint16_t)(hdrLen + 12)) return;
-
-    // BSSID position: ToDS=1 → Addr1(4..9); FromDS=1 → Addr2(10..15)
-    const uint8_t* frameBssid = tods ? (d + 4) : (d + 10);
-    if (memcmp(frameBssid, (const void*)g_wsBssid, 6) != 0) return;
-
-    // LLC/SNAP: AA AA 03 00 00 00 88 8E (RFC 1042, EAPOL EtherType)
-    const uint8_t* llc = d + hdrLen;
-    if (llc[0] != 0xAA || llc[1] != 0xAA || llc[2] != 0x03) return;
-    if (llc[6] != 0x88 || llc[7] != 0x8E) return;
-
-    const uint8_t* eapol = d + hdrLen + 8;
-    int eapolSpace = len - hdrLen - 8;
-    if (eapolSpace < 8) return;
-
-    if (eapol[1] != 0x03) return;  // must be EAPOL-Key
-    if (eapol[4] != 0x02 && eapol[4] != 0x01) return;  // RSN or WPA
-
-    uint8_t kiHi = eapol[5];
-    uint8_t kiLo = eapol[6];
-    bool    ack    = (kiLo & 0x80) != 0;
-    bool    mic    = (kiHi & 0x01) != 0;
-    bool    secure = (kiHi & 0x02) != 0;
-
-    uint8_t msgNum = 0;
-    if      ( ack && !mic)            msgNum = 1;
-    else if (!ack &&  mic && !secure) msgNum = 2;
-    else if ( ack &&  mic)            msgNum = 3;
-    else if (!ack &&  mic &&  secure) msgNum = 4;
-    if (msgNum == 0) return;
+    dot11::Eapol ev;
+    if (!dot11::parseEapol(d, len, ev)) return;                       // DATA+LLC 0x888E+EAPOL-Key, msg 1..4
+    if (memcmp(dot11::dataBssid(d), (const void*)g_wsBssid, 6) != 0) return;
+    if (ev.p[4] != 0x02 && ev.p[4] != 0x01) return;                  // RSN or WPA descriptor
+    uint8_t msgNum = ev.msg;
 
     uint8_t nextHead = (hsHead + 1) % HS_RING_SIZE;
     if (nextHead == hsTail) return;     // ring full, drop
@@ -165,31 +105,6 @@ static void IRAM_ATTR rxCallback(void* buf, wifi_promiscuous_pkt_type_t pktType)
 // ── Static crypto helpers ─────────────────────────────────────────────────────
 
 // Build the B input for PTK derivation: min/max of (apMac, clientMac, ANonce, SNonce)
-static void buildPtkData(const uint8_t* ap, const uint8_t* cl,
-                          const uint8_t* an, const uint8_t* sn,
-                          uint8_t* out) {     // out = 76 bytes
-    if (memcmp(ap, cl, 6) < 0) { memcpy(out,   ap, 6); memcpy(out+6,  cl, 6); }
-    else                        { memcpy(out,   cl, 6); memcpy(out+6,  ap, 6); }
-    if (memcmp(an, sn, 32) < 0) { memcpy(out+12, an, 32); memcpy(out+44, sn, 32); }
-    else                         { memcpy(out+12, sn, 32); memcpy(out+44, an, 32); }
-}
-
-// PRF-512: 4 × HMAC-SHA1(PMK, "Pairwise key expansion" || 0x00 || B || counter)
-// out must be at least 80 bytes; KCK = out[0..15]
-static void prf512(const uint8_t* pmk, const uint8_t* data, size_t dataLen, uint8_t* out) {
-    static const char kLabel[] = "Pairwise key expansion";
-    const size_t labelLen = sizeof(kLabel) - 1;   // 22
-    uint8_t buf[100];   // 22 + 1 + 76 + 1 = 100
-    memcpy(buf, kLabel, labelLen);
-    buf[labelLen] = 0x00;
-    memcpy(buf + labelLen + 1, data, dataLen);
-    const mbedtls_md_info_t* sha1 = mbedtls_md_info_from_type(MBEDTLS_MD_SHA1);
-    for (int i = 0; i < 4; i++) {
-        buf[labelLen + 1 + dataLen] = (uint8_t)i;
-        mbedtls_md_hmac(sha1, pmk, 32, buf, labelLen + 1 + dataLen + 1, out + i * 20);
-    }
-}
-
 // ── Constructor ───────────────────────────────────────────────────────────────
 
 HandshakeCapture::HandshakeCapture(DisplayManager& dm, WiFiFunctions& wf, DeauthAttack& da)
@@ -274,23 +189,10 @@ void HandshakeCapture::start(char* args) {
 bool HandshakeCapture::tryPassword(const char* pwd,
                                     mbedtls_md_context_t* ctx,
                                     const mbedtls_md_info_t* sha1) {
-    uint8_t pmk[32];
-    mbedtls_pkcs5_pbkdf2_hmac(ctx,
-        (const uint8_t*)pwd,        strlen(pwd),
-        (const uint8_t*)g_whs.ssid, strlen(g_whs.ssid),
-        4096, 32, pmk);
-
-    uint8_t ptkData[76];
-    buildPtkData(g_whs.apMac, g_whs.clientMac, g_whs.aNonce, g_whs.sNonce, ptkData);
-
-    uint8_t ptkBuf[80];
-    prf512(pmk, ptkData, 76, ptkBuf);
-
-    uint8_t micCalc[20];
-    mbedtls_md_hmac(sha1, ptkBuf /*KCK*/, 16,
-                    g_whs.eapolFrame, g_whs.eapolLen, micCalc);
-
-    return memcmp(micCalc, g_whs.mic, 16) == 0;
+    return wpacrack::verifyHandshake(pwd, g_whs.ssid, g_whs.apMac, g_whs.clientMac,
+                                     g_whs.aNonce, g_whs.sNonce,
+                                     g_whs.eapolFrame, g_whs.eapolLen, g_whs.mic,
+                                     ctx, sha1);
 }
 
 // ── Cracking loop ─────────────────────────────────────────────────────────────
@@ -447,18 +349,18 @@ void HandshakeCapture::crack() {
     // ── Built-in list ─────────────────────────────────────────────────────────
     if (!done) {
         useSD = false;    // update source label
-        for (int i = 0; i < kBuiltinCount && !done; i++) {
+        for (int i = 0; i < wpacrack::kBuiltinCount && !done; i++) {
             tried++;
             uint32_t now = millis();
             if (now - lastRedraw >= 300) {
                 lastRedraw = now;
-                redraw(kBuiltinPasswords[i]);
+                redraw(wpacrack::kBuiltins[i]);
                 char k = inputHandler.getKeyboardInput();
                 if (k == 'q' || k == 'Q') break;
                 vTaskDelay(1);
             }
-            if (tryPassword(kBuiltinPasswords[i], &mdCtx, sha1)) {
-                strncpy(found, kBuiltinPasswords[i], sizeof(found) - 1);
+            if (tryPassword(wpacrack::kBuiltins[i], &mdCtx, sha1)) {
+                strncpy(found, wpacrack::kBuiltins[i], sizeof(found) - 1);
                 done = true;
                 break;
             }
@@ -533,18 +435,7 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
                  bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
         pcap = SD.open(fname, FILE_WRITE);
         fileOk = (bool)pcap;
-        if (fileOk) {
-            struct __attribute__((packed)) {
-                uint32_t magic    = 0xa1b2c3d4;
-                uint16_t vmaj     = 2;
-                uint16_t vmin     = 4;
-                int32_t  tz       = 0;
-                uint32_t sig      = 0;
-                uint32_t snap     = 65535;
-                uint32_t linktype = 105;   // LINKTYPE_IEEE802_11
-            } ghdr;
-            pcap.write((uint8_t*)&ghdr, sizeof(ghdr));
-        }
+        if (fileOk) pcap::writeGlobalHeader(pcap);
     }
 
     // WiFi setup — AP interface needed for 80211_tx injection
@@ -631,18 +522,8 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
     // ── Pcap finalizer — called after WiFi teardown, SD access is safe ────────
     auto finalizePcap = [&]() {
         if (!fileOk) return;
-        auto writeRec = [&](const uint8_t* d, uint16_t len, uint32_t ts) {
-            struct __attribute__((packed)) {
-                uint32_t ts_sec; uint32_t ts_usec;
-                uint32_t incl_len; uint32_t orig_len;
-            } rh;
-            rh.ts_sec = ts / 1000; rh.ts_usec = (ts % 1000) * 1000;
-            rh.incl_len = rh.orig_len = len;
-            pcap.write((uint8_t*)&rh, sizeof(rh));
-            pcap.write(d, len);
-        };
-        if (g_whs.m1RawLen > 0) writeRec(g_whs.m1Raw, g_whs.m1RawLen, g_whs.m1Ts);
-        if (g_whs.m2RawLen > 0) writeRec(g_whs.m2Raw, g_whs.m2RawLen, g_whs.m2Ts);
+        if (g_whs.m1RawLen > 0) pcap::writeRecord(pcap, g_whs.m1Raw, g_whs.m1RawLen, g_whs.m1Ts);
+        if (g_whs.m2RawLen > 0) pcap::writeRecord(pcap, g_whs.m2Raw, g_whs.m2RawLen, g_whs.m2Ts);
         pcap.flush();
         pcap.close();
     };

@@ -357,6 +357,35 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "karma", "km", {
+        "SYNTAX   km            (harvest + list)",
+        "         km hs <ssid> [ch]   (WPA2 cap)",
+        "         km portal <ssid>    (open portal)",
+        "",
+        "ABOUT    Harvest probe requests, fingerprint",
+        "         devices by PNL (beats MAC random),",
+        "         then bait a network they want:",
+        "         [h]=WPA2 half-handshake -> .cap",
+        "         [p]=open AP + captive portal -> creds",
+        "",
+        "VIEWS    [v] HARV (nets) <-> DEVS (devices)",
+        "         tpad=select  [a]/[l]=page",
+        "KEYS     [h] handshake  [p] portal",
+        "         [c] clear  [q] stop",
+        "WPA2     [c] crack captured M2 on-device",
+        "         (SD wordlist or built-in)",
+        "PORTAL   [p] picks built-in (Generic/",
+        "         Google/Router) or SD .html page",
+        "FILES    /apps/karma/<ssid>.cap  (handshake)",
+        "         /apps/karma/creds.csv   (portal)",
+        "         /apps/karma/cracked.csv (results)",
+        "         /apps/karma/wordlist.txt (crack)",
+        "         /apps/karma/portal/*.html (pages)",
+        "NOTE     .cap also cracks offline (aircrack/",
+        "         hashcat). Works with no SD/GPS.",
+        nullptr
+    }},
+
     { "netdiscover", "nd", {
         "SYNTAX   netdiscover",
         "",

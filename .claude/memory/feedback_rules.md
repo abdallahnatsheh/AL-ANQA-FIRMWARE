@@ -9,9 +9,14 @@ type: feedback
 2. No redundant verification — don't grep/diff/status after edits just to confirm. Trust the edit.
 3. No full license text via Write — AGPL-3.0 text triggers content filter. User pastes manually.
 4. Concise — Abdallah wants direct communication, file:line refs, no padding.
+5. Do NOT run `pio run` / compile — Abdallah compiles + flashes manually (his hardware). Write code, let him build. He also tests on-device per phase ("manual test first").
 
 ## Code Quality
 5. Reuse existing code — read the class before writing new functions. If a method exists, call it.
+5b. **No copy-paste duplication.** If the same code appears in several places unchanged, extract it
+    into ONE global/shared function (e.g. `wifi/core/` — see oui_lookup, wifi_sd_guard, dot11,
+    pcap_writer, captive_portal). Don't reimplement a feature a sibling command already has —
+    lift it to core and have both call it. Prefer organizing code well over local convenience.
 6. Verify APIs before using — check actual header files (e.g. `getInitialized()` not `isInitialized()`).
 7. Test logic mentally — trace crash scenarios before submitting. Don't iterate fixes in chat.
 

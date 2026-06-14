@@ -4,6 +4,11 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-06-14
+- **ssh** — autocomplete host-name reload made stack-light (no 3.2KB HostProfile[] in 8KB main task); committed `681cc7f`. Terminal buffers (s_buf/s_col ~12.5KB) moved to lazy PSRAM, freed on exit; committed `b5d18a7` (pushed manually by user).
+- **karma/km Phases 1-3** — all field-tested working. P1 probe harvest+table; P2 PNL fingerprinting (defeats MAC rand) + DEVS view/intel cards; P3 WPA2 handshake bait (save-only .cap, no on-device crack) via `km hs <ssid>` + interactive `[h]` from list. HW-confirmed: own softAP M2 reaches promiscuous → deauth-free WPA2 capture works on S3. New module `wifi/attacks/karma/`. Full status in [[project_karma_plan]]. Next: Phase 4 open+captive portal. NOT committed yet.
+- User compiles/flashes manually — do NOT run `pio run` (saved to [[feedback_rules]]).
+
 ## Session 2026-06-13
 - **ssh/sc** — interactive SSH client, built + first-connect working. LibSSH-ESP32 (`ewpa/LibSSH-ESP32`, real lib_deps). Runs in a 50KB FreeRTOS task; reuses `cw` STA conn; password auth + PTY shell. Colour terminal (ANSI-16, scrollback ring 120 lines, trackpad scroll, scrollbar). KNOWN: HW-SHA concurrency caveat (can't disable on precompiled core) → suspect for connect-phase crashes. `/apps/ssh/` reserved for known_hosts/keys (not written yet). Full ref: [[project_ssh_client]].
 - **espchat PIN fix** — known contacts skip PIN (reuse stored LMK+channel); private always inits via ecCoreInitWithLmk (fixed empty-PIN→public fallthrough). PIN = first-time pairing only.
