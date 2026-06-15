@@ -41,6 +41,9 @@ Every client that completes the half-handshake is:
 - saved to a crackable **`/apps/karma/<ssid>.cap`**, and
 - logged to **`/apps/karma/connects.csv`** (`time, ssid, sta_mac, vendor, type`).
 
+Press **`[v]`** any time to see the list of networks captured so far this session (paged
+with `[a]`/`[l]`; any other key returns to the live sweep without interrupting it).
+
 Auto mode is **capture-only** — it doesn't crack inline (so the sweep stays fast). Crack
 the collected `.cap`s afterwards with [`cc`](capcrack.md):
 
@@ -110,8 +113,10 @@ On `M2!`:
   miss still leaves the `.cap` on the card and tells you where it is.
 
 > The bait relies on the client associating to an AP that can't ACK at the MAC layer.
-> T-REX sets its interface MAC to the rogue BSSID to coax hardware ACKs; success varies by
-> client. The stage counters tell you exactly where a given client stalls.
+> T-REX sets its interface MAC to the rogue BSSID (and reads it back to guarantee they match)
+> so the hardware ACKs the client; success varies by client. The stage counters tell you
+> exactly where a given client stalls. The BSSID line shows **`rnd`** (random/stealthed) or
+> **`REAL`** (fell back to the device's real MAC — still works, just identifiable).
 
 To crack the saved `.cap` later (bigger wordlists, a whole directory of lists), use
 [`crack` / `cc`](capcrack.md).

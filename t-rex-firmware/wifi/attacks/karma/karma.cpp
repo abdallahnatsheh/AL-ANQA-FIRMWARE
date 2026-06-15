@@ -1049,7 +1049,47 @@ static void autoDraw(const char* phase, const char* target, uint32_t remainMs,
     }
     dm.printSeparator();
     dm.setCursor(4, dm.getCursorY());
-    dm.setTextColor(0x7BEF); dm.println("[q] stop auto");
+    dm.setTextColor(0x7BEF); dm.println("[v] captured  [q] stop");
+}
+
+// Modal list of the SSIDs whose handshake we've captured this auto session. Blocks
+// until a key ([a]/[l] page, any other key returns to the live auto view).
+static void autoShowCaptured() {
+    DisplayManager& dm = displayManager;
+    int cap[KM_NET_MAX], cn = 0;
+    for (int i = 0; i < s_netCount; i++) if (s_nets[i].captured) cap[cn++] = i;
+    const int RPP = 9;
+    int page = 0;
+    while (true) {
+        int pages = cn ? (cn + RPP - 1) / RPP : 1;
+        if (page >= pages) page = pages - 1;
+        drawHeader("CAPS", page, pages);
+        dm.setCursor(4, dm.getCursorY());
+        char b[40]; snprintf(b, sizeof(b), "%d handshake(s) captured", cn);
+        dm.setTextColor(TFT_GREEN); dm.println(b);
+        dm.printSeparator();
+        if (cn == 0) {
+            dm.setCursor(4, dm.getCursorY()); dm.setTextColor(0x7BEF);
+            dm.println("None yet - keep baiting.");
+        } else {
+            int start = page * RPP, end = start + RPP < cn ? start + RPP : cn;
+            for (int i = start; i < end; i++) {
+                dm.setCursor(4, dm.getCursorY()); dm.setTextColor(TFT_WHITE);
+                char l[44]; snprintf(l, sizeof(l), "%2d. %.34s", i + 1, s_nets[cap[i]].ssid);
+                dm.println(l);
+            }
+        }
+        dm.printSeparator();
+        dm.setCursor(4, dm.getCursorY()); dm.setTextColor(0x7BEF);
+        dm.println(cn > RPP ? "[a]/[l] page   any key = back" : "[any key] back");
+        while (true) {
+            char k = inputHandler.getKeyboardInput();
+            if ((k == 'l' || k == 'L') && page < pages - 1) { page++; break; }
+            if ((k == 'a' || k == 'A') && page > 0)          { page--; break; }
+            if (k) return;                                   // any other key dismisses
+            vTaskDelay(pdMS_TO_TICKS(15));
+        }
+    }
 }
 
 static void karmaAuto() {
@@ -1078,6 +1118,7 @@ static void karmaAuto() {
             if (now - lastDraw > 400) { autoDraw("HARVEST", nullptr, KM_AUTO_HARVEST_MS - (now - t0), 0, 0, caps, nullptr); lastDraw = now; }
             char k = inputHandler.getKeyboardInput();
             if (k == 'q' || k == 'Q') quit = true;
+            else if (k == 'v' || k == 'V') { autoShowCaptured(); lastDraw = 0; }
             vTaskDelay(pdMS_TO_TICKS(10));
         }
         harvestStop();
@@ -1120,6 +1161,9 @@ static void karmaAuto() {
                 if (now - lastDraw > 300) { autoDraw("BAIT", target, KM_AUTO_BAIT_MS - (now - t0b), i + 1, total, caps, &st); lastDraw = now; }
                 char k = inputHandler.getKeyboardInput();
                 if (k == 'q' || k == 'Q') quit = true;
+                else if (k == 'v' || k == 'V') {            // view captured; don't penalize bait timer
+                    uint32_t vs = millis(); autoShowCaptured(); t0b += millis() - vs; lastDraw = 0;
+                }
                 vTaskDelay(pdMS_TO_TICKS(5));
             }
             bool m2 = roguehs::state().gotM2;

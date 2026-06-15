@@ -251,6 +251,19 @@ orphaned, not migrated.
 - Output: `/apps/pmkid/<BSSID>.cap` + `/apps/pmkid/cracked.csv` (tagged `,PMKID`)
 - Falls back gracefully: if no PMKID in M1 Key Data, shows `M1 seen — no PMKID in Key Data`
 
+**Karma** (`wifi/attacks/karma/karma.cpp` + `rogue_handshake.cpp/.h`) — `karma`/`km`:
+- `km` harvest+fingerprint · `km auto` hands-free sweep · `km hs <ssid> [ch]`/`[h]` WPA2 half-handshake · `km portal <ssid>`/`[p]` captive portal · `[s]` save harvest+devices → `/apps/karma/NNN.csv`
+- **PNL fingerprinting** (`[v]` DEVS view): union-find clusters randomized MACs into physical devices by shared probed-SSID set — defeats MAC randomization when a device leaks a multi-SSID PNL
+- **Rogue-AP half-handshake** (`roguehs` engine): a fully MANUAL injected AP. WE pick the ANonce + inject our own M1 (ESP32 promiscuous can't hear self-TX M1), client auto-joins and replies M2 keyed by the REAL PSK → crackable half-handshake. **Make-or-break:** `begin()` sets the STA MAC then reads it back (`esp_wifi_get_mac`) and uses THAT as the BSSID, so the hardware MAC-layer ACKs the client (a failed set_mac can't silently break it). `rnd`/`REAL` indicator. Live Prb/Ath/Asc/M1/M2 stage counters. **HW-VERIFIED end-to-end** (associate→M2→on-device crack). M1 retransmit schedule (assoc isn't ACKed). One client/session (gotM2 latches).
+- `.cap` (beacon+M1+M2, libpcap lt 105) **never overwrites** — `<ssid>.cap`, `<ssid>-1.cap`… `karmaSaveCap` returns the real basename. `[c]` = on-device crack (SD `/apps/karma/wordlist.txt` or built-in 100 picker) → `cracked.csv`; or crack later with `cc`
+- **Auto mode** (`km auto`): loops harvest ~30s → bait uncaptured SSIDs (least-recently-baited first → round-robins the whole field, skips captured) ~20s each; M2 → `.cap` + `/apps/karma/connects.csv` (`time,ssid,sta_mac,vendor,type`). Capture-only (crack with `cc`). `[v]` lists captured SSIDs live (paged; bait timer compensated). `[q]` stops.
+- MAC randomization via shared `wifi/core/mac_util.h` (`randomLaMac`) — independent of `mc` (AP BSSID vs client identity). GDMA: all SD writes after AP teardown. Portal picker scans `/apps/karma/portal` AND `/apps/eviltwin/portal`.
+
+**CapCrack** (`wifi/tools/capcrack/capcrack.cpp/h`) — `crack`/`cc`:
+- Offline WPA/WPA2 cracker for `.cap` files: 4-way handshake (M1+M2) OR PMKID. Works on karma/ws/pm + external captures (classic libpcap, not pcapng).
+- `cc [cap] [wordlist|dir]` — paths relative to `cd` cwd (pass bare filenames after `cd`). cap/wordlist each accept a file, a directory (pick a cap / run every `*.txt`), or omitted (picker). Built-in 100 list always tried last. `COMP_ANY` autocomplete (files + dirs).
+- Needs an ESSID (beacon/probe-resp) in the cap to derive the PMK; errors `noESSID`/`noM1`/`noM2`. Results → `/apps/capcrack/cracked.csv`. Reuses `wpa_crack` + `dot11` + `pcap` reader (added to `pcap_writer.h`). SD-only, no WiFi → no GDMA concern.
+
 **MACChanger** (`mac_changer.cpp/h`):
 - `applyIfEnabled()` only called in `scanWiFiNetworks()` and `connectToWiFiCommand()` — the two places where T-Rex's own MAC appears on the network
 - Never call in monitor/deauth/ws/hs — injected frames use spoofed SA, passive sniff doesn't transmit
