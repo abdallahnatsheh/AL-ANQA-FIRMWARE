@@ -231,7 +231,7 @@ void CaptivePortal::routes() {
 }
 
 // ── Shared template picker (built-ins + SD .html in sdDir) ─────────────────────
-bool cpPickTemplate(const char* sdDir, CpChoice& out) {
+bool cpPickTemplate(const char* sdDir, CpChoice& out, const char* sdDir2) {
     DisplayManager& dm = displayManager;
 
     const int MAXE = 32;
@@ -244,26 +244,30 @@ bool cpPickTemplate(const char* sdDir, CpChoice& out) {
         snprintf(ents[n].label, sizeof(ents[n].label), "%s", cpBuiltinName(i));
         ents[n].builtin = i; ents[n].path[0] = '\0'; n++;
     }
-    File dir = SD.open(sdDir);
-    if (dir && dir.isDirectory()) {
-        for (File f = dir.openNextFile(); f && n < MAXE; f = dir.openNextFile()) {
-            if (!f.isDirectory()) {
-                const char* nm = f.name();
-                const char* base = strrchr(nm, '/'); base = base ? base + 1 : nm;
-                size_t L = strlen(base);
-                bool html = (L >= 5 && strcasecmp(base + L - 5, ".html") == 0) ||
-                            (L >= 4 && strcasecmp(base + L - 4, ".htm")  == 0);
-                if (html) {
-                    snprintf(ents[n].label, sizeof(ents[n].label), "%s", base);
-                    ents[n].builtin = -1;
-                    snprintf(ents[n].path, sizeof(ents[n].path), "%s/%s", sdDir, base);
-                    n++;
+    const char* dirs[2] = { sdDir, sdDir2 };
+    for (int di = 0; di < 2 && n < MAXE; di++) {
+        if (!dirs[di] || !*dirs[di]) continue;
+        File dir = SD.open(dirs[di]);
+        if (dir && dir.isDirectory()) {
+            for (File f = dir.openNextFile(); f && n < MAXE; f = dir.openNextFile()) {
+                if (!f.isDirectory()) {
+                    const char* nm = f.name();
+                    const char* base = strrchr(nm, '/'); base = base ? base + 1 : nm;
+                    size_t L = strlen(base);
+                    bool html = (L >= 5 && strcasecmp(base + L - 5, ".html") == 0) ||
+                                (L >= 4 && strcasecmp(base + L - 4, ".htm")  == 0);
+                    if (html) {
+                        snprintf(ents[n].label, sizeof(ents[n].label), "%s", base);
+                        ents[n].builtin = -1;
+                        snprintf(ents[n].path, sizeof(ents[n].path), "%s/%s", dirs[di], base);
+                        n++;
+                    }
                 }
+                f.close();
             }
-            f.close();
         }
+        if (dir) dir.close();
     }
-    if (dir) dir.close();
 
     int page = 0;
     const int PER = 8;
