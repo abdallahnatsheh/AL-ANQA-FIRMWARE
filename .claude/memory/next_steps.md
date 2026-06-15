@@ -42,6 +42,19 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
 15. **Auto OS Detection** — detect Windows/macOS/Linux on USB connect; auto-select script folder for `ux`
 16. **Remote BadUSB via WiFi** — `rbadusb/rb`; HTTP AP to trigger scripts from phone
 17. **Keylogger Mode** — `keylog/kl`; USB HID host-direction capture to SD
+24. **USB-LAN AdBlocker / DNS-MITM dongle** — T-Deck as a USB network gadget (TinyUSB
+    **NCM/RNDIS**) bridging the host PC ↔ WiFi STA (lwIP NAPT + DHCP server on the USB side),
+    with a DNS sinkhole in the middle. Adblock = benign mode; offensive mode = DNS **log +
+    selective redirect** → feed an eviltwin/karma captive portal. Reuse **s60sc/ESP32_AdBlocker**
+    (https://github.com/s60sc/ESP32_AdBlocker) for the sinkhole + PSRAM blocklist — it's
+    **AGPL-3.0 (matches), ESP32-S3/8MB-PSRAM (= T-Deck Plus), <50µs lookups**. The adblocker is
+    the easy/reusable half; the **USB-NCM↔WiFi bridge is the hard new half** (Espressif has a
+    `usb_ncm` NAPT example as a starting point). Constraints: USB is Full-Speed (~few Mbps real);
+    likely needs to be an **exclusive USB mode** (endpoint/RAM budget — can't co-run MSC+HID+NCM
+    easily); blocklist in PSRAM (fine), USB stack/lwIP buffers hit internal DRAM (we're at 60.8%).
+    **Do an enabling spike first** (prove USB-NCM gets the PC online via T-Deck WiFi) before any
+    UI/integration — the feature lives or dies there. Command idea: `usblan/adblock`. Biggest
+    feature discussed so far. Related: [[project_usb_gadget_plan]], eviltwin/karma portals, LAN MITM (#3).
 
 ## Other
 

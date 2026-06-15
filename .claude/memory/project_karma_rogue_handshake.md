@@ -117,7 +117,9 @@ that yields M2 is marked `KmNet.captured=true` and skipped forever. (KmNet gaine
 Each M2 → `karmaSaveCap` + `autoLogConnect` → `/apps/karma/connects.csv`
 (`time,ssid,sta_mac,vendor,type`; ClockManager timestamp, OUI vendor). Capture-only (no
 inline crack — keeps the sweep fast; crack the .caps with `cc` after). Portals stay manual.
-GDMA-safe: SD writes only after `roguehs::end()`. `km auto`/`km a` subcommand; added to man,
+GDMA-safe: SD writes only after `roguehs::end()`. **`[v]`** in auto opens `autoShowCaptured()`
+— a paged modal listing the captured SSIDs this session (any key returns; during a bait it
+adds the view duration back to the bait timer so viewing doesn't cut it short). `km auto`/`km a` subcommand; added to man,
 autocomplete (`auto hs portal`), README/CLAUDE/karma.md. Each `roguehs::begin` zero-inits
 state so per-target gotM2 is fresh.
 
