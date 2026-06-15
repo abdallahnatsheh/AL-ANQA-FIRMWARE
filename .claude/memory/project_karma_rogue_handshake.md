@@ -30,9 +30,13 @@ apMac/staMac) valid once `gotM2`.
 ## Key implementation details
 - **Hardware ACK is the make-or-break.** `esp_wifi_80211_tx` does NOT ACK unicast frames,
   so a pure-injection AP normally can't complete association (client gets no ACK, abandons).
-  Mitigation: set the **STA interface MAC = our BSSID** via the stop→`esp_wifi_set_mac`→start
-  sequence (mac_changer's proven path) so the **MAC-layer hardware ACKs** the client's
-  auth/assoc/M2. This is the single biggest lever for whether it works. UNVERIFIED on hw yet.
+  Mitigation: set the **STA interface MAC = our BSSID** (stop→`esp_wifi_set_mac`→start,
+  mac_changer's path) so the **MAC-layer hardware ACKs** the client's auth/assoc/M2.
+  HW-VERIFIED working. **Robustness fix (2026-06-15):** instead of forcing a random BSSID
+  and hoping set_mac took, begin() now `esp_wifi_get_mac()` reads back the interface's ACTUAL
+  MAC and uses THAT as the BSSID — so a failed/ignored set_mac can't silently break
+  association (it just means a non-randomized BSSID). `State.macRandomized` reflects whether
+  the LA-MAC randomize took.
 - **M1 retransmit schedule** — after assoc we resend M1 up to `RH_M1_RESENDS=10` times,
   `RH_M1_GAP_MS=30`ms apart, until M2 arrives. Sending M1 once right after assoc-resp loses
   it (client not yet settled / no ACK). Stops on gotM2.
@@ -68,13 +72,27 @@ works (client associated to our injected AP + sent M2). Believed first on ESP32.
   now retains the raw frames in `State` (`beacon/m1Raw/m2Raw` + `capTs`). M1 replay counter (1)
   == the counter the client echoes in M2 → aircrack/hashcat pair them. **`m2Raw` keeps the MIC
   intact** (only `State.eapol` is MIC-zeroed, for the on-device HMAC) — essential for offline crack.
-  Saved after teardown (GDMA-safe), unconditionally when gotM2.
+  Saved after teardown (GDMA-safe), unconditionally when gotM2. **Never overwrites
+  (2026-06-15):** `karmaSaveCap` scans for a free name → `<ssid>.cap`, `<ssid>-1.cap`,
+  `<ssid>-2.cap`… and returns the basename via out-param; `karmaCrack` takes `const char*
+  capName` (not a bool) and the `[h]`/crack screens show the exact file written.
 - **Harvest/devices SD save** (`[s]` in harvest loop → `karmaSaveTables`): sequential
   `/apps/karma/NNN.csv` (wguard/bmon scheme via `nextKarmaSeq`), one file with `[NETS]`
   (ssid,devices,hits,rssi,channel) + `[DEVICES]` (id,vendor,type,macs,randomized,pnl_count,
   rssi,pnl) sections. Wrapped in `ScopedPromiscPause` (GDMA). `csvSafe()` neutralises commas
   in SSIDs. Transient "Saved NNN.csv" notice in the footer (`s_saveNoticeMs`, 2.5s); `[s]`
   added to both footer hint strings.
+
+## Shared util extracted (2026-06-15)
+`wifi/core/mac_util.h` (header-only, `namespace macutil`): `randomLaMac()` + `randomBleMac()`
+— the random locally-administered MAC recipe was duplicated in mac_changer, karma
+(rogue_handshake), beacon_flood and eviltwin; all four now call macutil. Note: the header
+includes `<esp_random.h>` (confirmed present in the framework SDK), which also fixed
+rogue_handshake's reliance on a transitive `esp_random()` declaration. karma's rogue-AP MAC
+is intentionally SEPARATE from the `mc`/macchanger setting (AP BSSID per-bait vs the device's
+persistent client identity; routing karma through `mc.applyIfEnabled()` would break stealth
+on the custom/off cases). `roguehs::State.macRandomized` shown as `rnd`(green)/`REAL`(yellow)
+on the `[h]` screen.
 
 ## Status — HW-VERIFIED END TO END ✅ (2026-06-15)
 Full pipeline confirmed on real hardware: rogue AP → client associates → injected M1 (our
@@ -88,4 +106,19 @@ associates + sends M2? The on-screen Prb/Ath/Asc/M1/M2 counters answer it. If cl
 Asc but never M2 → ACK/association is the wall; next lever = verify esp_wifi_set_mac succeeded
 + try injecting from cb / tune timing. Believed to be the first ESP32 rogue-AP half-handshake.
 
-Related: [[project_karma_plan]] (Phase 3 superseded), `wpa_crack`/`ws`, `dot11.h`, `captive_portal`.
+## Phase 5 — Auto mode (`km auto`, 2026-06-15, NOT hw-tested)
+Hands-free orchestration of the rogue engine in `karma.cpp::karmaAuto()`. Loops until `[q]`:
+harvest ~30s (KM_AUTO_HARVEST_MS, reuses harvestStart/drainRing/hop) → bait up to 8 SSIDs
+per sweep (~20s each) via `roguehs::begin/poll/end`. **Target selection (improved):** picks
+UNCAPTURED nets, least-recently-baited first (KmNet.lastBaitMs), popularity (devs) tiebreak —
+so it round-robins the whole field across sweeps instead of looping the same top-8; an SSID
+that yields M2 is marked `KmNet.captured=true` and skipped forever. (KmNet gained
+`captured`+`lastBaitMs`, inited in `ingest()`.)
+Each M2 → `karmaSaveCap` + `autoLogConnect` → `/apps/karma/connects.csv`
+(`time,ssid,sta_mac,vendor,type`; ClockManager timestamp, OUI vendor). Capture-only (no
+inline crack — keeps the sweep fast; crack the .caps with `cc` after). Portals stay manual.
+GDMA-safe: SD writes only after `roguehs::end()`. `km auto`/`km a` subcommand; added to man,
+autocomplete (`auto hs portal`), README/CLAUDE/karma.md. Each `roguehs::begin` zero-inits
+state so per-target gotM2 is fresh.
+
+Related: [[project_karma_plan]] (Phase 3 superseded, Phase 5 done), `wpa_crack`/`ws`, `dot11.h`, `captive_portal`.

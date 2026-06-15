@@ -9,6 +9,7 @@
 #include "esp_gap_ble_api.h"
 #include "esp_bt_main.h"
 #include "sdcard_manager.h"
+#include "mac_util.h"
 
 extern DisplayManager displayManager;
 extern SDCardManager  sdCardManager;
@@ -30,16 +31,8 @@ static bool parseMac(const char* str, uint8_t* out) {
                   &out[0],&out[1],&out[2],&out[3],&out[4],&out[5]) == 6;
 }
 
-void MacChanger::randomMac(uint8_t* mac) {
-    for (int i = 0; i < 6; i++) mac[i] = (uint8_t)(esp_random() & 0xFF);
-    mac[0] = (mac[0] & 0xFE) | 0x02; // locally-administered, unicast
-}
-
-void MacChanger::randomBleMac(uint8_t* mac) {
-    for (int i = 0; i < 6; i++) mac[i] = (uint8_t)(esp_random() & 0xFF);
-    // BLE static random address: top 2 bits of the most-significant byte must be 11
-    mac[5] |= 0xC0;
-}
+void MacChanger::randomMac(uint8_t* mac)    { macutil::randomLaMac(mac); }
+void MacChanger::randomBleMac(uint8_t* mac) { macutil::randomBleMac(mac); }
 
 void MacChanger::applyMac(const uint8_t* mac) {
     // esp_wifi_set_mac() requires the interface to be stopped first.

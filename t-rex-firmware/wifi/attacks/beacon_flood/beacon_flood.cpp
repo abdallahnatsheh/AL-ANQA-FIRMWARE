@@ -13,6 +13,7 @@
 #include "wifi_functions.h"
 #include "lockscreen_manager.h"
 #include "constants.h"
+#include "mac_util.h"
 #include <WiFi.h>
 #include <SD.h>
 #include <esp_wifi.h>
@@ -97,10 +98,7 @@ static const char BF_RICKROLL[] PROGMEM =
 
 // ── Frame builder ─────────────────────────────────────────────────────────────
 
-static void randomLaMac(uint8_t* mac) {
-    for (int i = 0; i < 6; i++) mac[i] = (uint8_t)esp_random();
-    mac[0] = (mac[0] & 0xFE) | 0x02;   // locally administered, unicast
-}
+static inline void randomLaMac(uint8_t* mac) { macutil::randomLaMac(mac); }
 
 // Builds a properly packed beacon (no SSID zero-padding) so IE parsers always
 // find Supported Rates and RSN IE immediately after the actual SSID data.

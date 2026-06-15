@@ -28,7 +28,8 @@ namespace roguehs {
 struct State {
     char    ssid[33];
     uint8_t channel;
-    uint8_t apMac[6];          // our (random LA-MAC) BSSID
+    uint8_t apMac[6];          // our BSSID = the interface's actual MAC (ACK match)
+    bool    macRandomized;     // true if the LA-MAC randomize took; false = factory MAC
     uint8_t anonce[32];        // we generate it → no need to capture M1
 
     // live stage diagnostics (updated by poll/cb)
