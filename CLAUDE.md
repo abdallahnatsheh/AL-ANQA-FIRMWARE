@@ -205,7 +205,7 @@ orphaned, not migrated.
 `/apps/pmkid/wordlist.txt` — custom WPA crack wordlist for `pm` (`SD_CFG_WORDLIST_PM`)
 `/apps/pmkid/<BSSID>.cap` — PMKID capture pcap (`SD_DIR_PMKID`)
 `/apps/pmkid/cracked.csv` — on-device crack results from `pm` (`SD_LOG_CRACKED_PM`)
-`/apps/karma/<ssid>.cap` — karma rogue-AP half-handshake (beacon+M1+M2, linktype 105) + `cracked.csv`/`creds.csv`/`wordlist.txt`/`NNN.csv` (saved tables) + `portal/*.html` (`SD_DIR_KARMA`)
+`/apps/karma/<ssid>.cap` — karma rogue-AP half-handshake (beacon+M1+M2, linktype 105) + `cracked.csv`/`creds.csv`/`connects.csv` (auto-mode engagements)/`wordlist.txt`/`NNN.csv` (saved tables) + `portal/*.html` (`SD_DIR_KARMA`)
 `/apps/capcrack/cracked.csv` — offline cap-cracker results from `crack`/`cc` (`SD_DIR_CAPCRACK`)
 `/apps/wifimon/NNN.cap` — raw 802.11 PCAP files from `wm` (`SD_DIR_WIFIMON`, linktype 105, Wireshark-compatible)
 `/apps/wifimon/probes.csv` — directed-probe log from `wm [p]` (`SD_LOG_PROBES`)

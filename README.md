@@ -147,7 +147,7 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `macchanger` | `mc` | `on\|off\|random\|set <mac>` | Spoof STA MAC |
 | `wpasniff` | `ws` | `<idx\|bssid> [ch]` | Capture + crack WPA2 handshake (needs client + deauth) |
 | `pmkid` | `pm` | `<idx\|bssid> [ch]` | PMKID capture + crack — passive, no client or deauth needed |
-| `karma` | `km` | `[hs\|portal <ssid>]` | Rogue-AP suite — probe harvest + PNL device fingerprinting; `[h]` WPA2 half-handshake bait (manual EAPOL responder → crackable `.cap`), `[p]` captive portal, `[s]` save tables |
+| `karma` | `km` | `[auto\|hs\|portal <ssid>]` | Rogue-AP suite — probe harvest + PNL device fingerprinting; `[h]` WPA2 half-handshake bait (manual EAPOL responder → crackable `.cap`), `[p]` captive portal, `[s]` save tables; `km auto` = hands-free harvest→bait sweep logging engagements to `connects.csv` |
 | `crack` | `cc` | `[cap] [wordlist\|dir]` | Offline WPA/WPA2 crack of a `.cap` (handshake or PMKID) — SD wordlists, a dir of lists, or built-in; `cd`-relative paths |
 | `wguard` | `wg` | `<idx\|bssid> [ch] [bg]` | WiFi IDS — passive intrusion detection; `wg stop` / `wg view` |
 | `beaconflood` | `bf` | `[list\|rickroll\|seq <base>\|file [path]\|clone]` | Beacon flood — fake AP injection; interactive mode picker; clone mirrors real network security |

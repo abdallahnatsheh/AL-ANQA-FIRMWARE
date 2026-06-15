@@ -14,6 +14,7 @@
 #include "clock_manager.h"
 #include "lockscreen_manager.h"
 #include "wifi_sd_guard.h"
+#include "mac_util.h"
 #include <WiFi.h>
 #include <SD.h>
 
@@ -171,8 +172,7 @@ void EvilTwin::start(const char* ssid) {
             // Secured network: use a random locally-administered MAC for our fake AP.
             // Deauth frames still carry the real AP's BSSID as SA, so they only kick
             // clients off the real AP and never touch our own connected clients.
-            for (int i = 0; i < 6; i++) _fakeMAC[i] = (uint8_t)(esp_random() & 0xFF);
-            _fakeMAC[0] = (_fakeMAC[0] & 0xFE) | 0x02; // unicast, locally administered
+            macutil::randomLaMac(_fakeMAC);
         }
         esp_wifi_set_mac(WIFI_IF_AP, _fakeMAC);
     }

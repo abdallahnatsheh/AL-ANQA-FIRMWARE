@@ -281,8 +281,8 @@ static const ArgHintEntry kArgHints[] = {
     { "beaconflood", "",              "list rickroll seq file clone" },
     { "bf",          "",              "list rickroll seq file clone" },
     // karma / km
-    { "karma",       "",              "hs portal" },
-    { "km",          "",              "hs portal" },
+    { "karma",       "",              "auto hs portal" },
+    { "km",          "",              "auto hs portal" },
     // show / sh
     { "show",        "",              "wifi ble hosts" },
     { "sh",          "",              "wifi ble hosts" },

@@ -17,11 +17,40 @@ capture).
 
 ```
 CMD> km                 ← harvest + live table (interactive)
+CMD> km auto            ← hands-free: harvest, then bait the top SSIDs in a loop
 CMD> km hs <ssid> [ch]  ← WPA2 half-handshake bait for one SSID
 CMD> km portal <ssid>   ← open AP + captive portal for one SSID
 ```
 
 Works headless — SD and GPS are enrichment only, never required.
+
+---
+
+### Auto mode — `km auto`
+
+Fire-and-forget. Karma cycles between two phases until you press `[q]`:
+
+1. **Harvest** (~30 s) — sniff probe requests, build the SSID/device tables.
+2. **Bait sweep** — bait up to 8 SSIDs per sweep for ~20 s each (or until a client sends
+   M2). It picks **least-recently-baited first** (popularity as tiebreak), so across sweeps
+   it **rotates through every harvested network** instead of looping the same few, and an
+   SSID that yields a handshake is **marked captured and skipped** from then on.
+
+Every client that completes the half-handshake is:
+
+- saved to a crackable **`/apps/karma/<ssid>.cap`**, and
+- logged to **`/apps/karma/connects.csv`** (`time, ssid, sta_mac, vendor, type`).
+
+Auto mode is **capture-only** — it doesn't crack inline (so the sweep stays fast). Crack
+the collected `.cap`s afterwards with [`cc`](capcrack.md):
+
+```
+CMD> cd /apps/karma
+CMD> cc <ssid>.cap rockyou.txt
+```
+
+Captive portals need a victim to interact with a web form, so they stay manual (`[p]` /
+`km portal`).
 
 ---
 
@@ -73,7 +102,9 @@ M2!  ← the client's reply captured  ← success
 On `M2!`:
 
 - A crackable capture is written to **`/apps/karma/<ssid>.cap`** (beacon + M1 + M2,
-  libpcap linktype 105) — open it in Wireshark or crack on a PC.
+  libpcap linktype 105) — open it in Wireshark or crack on a PC. Captures **never
+  overwrite**: a second handshake for the same SSID is saved as `<ssid>-1.cap`,
+  `<ssid>-2.cap`, … The on-screen result shows the exact filename written.
 - Press **`[c]`** to crack on-device: choose **`[1]` SD wordlist** (`/apps/karma/wordlist.txt`)
   or **`[2]` built-in (100)**. A hit is shown and appended to `/apps/karma/cracked.csv`. A
   miss still leaves the `.cap` on the card and tells you where it is.
@@ -101,8 +132,9 @@ made for [Evil Twin](eviltwin.md) work here too. Captured credentials are writte
 
 | File | Contents |
 |------|----------|
-| `<ssid>.cap` | half-handshake capture (beacon + M1 + M2) |
+| `<ssid>.cap` (`-1`, `-2`… if repeated) | half-handshake capture (beacon + M1 + M2); never overwritten |
 | `cracked.csv` | on-device crack results (`ssid,password`) |
+| `connects.csv` | auto-mode engagements (`time,ssid,sta_mac,vendor,type`) |
 | `creds.csv` | captive-portal credentials (`ssid,user,pass`) |
 | `wordlist.txt` | optional SD wordlist for `[c]` |
 | `NNN.csv` | saved harvest + device tables (`[s]`) |

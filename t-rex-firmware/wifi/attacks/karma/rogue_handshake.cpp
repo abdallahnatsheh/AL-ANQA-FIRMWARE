@@ -6,6 +6,7 @@
 
 #include "rogue_handshake.h"
 #include "dot11.h"
+#include "mac_util.h"
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <string.h>
@@ -187,21 +188,25 @@ bool begin(const char* ssid, uint8_t channel) {
     memset(&s_st, 0, sizeof(s_st));
     strncpy(s_st.ssid, ssid, 32); s_st.ssid[32] = '\0';
     s_st.channel = (channel >= 1 && channel <= 13) ? channel : 1;
-    for (int i = 0; i < 6; i++) s_st.apMac[i] = (uint8_t)esp_random();
-    s_st.apMac[0] = (s_st.apMac[0] & 0xFE) | 0x02;               // LA-MAC, unicast
+    uint8_t want[6];
+    macutil::randomLaMac(want);                                  // random LA-MAC BSSID
     for (int i = 0; i < 32; i++) s_st.anonce[i] = (uint8_t)esp_random();
     s_evHead = s_evTail = 0;
     s_m1Left = 0;
 
     WiFi.disconnect(false);
     WiFi.mode(WIFI_STA);
-    // Set the STA interface MAC to our BSSID so the WiFi hardware ACKs the client's
-    // auth/assoc/M2 frames at the MAC layer — without this the client gets no ACK
-    // and most clients abandon before sending M2. esp_wifi_set_mac() needs the
-    // interface stopped first, then started directly (mac_changer's proven path).
+    // The attack only works if the BSSID we advertise == the address the WiFi hardware
+    // ACKs for, so the client's auth/assoc/M2 frames get MAC-layer ACKed (otherwise the
+    // client abandons before M2). We randomize the STA MAC (best effort, mac_changer's
+    // stop->set->start path) and then READ BACK the interface's ACTUAL MAC and use THAT
+    // as our BSSID. So a failed/ignored set_mac can't silently break association — it
+    // just means a non-randomized (but working) BSSID. macRandomized reflects which.
     esp_wifi_stop();
-    esp_wifi_set_mac(WIFI_IF_STA, s_st.apMac);
+    esp_wifi_set_mac(WIFI_IF_STA, want);
     esp_wifi_start();
+    if (esp_wifi_get_mac(WIFI_IF_STA, s_st.apMac) != ESP_OK) memcpy(s_st.apMac, want, 6);
+    s_st.macRandomized = (memcmp(s_st.apMac, want, 6) == 0);
 
     wifi_promiscuous_filter_t filt = {
         .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA };

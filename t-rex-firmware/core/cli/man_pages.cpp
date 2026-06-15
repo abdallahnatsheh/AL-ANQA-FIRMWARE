@@ -359,6 +359,7 @@ static const ManEntry PAGES[] = {
 
     { "karma", "km", {
         "SYNTAX   km            (harvest + list)",
+        "         km auto             (hands-free)",
         "         km hs <ssid> [ch]   (WPA2 cap)",
         "         km portal <ssid>    (open portal)",
         "",
@@ -381,6 +382,9 @@ static const ManEntry PAGES[] = {
         "         /apps/karma/cracked.csv (results)",
         "         /apps/karma/wordlist.txt (crack)",
         "         /apps/karma/portal/*.html (pages)",
+        "AUTO     km auto = harvest then bait the top",
+        "         SSIDs in a loop; M2s -> .cap +",
+        "         connects.csv. [q] stops. Crack w/ cc.",
         "NOTE     .cap also cracks offline (aircrack/",
         "         hashcat) or on-device via cc.",
         "         Works with no SD/GPS.",
