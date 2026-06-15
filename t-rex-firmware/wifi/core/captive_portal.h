@@ -26,10 +26,11 @@ const char* cpBuiltinName(int idx);
 // Result of cpPickTemplate(): builtin >= 0 → use that built-in; else sdPath holds an SD file.
 struct CpChoice { int builtin; char sdPath[96]; };
 
-// Paginated picker UI: lists the built-ins + every *.html/*.htm in `sdDir`.
+// Paginated picker UI: lists the built-ins + every *.html/*.htm in `sdDir`
+// (and, if given, `sdDir2` — lets karma reuse eviltwin's portal templates).
 // Returns true and fills `out` if the user picks one; false on cancel.
 // Call BEFORE CaptivePortal::begin() (pure UI, no WiFi).
-bool cpPickTemplate(const char* sdDir, CpChoice& out);
+bool cpPickTemplate(const char* sdDir, CpChoice& out, const char* sdDir2 = nullptr);
 
 class CaptivePortal {
 public:

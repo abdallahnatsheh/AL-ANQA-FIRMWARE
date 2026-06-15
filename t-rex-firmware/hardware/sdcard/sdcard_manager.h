@@ -44,6 +44,8 @@
 #define SD_DIR_KARMA         "/apps/karma"           // karma harvest logs + handshakes
 #define SD_DIR_KARMA_PORTAL  "/apps/karma/portal"    // custom captive-portal .html pages
 
+#define SD_DIR_CAPCRACK      "/apps/capcrack"        // cap cracker results (cracked.csv)
+
 #define SD_DIR_BMON          "/apps/bmon"
 
 #define SD_DIR_I2CSCAN       "/apps/i2cscan"

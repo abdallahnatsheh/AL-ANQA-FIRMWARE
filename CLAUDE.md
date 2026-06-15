@@ -131,7 +131,7 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 
 ## Commands
 System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `lock/lk`
-WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `wguard/wg` `beaconflood/bf` `espsniff/es` `esptest/est` `espchat/ec` `espvoice/ev`
+WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `karma/km` `crack/cc` `wguard/wg` `beaconflood/bf` `espsniff/es` `esptest/est` `espchat/ec` `espvoice/ev`
 Network: `netdiscover/nd` `portscan/ps` `topscan/ts` `ping/pg` `ssh/sc`
 Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
 SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `sdrm/srm` `sdf/sdf`
@@ -205,6 +205,8 @@ orphaned, not migrated.
 `/apps/pmkid/wordlist.txt` — custom WPA crack wordlist for `pm` (`SD_CFG_WORDLIST_PM`)
 `/apps/pmkid/<BSSID>.cap` — PMKID capture pcap (`SD_DIR_PMKID`)
 `/apps/pmkid/cracked.csv` — on-device crack results from `pm` (`SD_LOG_CRACKED_PM`)
+`/apps/karma/<ssid>.cap` — karma rogue-AP half-handshake (beacon+M1+M2, linktype 105) + `cracked.csv`/`creds.csv`/`wordlist.txt`/`NNN.csv` (saved tables) + `portal/*.html` (`SD_DIR_KARMA`)
+`/apps/capcrack/cracked.csv` — offline cap-cracker results from `crack`/`cc` (`SD_DIR_CAPCRACK`)
 `/apps/wifimon/NNN.cap` — raw 802.11 PCAP files from `wm` (`SD_DIR_WIFIMON`, linktype 105, Wireshark-compatible)
 `/apps/wifimon/probes.csv` — directed-probe log from `wm [p]` (`SD_LOG_PROBES`)
 `/apps/wguard/NNN.csv` — `001.csv`, `002.csv` … session files (never overwritten; new number on each boot/start)

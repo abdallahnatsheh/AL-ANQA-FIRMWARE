@@ -147,6 +147,8 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `macchanger` | `mc` | `on\|off\|random\|set <mac>` | Spoof STA MAC |
 | `wpasniff` | `ws` | `<idx\|bssid> [ch]` | Capture + crack WPA2 handshake (needs client + deauth) |
 | `pmkid` | `pm` | `<idx\|bssid> [ch]` | PMKID capture + crack — passive, no client or deauth needed |
+| `karma` | `km` | `[hs\|portal <ssid>]` | Rogue-AP suite — probe harvest + PNL device fingerprinting; `[h]` WPA2 half-handshake bait (manual EAPOL responder → crackable `.cap`), `[p]` captive portal, `[s]` save tables |
+| `crack` | `cc` | `[cap] [wordlist\|dir]` | Offline WPA/WPA2 crack of a `.cap` (handshake or PMKID) — SD wordlists, a dir of lists, or built-in; `cd`-relative paths |
 | `wguard` | `wg` | `<idx\|bssid> [ch] [bg]` | WiFi IDS — passive intrusion detection; `wg stop` / `wg view` |
 | `beaconflood` | `bf` | `[list\|rickroll\|seq <base>\|file [path]\|clone]` | Beacon flood — fake AP injection; interactive mode picker; clone mirrors real network security |
 | `espsniff` | `es` | `[ch 1-13]` | Passive ESP-NOW frame sniffer — CSV + PCAP output, filter, detail view |
@@ -236,6 +238,8 @@ All scan tables share the same keys:
 /apps/hiddenssid/found.csv — discovered hidden SSIDs
 /apps/wpasniff/           — wordlist.txt, <BSSID>.cap, cracked.csv
 /apps/pmkid/              — wordlist.txt, <BSSID>.cap, cracked.csv
+/apps/karma/              — <ssid>.cap (half-handshake), cracked.csv, creds.csv, wordlist.txt, NNN.csv (saved tables), portal/*.html
+/apps/capcrack/cracked.csv — offline cap-cracker results (crack/cc)
 /apps/wifimon/            — raw 802.11 PCAP files (NNN.cap) + probes.csv
 /apps/wguard/             — wguard session files (001.csv, 002.csv … — never overwritten)
 /apps/beaconflood/wordlist.txt — custom SSID list for bf file
