@@ -119,7 +119,10 @@ Each M2 → `karmaSaveCap` + `autoLogConnect` → `/apps/karma/connects.csv`
 inline crack — keeps the sweep fast; crack the .caps with `cc` after). Portals stay manual.
 GDMA-safe: SD writes only after `roguehs::end()`. **`[v]`** in auto opens `autoShowCaptured()`
 — a paged modal listing the captured SSIDs this session (any key returns; during a bait it
-adds the view duration back to the bait timer so viewing doesn't cut it short). `km auto`/`km a` subcommand; added to man,
+adds the view duration back to the bait timer so viewing doesn't cut it short). Auto's main
+screen is now `autoDrawTable()` — the live SSID table (same DEV/HIT/RSSI columns as interactive
+`drawNets`), auto-scrolls pages every 3s in harvest, marks captured green+`*`, highlights the
+current bait target (page follows it), with a phase/countdown/Asc/M1/M2 status line. `km auto`/`km a` subcommand; added to man,
 autocomplete (`auto hs portal`), README/CLAUDE/karma.md. Each `roguehs::begin` zero-inits
 state so per-target gotM2 is fresh.
 
