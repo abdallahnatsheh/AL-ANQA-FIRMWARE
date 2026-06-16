@@ -36,6 +36,13 @@ Fire-and-forget. Karma cycles between two phases until you press `[q]`:
    it **rotates through every harvested network** instead of looping the same few, and an
    SSID that yields a handshake is **marked captured and skipped** from then on.
 
+**Reactive (follow-the-probe).** While baiting an SSID, if a device probes for a *different*
+un-captured network, the clone **instantly retargets to that SSID** (when the current target
+is idle) and tries to capture it while the device is actively searching — instead of waiting
+for the round-robin to reach it. It even baits SSIDs that were never harvested but get probed
+live. This is silent (no deauth) and is *the* mechanism that makes `km auto` effective; the
+round-robin is just the fallback when nothing is being probed.
+
 Every client that completes the half-handshake is:
 
 - saved to a crackable **`/apps/karma/<ssid>.cap`**, and
@@ -63,11 +70,13 @@ Plain `km auto` is **passive** — it only catches devices that are *actively pr
 network (disconnected / searching). A phone sitting happily connected to its real router
 won't roam to your clone, so against already-connected devices the yield is low.
 
-**`km auto deauth`** fixes that: for each target it scans for the **real AP** (BSSID +
-channel), sits the rogue AP on that channel, and **deauthenticates the real AP's clients**
-during the bait window — they drop, re-scan, and roam into the clone, completing the
-handshake. The status line shows **`BAIT+D`** when deauth is active for a target. It's
-louder and less stealthy, hence opt-in.
+**`km auto deauth`** fixes that. The baited SSIDs come from probe requests — networks a
+device *wants* but isn't on — so their APs usually aren't in range to deauth. Instead, this
+mode scans for the **APs that are present** (the ones devices are actually connected to) and
+**deauthenticates those** during the sweep. Kicked devices disconnect and **probe their whole
+saved list** — including the absent SSIDs we're cloning — so they discover the clone and
+complete the handshake. The status line shows **`BAIT+D`** when deauth is active (i.e. the
+scan found APs to kick). It's loud (it disrupts nearby networks), hence opt-in.
 
 > Performance: the engine is brought up **once per sweep** and re-targeted per SSID (no
 > per-target WiFi restart), which keeps long hands-free runs stable.
