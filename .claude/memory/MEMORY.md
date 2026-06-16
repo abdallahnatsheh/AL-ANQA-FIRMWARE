@@ -9,6 +9,9 @@
 - [Progress Log](progress_log.md) — last session 2026-06-12 (espvoice/ev + mictest/mt); not-yet-built list
 - [Next Steps](next_steps.md) — priority queue: WiFi(1-9)→BT(10-12)→GPS(13-14)→USB(15-18)→Other(19-26)
 
+## Improvement backlog (hardening — user will consider)
+- [Improvement backlog](project_improvement_backlog.md) — project-wide hardening: #1 unit tests for crypto/parsers, #2 validate compiled-but-untested features, #3 extract dot11_tx/promisc shared utils, #4 finish ScopedPromiscPause migration, #5 64-cmd cap (at 59), #6 central WiFi state. NOT new features.
+
 ## Open Issues (verify / fix later)
 - [ESPVoice crash watch](project_espvoice_crash_watch.md) — `ev` sometimes crashes after a couple min; PS_NONE + draw-throttle applied (unconfirmed); read RESET REASON to classify (brownout vs panic vs WDT)
 
