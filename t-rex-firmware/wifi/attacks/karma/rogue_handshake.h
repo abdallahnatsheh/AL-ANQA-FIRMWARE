@@ -70,6 +70,11 @@ void poll();
 
 const State& state();
 
+// Reactive karma: while baiting one SSID, the cb also notes probe requests for OTHER
+// SSIDs. nextProbeHint() returns the most recent such SSID (and clears it), so the
+// auto loop can retarget to whatever a device is searching for right now. false = none.
+bool nextProbeHint(char* out, size_t n);
+
 // Stop promiscuous + injection, return WiFi to idle STA (SD-safe afterwards).
 void end();
 

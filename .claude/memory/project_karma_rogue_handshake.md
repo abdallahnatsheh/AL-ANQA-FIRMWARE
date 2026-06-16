@@ -124,6 +124,21 @@ screen is now `autoDrawTable()` — the live SSID table (same DEV/HIT/RSSI colum
 `drawNets`), auto-scrolls pages every 3s in harvest, marks captured green+`*`, highlights the
 current bait target (page follows it), with a phase/countdown/Asc/M1/M2 status line.
 
+**Reactive / follow-the-probe (2026-06-15) — the elegant karma upgrade.**
+HW-VALIDATED: reactive (+deauth) auto captured a handshake from a 2nd test router the old
+blind round-robin kept MISSING — yield improvements confirmed working on hardware.
+The engine already answered probes for its CURRENT SSID; now its cb also records probes for
+OTHER SSIDs as a hint (`roguehs::nextProbeHint()`, single-slot volatile, cleared on read; cb
+stores the SSID + sets `s_hint`, doesn't answer as the wrong SSID). Auto's bait loop, when the
+current target is idle (`assocs==0`) and ≥1.5s since the last switch, pulls the hint and if it's
+a different baitable SSID, `roguehs::retarget()`s to it on the spot (resets the bait timer) —
+following whatever a device is probing for RIGHT NOW. It even baits SSIDs never harvested
+(`kmBaitable()` treats unknown as baitable; `kmMarkCaptured()` adds a row on success so
+[v]/table/skip work). `curTarget` (not the round-robin `target`) drives draw + capture. ESP32
+LIMIT: serial (one SSID at a time), NOT parallel multi-SSID MANA — but every primitive (manual
+AP, probe-resp, association, M2, instant retarget) is HW-proven. Silent + always on; round-robin
+is the fallback; deauth is the loud booster.
+
 **Yield fixes (2026-06-15, after a long test gave only 1 capture):**
 - **Churn fix** — auto was calling `roguehs::begin()` (full `esp_wifi_stop/set_mac/start`) PER
   target (8×/sweep, forever) → suspected to wedge the radio on long runs so later baits
@@ -132,11 +147,17 @@ current bait target (page follows it), with a phase/countdown/Asc/M1/M2 status l
   per target, `end()`s once. SD writes (cap/connects) moved under `ScopedPromiscPause` since the
   engine stays up across targets.
 - **Deauth-assist** — passive karma only catches ACTIVELY-PROBING clients; a device connected to
-  its real AP won't roam. `km auto deauth` (`km auto d`): after harvestStop (promiscuous off) one
-  `WiFi.scanNetworks()` resolves each target's real AP (BSSID+channel); bait sits on that channel
-  and `injectDeauth()` broadcasts deauth (src=real BSSID) every ~600ms during the window → clients
-  drop + roam into the clone. Status shows `BAIT+D`. Opt-in (louder). Added to arg parser,
-  autocomplete (`{karma,auto,deauth}`), man, docs. `km auto`/`km a` subcommand; added to man,
+  its real AP won't roam. `km auto deauth` (`km auto d`). **KEY DESIGN (corrected 2026-06-15):**
+  the baited SSIDs come from probe requests = networks devices WANT but aren't on, so their APs
+  aren't present to deauth. So deauth does NOT target the baited SSID's AP — it targets the
+  **PRESENT APs** (the ones devices are actually on, from one `WiFi.scanNetworks()` post-harvestStop).
+  During baits it rotates through those APs: hop to each AP's channel → `injectDeauth()` (src=AP
+  bssid, broadcast) → hop back to the bait channel (KM_AUTO_BAIT_CH=6) every ~800ms. Kicked devices
+  disconnect → probe their whole saved list → find our clone of an absent SSID → M2. (First attempt
+  wrongly matched baited SSID to a present AP via SSID — `realT[i].found` was ~always false, so
+  `+D` never showed; that was the bug behind "no change with deauth".) Status `BAIT+D` when scan
+  found ≥1 AP. NOT redundant with ws/hs (those capture from the real AP's reconnect; this captures
+  the device on a CLONE of a different, absent SSID). Loud. arg parser + autocomplete (`{karma,auto,deauth}`) + man + docs. `km auto`/`km a` subcommand; added to man,
 autocomplete (`auto hs portal`), README/CLAUDE/karma.md. Each `roguehs::begin` zero-inits
 state so per-target gotM2 is fresh.
 
