@@ -57,6 +57,21 @@ CMD> cd /apps/karma
 CMD> cc <ssid>.cap rockyou.txt
 ```
 
+#### `km auto deauth` — deauth-assist (higher yield)
+
+Plain `km auto` is **passive** — it only catches devices that are *actively probing* for a
+network (disconnected / searching). A phone sitting happily connected to its real router
+won't roam to your clone, so against already-connected devices the yield is low.
+
+**`km auto deauth`** fixes that: for each target it scans for the **real AP** (BSSID +
+channel), sits the rogue AP on that channel, and **deauthenticates the real AP's clients**
+during the bait window — they drop, re-scan, and roam into the clone, completing the
+handshake. The status line shows **`BAIT+D`** when deauth is active for a target. It's
+louder and less stealthy, hence opt-in.
+
+> Performance: the engine is brought up **once per sweep** and re-targeted per SSID (no
+> per-target WiFi restart), which keeps long hands-free runs stable.
+
 Captive portals need a victim to interact with a web form, so they stay manual (`[p]` /
 `km portal`).
 

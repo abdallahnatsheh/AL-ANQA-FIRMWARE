@@ -122,7 +122,21 @@ GDMA-safe: SD writes only after `roguehs::end()`. **`[v]`** in auto opens `autoS
 adds the view duration back to the bait timer so viewing doesn't cut it short). Auto's main
 screen is now `autoDrawTable()` — the live SSID table (same DEV/HIT/RSSI columns as interactive
 `drawNets`), auto-scrolls pages every 3s in harvest, marks captured green+`*`, highlights the
-current bait target (page follows it), with a phase/countdown/Asc/M1/M2 status line. `km auto`/`km a` subcommand; added to man,
+current bait target (page follows it), with a phase/countdown/Asc/M1/M2 status line.
+
+**Yield fixes (2026-06-15, after a long test gave only 1 capture):**
+- **Churn fix** — auto was calling `roguehs::begin()` (full `esp_wifi_stop/set_mac/start`) PER
+  target (8×/sweep, forever) → suspected to wedge the radio on long runs so later baits
+  silently stopped. Added `roguehs::retarget(ssid, ch)` (reset state + new ANonce + set channel,
+  keep BSSID/promiscuous/cb — no WiFi restart). Auto now `begin()`s once per sweep, `retarget()`s
+  per target, `end()`s once. SD writes (cap/connects) moved under `ScopedPromiscPause` since the
+  engine stays up across targets.
+- **Deauth-assist** — passive karma only catches ACTIVELY-PROBING clients; a device connected to
+  its real AP won't roam. `km auto deauth` (`km auto d`): after harvestStop (promiscuous off) one
+  `WiFi.scanNetworks()` resolves each target's real AP (BSSID+channel); bait sits on that channel
+  and `injectDeauth()` broadcasts deauth (src=real BSSID) every ~600ms during the window → clients
+  drop + roam into the clone. Status shows `BAIT+D`. Opt-in (louder). Added to arg parser,
+  autocomplete (`{karma,auto,deauth}`), man, docs. `km auto`/`km a` subcommand; added to man,
 autocomplete (`auto hs portal`), README/CLAUDE/karma.md. Each `roguehs::begin` zero-inits
 state so per-target gotM2 is fresh.
 
