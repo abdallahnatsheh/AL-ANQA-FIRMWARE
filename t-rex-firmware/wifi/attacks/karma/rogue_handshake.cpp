@@ -220,6 +220,21 @@ bool begin(const char* ssid, uint8_t channel) {
     return true;
 }
 
+void retarget(const char* ssid, uint8_t channel) {
+    uint8_t mac[6]; memcpy(mac, s_st.apMac, 6);
+    bool rnd = s_st.macRandomized;
+    memset(&s_st, 0, sizeof(s_st));            // wipe counters/nonces/raw frames/gotM2
+    memcpy(s_st.apMac, mac, 6);                // keep the same BSSID (already ACK-matched)
+    s_st.macRandomized = rnd;
+    strncpy(s_st.ssid, ssid, 32); s_st.ssid[32] = '\0';
+    s_st.channel = (channel >= 1 && channel <= 13) ? channel : 1;
+    for (int i = 0; i < 32; i++) s_st.anonce[i] = (uint8_t)esp_random();
+    s_evHead = s_evTail = 0;
+    s_m1Left = 0;
+    s_lastBeacon = 0;
+    esp_wifi_set_channel(s_st.channel, WIFI_SECOND_CHAN_NONE);
+}
+
 void poll() {
     if (!s_active) return;
     uint8_t f[160];

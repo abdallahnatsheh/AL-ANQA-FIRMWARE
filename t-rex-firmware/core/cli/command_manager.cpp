@@ -283,6 +283,8 @@ static const ArgHintEntry kArgHints[] = {
     // karma / km
     { "karma",       "",              "auto hs portal" },
     { "km",          "",              "auto hs portal" },
+    { "karma",       "auto",          "deauth" },
+    { "km",          "auto",          "deauth" },
     // show / sh
     { "show",        "",              "wifi ble hosts" },
     { "sh",          "",              "wifi ble hosts" },

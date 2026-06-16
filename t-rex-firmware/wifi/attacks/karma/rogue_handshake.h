@@ -59,6 +59,11 @@ struct State {
 // fresh ANonce. Returns false if WiFi setup fails. Call end() to tear down.
 bool begin(const char* ssid, uint8_t channel);
 
+// Re-arm an already-running engine for a NEW target without restarting WiFi: keeps
+// the BSSID/promiscuous/cb, resets counters + state, picks a fresh ANonce, and sets
+// the channel. Lets a sweep switch SSIDs without per-target esp_wifi_stop/start churn.
+void retarget(const char* ssid, uint8_t channel);
+
 // Service the responder: re-beacon, drain the client-event ring, inject
 // probe/auth/assoc responses + M1. Call frequently from the owner's loop.
 void poll();
