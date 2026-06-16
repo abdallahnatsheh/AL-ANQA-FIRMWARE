@@ -41,7 +41,12 @@ Every client that completes the half-handshake is:
 - saved to a crackable **`/apps/karma/<ssid>.cap`**, and
 - logged to **`/apps/karma/connects.csv`** (`time, ssid, sta_mac, vendor, type`).
 
-Press **`[v]`** any time to see the list of networks captured so far this session (paged
+The auto screen shows the **live AP table** (same SSID / DEV / HIT / RSSI columns as the
+interactive harvest): it **auto-scrolls** the pages hands-free, marks **captured** networks
+green with a trailing `*`, and **highlights the current bait target**. A status line shows
+the phase, countdown, and (during a bait) the `Asc`/`M1`/`M2` stage counters.
+
+Press **`[v]`** any time to see just the list of networks captured so far this session (paged
 with `[a]`/`[l]`; any other key returns to the live sweep without interrupting it).
 
 Auto mode is **capture-only** — it doesn't crack inline (so the sweep stays fast). Crack

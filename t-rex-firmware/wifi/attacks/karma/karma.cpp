@@ -1015,41 +1015,86 @@ static void autoLogConnect(const char* ssid, const uint8_t* sta) {
     f.close();
 }
 
-static void autoDraw(const char* phase, const char* target, uint32_t remainMs,
-                     int idx, int total, int caps, const roguehs::State* st) {
+// Auto-mode live view: same SSID table as the interactive harvest, plus a status line.
+// Captured nets are green with a trailing '*'; the current bait target row is highlighted.
+// target==nullptr → HARVEST phase; else BAIT phase (st carries the live stage counters).
+// rotPage is used only in HARVEST (auto-scrolls the list); in BAIT the page follows the target.
+static void autoDrawTable(const char* target, uint32_t remainMs, int idx, int total,
+                          int caps, const roguehs::State* st, int rotPage) {
     DisplayManager& dm = displayManager;
     if (dm.isBlocked()) return;
-    drawHeader("AUTO", 0, 0);
+
+    int n = s_netCount;
+    int totalPages = n ? (n + KM_RPP - 1) / KM_RPP : 1;
+    int order[KM_NET_MAX];
+    if (n) buildOrder(order, n);
+
+    int page = rotPage;
+    if (target && *target) {                       // follow the target so its row is visible
+        for (int i = 0; i < n; i++) if (strcmp(s_nets[order[i]].ssid, target) == 0) { page = i / KM_RPP; break; }
+    }
+    if (page >= totalPages) page = totalPages - 1;
+    if (page < 0) page = 0;
+
+    drawHeader("AUTO", page, n ? totalPages : 0);
+
+    // status line
     dm.setCursor(4, dm.getCursorY());
-    dm.setTextColor(0x7BEF); dm.printText("Phase "); dm.setTextColor(TFT_CYAN); dm.println(phase);
-    char b[48];
-    dm.setCursor(4, dm.getCursorY());
-    snprintf(b, sizeof(b), "SSIDs:%d  Caps:%d", s_netCount, caps);
-    dm.setTextColor(TFT_WHITE); dm.println(b);
+    char b[52];
     if (target && *target) {
-        dm.setCursor(4, dm.getCursorY());
-        dm.setTextColor(0x7BEF); dm.printText("Target "); dm.setTextColor(TFT_YELLOW);
-        char t[34]; snprintf(t, sizeof(t), "%.31s", target); dm.println(t);
-        dm.setCursor(4, dm.getCursorY());
-        snprintf(b, sizeof(b), "(%d/%d)  %lus left", idx, total, (unsigned long)(remainMs / 1000));
-        dm.setTextColor(0x7BEF); dm.println(b);
+        const char* m2 = (st && st->gotM2) ? "YES" : "no";
+        snprintf(b, sizeof(b), "BAIT %d/%d %lus Asc:%lu M1:%lu M2:%s", idx, total,
+                 (unsigned long)(remainMs / 1000), st ? (unsigned long)st->assocs : 0,
+                 st ? (unsigned long)st->m1Sent : 0, m2);
+        dm.setTextColor(st && st->gotM2 ? TFT_GREEN : TFT_YELLOW);
     } else {
-        dm.setCursor(4, dm.getCursorY());
-        snprintf(b, sizeof(b), "harvesting  %lus left", (unsigned long)(remainMs / 1000));
-        dm.setTextColor(0x7BEF); dm.println(b);
+        snprintf(b, sizeof(b), "HARVEST %lus  SSIDs:%d  Caps:%d",
+                 (unsigned long)(remainMs / 1000), n, caps);
+        dm.setTextColor(TFT_GREEN);
     }
-    if (st) {
-        dm.setCursor(4, dm.getCursorY());
-        snprintf(b, sizeof(b), "Prb:%lu Asc:%lu M1:%lu", (unsigned long)st->probes,
-                 (unsigned long)st->assocs, (unsigned long)st->m1Sent);
-        dm.setTextColor(TFT_WHITE); dm.println(b);
-        dm.setCursor(4, dm.getCursorY());
-        if (st->gotM2) { dm.setTextColor(TFT_GREEN); dm.println("M2 captured!"); }
-        else           { dm.setTextColor(0x4208);    dm.println("waiting for client..."); }
+    dm.println(b);
+
+    // column header
+    dm.setCursor(8, dm.getCursorY()); dm.setTextColor(0x7BEF);
+    dm.printText("SSID");
+    dm.setCursor(196, dm.getCursorY()); dm.printText("DEV");
+    dm.setCursor(232, dm.getCursorY()); dm.printText("HIT");
+    dm.setCursor(280, dm.getCursorY()); dm.printText("RSSI");
+    dm.println("");
+    dm.printSeparator();
+
+    int32_t baseY = dm.getCursorY() + 1;
+    if (n == 0) {
+        dm.setCursor(4, baseY + 4); dm.setTextColor(0x7BEF);
+        dm.println("Listening for probe requests...");
+    } else {
+        int start = page * KM_RPP, end = start + KM_RPP < n ? start + KM_RPP : n;
+        for (int i = start; i < end; i++) {
+            const KmNet& net = s_nets[order[i]];
+            int32_t ry = baseY + (i - start) * LINE_HEIGHT;
+            bool isTarget = target && *target && strcmp(net.ssid, target) == 0;
+            if (isTarget) {
+                dm.fillRect(0, ry - 1, SCREEN_WIDTH, LINE_HEIGHT, 0x0841);
+                dm.setCursor(0, ry); dm.setTextColor(TFT_YELLOW); dm.printText(">");
+            }
+            uint16_t col = net.captured ? TFT_GREEN : (isTarget ? TFT_YELLOW : TFT_WHITE);
+            dm.setCursor(8, ry); dm.setTextColor(col);
+            char nm[24]; snprintf(nm, sizeof(nm), "%.19s%s", net.ssid, net.captured ? "*" : "");
+            dm.printText(nm);
+            char v[12];
+            dm.setCursor(196, ry); dm.setTextColor(TFT_CYAN);
+            snprintf(v, sizeof(v), "%u", net.devs); dm.printText(v);
+            dm.setCursor(232, ry); dm.setTextColor(col);
+            snprintf(v, sizeof(v), "%lu", (unsigned long)net.hits); dm.printText(v);
+            dm.setCursor(280, ry); dm.setTextColor(0x7BEF);
+            snprintf(v, sizeof(v), "%d", net.rssi); dm.printText(v);
+        }
     }
+
+    dm.setCursor(0, baseY + KM_RPP * LINE_HEIGHT + 2);
     dm.printSeparator();
     dm.setCursor(4, dm.getCursorY());
-    dm.setTextColor(0x7BEF); dm.println("[v] captured  [q] stop");
+    dm.setTextColor(0x7BEF); dm.println("[v] caps  [q] stop  (* = captured)");
 }
 
 // Modal list of the SSIDs whose handshake we've captured this auto session. Blocks
@@ -1108,14 +1153,19 @@ static void karmaAuto() {
         // ── harvest window ──
         harvestStart();
         uint8_t ch = 1; esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
-        uint32_t t0 = millis(), lastHop = t0, lastDraw = 0;
+        uint32_t t0 = millis(), lastHop = t0, lastDraw = 0, lastPage = t0;
+        int rotPage = 0;
         while (!quit) {
             uint32_t now = millis();
             if (now - t0 >= KM_AUTO_HARVEST_MS) break;
             if (now - lastHop > 250) { ch = (ch % 13) + 1; esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE); lastHop = now; }
             drainRing();
+            if (now - lastPage > 3000) {                     // auto-scroll the table hands-free
+                int tp = s_netCount ? (s_netCount + KM_RPP - 1) / KM_RPP : 1;
+                rotPage = (rotPage + 1) % tp; lastPage = now; lastDraw = 0;
+            }
             if (LockScreenManager::getInstance().consumeJustUnlocked()) lastDraw = 0;
-            if (now - lastDraw > 400) { autoDraw("HARVEST", nullptr, KM_AUTO_HARVEST_MS - (now - t0), 0, 0, caps, nullptr); lastDraw = now; }
+            if (now - lastDraw > 400) { autoDrawTable(nullptr, KM_AUTO_HARVEST_MS - (now - t0), 0, 0, caps, nullptr, rotPage); lastDraw = now; }
             char k = inputHandler.getKeyboardInput();
             if (k == 'q' || k == 'Q') quit = true;
             else if (k == 'v' || k == 'V') { autoShowCaptured(); lastDraw = 0; }
@@ -1158,7 +1208,7 @@ static void karmaAuto() {
                 if (st.gotM2) break;                                  // captured → next target
                 if (now - t0b >= KM_AUTO_BAIT_MS) break;              // timed out → next target
                 if (LockScreenManager::getInstance().consumeJustUnlocked()) lastDraw = 0;
-                if (now - lastDraw > 300) { autoDraw("BAIT", target, KM_AUTO_BAIT_MS - (now - t0b), i + 1, total, caps, &st); lastDraw = now; }
+                if (now - lastDraw > 300) { autoDrawTable(target, KM_AUTO_BAIT_MS - (now - t0b), i + 1, total, caps, &st, 0); lastDraw = now; }
                 char k = inputHandler.getKeyboardInput();
                 if (k == 'q' || k == 'Q') quit = true;
                 else if (k == 'v' || k == 'V') {            // view captured; don't penalize bait timer
