@@ -11,6 +11,7 @@
 #include "lockscreen_manager.h"
 #include "clock_manager.h"
 #include "pcap_writer.h"
+#include "beacon_build.h"
 #include "dot11.h"
 #include "wpa_crack.h"
 #include <SD.h>
@@ -458,9 +459,15 @@ void PmkidAttack::run(const uint8_t* bssid, int channel, const char* ssid) {
 
     fullRedraw();
 
-    // Write M1 frame to pcap after WiFi teardown (GDMA rule — no SD during WiFi)
+    // Write M1 frame to pcap after WiFi teardown (GDMA rule — no SD during WiFi).
+    // Prepend a synthesized beacon carrying the ESSID so PC tools (hcxpcapngtool /
+    // hashcat -m 22000) accept the cap — an M1-only pcap has no ESSID and yields no
+    // hash. Skipped when SSID is unknown (manual BSSID mode → buildBeacon returns 0).
     auto finalizePcap = [&]() {
         if (!fileOk || g_pm.m1RawLen == 0) { if (fileOk) { pcap.flush(); pcap.close(); } return; }
+        uint8_t beacon[dot11::BEACON_MAX_LEN];
+        uint16_t bl = dot11::buildBeacon(beacon, g_pm.ssid, g_pm.apMac, (uint8_t)channel);
+        if (bl) pcap::writeRecord(pcap, beacon, bl, g_pm.m1Ts > 20 ? g_pm.m1Ts - 20 : 0);
         pcap::writeRecord(pcap, g_pm.m1Raw, g_pm.m1RawLen, g_pm.m1Ts);
         pcap.flush();
         pcap.close();

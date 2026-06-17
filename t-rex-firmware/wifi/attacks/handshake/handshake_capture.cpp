@@ -8,6 +8,7 @@
 #include "clock_manager.h"
 #include "lockscreen_manager.h"
 #include "pcap_writer.h"
+#include "beacon_build.h"
 #include "dot11.h"
 #include "wpa_crack.h"
 #include <SD.h>
@@ -453,39 +454,45 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
     g_wsCapturing = true;
 
     // ── UI ────────────────────────────────────────────────────────────────────
-    _dm.clearScreen();
-    _dm.setCursor(10, outputY);
-    _dm.setTextColor(0x7BEF);    _dm.printText("[");
-    _dm.setTextColor(TFT_CYAN);  _dm.printText("HANDSHAKE");
-    _dm.setTextColor(0x7BEF);    _dm.printText("::");
-    _dm.setTextColor(TFT_YELLOW);_dm.println("CAPTURE]");
-    _dm.printSeparator();
+    // Static header + AP/CH/SD info, drawn as a lambda so it can be repainted
+    // whole after an unlock (the lock screen blanks the display).
+    int32_t statusY = 0;
+    auto drawStatic = [&]() {
+        _dm.clearScreen();
+        _dm.setCursor(10, outputY);
+        _dm.setTextColor(0x7BEF);    _dm.printText("[");
+        _dm.setTextColor(TFT_CYAN);  _dm.printText("HANDSHAKE");
+        _dm.setTextColor(0x7BEF);    _dm.printText("::");
+        _dm.setTextColor(TFT_YELLOW);_dm.println("CAPTURE]");
+        _dm.printSeparator();
 
-    _dm.setCursor(10, _dm.getCursorY());
-    _dm.setTextColor(0x7BEF); _dm.printText("AP  "); _dm.setTextColor(TFT_WHITE);
-    _dm.println(macStr(bssid).c_str());
+        _dm.setCursor(10, _dm.getCursorY());
+        _dm.setTextColor(0x7BEF); _dm.printText("AP  "); _dm.setTextColor(TFT_WHITE);
+        _dm.println(macStr(bssid).c_str());
 
-    _dm.setCursor(10, _dm.getCursorY());
-    _dm.setTextColor(0x7BEF); _dm.printText("CH  "); _dm.setTextColor(TFT_WHITE);
-    _dm.println(channel);
+        _dm.setCursor(10, _dm.getCursorY());
+        _dm.setTextColor(0x7BEF); _dm.printText("CH  "); _dm.setTextColor(TFT_WHITE);
+        _dm.println(channel);
 
-    _dm.setCursor(10, _dm.getCursorY());
-    _dm.setTextColor(0x7BEF); _dm.printText("SD  ");
-    if (fileOk) {
-        char shortName[20];
-        snprintf(shortName, sizeof(shortName), "%02X-%02X-%02X...cap",
-                 bssid[0], bssid[1], bssid[2]);
-        _dm.setTextColor(TFT_GREEN); _dm.println(shortName);
-    } else {
-        _dm.setTextColor(TFT_RED); _dm.println("none — RAM only");
-    }
-    _dm.printSeparator();
+        _dm.setCursor(10, _dm.getCursorY());
+        _dm.setTextColor(0x7BEF); _dm.printText("SD  ");
+        if (fileOk) {
+            char shortName[20];
+            snprintf(shortName, sizeof(shortName), "%02X-%02X-%02X...cap",
+                     bssid[0], bssid[1], bssid[2]);
+            _dm.setTextColor(TFT_GREEN); _dm.println(shortName);
+        } else {
+            _dm.setTextColor(TFT_RED); _dm.println("none — RAM only");
+        }
+        _dm.printSeparator();
 
-    int32_t statusY = _dm.getCursorY();
+        statusY = _dm.getCursorY();
 
-    _dm.setCursor(10, _dm.getCursorY() + LINE_HEIGHT * 3 + 4);
-    _dm.setTextColor(0x4208); _dm.println("[q] stop");
-    _dm.setTextColor(TFT_WHITE);
+        _dm.setCursor(10, _dm.getCursorY() + LINE_HEIGHT * 3 + 4);
+        _dm.setTextColor(0x4208); _dm.println("[q] stop");
+        _dm.setTextColor(TFT_WHITE);
+    };
+    drawStatic();
 
     // ── Counters ──────────────────────────────────────────────────────────────
     uint8_t  gotM[5]     = {0};
@@ -520,8 +527,15 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
     redrawStatus();
 
     // ── Pcap finalizer — called after WiFi teardown, SD access is safe ────────
+    // Prepend a synthesized beacon carrying the ESSID so PC tools (aircrack-ng /
+    // hashcat) can pair the handshake — an EAPOL-only cap has no ESSID and is
+    // crackable on-device only. Skipped when SSID is unknown (manual BSSID mode).
     auto finalizePcap = [&]() {
         if (!fileOk) return;
+        uint8_t beacon[dot11::BEACON_MAX_LEN];
+        uint16_t bl = dot11::buildBeacon(beacon, g_whs.ssid, g_whs.apMac, (uint8_t)channel);
+        uint32_t bTs = g_whs.m1RawLen ? (g_whs.m1Ts > 20 ? g_whs.m1Ts - 20 : 0) : 0;
+        if (bl) pcap::writeRecord(pcap, beacon, bl, bTs);
         if (g_whs.m1RawLen > 0) pcap::writeRecord(pcap, g_whs.m1Raw, g_whs.m1RawLen, g_whs.m1Ts);
         if (g_whs.m2RawLen > 0) pcap::writeRecord(pcap, g_whs.m2Raw, g_whs.m2RawLen, g_whs.m2Ts);
         pcap.flush();
@@ -531,7 +545,9 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
     // ── Main loop ─────────────────────────────────────────────────────────────
     while (true) {
         if (LockScreenManager::getInstance().consumeJustUnlocked()) {
-            lastRefresh = 0;  // force immediate status redraw
+            drawStatic();          // lock blanked the screen — repaint header + info
+            redrawStatus();
+            lastRefresh = millis();
         }
 
         char k = inputHandler.getKeyboardInput();
@@ -614,6 +630,6 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
     esp_wifi_set_promiscuous(false);
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_STA);
-    if (fileOk) { pcap.flush(); pcap.close(); }
+    finalizePcap();   // beacon + M1 + M2 (no-op if !fileOk); GDMA-safe after teardown
     _dm.printCommandScreen();
 }
