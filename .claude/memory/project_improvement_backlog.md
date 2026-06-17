@@ -10,38 +10,47 @@ Assessment of the whole T-REX firmware (~60 commands, mature). Leverage now is i
 **hardening + maintainability**, NOT more features. User asked to save these to consider.
 (New attacks live in [[next_steps]] — deliberately NOT prioritized here.)
 
-## Tier 1 — highest value (prove it works)
-1. **Unit tests for the pure logic.** Hand-rolled crypto/parsers where a silent bug = wrong
-   results: `wpa_crack` (PBKDF2 / 4-way MIC / PMKID), `dot11` (EAPOL byte-offsets), `pcap`
-   reader/writer, `oui_lookup`. All pure + host-testable → add a `pio test` native env with
-   known vectors (a real handshake, a PMKID, known passwords) and wire it into the existing
-   compile-gate CI. We already hit one EAPOL offset bug this project — exactly what this catches.
-   **Best long-term investment.**
-2. **Close the "compiles ≠ works" gap.** Built-but-never-field-tested: `bleinfo`, `i2cscan`
-   (experimental), `capcrack` external-`.cap` path (open a karma .cap in aircrack/hashcat on a
-   PC — still unverified), `espvoice` private mode. A focused validation pass.
+> **Unit tests dropped (2026-06-17, user decision).** The native `pio test` env for
+> `wpa_crack`/`dot11`/`pcap`/`oui` is explicitly NOT pursued — do not re-suggest it.
+> Validation is done empirically (real captures cracked on a PC, see below).
+
+## Tier 1 — highest value (prove it works)  — ESSENTIALLY DONE
+1. **Close the "compiles ≠ works" gap.** Validation pass — nearly complete:
+   - DONE (2026-06-17): `bleinfo`, `i2cscan` (experimental), `espvoice` private mode —
+     all manually tested on hardware by the user. No longer "untested".
+   - DONE (2026-06-17): `capcrack` / karma `.cap` PC-crack path verified in Kali WSL —
+     a rogue karma cap cracked by BOTH aircrack-ng and hashcat (-m 22000), matching the
+     on-device result. See [[project-cap-validation-kali]] (user memory).
+   - PENDING (2026-06-17, uncommitted): found `ws`/`pm` caps had no beacon/ESSID → not
+     PC-crackable; added `wifi/core/beacon_build.h` so both prepend a synthesized beacon.
+     Only remaining Tier-1 item: flash + re-validate (capture fresh `ws`/`pm`, confirm
+     hashcat emits a hash).
 
 ## Tier 2 — maintainability
-3. **Finish shared-util extraction.** Frame injection is still copy-pasted across karma,
+2. **Finish shared-util extraction.** Frame injection is still copy-pasted across karma,
    beacon_flood, eviltwin, deauth, wifimon, hidden_ssid (each hand-rolls 802.11 builders +
    promiscuous start/stop/hop). Plan names the targets: `dot11_tx.h` (beacon/deauth/probe
    builders) + `promisc.h` (start/stop/hop). Kills the last big dup, centralizes the trickiest code.
-4. **Migrate remaining modules to `ScopedPromiscPause`.** Only eviltwin + karma use the GDMA
+   - The new `wifi/core/beacon_build.h` (2026-06-17) is a first down-payment — `ws`/`pm`
+     now share one beacon builder; `karma`/`beacon_flood` still have their own → fold in later.
+3. **Migrate remaining modules to `ScopedPromiscPause`.** Only eviltwin + karma use the GDMA
    guard; wguard/wifimon/handshake/pmkid still hand-roll pause/resume — where GDMA corruption hides.
 
 ## Tier 3 — structural / housekeeping
-5. **64-command cap: at 59/64.** Next few features hit the wall. Decide now: raise the cap, or
+4. **64-command cap: at 59/64.** Next few features hit the wall. Decide now: raise the cap, or
    move to sub-commands/categories (already done for `km auto`, `mc target`…). Will bite soon.
-6. **Centralized WiFi state helper** ("enter sniff / enter inject / return idle"). Most hard bugs
+5. **Centralized WiFi state helper** ("enter sniff / enter inject / return idle"). Most hard bugs
    lived in per-module `WiFi.mode`/promiscuous/APSTA juggling (GDMA, the karma churn we fixed).
    Bigger refactor — only if it keeps biting.
-7. **Memory/doc consolidation.** Some entries stale (`project_usb_gadget_plan` refs old branch/
+6. **Memory/doc consolidation.** Some entries stale (`project_usb_gadget_plan` refs old branch/
    paths; some "pending" notes are done). Periodic prune.
 
 ## Recommended order
-#1 (unit tests) + #2 (validate untested) first — convert "I think it works" → "I know it works"
-(matters most for a security tool). Then #3/#4 (maintainability), #5 (command cap, forced soon).
-Do NOT prioritize new attacks — prove + harden what exists.
+Unit tests dropped. Finish #1 (validate untested — mostly done; flash + re-validate ws/pm
+beacon fix, then bleinfo/i2cscan/espvoice). Then #2/#3 (maintainability), #4 (command cap,
+forced soon). Do NOT prioritize new attacks — prove + harden what exists.
 
 Related: [[next_steps]] (new features, separate), [[project_karma_rogue_handshake]] (karma-specific
 open items: external .cap verify + long soak test).
+
+
