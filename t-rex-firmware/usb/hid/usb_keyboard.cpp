@@ -325,5 +325,11 @@ void UsbKeyboard::jiggle() {
     dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
     dm.setTextColor(TFT_GREEN); dm.println("Jiggler stopped.");
     vTaskDelay(pdMS_TO_TICKS(1500));
+
+    // Drain latched trackball events (we only read the keyboard this session) so a
+    // stale edge + click can't reload "jg" from history and re-run the jiggler.
+    while (inputHandler.getTrackballEvent() != TBALL_NONE) { /* resync edges */ }
+    inputHandler.clearPendingClicks();
+
     dm.printCommandScreen();
 }
