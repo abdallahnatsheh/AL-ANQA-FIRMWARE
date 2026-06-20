@@ -131,7 +131,7 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 
 ## Commands
 System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `lock/lk`
-WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `karma/km` `crack/cc` `wguard/wg` `beaconflood/bf` `espsniff/es` `esptest/est` `espchat/ec` `espvoice/ev`
+WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `karma/km` `crack/cc` `wguard/wg` `beaconflood/bf` `wardrive/wd` `espsniff/es` `esptest/est` `espchat/ec` `espvoice/ev`
 Network: `netdiscover/nd` `portscan/ps` `topscan/ts` `ping/pg` `ssh/sc`
 Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
 SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `sdrm/srm` `sdf/sdf`
@@ -263,6 +263,15 @@ orphaned, not migrated.
 - Offline WPA/WPA2 cracker for `.cap` files: 4-way handshake (M1+M2) OR PMKID. Works on karma/ws/pm + external captures (classic libpcap, not pcapng).
 - `cc [cap] [wordlist|dir]` — paths relative to `cd` cwd (pass bare filenames after `cd`). cap/wordlist each accept a file, a directory (pick a cap / run every `*.txt`), or omitted (picker). Built-in 100 list always tried last. `COMP_ANY` autocomplete (files + dirs).
 - Needs an ESSID (beacon/probe-resp) in the cap to derive the PMK; errors `noESSID`/`noM1`/`noM2`. Results → `/apps/capcrack/cracked.csv`. Reuses `wpa_crack` + `dot11` + `pcap` reader (added to `pcap_writer.h`). SD-only, no WiFi → no GDMA concern.
+
+**Wardrive** (`wifi/tools/wardrive/wardrive.cpp/h`) — `wardrive`/`wd` — **T-Deck Plus only** (`#ifdef BOARD_TDECK_PLUS`, base board prints a notice like the `gps` command):
+- **async** WiFi scan (`WiFi.scanNetworks(true,true)`) in STA mode + `GpsManager` fix → **WiGLE WiFi-1.4** CSV. Auto-starts the GPS task if not running; leaves it running on exit.
+- **CRITICAL — Phase 1 waits for the first GPS fix with the radio IDLE (no scanning), THEN Phase 2 scans+logs.** GpsManager does a one-time NVS *flash* write on first fix (`saveGpsFixFlag`); a flash write while a WiFi scan is in flight corrupts the scan engine (every later scan returns 0 — the "90 APs, then 0 after fix" bug). Scanning before the fix is also pointless (can't geotag). `_fixSaved` is latched so losing/regaining a fix mid-drive never re-triggers the write. UI: `GPS searching` → `FIX … LOGGING`. Cold fix ~4 min outdoors.
+- **async, not sync** — sync `scanNetworks()` froze the UI for the whole ~3-4s sweep; async keeps screen/keys live (loop polls `scanComplete()`, redraws ~1Hz). (Sync was tried as a reliability fix but the real fix was Phase 1; async is fine once Phase 1 is in place.)
+- **Lazy file** — `/apps/wardrive/NNN.csv` is created on the **first AP actually logged** (`ensureFile()`), so no-fix / quick-quit sessions leave **no empty CSV**. Sequential, never overwritten. Header = WiGLE pre-header + `MAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,Type`. MAC lowercase, FirstSeen=GPS UTC, AltitudeMeters=`0` (alt not exposed), AccuracyMeters=sats heuristic. **Verified against the official spec** (api.wigle.net/csvFormat-1_4.html). Validated against Bruce + dkyazzentwatwa/esp32-gps-wifi-wigle references.
+- **Dedup**: one row per BSSID per session via a `WD_MAX_BSSIDS=1024` table in **PSRAM** (`ps_malloc`, freed on exit — rule 5c). SSID commas/CRLF stripped (RFC4180-safe).
+- GDMA: rows staged in a RAM `std::vector<String>` during result processing, flushed to SD only **after `WiFi.scanDelete()`** (radio idle), before the next scan. On-screen `Heap NNk min NNk` diagnostic (free-heap leak watch — "returns 0" is documented as heap exhaustion). Lock-unlock redraw via `consumeJustUnlocked()`. `[q]` quits.
+- If GpsManager later exposes altitude/HDOP, swap the `0` altitude + sats-heuristic accuracy for real values.
 
 **MACChanger** (`mac_changer.cpp/h`):
 - `applyIfEnabled()` only called in `scanWiFiNetworks()` and `connectToWiFiCommand()` — the two places where T-Rex's own MAC appears on the network

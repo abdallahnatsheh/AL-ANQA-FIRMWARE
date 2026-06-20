@@ -11,6 +11,7 @@ type: feedback
 4. Concise — Abdallah wants direct communication, file:line refs, no padding.
 5. Do NOT run `pio run` / compile — Abdallah compiles + flashes manually (his hardware). Write code, let him build. He also tests on-device per phase ("manual test first").
 6. Commits in HIS name ONLY — do NOT add the `Co-Authored-By: Claude` trailer. Plain commit message, no attribution footer.
+7. I cannot flash/run his hardware — only he can. Do NOT burn his flash cycles on speculative "try this" fixes. When a hardware bug's cause is unclear, **instrument the build** (on-screen heap/counters, serial) so ONE flash yields a diagnostic datapoint, then fix from data. Trace logic fully before shipping; don't iterate guesses in chat (he called this out on wardrive).
 
 ## Code Quality
 5. Reuse existing code — read the class before writing new functions. If a method exists, call it.

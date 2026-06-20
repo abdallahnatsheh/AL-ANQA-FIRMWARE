@@ -4,6 +4,43 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-06-20 (wardrive)
+- **wardrive/wd** (Plus only) — WiFi scan + GPS → WiGLE WiFi-1.4 CSV. New module `wifi/tools/wardrive/`.
+  Field-tested working (logged real APs). Key hard-won fixes during bring-up:
+  - **ROOT CAUSE of "90 APs then 0 after GPS fix":** GpsManager does a one-time NVS *flash* write
+    on first fix (`saveGpsFixFlag`); a flash write during a live WiFi scan corrupts the scan engine
+    (all later scans return 0). Fix = **Phase 1 waits for the first fix with radio IDLE, then Phase 2
+    scans.** `_fixSaved` latched so re-fix never re-triggers it. (This is a general GDMA-class lesson:
+    flash/NVS writes collide with live WiFi scans just like SD writes do.)
+  - **async** scan (not sync) for responsive UI — sync froze the screen ~3-4s/sweep. Async is safe
+    once Phase 1 is in place (the earlier async "last saw 0" was the NVS collision, not async itself).
+  - **Lazy file** via `ensureFile()` — CSV created only on the first AP logged; no-fix/quick-quit
+    sessions leave no empty file.
+  - SD rows staged in RAM `vector<String>`, flushed after `WiFi.scanDelete()` (radio idle) — GDMA-safe.
+  - On-screen `Heap NNk min NNk` leak watch ("scanNetworks returns 0" is documented as heap exhaustion).
+  - **WiGLE 1.4 format verified against the official spec** (api.wigle.net/csvFormat-1_4.html) + Bruce
+    + dkyazzentwatwa/esp32-gps-wifi-wigle references. MAC lowercase, FirstSeen=GPS UTC, Alt=0 (not exposed).
+  - All surfaces updated: command_manager (+arg none, no-arg cmd), man_pages, docs/wardrive.md, docs/index,
+    README, CLAUDE.md, sdcard_manager (SD_DIR_WARDRIVE + tree + apps README), platformio.ini (-I).
+  - Lesson (user feedback): I can't flash hardware — stop iterating speculative fixes in chat; instrument
+    + get one diagnostic datapoint instead. See [[feedback_rules]].
+
+## Session 2026-06-20 (later)
+- **jg ble — BLE mouse jiggler** (committed `2337d4e`). `jg` now takes a transport arg:
+  `jg`/`jg usb` = USB HID (unchanged), `jg ble`/`bt` = BLE HID. Reuses the btkbd HID stack —
+  extracted btkbd's NimBLE init→`BleKeyboard::beginHid()` and cleanup→`endHid()` (shared by
+  `start()`+`jiggle()`; endHid keeps the "do NOT deinit(true)" rule). New `BleKeyboard::jiggle()`:
+  advertise T-REX-KBD → wait pair → `sendMouseMove(±2,0)` every 30s, with disconnect/reconnect
+  + lock-unlock redraw. Updated all 4 surfaces: command_manager dispatch **+ arg-autocomplete
+  table** (`jg → usb ble`), man_pages, docs/jiggle.md.
+- **Bug fixed — jg re-ran after `q`:** jigglers only read the keyboard, so latched trackball
+  clicks + stale direction edges queued during the session leaked to the CLI on exit (stale edge
+  reloads "jg ble" from history → latched click re-executes it). Fix: drain
+  `while(getTrackballEvent()!=TBALL_NONE){}` + `clearPendingClicks()` before returning. Applied to
+  USB jiggler too (same latent bug). btkbd unaffected — it reads the trackball every loop.
+- Reminder: btkbd exits via center-hold 1.5s (easy to overshoot into the 3s lock trigger); jg ble
+  exits via `q` so no exit-vs-lock conflict.
+
 ## Session 2026-06-20
 - **Lock-unlock repaint — crack screens + ssh** (field-validated ✅). Root bug: an app's
   MAIN loop handling `consumeJustUnlocked()` does NOT cover its long-running SUB-loops.

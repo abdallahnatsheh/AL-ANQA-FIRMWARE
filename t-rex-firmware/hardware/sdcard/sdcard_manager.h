@@ -38,6 +38,8 @@
 
 #define SD_DIR_WGUARD        "/apps/wguard"
 
+#define SD_DIR_WARDRIVE      "/apps/wardrive"         // WiGLE-format wardrive logs (NNN.csv)
+
 #define SD_DIR_BEACONFLOOD   "/apps/beaconflood"
 #define SD_CFG_WORDLIST_BCN  "/apps/beaconflood/wordlist.txt"
 

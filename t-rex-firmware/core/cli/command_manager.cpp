@@ -63,6 +63,7 @@ void runSpeakerTest();
 void runLoraTest();
 void runI2cScan(char* a);
 void runMicTest();
+void runWardrive(char* a);
 
 CommandManager::CommandManager()
     : commandIndex(0), commandCount(0), _cursorPos(0),
@@ -668,6 +669,7 @@ void CommandManager::setupCommands() {
     registerCommand("wguard",      "wg",     [](char* a) { stopEspchatBg(); handleWGuardCmd(a); },                          "WiFi IDS: wg <idx> [bg|stop]",                       true,  "WiFi");
     registerCommand("beaconflood", "bf",     [](char* a) { stopEspchatBg(); runBeaconFlood(a); },                           "Beacon flood: bf [list|seq <base>|file [path]]",     true,  "WiFi");
     registerCommand("karma",       "km",     [](char* a) { stopEspchatBg(); runKarma(a); },                                "Karma: km (harvest) | km auto | km hs/portal <ssid> | [h]/[p]/[s] in list", true,  "WiFi");
+    registerCommand("wardrive",    "wd",     [](char* a) { stopEspchatBg(); runWardrive(a); },                             "Wardrive: WiFi+GPS -> WiGLE CSV (Plus only)",        false, "WiFi");
     registerCommand("crack",       "cc",     [](char* a) { stopEspchatBg(); runCapCrack(a); },                             "Crack .cap: cc [cap] [wordlist|dir]",                true,  "WiFi", COMP_ANY);
     registerCommand("espsniff",    "es",     [](char* a) { runEspSniff(a); },                                                  "ESP-NOW sniffer: es [ch 1-13]",                      true,  "WiFi");
     registerCommand("esptest",     "est",    [](char* a) { runEspTest(a); },                                                   "ESP-NOW test TX/RX: est [ch 1-13]",                  true,  "WiFi");

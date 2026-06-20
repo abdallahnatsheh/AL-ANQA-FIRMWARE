@@ -73,6 +73,7 @@ void SDCardManager::ensureAppsReadme() {
     f.println("pmkid/      pm          PMKID captures (.cap), wordlist.txt, cracked.csv");
     f.println("ssh/        ssh         hosts.csv host profiles; known_hosts/keys (planned)");
     f.println("trackme/    tm          session log, whitelist, custom signatures.csv");
+    f.println("wardrive/   wd          WiGLE-format wardrive logs (NNN.csv)");
     f.println("wguard/     wg          WiFi IDS session logs (NNN.csv)");
     f.println("wifimon/    wm          raw 802.11 PCAP captures + probe log");
     f.println("wpasniff/   ws          WPA handshake captures (.cap), wordlist.txt,");
@@ -102,6 +103,7 @@ void SDCardManager::ensureTreeStructure() {
     ensureDir(SD_DIR_PMKID);
     ensureDir(SD_DIR_WIFIMON);
     ensureDir(SD_DIR_WGUARD);
+    ensureDir(SD_DIR_WARDRIVE);
     ensureDir(SD_DIR_BEACONFLOOD);
     ensureDir(SD_DIR_KARMA);
     ensureDir(SD_DIR_KARMA_PORTAL);
