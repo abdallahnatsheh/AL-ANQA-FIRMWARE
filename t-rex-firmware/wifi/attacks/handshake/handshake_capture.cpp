@@ -225,22 +225,29 @@ void HandshakeCapture::crack() {
     }
 
     // ── Cracking UI ───────────────────────────────────────────────────────────
-    _dm.clearScreen();
-    _dm.setCursor(10, outputY);
-    _dm.setTextColor(0x7BEF);    _dm.printText("[");
-    _dm.setTextColor(TFT_CYAN);  _dm.printText("HANDSHAKE");
-    _dm.setTextColor(0x7BEF);    _dm.printText("::");
-    _dm.setTextColor(TFT_YELLOW);_dm.println("CRACK]");
-    _dm.printSeparator();
+    // Static header (title + SSID + AP) — redrawn after a lock-screen blanks it.
+    // Returns the cursor Y of the row where the live "Trying" status begins.
+    auto drawHeader = [&]() -> int32_t {
+        _dm.clearScreen();
+        _dm.setCursor(10, outputY);
+        _dm.setTextColor(0x7BEF);    _dm.printText("[");
+        _dm.setTextColor(TFT_CYAN);  _dm.printText("HANDSHAKE");
+        _dm.setTextColor(0x7BEF);    _dm.printText("::");
+        _dm.setTextColor(TFT_YELLOW);_dm.println("CRACK]");
+        _dm.printSeparator();
 
-    _dm.setCursor(10, _dm.getCursorY());
-    _dm.setTextColor(0x7BEF); _dm.printText("SSID  "); _dm.setTextColor(TFT_WHITE);
-    _dm.println(g_whs.ssid);
+        _dm.setCursor(10, _dm.getCursorY());
+        _dm.setTextColor(0x7BEF); _dm.printText("SSID  "); _dm.setTextColor(TFT_WHITE);
+        _dm.println(g_whs.ssid);
 
-    _dm.setCursor(10, _dm.getCursorY());
-    _dm.setTextColor(0x7BEF); _dm.printText("AP    "); _dm.setTextColor(TFT_WHITE);
-    _dm.println(macStr(g_whs.apMac).c_str());
-    _dm.printSeparator();
+        _dm.setCursor(10, _dm.getCursorY());
+        _dm.setTextColor(0x7BEF); _dm.printText("AP    "); _dm.setTextColor(TFT_WHITE);
+        _dm.println(macStr(g_whs.apMac).c_str());
+        _dm.printSeparator();
+        return _dm.getCursorY();
+    };
+
+    drawHeader();
 
     // ── Wordlist selection ────────────────────────────────────────────────────
     bool hasWl = sdCardManager.isReady() && SD.exists(SD_CFG_WORDLIST_WS);
@@ -255,20 +262,7 @@ void HandshakeCapture::crack() {
         char ch = 0;
         while (ch != '1' && ch != '2') ch = inputHandler.getKeyboardInput();
         useSD = (ch == '1');
-        _dm.clearScreen();
-        _dm.setCursor(10, outputY);
-        _dm.setTextColor(0x7BEF);     _dm.printText("[");
-        _dm.setTextColor(TFT_CYAN);   _dm.printText("HANDSHAKE");
-        _dm.setTextColor(0x7BEF);     _dm.printText("::");
-        _dm.setTextColor(TFT_YELLOW); _dm.println("CRACK]");
-        _dm.printSeparator();
-        _dm.setCursor(10, _dm.getCursorY());
-        _dm.setTextColor(0x7BEF); _dm.printText("SSID  "); _dm.setTextColor(TFT_WHITE);
-        _dm.println(g_whs.ssid);
-        _dm.setCursor(10, _dm.getCursorY());
-        _dm.setTextColor(0x7BEF); _dm.printText("AP    "); _dm.setTextColor(TFT_WHITE);
-        _dm.println(macStr(g_whs.apMac).c_str());
-        _dm.printSeparator();
+        drawHeader();
     }
 
     int32_t tryY = _dm.getCursorY();
@@ -328,6 +322,12 @@ void HandshakeCapture::crack() {
 
                 tried++;
                 uint32_t now = millis();
+                if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+                    drawHeader();        // lock blanked the screen — repaint everything
+                    tryY = _dm.getCursorY();
+                    redraw(line);
+                    lastRedraw = now;
+                }
                 if (now - lastRedraw >= 300) {
                     lastRedraw = now;
                     redraw(line);
@@ -353,6 +353,12 @@ void HandshakeCapture::crack() {
         for (int i = 0; i < wpacrack::kBuiltinCount && !done; i++) {
             tried++;
             uint32_t now = millis();
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+                drawHeader();            // lock blanked the screen — repaint everything
+                tryY = _dm.getCursorY();
+                redraw(wpacrack::kBuiltins[i]);
+                lastRedraw = now;
+            }
             if (now - lastRedraw >= 300) {
                 lastRedraw = now;
                 redraw(wpacrack::kBuiltins[i]);
@@ -371,44 +377,52 @@ void HandshakeCapture::crack() {
     mbedtls_md_free(&mdCtx);
 
     // ── Result ────────────────────────────────────────────────────────────────
-    _dm.fillRect(10, tryY, 310, LINE_HEIGHT * 3 + 2, TFT_BLACK);
-    _dm.setCursor(10, tryY);
-
-    if (found[0]) {
-        _dm.setTextColor(TFT_GREEN); _dm.printText("[CRACKED] ");
-        _dm.setTextColor(TFT_WHITE); _dm.println(found);
-
-        // Save to SD if available
-        if (sdCardManager.isReady()) {
-            sdCardManager.ensureDir(SD_DIR_WPASNIFF);
-            char ts[22] = "";
-            ClockManager::instance().getTimestamp(ts, sizeof(ts));
-            char logLine[152];
-            if (ts[0])
-                snprintf(logLine, sizeof(logLine), "%s,%s,%s,%s",
-                         ts, macStr(g_whs.apMac).c_str(), g_whs.ssid, found);
-            else
-                snprintf(logLine, sizeof(logLine), "%s,%s,%s",
-                         macStr(g_whs.apMac).c_str(), g_whs.ssid, found);
-            sdCardManager.appendLine(SD_LOG_CRACKED_WS, logLine);
-        }
-    } else {
-        _dm.setTextColor(TFT_RED); _dm.println("No match.");
-        _dm.setCursor(10, _dm.getCursorY());
-        _dm.setTextColor(0x4208); _dm.println("Crack .cap offline with hashcat.");
+    // Save to SD once if cracked (before promiscuous is already torn down by caller)
+    if (found[0] && sdCardManager.isReady()) {
+        sdCardManager.ensureDir(SD_DIR_WPASNIFF);
+        char ts[22] = "";
+        ClockManager::instance().getTimestamp(ts, sizeof(ts));
+        char logLine[152];
+        if (ts[0])
+            snprintf(logLine, sizeof(logLine), "%s,%s,%s,%s",
+                     ts, macStr(g_whs.apMac).c_str(), g_whs.ssid, found);
+        else
+            snprintf(logLine, sizeof(logLine), "%s,%s,%s",
+                     macStr(g_whs.apMac).c_str(), g_whs.ssid, found);
+        sdCardManager.appendLine(SD_LOG_CRACKED_WS, logLine);
     }
 
     uint32_t elapsed = (millis() - t0) / 1000;
     uint32_t rate    = elapsed ? tried / elapsed : tried * 2;
-    _dm.setCursor(10, _dm.getCursorY());
-    char stat[48];
-    snprintf(stat, sizeof(stat), "%u tried, %u skipped  %us (%u/s)", tried, skipped, elapsed, rate);
-    _dm.setTextColor(0x4208); _dm.println(stat);
-    _dm.setTextColor(TFT_WHITE);
-    _dm.setCursor(10, _dm.getCursorY());
-    _dm.println("[q] back");
+
+    // Result render — repeatable so a lock-screen unlock can repaint it
+    auto drawResult = [&]() {
+        _dm.fillRect(10, tryY, 310, LINE_HEIGHT * 4 + 2, TFT_BLACK);
+        _dm.setCursor(10, tryY);
+        if (found[0]) {
+            _dm.setTextColor(TFT_GREEN); _dm.printText("[CRACKED] ");
+            _dm.setTextColor(TFT_WHITE); _dm.println(found);
+        } else {
+            _dm.setTextColor(TFT_RED); _dm.println("No match.");
+            _dm.setCursor(10, _dm.getCursorY());
+            _dm.setTextColor(0x4208); _dm.println("Crack .cap offline with hashcat.");
+        }
+        _dm.setCursor(10, _dm.getCursorY());
+        char stat[48];
+        snprintf(stat, sizeof(stat), "%u tried, %u skipped  %us (%u/s)", tried, skipped, elapsed, rate);
+        _dm.setTextColor(0x4208); _dm.println(stat);
+        _dm.setTextColor(TFT_WHITE);
+        _dm.setCursor(10, _dm.getCursorY());
+        _dm.println("[q] back");
+    };
+    drawResult();
 
     while (true) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            drawHeader();
+            tryY = _dm.getCursorY();
+            drawResult();
+        }
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
         delay(50);
