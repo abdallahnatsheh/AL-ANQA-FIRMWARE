@@ -82,6 +82,7 @@ static int pickList(const char* noun, const std::vector<String>& items, const ch
         dm.setCursor(4, dm.getCursorY()); dm.setTextColor(0x7BEF);
         dm.println("1-8 pick  a/l page  q cancel");
         while (true) {
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) break;  // unlock blanked menu → repaint
             char k = inputHandler.getKeyboardInput();
             if (k == 'q' || k == 'Q') return -1;
             if ((k == 'l' || k == 'L') && page < pages - 1) { page++; break; }
@@ -208,12 +209,18 @@ static void runCrack(const CrackJob& job, const std::vector<String>& wlFiles, bo
             : wpacrack::verifyPMKID(pw, job.ssid, job.apMac, job.staMac, job.pmkid, &ctx, sha1);
     };
 
-    header(job.haveHs ? "HSHAKE" : "PMKID");
-    dm.setCursor(4, dm.getCursorY());
-    dm.setTextColor(0x7BEF); dm.printText("SSID "); dm.setTextColor(TFT_WHITE);
-    char s[34]; snprintf(s, sizeof(s), "%.31s", job.ssid); dm.println(s);
-    dm.printSeparator();
-    int32_t statY = dm.getCursorY();
+    const char* noun = job.haveHs ? "HSHAKE" : "PMKID";
+    int32_t statY = 0;
+    // Static header (title + SSID) — redrawn after a lock-screen blanks it.
+    auto drawHeader = [&]() {
+        header(noun);
+        dm.setCursor(4, dm.getCursorY());
+        dm.setTextColor(0x7BEF); dm.printText("SSID "); dm.setTextColor(TFT_WHITE);
+        char s[34]; snprintf(s, sizeof(s), "%.31s", job.ssid); dm.println(s);
+        dm.printSeparator();
+        statY = dm.getCursorY();
+    };
+    drawHeader();
 
     char     found[64] = {0};
     uint32_t tried = 0, lastRedraw = 0, t0 = millis();
@@ -244,6 +251,9 @@ static void runCrack(const CrackJob& job, const std::vector<String>& wlFiles, bo
             if (line.length() < 8 || line.length() > 63) continue;
             tried++;
             uint32_t now = millis();
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+                drawHeader(); status(line.c_str()); lastRedraw = now;
+            }
             if (now - lastRedraw >= 300) {
                 lastRedraw = now; status(line.c_str());
                 char k = inputHandler.getKeyboardInput();
@@ -262,6 +272,9 @@ static void runCrack(const CrackJob& job, const std::vector<String>& wlFiles, bo
         for (int i = 0; i < wpacrack::kBuiltinCount && !done && !aborted; i++) {
             tried++;
             uint32_t now = millis();
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+                drawHeader(); status(wpacrack::kBuiltins[i]); lastRedraw = now;
+            }
             if (now - lastRedraw >= 300) {
                 lastRedraw = now; status(wpacrack::kBuiltins[i]);
                 char k = inputHandler.getKeyboardInput();

@@ -4,6 +4,24 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-06-20
+- **Lock-unlock repaint — crack screens + ssh** (field-validated ✅). Root bug: an app's
+  MAIN loop handling `consumeJustUnlocked()` does NOT cover its long-running SUB-loops.
+  Fixed the crack-progress + result/`[q]`-wait loops in `ws` `crack()`, `pm` `crack()`,
+  `cc` `runCrack()` (+ its wordlist `pickList` inner wait), and `karma` `karmaCrack()` —
+  each: static header wrapped in a `drawHeader()`/`drawStatic()` lambda, `consumeJustUnlocked()`
+  added to every crack loop + result wait → repaint header+status. **ssh** also fixed: it
+  draws terminal direct to `tft` (bypasses DisplayManager) → guarded `termRender()`+`drawHeader()`
+  with `isBlocked()` (was a content-LEAK: SSH output painting over the lock screen) + task-loop
+  `consumeJustUnlocked()` → `s_allDirty=true`+`redrawHeader()`. Details in [[project-lock-display-blocking]].
+- Known minor gap left: karma's `[any key] back to list` result waits (span two funcs).
+- **Improvement flagged (not done):** ws/pm/cc/karma crack screens are ~90% duplicate code
+  (header+source-picker+Trying-loop+result+SD-log); only the verify call differs
+  (`verifyHandshake` vs `verifyPMKID`). Extract a shared `wifi/core/wpa_crack_ui` helper taking
+  a verify callback — kills the dup (rule 5b) and centralizes the lock-unlock handling so the
+  next crack screen can't regress. Lower-risk than the dot11_tx/promisc extraction (backlog #2).
+- Changes uncommitted (user compiles/flashes manually).
+
 ## Session 2026-06-14
 - **ssh** — autocomplete host-name reload made stack-light (no 3.2KB HostProfile[] in 8KB main task); committed `681cc7f`. Terminal buffers (s_buf/s_col ~12.5KB) moved to lazy PSRAM, freed on exit; committed `b5d18a7` (pushed manually by user).
 - **karma/km Phases 1-3** — all field-tested working. P1 probe harvest+table; P2 PNL fingerprinting (defeats MAC rand) + DEVS view/intel cards; P3 WPA2 handshake bait (save-only .cap, no on-device crack) via `km hs <ssid>` + interactive `[h]` from list. HW-confirmed: own softAP M2 reaches promiscuous → deauth-free WPA2 capture works on S3. New module `wifi/attacks/karma/`. Full status in [[project_karma_plan]]. Next: Phase 4 open+captive portal. NOT committed yet.

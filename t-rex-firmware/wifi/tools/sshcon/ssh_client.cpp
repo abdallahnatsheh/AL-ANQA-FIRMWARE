@@ -21,6 +21,7 @@
 #include "display_manager.h"
 #include "input_handling.h"
 #include "sdcard_manager.h"
+#include "lockscreen_manager.h"
 #include "utilities.h"
 #include <Arduino.h>
 #include <WiFi.h>
@@ -239,6 +240,7 @@ static void drawScrollbar(int topLine) {
 }
 
 static void termRender() {
+    if (displayManager.isBlocked()) return;   // locked — keep dirty flags, repaint on unlock
     int topLine = liveTop() - s_view;
     if (topLine < 0) topLine = 0;
     for (int r = 0; r < ROWS; r++) {
@@ -249,6 +251,7 @@ static void termRender() {
 }
 
 static void drawHeader(const char* msg, uint16_t col) {
+    if (displayManager.isBlocked()) return;   // locked — header repainted on unlock
     tft.fillRect(0, outputY, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
     tft.setCursor(2, outputY);
     tft.setTextColor(col, TFT_BLACK);
@@ -325,6 +328,9 @@ static void sshTask(void* arg) {
         if (e > 0)            { for (int i = 0; i < e; i++) termPut(buf[i]); }
 
         char k = inputHandler.getKeyboardInput();
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            s_allDirty = true; redrawHeader();   // lock blanked the terminal — full repaint
+        }
         if (k) {
             if (s_view != 0) { s_view = 0; s_allDirty = true; redrawHeader(); }  // snap to live
             char tx = k;

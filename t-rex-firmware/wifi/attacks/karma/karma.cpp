@@ -677,9 +677,15 @@ static void karmaCrack(const char* ssid, const uint8_t apMac[6], const uint8_t s
         useSD = (c == '1');
         drawCrackHeader();   // wipe the picker so crack status starts clean
     }
-    dm.setCursor(4, dm.getCursorY()); dm.setTextColor(0x7BEF);
-    dm.println(useSD ? "Source: SD wordlist" : "Source: built-in (100)");
-    int32_t statY = dm.getCursorY();
+    // Static area (header + source line) — redrawn after a lock-screen blanks it.
+    int32_t statY = 0;
+    auto drawStatic = [&]() {
+        drawCrackHeader();
+        dm.setCursor(4, dm.getCursorY()); dm.setTextColor(0x7BEF);
+        dm.println(useSD ? "Source: SD wordlist" : "Source: built-in (100)");
+        statY = dm.getCursorY();
+    };
+    drawStatic();
 
     char found[64] = {0};
     uint32_t tried = 0, lastRedraw = 0;
@@ -701,6 +707,9 @@ static void karmaCrack(const char* ssid, const uint8_t apMac[6], const uint8_t s
             if (line.length() < 8) continue;
             tried++;
             uint32_t now = millis();
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+                drawStatic(); status(line.c_str()); lastRedraw = now;
+            }
             if (now - lastRedraw >= 300) {
                 lastRedraw = now; status(line.c_str());
                 if (inputHandler.getKeyboardInput() == 'q') { aborted = true; break; }
@@ -718,6 +727,9 @@ static void karmaCrack(const char* ssid, const uint8_t apMac[6], const uint8_t s
     for (int i = 0; i < wpacrack::kBuiltinCount && !done && !aborted; i++) {
         tried++;
         uint32_t now = millis();
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            drawStatic(); status(wpacrack::kBuiltins[i]); lastRedraw = now;
+        }
         if (now - lastRedraw >= 300) {
             lastRedraw = now; status(wpacrack::kBuiltins[i]);
             if (inputHandler.getKeyboardInput() == 'q') { aborted = true; break; }
