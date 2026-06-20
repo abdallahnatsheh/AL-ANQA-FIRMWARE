@@ -151,6 +151,7 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `crack` | `cc` | `[cap] [wordlist\|dir]` | Offline WPA/WPA2 crack of a `.cap` (handshake or PMKID) — SD wordlists, a dir of lists, or built-in; `cd`-relative paths |
 | `wguard` | `wg` | `<idx\|bssid> [ch] [bg]` | WiFi IDS — passive intrusion detection; `wg stop` / `wg view` |
 | `beaconflood` | `bf` | `[list\|rickroll\|seq <base>\|file [path]\|clone]` | Beacon flood — fake AP injection; interactive mode picker; clone mirrors real network security |
+| `wardrive` | `wd` | — | Wardriving (Plus only) — continuous WiFi scan + GPS → WiGLE 1.4 CSV; one row per AP per session; logs only while a fix is valid |
 | `espsniff` | `es` | `[ch 1-13]` | Passive ESP-NOW frame sniffer — CSV + PCAP output, filter, detail view |
 | `esptest` | `est` | `[ch 1-13]` | ESP-NOW TX/RX diagnostic — broadcasts every 2 s, shows RX log |
 | `espchat` | `ec` | `[pub\|prv\|bg\|stop] [ch]` | Off-grid ESP-NOW chat — public broadcast (any ESP32 compatible) or private AES-128 encrypted 1:1; `ec bg` runs in background |
@@ -241,6 +242,7 @@ All scan tables share the same keys:
 /apps/karma/              — <ssid>.cap (half-handshake, never overwritten), cracked.csv, creds.csv, connects.csv (auto-mode engagements), wordlist.txt, NNN.csv (saved tables), portal/*.html
 /apps/capcrack/cracked.csv — offline cap-cracker results (crack/cc)
 /apps/wifimon/            — raw 802.11 PCAP files (NNN.cap) + probes.csv
+/apps/wardrive/           — WiGLE-format wardrive logs (001.csv, 002.csv … — never overwritten)
 /apps/wguard/             — wguard session files (001.csv, 002.csv … — never overwritten)
 /apps/beaconflood/wordlist.txt — custom SSID list for bf file
 /apps/bmon/               — BLE advertisement logs (NNN.csv)
@@ -276,6 +278,7 @@ All scan tables share the same keys:
 - [x] Claude Desktop Buddy — BLE remote, permission prompts, ASCII pet, NVS stats; MITM-bonded passkey pairing
 - [x] BadUSB / DuckyScript — Flipper Zero DuckyScript v1 compatible, hyphenated combos, REPEAT, built-in demo
 - [x] `wguard` WiFi IDS — deauth flood, evil twin (two-tier RSSI-filtered detection), handshake harvest, PMKID grab, auth flood, probe storm, beacon flood, BSSID cloning, Karma attack; background mode with shield icon + popup bars; session CSV logs (session-relative timestamps, no duplicate events across save blocks)
+- [x] `wardrive` (Plus only) — continuous async WiFi scan + GPS → WiGLE WiFi-1.4 CSV (`/apps/wardrive/NNN.csv`, never overwritten); waits for the first GPS fix (radio idle) before scanning, logs each BSSID once per session only while a fix is valid; file created lazily on the first AP (no empty files); verified against the official WiGLE 1.4 spec
 - [x] Notification manager — I2S WAV playback from SD, per-level volume, screen wake callback; wired into Buddy, TrackMe, wguard
 - [x] Lock screen — idle-timeout auto-lock (keyboard + trackpad both reset timer) + hold-trackpad-3s trigger; no-PIN (Space ×3) or SHA-256-hashed PIN (salt via esp_random, mbedTLS); live locked-duration HH:MM:SS; yellow warning when no SD card; recovery = remove SD + reboot; status bar stays live (clock/WiFi/battery update every 1 s while locked)
 - [x] Lock screen display blocking — all interactive apps (`buddy`, `wguard`, `trackme`, `beaconflood`, `cat`, `ls`, etc.) correctly freeze on lock and fully restore on unlock

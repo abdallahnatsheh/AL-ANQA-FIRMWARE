@@ -37,6 +37,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 
 - [Scan & Connect](wifi-scan) — `scanwifi` · `connectwifi` · `clearwifi`
 - [WiFi Monitor](wifimon) — `wifimon`
+- [Wardrive](wardrive) — `wardrive` — WiFi + GPS → WiGLE CSV (Plus only)
 - [WiFi Credentials](wifi-credentials) — `wifipass` · `wifiexport`
 - [MAC Changer](macchanger) — `macchanger`
 - [WiFi Attacks](wifi-attacks)

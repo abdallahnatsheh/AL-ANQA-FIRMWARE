@@ -59,7 +59,7 @@
 - `usbethernet` — RNDIS/ECM USB gadget (T-DECK as USB Ethernet adapter)
 
 ### GPS / Mapping
-- `wardriving` — Drive + scan WiFi → GPS-tagged CSV (Wigle / Kismet compatible)
+- ~~`wardriving`~~ — ✅ DONE as `wardrive`/`wd` — continuous WiFi scan + GPS → WiGLE WiFi-1.4 CSV (`/apps/wardrive/NNN.csv`), Plus only
 - `gpstrack` — Raw GPS track log → NMEA or GPX file
 - `geofence` — Alert when GPS leaves/enters defined radius
 
@@ -81,6 +81,6 @@
 |---|---------|-----|
 | 1 | `macwatch` | Trivial to add — reuses bmon ring buffer and OUI table |
 | 2 | `lscan` / `lsniff` | RadioLib already in deps; hardware is idle |
-| 3 | `wardriving` | High value for a GPS-equipped pentest deck |
+| 3 | ~~`wardriving`~~ ✅ | Done — `wardrive`/`wd`, WiGLE 1.4 CSV |
 | 4 | `i2cscan` | ~10 lines; great hardware hacking diagnostic |
 | 5 | `wps` attack | High demand; needs raw 802.11 or external WPS library |

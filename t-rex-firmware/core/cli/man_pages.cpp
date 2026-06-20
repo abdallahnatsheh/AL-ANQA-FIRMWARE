@@ -392,6 +392,24 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "wardrive", "wd", {
+        "SYNTAX   wardrive   (T-Deck Plus only)",
+        "",
+        "ABOUT    Continuous WiFi scan + GPS fix ->",
+        "         WiGLE WiFi-1.4 CSV. Logs each AP",
+        "         once per session with coords.",
+        "",
+        "GPS      Starts the GPS task if not running.",
+        "         Waits for the first fix (radio idle)",
+        "         THEN scans + logs. Cold fix ~4 min",
+        "         outdoors. No fix = nothing logged.",
+        "",
+        "FILES    /apps/wardrive/NNN.csv (never over-",
+        "         written). Created on the FIRST AP -",
+        "         empty runs leave no file. wigle.net.",
+        "KEYS     q stop  (GPS stays on)",
+        nullptr
+    }},
     { "crack", "cc", {
         "SYNTAX   cc                  (pick cap+list)",
         "         cc <cap> [wordlist]",
