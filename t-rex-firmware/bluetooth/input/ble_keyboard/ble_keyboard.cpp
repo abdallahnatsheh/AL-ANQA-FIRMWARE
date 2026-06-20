@@ -208,56 +208,7 @@ void BleKeyboard::start() {
 
     DisplayManager& dm = displayManager;
 
-    // ── Init NimBLE HID ───────────────────────────────────────────────────────
-    s_bleConnected = false;
-    s_connHandle   = BLE_HS_CONN_HANDLE_NONE;
-    s_bleExiting   = false;
-    s_kbdStaleBond = false;
-    // Double-cycle cold-reset — required; single-cycle leaves the HID stack in
-    // a state that crashes on exit. Longer delays (200ms) prevent crashes when
-    // coming from buddy, which leaves its own init("T-REX") active on exit.
-    if (NimBLEDevice::isInitialized()) {
-        NimBLEDevice::deinit(true);
-        vTaskDelay(pdMS_TO_TICKS(200));
-    }
-    NimBLEDevice::init("T-REX-KBD");
-    vTaskDelay(pdMS_TO_TICKS(200));
-    NimBLEDevice::deinit(true);
-    vTaskDelay(pdMS_TO_TICKS(200));
-    NimBLEDevice::init("T-REX-KBD");
-    // Stable unique address for btkbd (suffix CB) — different from buddy (BD) so
-    // Windows stores two separate bonds and never confuses keyboard with NUS client.
-    // Must be called after init() — ble_hs_id_set_rnd needs the host running.
-    {
-        uint8_t hwmac[6];
-        esp_read_mac(hwmac, ESP_MAC_BT);
-        char macStr[18];
-        snprintf(macStr, sizeof(macStr), "C2:%02X:%02X:%02X:%02X:CB",
-                 hwmac[1], hwmac[2], hwmac[3], hwmac[4]);
-        NimBLEDevice::setOwnAddr(NimBLEAddress(macStr, BLE_ADDR_RANDOM));  // register first
-        NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);                // succeeds now address exists
-    }
-    // Just Works — no PIN dialog, link is encrypted after pairing
-    NimBLEDevice::setSecurityAuth(true, false, false);
-    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
-
-    NimBLEServer* server = NimBLEDevice::createServer();
-    // Use heap-allocated callback: NimBLE v2.x setCallbacks() defaults deleteCallbacks=true,
-    // so deinit(true) will delete it cleanly. Using a static address would crash.
-    server->setCallbacks(new BleKbdServerCb());
-
-    NimBLEHIDDevice* hid = new NimBLEHIDDevice(server);
-    hid->setManufacturer("T-REX");
-    hid->setPnp(0x02, 0x05AC, 0x820A, 0x0110);
-    hid->setHidInfo(0x00, 0x02);
-    hid->setReportMap((uint8_t*)kHidDescriptor, sizeof(kHidDescriptor));
-    _inputKbd   = hid->getInputReport(1);
-    _inputMouse = hid->getInputReport(2);
-
-    NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-    adv->setAppearance(HID_KEYBOARD);
-    adv->addServiceUUID(hid->getHidService()->getUUID());
-    NimBLEDevice::startAdvertising();
+    beginHid();   // NimBLE HID init + advertise (shared with jiggle())
 
     // ── Phase 1 static draw ───────────────────────────────────────────────────
     int waitY = 0;
@@ -494,6 +445,71 @@ void BleKeyboard::start() {
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
+    endHid();
+
+    dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+    dm.setTextColor(TFT_GREEN); dm.println("BLE KBD ended.");
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    dm.printCommandScreen();
+}
+
+// ── beginHid() / endHid() ─────────────────────────────────────────────────────
+// Shared NimBLE HID init + teardown used by both start() (kbd+mouse) and jiggle()
+// (mouse-only). The HID report map carries BOTH keyboard (ID 1) and mouse (ID 2)
+// reports; the jiggler simply only ever sends mouse reports.
+void BleKeyboard::beginHid() {
+    s_bleConnected = false;
+    s_connHandle   = BLE_HS_CONN_HANDLE_NONE;
+    s_bleExiting   = false;
+    s_kbdStaleBond = false;
+    // Double-cycle cold-reset — required; single-cycle leaves the HID stack in
+    // a state that crashes on exit. Longer delays (200ms) prevent crashes when
+    // coming from buddy, which leaves its own init("T-REX") active on exit.
+    if (NimBLEDevice::isInitialized()) {
+        NimBLEDevice::deinit(true);
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+    NimBLEDevice::init("T-REX-KBD");
+    vTaskDelay(pdMS_TO_TICKS(200));
+    NimBLEDevice::deinit(true);
+    vTaskDelay(pdMS_TO_TICKS(200));
+    NimBLEDevice::init("T-REX-KBD");
+    // Stable unique address for btkbd (suffix CB) — different from buddy (BD) so
+    // Windows stores two separate bonds and never confuses keyboard with NUS client.
+    // Must be called after init() — ble_hs_id_set_rnd needs the host running.
+    {
+        uint8_t hwmac[6];
+        esp_read_mac(hwmac, ESP_MAC_BT);
+        char macStr[18];
+        snprintf(macStr, sizeof(macStr), "C2:%02X:%02X:%02X:%02X:CB",
+                 hwmac[1], hwmac[2], hwmac[3], hwmac[4]);
+        NimBLEDevice::setOwnAddr(NimBLEAddress(macStr, BLE_ADDR_RANDOM));  // register first
+        NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);                // succeeds now address exists
+    }
+    // Just Works — no PIN dialog, link is encrypted after pairing
+    NimBLEDevice::setSecurityAuth(true, false, false);
+    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
+
+    NimBLEServer* server = NimBLEDevice::createServer();
+    // Use heap-allocated callback: NimBLE v2.x setCallbacks() defaults deleteCallbacks=true,
+    // so deinit(true) will delete it cleanly. Using a static address would crash.
+    server->setCallbacks(new BleKbdServerCb());
+
+    NimBLEHIDDevice* hid = new NimBLEHIDDevice(server);
+    hid->setManufacturer("T-REX");
+    hid->setPnp(0x02, 0x05AC, 0x820A, 0x0110);
+    hid->setHidInfo(0x00, 0x02);
+    hid->setReportMap((uint8_t*)kHidDescriptor, sizeof(kHidDescriptor));
+    _inputKbd   = hid->getInputReport(1);
+    _inputMouse = hid->getInputReport(2);
+
+    NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+    adv->setAppearance(HID_KEYBOARD);
+    adv->addServiceUUID(hid->getHidService()->getUUID());
+    NimBLEDevice::startAdvertising();
+}
+
+void BleKeyboard::endHid() {
     _inputKbd    = nullptr;
     _inputMouse  = nullptr;
     s_bleExiting = true;
@@ -528,9 +544,144 @@ void BleKeyboard::start() {
     vTaskDelay(pdMS_TO_TICKS(200));
 
     SD.begin(39);
+}
+
+// ── jiggle() ──────────────────────────────────────────────────────────────────
+// BLE mouse jiggler: nudges the host pointer +2px right then -2px left every 30s
+// to prevent screen lock. Cursor returns to origin — imperceptible. Same UX as the
+// USB jiggler (UsbKeyboard::jiggle), but over BLE HID — reuses the btkbd HID stack.
+void BleKeyboard::jiggle() {
+    static const uint32_t INTERVAL_MS = 30000;
+    DisplayManager& dm = displayManager;
+
+    beginHid();   // advertise as T-REX-KBD; host pairs once, then jiggles
+
+    // ── Static screen (reused on lock-unlock redraw) ──────────────────────────
+    int statusY = 0;
+    bool connected = false;       // tracked locally so the layout changes on connect
+    auto drawScreen = [&]() {
+        dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+        dm.setTextColor(0x7BEF);     dm.printText("[");
+        dm.setTextColor(TFT_CYAN);   dm.printText("BLE");
+        dm.setTextColor(0x7BEF);     dm.printText("::");
+        dm.setTextColor(TFT_GREEN);  dm.printText("JIGGLE");
+        dm.setTextColor(0x7BEF);     dm.println("]");
+        dm.printSeparator();
+        dm.setCursor(10, dm.getCursorY());
+        if (!connected) {
+            dm.setTextColor(TFT_WHITE); dm.println("Advertising: T-REX-KBD");
+            dm.setCursor(10, dm.getCursorY());
+            dm.setTextColor(0x7BEF);    dm.println("Pair on host...");
+        } else {
+            dm.setTextColor(TFT_WHITE); dm.println("Jiggling every 30s.");
+        }
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(0x7BEF);     dm.println("Press q to stop.");
+        dm.printSeparator();
+        statusY = dm.getCursorY();
+    };
+    drawScreen();
+
+    // ── Phase 1: wait for host to connect ─────────────────────────────────────
+    bool        exitReq   = false;
+    uint32_t    lastDrawMs = 0;
+    uint8_t     spinIdx    = 0;
+    const char* spinChars  = "|/-\\";
+
+    while (!s_bleConnected && !exitReq) {
+        uint32_t now = millis();
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) { drawScreen(); lastDrawMs = 0; }
+
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') { exitReq = true; break; }
+
+        if (now - lastDrawMs >= 250) {
+            lastDrawMs = now;
+            dm.fillRect(0, statusY, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+            dm.setCursor(10, statusY);
+            char spin[2] = { spinChars[spinIdx++ & 3], 0 };
+            dm.setTextColor(TFT_CYAN);   dm.printText("Waiting ");
+            dm.setTextColor(TFT_YELLOW); dm.println(spin);
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+
+    // ── Phase 2: jiggle loop ──────────────────────────────────────────────────
+    if (!exitReq) {
+        connected = true;
+        drawScreen();
+
+        uint32_t lastJiggleMs  = millis() - INTERVAL_MS;  // jiggle immediately on start
+        uint32_t lastDisplayMs = 0;
+        uint32_t jiggles       = 0;
+        bool     running       = true;
+
+        while (running) {
+            uint32_t now = millis();
+
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) { drawScreen(); lastDisplayMs = 0; }
+
+            char k = inputHandler.getKeyboardInput();
+            if (k == 'q' || k == 'Q') break;
+
+            // Host dropped the link — pause, show banner, wait for reconnect
+            if (!s_bleConnected) {
+                dm.fillRect(0, statusY, SCREEN_WIDTH, LINE_HEIGHT * 2, TFT_BLACK);
+                dm.setCursor(10, statusY);
+                dm.setTextColor(TFT_YELLOW); dm.println("Host disconnected.");
+                dm.setCursor(10, statusY + LINE_HEIGHT);
+                dm.setTextColor(0x7BEF);     dm.println("Reconnecting...");
+                while (!s_bleConnected && running) {
+                    if (inputHandler.getKeyboardInput() == 'q') { running = false; break; }
+                    if (LockScreenManager::getInstance().consumeJustUnlocked()) drawScreen();
+                    vTaskDelay(pdMS_TO_TICKS(50));
+                }
+                if (!running) break;
+                drawScreen();                       // reconnected — restore layout
+                lastJiggleMs  = now - INTERVAL_MS;  // jiggle right away after reconnect
+                lastDisplayMs = 0;
+                continue;
+            }
+
+            if (now - lastJiggleMs >= INTERVAL_MS) {
+                lastJiggleMs = now;
+                sendMouseMove(2, 0);
+                vTaskDelay(pdMS_TO_TICKS(80));
+                sendMouseMove(-2, 0);
+                jiggles++;
+            }
+
+            if (now - lastDisplayMs >= 250) {
+                lastDisplayMs = now;
+                uint32_t secsLeft = (INTERVAL_MS - (now - lastJiggleMs)) / 1000;
+                dm.fillRect(0, statusY, SCREEN_WIDTH, LINE_HEIGHT * 2, TFT_BLACK);
+                dm.setCursor(10, statusY);
+                dm.setTextColor(TFT_CYAN);  dm.printText("Next jiggle in ");
+                dm.setTextColor(TFT_YELLOW);
+                char buf[8]; snprintf(buf, sizeof(buf), "%lus", (unsigned long)secsLeft);
+                dm.println(buf);
+                dm.setCursor(10, statusY + LINE_HEIGHT);
+                dm.setTextColor(TFT_CYAN);  dm.printText("Jiggles: ");
+                dm.setTextColor(TFT_WHITE);
+                snprintf(buf, sizeof(buf), "%lu", (unsigned long)jiggles);
+                dm.println(buf);
+            }
+
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+    }
+
+    endHid();
 
     dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
-    dm.setTextColor(TFT_GREEN); dm.println("BLE KBD ended.");
+    dm.setTextColor(TFT_GREEN); dm.println("BLE jiggler stopped.");
     vTaskDelay(pdMS_TO_TICKS(1500));
+
+    // We never read the trackball during the session, so any center-hold/clicks
+    // (e.g. trying to exit) stay latched. Drain them so a stale edge can't reload
+    // "jg ble" from history and a latched click re-run us back into the jiggler.
+    while (inputHandler.getTrackballEvent() != TBALL_NONE) { /* resync edges */ }
+    inputHandler.clearPendingClicks();
+
     dm.printCommandScreen();
 }

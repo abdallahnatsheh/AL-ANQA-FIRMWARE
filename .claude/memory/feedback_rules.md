@@ -10,6 +10,7 @@ type: feedback
 3. No full license text via Write — AGPL-3.0 text triggers content filter. User pastes manually.
 4. Concise — Abdallah wants direct communication, file:line refs, no padding.
 5. Do NOT run `pio run` / compile — Abdallah compiles + flashes manually (his hardware). Write code, let him build. He also tests on-device per phase ("manual test first").
+6. Commits in HIS name ONLY — do NOT add the `Co-Authored-By: Claude` trailer. Plain commit message, no attribution footer.
 
 ## Code Quality
 5. Reuse existing code — read the class before writing new functions. If a method exists, call it.

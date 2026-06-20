@@ -309,6 +309,9 @@ static const ArgHintEntry kArgHints[] = {
     // trackme / tm  ("silent" IS a valid first arg: tm [silent])
     { "trackme",     "",              "silent" },
     { "tm",          "",              "silent" },
+    // jiggle / jg  (jg [usb|ble] — default USB)
+    { "jiggle",      "",              "usb ble" },
+    { "jg",          "",              "usb ble" },
     // blespam / bs
     { "blespam",     "",              "apple android ms samsung all" },
     { "bs",          "",              "apple android ms samsung all" },
@@ -698,7 +701,7 @@ void CommandManager::setupCommands() {
     registerCommand("usbkbd",      "uk",     [](char* a) { usbKeyboard.start(); },                                                               "T-DECK as USB keyboard+mouse",            false, "USB");
     registerCommand("btkbd",       "bk",     [](char* a) { bleKeyboard.start(); },                                                               "T-DECK as BLE keyboard+mouse",            false, "Bluetooth");
     registerCommand("usbexec",     "ux",     [](char* a) { handleUsbExecCmd(a); },                                              "BadUSB/DuckyScript executor",             true,  "USB",  COMP_FILE);
-    registerCommand("jiggle",      "jg",     [](char* a) { usbKeyboard.jiggle(); },                                             "Mouse jiggler — prevent screen lock",     false, "USB");
+    registerCommand("jiggle",      "jg",     [](char* a) { if (a && (a[0]=='b'||a[0]=='B')) bleKeyboard.jiggle(); else usbKeyboard.jiggle(); }, "Jiggler: jg [ble] — prevent screen lock", true,  "USB");
     // ── Diagnostics ───────────────────────────────────────────────────────────
     registerCommand("gps",         "gps",    [](char* a) { runGps(a); },                                                "GPS: gps on|off|test",                    true,  "Diagnostics");
     registerCommand("spktest",     "st",     [](char* a) { runSpeakerTest(); },                                              "Speaker tone test",                       false, "Diagnostics");

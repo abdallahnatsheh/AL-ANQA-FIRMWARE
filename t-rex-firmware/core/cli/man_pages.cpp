@@ -657,14 +657,18 @@ static const ManEntry PAGES[] = {
     }},
 
     { "jiggle", "jg", {
-        "SYNTAX   jiggle",
+        "SYNTAX   jiggle [ble]",
         "",
         "ABOUT    Mouse jiggler. Nudges cursor +2/-2px",
         "         every 30s to prevent screen lock.",
         "         Cursor returns to original position.",
         "",
-        "USE      Plug T-Deck into target PC via USB,",
-        "         run jiggle, leave machine unattended.",
+        "MODE     jg       USB HID (plug in cable)",
+        "         jg ble   BLE HID (pair on host)",
+        "",
+        "USE      USB: plug into target PC, run jg.",
+        "         BLE: run jg ble, pair T-REX-KBD on",
+        "         the host, leave unattended.",
         "",
         "EXIT     q",
         nullptr
