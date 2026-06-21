@@ -3,6 +3,8 @@
 // Copyright (C) 2026 Abdallah Natsheh
 //
 // wardrive / wd — continuous WiFi scan + GPS → WiGLE WiFi-1.4 CSV.
+// Synchronous scan + WiGLE-logging method adapted from Bruce firmware
+// (BruceDevices/firmware, src/modules/gps/wardriving.cpp). See NOTICES.
 
 #include "wardrive.h"
 #include "display_manager.h"
