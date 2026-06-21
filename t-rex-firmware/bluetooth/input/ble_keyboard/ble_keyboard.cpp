@@ -506,6 +506,14 @@ void BleKeyboard::beginHid() {
     NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
     adv->setAppearance(HID_KEYBOARD);
     adv->addServiceUUID(hid->getHidService()->getUUID());
+    // NimBLE v2.x does NOT auto-include the device name in the advertisement.
+    // Windows lists the device by HID appearance alone, but BlueZ/GNOME's
+    // Bluetooth panel only surfaces a device once it sees the COMPLETE LOCAL
+    // NAME — so without this, btkbd / "jg ble" pairs fine on Windows yet never
+    // shows up in Ubuntu settings. Put the name in the scan response (same
+    // pattern as buddy.cpp).
+    adv->enableScanResponse(true);
+    adv->setName("T-REX-KBD");
     NimBLEDevice::startAdvertising();
 }
 
