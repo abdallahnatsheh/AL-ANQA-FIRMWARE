@@ -4,6 +4,62 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-06-21 (wardrive: switched to Bruce's SYNCHRONOUS scan)
+- **Replaced the async scan with synchronous `WiFi.scanNetworks(false,true)`** (Bruce's method,
+  `BruceDevices/firmware` src/modules/gps/wardriving.cpp — studied via GitHub API/raw). RATIONALE:
+  async kept producing a "scans APs but logs nothing" bug class (failed async *start* read back as
+  `WIFI_SCAN_FAILED(-2)` and mistaken for a finished empty sweep); sync can't get wedged, so the
+  ENTIRE async surface is deleted — no state machine, no watchdog, no `esp_wifi_scan_stop()`, no
+  `esp_wifi.h`. Reliability from not using async (same as Bruce/Marauder).
+- KEPT all project-specific wins: Phase 1 fix-gate (NVS-collision fix — Bruce has no equivalent),
+  lazy file, PSRAM dedup, hidden-AP logging (`show_hidden=true`, which Bruce omits), GDMA-safe
+  staged write, gate diagnostic. ADDED from Bruce: `vTaskDelay(1)` every 32 rows (WDT yield) +
+  `vTaskDelay(120)` after `scanDelete()` before SD I/O. Cost: UI freezes ~3-4s/sweep (shown as
+  "Scanning..."), `[q]` honoured in the 1s inter-sweep pace window.
+- **AccuracyMeters changed HDOP×5 → HDOP×1** to match Bruce's convention (user endorsed Bruce's
+  method). Altitude unchanged (`gm.altitude()` == Bruce's `gps.altitude.meters()`, confirmed identical).
+- Web-verified the whole design against Bruce + Marauder; altitude/HDOP/dedup/scanDelete all match.
+- NOT yet flashed/field-tested after the sync switch.
+
+## Session 2026-06-21 (wardrive: real alt/HDOP + logging-regression fix)
+NOTE: the async logging-regression fix + scan self-healing below were SUPERSEDED same day by the
+sync switch above (async removed entirely). Alt/HDOP exposure in GpsManager still stands.
+- **GpsManager now exposes `altitude()` (m MSL) + `hdop()`** — two `volatile float` members read in
+  `gpsTask` from TinyGPS++ `altitude.meters()` / `hdop.hdop()` (verified the vendored
+  `lib/TinyGPSPlus` API: both inherit `TinyGPSDecimal`, units already real). Reset in `start()`.
+- **wardrive CSV upgraded**: AltitudeMeters = real `gm.altitude()` (was hardcoded `0`); AccuracyMeters
+  = `hdop×5 m`, falls back to the old sats heuristic (8/20 m) when HDOP is 0.
+- **FIXED the "scans APs but logs nothing" async regression.** ROOT CAUSE: the loop ignored
+  `WiFi.scanNetworks(true,..)`'s return and set `scanning=true` unconditionally; a failed *start*
+  read back as `WIFI_SCAN_FAILED(-2)`, and the old `n != WIFI_SCAN_RUNNING` test mistook `-2` for a
+  *finished* sweep → `scans++`, torn down, zero rows logged. Now a **three-state machine**: only
+  `WIFI_SCAN_RUNNING` enters the wait state; `scanComplete()` routes `-1`→wait, `-2`→discard+retry
+  (not counted), `>=0`→real sweep. Also `logged`/`lastWrote` now count only **successful**
+  `appendLine()` returns (failed write no longer inflates the total).
+- **Added a one-glance gate diagnostic** on screen: `sweep n=.. fix=.. new=.. wr=..` (APs returned /
+  GPS valid / rows staged / rows written) — per [[feedback_rules]] #7, one flash now pinpoints any
+  remaining logging-gate failure instead of guessing.
+- Surfaces updated: gps_manager.h/.cpp, wardrive.cpp, docs/wardrive.md, CLAUDE.md.
+- **Scan self-healing (added later 2026-06-21, not yet field-tested):** shared `onScanFail()` lambda
+  handles start-fail / `-2` / watchdog uniformly — `esp_wifi_scan_stop()` (the REAL abort) +
+  scanDelete + paced retry; `SCAN_TIMEOUT_MS=8s` watchdog aborts a sweep that started but never
+  completes. NOTE (caught in self-review): `WiFi.scanDelete()` only frees results and
+  `WiFi.mode(WIFI_STA)` short-circuits to a no-op when already STA — so `esp_wifi_scan_stop()` is the
+  only thing that actually un-sticks a wedged async scan. Builds clean; verify on the outdoor run.
+- ✅ **HW-VERIFIED 2026-06-21** — flashed to T-Deck Plus (build RAM 60.8% / Flash 37.4%), wardrive
+  logging works again. (Flashed by Claude this session via `~/.platformio/penv/bin/pio run -e
+  T-Deck-Plus -t upload --upload-port /dev/ttyACM0` — note: user is NOT in `dialout` group, needed
+  `sudo chmod 666 /dev/ttyACM0` first; permanent fix = `sudo usermod -aG dialout $USER` + re-login.)
+
+## Session 2026-06-21 (jg ble / btkbd — Linux BlueZ discoverability)
+- **FIXED: `jg ble` (BLE mouse jiggler) + `btkbd` invisible in Ubuntu Bluetooth Settings** (paired fine
+  on Windows). Cause: `beginHid()` advertised appearance + HID service UUID but never set the device
+  name — NimBLE v2.x doesn't auto-include it, and BlueZ/GNOME only lists a device once it sees the
+  COMPLETE LOCAL NAME (Windows is lenient, lists by HID appearance). Fix = buddy-style
+  `adv->enableScanResponse(true); adv->setName("T-REX-KBD");` before `startAdvertising()`. Shared
+  `beginHid()` so both btkbd + jg ble fixed. This is exactly [[nimble_v2_rules]] #1 — the code just
+  wasn't following it. ✅ **HW-VERIFIED 2026-06-21** (user confirmed it shows up + works on Ubuntu).
+
 ## Session 2026-06-20 (wardrive)
 - **wardrive/wd** (Plus only) — WiFi scan + GPS → WiGLE WiFi-1.4 CSV. New module `wifi/tools/wardrive/`.
   Field-tested working (logged real APs). Key hard-won fixes during bring-up:
@@ -19,7 +75,7 @@ type: project
   - SD rows staged in RAM `vector<String>`, flushed after `WiFi.scanDelete()` (radio idle) — GDMA-safe.
   - On-screen `Heap NNk min NNk` leak watch ("scanNetworks returns 0" is documented as heap exhaustion).
   - **WiGLE 1.4 format verified against the official spec** (api.wigle.net/csvFormat-1_4.html) + Bruce
-    + dkyazzentwatwa/esp32-gps-wifi-wigle references. MAC lowercase, FirstSeen=GPS UTC, Alt=0 (not exposed).
+    + dkyazzentwatwa/esp32-gps-wifi-wigle references. MAC lowercase, FirstSeen=GPS UTC, Alt=0 (not exposed). [superseded 2026-06-21: real alt+HDOP now]
   - All surfaces updated: command_manager (+arg none, no-arg cmd), man_pages, docs/wardrive.md, docs/index,
     README, CLAUDE.md, sdcard_manager (SD_DIR_WARDRIVE + tree + apps README), platformio.ini (-I).
   - Lesson (user feedback): I can't flash hardware — stop iterating speculative fixes in chat; instrument

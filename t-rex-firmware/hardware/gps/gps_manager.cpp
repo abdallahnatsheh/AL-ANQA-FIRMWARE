@@ -33,6 +33,10 @@ void GpsManager::gpsTask(void* pv) {
                 self->_fixSaved = true;
             }
         }
+        if (self->_gps.altitude.isValid())
+            self->_alt = (float)self->_gps.altitude.meters();
+        if (self->_gps.hdop.isValid())
+            self->_hdop = (float)self->_gps.hdop.hdop();
         if (self->_gps.satellites.isValid())
             self->_sats = self->_gps.satellites.value();
         if (self->_gps.time.isValid()) {
@@ -168,7 +172,7 @@ void GpsManager::initModule() {
 void GpsManager::start() {
     if (_task) return; // already running
 
-    _valid = false; _lat = 0; _lon = 0; _sats = 0;
+    _valid = false; _lat = 0; _lon = 0; _alt = 0; _hdop = 0; _sats = 0;
     _timeValid = false; _hour = 0; _minute = 0; _second = 0; _chars = 0;
     _stop = false;
     _fixSaved     = false;

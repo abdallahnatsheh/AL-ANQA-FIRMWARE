@@ -6,7 +6,7 @@
 - [NimBLE v2.x Rules](nimble_v2_rules.md) — scan response name, cleanup no re-init, scan non-blocking, auto-bond-delete
 
 ## State
-- [Progress Log](progress_log.md) — last session 2026-06-12 (espvoice/ev + mictest/mt); not-yet-built list
+- [Progress Log](progress_log.md) — last session 2026-06-21 (wardrive switched to Bruce SYNC scan [async removed]; real alt/HDOP; jg ble/btkbd Linux BlueZ name fix ✅HW-verified); not-yet-built list
 - [Next Steps](next_steps.md) — priority queue: WiFi(1-9)→BT(10-12)→GPS(13-14)→USB(15-18)→Other(19-26)
 
 ## Improvement backlog (hardening — user will consider)
