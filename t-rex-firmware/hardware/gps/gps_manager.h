@@ -18,6 +18,8 @@ public:
     bool        isValid()        const { return _valid; }
     float       lat()            const { return _lat; }
     float       lon()            const { return _lon; }
+    float       altitude()       const { return _alt; }   // metres MSL; 0 until a 3D fix
+    float       hdop()           const { return _hdop; }  // horizontal dilution; 0 = unknown
     uint32_t    satellites()     const { return _sats; }
     bool        timeValid()      const { return _timeValid; }
     uint8_t     hour()           const { return _hour; }
@@ -51,6 +53,8 @@ private:
     volatile bool     _valid     = false;
     volatile float    _lat       = 0.0f;
     volatile float    _lon       = 0.0f;
+    volatile float    _alt       = 0.0f;   // altitude metres MSL (TinyGPS++ altitude.meters())
+    volatile float    _hdop      = 0.0f;   // horizontal dilution of precision (hdop.hdop())
     volatile uint32_t _sats      = 0;
     volatile bool     _timeValid = false;
     volatile uint8_t  _hour      = 0;
