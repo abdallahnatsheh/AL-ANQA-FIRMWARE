@@ -52,7 +52,7 @@ CMD> nf test            # interactive picker — press 1-5 to play, [a] all, [q]
 CMD> nf test alert      # play one level directly
 ```
 
-`nf test` force-plays the sound even if that level is toggled off, so it's the quickest way to audition your custom WAVs. (The `spktest` keys `a`/`w`/`c`/`i`/`p` also play them, but respect the on/off toggle.)
+`nf test` force-plays the sound even if that level is toggled off, so it's the quickest way to audition your custom WAVs. (The `test spk` keys `a`/`w`/`c`/`i`/`p` also play them, but respect the on/off toggle.)
 
 ### Notification levels
 
@@ -114,12 +114,12 @@ All files must be **16-bit PCM WAV, 22050 Hz, mono**. Keep them short (<1 s) so 
 
 ---
 
-## `spktest` / `st` — Speaker Test
+## `test spk` — Speaker Test
 
-Interactive hardware test. Useful for verifying the I2S speaker and your notification config.
+Interactive hardware test. Useful for verifying the I2S speaker and your notification config. (Formerly `spktest` / `st` — now a sub-command of `test`; see [Diagnostics](diagnostics).)
 
 ```
-CMD> spktest
+CMD> test spk
 ```
 
 | Key | Action |

@@ -20,10 +20,22 @@ Cold start takes ~4 minutes outdoors. Run `gps on` before `trackme` to pre-warm 
 
 ---
 
-## `spktest` — Speaker Test
+## `test` / `tst` — Hardware Self-Tests
+
+The three hardware tests are sub-commands of one `test` command (formerly the standalone `spktest` / `mictest` / `loratest`):
 
 ```
-CMD> spktest
+CMD> test spk     # I2S speaker
+CMD> test mic     # ES7210 microphone
+CMD> test lora    # LoRa SX1262
+```
+
+---
+
+## `test spk` — Speaker Test
+
+```
+CMD> test spk
 ```
 
 I2S speaker hardware verification and notification level test.
@@ -39,11 +51,10 @@ Keys `a/w/c/i/p` go through NotificationManager and play the configured WAV if o
 
 ---
 
-## `mictest` / `mt` — Microphone Test
+## `test mic` — Microphone Test
 
 ```
-CMD> mictest
-CMD> mt
+CMD> test mic
 ```
 
 ES7210 microphone hardware verification (the mic is on **both** T-Deck and
@@ -68,10 +79,10 @@ pitch and duration.
 
 ---
 
-## `loratest` — LoRa Test
+## `test lora` — LoRa Test
 
 ```
-CMD> loratest
+CMD> test lora
 ```
 
 Initializes the LoRa SX1262, runs a TX test, then enters RX monitor mode. Press `q` to stop.

@@ -130,12 +130,12 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 - `wguard.cpp` uses `ouiVendor()` (backward-compat wrapper); replaces old private `lookupOui()`
 
 ## Commands
-System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `lock/lk`
-WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` `wifiexport/wex` `clearwifi/clrw` `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `karma/km` `crack/cc` `wguard/wg` `beaconflood/bf` `wardrive/wd` `espsniff/es` `esptest/est` `espchat/ec` `espvoice/ev`
-Network: `netdiscover/nd` `portscan/ps` `topscan/ts` `ping/pg` `ssh/sc`
+System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `sleep/slp` `lock/lk`
+WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` (`wp export`/`wp clear` — merged wifiexport+clearwifi) `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `karma/km` `crack/cc` `wguard/wg` `beaconflood/bf` `wardrive/wd` `espsniff/es` `esptest/est` `espchat/ec` `espvoice/ev`
+Network: `netdiscover/nd` `portscan/ps` (`ps top <ip|#>` — merged topscan) `ping/pg` `ssh/sc`
 Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
 SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `sdrm/srm` `sdf/sdf`
-Diagnostics: `gps/gps` `spktest/st` `mictest/mt` `loratest/lt` `i2cscan/isc [EXP]`
+Diagnostics: `gps/gps` `test/tst` (`test spk|mic|lora` — merged spktest+mictest+loratest) `i2cscan/isc [EXP]`
 
 **ESPChat** (`espchat/ec`, `espsniff/es`, `esptest/est`) — `radio/espnow/espchat/`, `espsniff/`, `esptest/`:
 - Wire format: `EcMsg{type(1)+seq(1)+name[12]+text[100]}` = 114 bytes, type=0x01; broadcast ch compatible with any ESP32/ESP8266
@@ -148,7 +148,7 @@ Diagnostics: `gps/gps` `spktest/st` `mictest/mt` `loratest/lt` `i2cscan/isc [EXP
 - All WiFi commands call `stopEspchatBg()` before starting to avoid ESP-NOW/WiFi mode conflicts
 
 **ESPVoice** (`espvoice/ev`) — `radio/espnow/espvoice/espvoice.cpp` — half-duplex ESP-NOW walkie-talkie, HD voice:
-- **NOT board-gated** — ES7210 mic + speaker exist on both T-Deck and T-Deck Plus (only GPS is Plus-only). Same applies to `mictest/mt`.
+- **NOT board-gated** — ES7210 mic + speaker exist on both T-Deck and T-Deck Plus (only GPS is Plus-only). Same applies to `test mic` (mic test).
 - **Codec**: ITU-T G.722 wideband (16 kHz, 64 kbps Mode 1) via vendored public-domain `lib/libg722/` (sippy/libg722, auto-discovered by PlatformIO LDF — NOT in `lib_deps`, same as `lib/es7210`). One 20 ms frame = 320 PCM samples → 160 G.722 bytes. Stateless across loss (dropped frame = 25 ms gap, no drift). Encoder/decoder ctx = `g722_encoder_new(64000, G722_DEFAULT)` / `g722_decoder_new(...)`, created at start, destroyed at end.
 - **Wire format**: `EvMsg{type=0x02, kind, seq, g722[160]}` = 163 B. `kind`: 0=voice, 1=EOT (end-of-transmission/Roger marker). Broadcast peer FF:FF:FF:FF:FF:FF, unencrypted.
 - **PTT is a TOGGLE** — the I2C keyboard reports no key-up (only `\b` auto-repeats), so true hold-to-talk is impossible. SPACE toggles TX↔RX.

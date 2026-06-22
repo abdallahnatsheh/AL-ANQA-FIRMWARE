@@ -206,11 +206,11 @@ The ESP32-S3 rebooted mid-draw and left the display in a corrupt state.
 
 ## Audio (T-Deck Plus)
 
-### `spktest` plays no sound
+### `test spk` plays no sound
 
 - Volume may be zero — run `nf vol 80` to set notification volume
 - Check that the physical speaker connector is seated
-- Run `spktest` and press keys `1`–`6` — these bypass the volume setting entirely and play at full amplitude; if there is still no sound, the speaker hardware connection is the issue
+- Run `test spk` and press keys `1`–`6` — these bypass the volume setting entirely and play at full amplitude; if there is still no sound, the speaker hardware connection is the issue
 
 ---
 

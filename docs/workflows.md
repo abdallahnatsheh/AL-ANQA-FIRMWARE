@@ -95,7 +95,7 @@ ARP-scans the full /24 subnet. Results show each host's IP and MAC. Note the **i
 
 **3. Quick top-port scan on the most interesting host**
 ```
-CMD> ts 0              # top 26 common ports on the gateway
+CMD> ps top 0          # top 26 common ports on the gateway
 ```
 Results show open ports with service names. OS fingerprinting runs automatically.
 
@@ -152,7 +152,7 @@ T-Rex returns immediately to the prompt. The **shield icon** in the status bar t
 While wguard monitors in the background, you can run anything else:
 ```
 CMD> nd                # discover hosts
-CMD> ts 0              # scan ports
+CMD> ps top 0          # scan ports
 CMD> sbl               # scan BLE devices
 ```
 

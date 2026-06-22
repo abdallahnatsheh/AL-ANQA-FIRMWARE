@@ -24,10 +24,10 @@ Results are cached — use `show hosts` to view them again without rescanning.
 
 ### Index shortcut
 
-Once `nd` runs, use the host index number instead of the IP address in `portscan`, `topscan`, and `ping`:
+Once `nd` runs, use the host index number instead of the IP address in `portscan` (incl. `ps top`) and `ping`:
 
 ```
 CMD> nd          # [0] 192.168.1.1  [1] 192.168.1.5
-CMD> ts 0        # top-scan the router
+CMD> ps top 0    # top-scan the router
 CMD> ps 1 1 1024
 ```

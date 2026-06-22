@@ -5,14 +5,14 @@ type: project
 ---
 
 ## Already implemented (do NOT re-add)
-`beaconflood/bf` · `bleinfo/bi` · `usbkbd/uk` · `usbexec/ux` (BadUSB) · `clock/ClockManager` · `buddy/bd` · `wguard/wg` · `hiddenssid/hs` · `blespam/bs` · `jiggle/jg` (mouse jiggler) · `fast_pair/fp` (Google Fast Pair scan/spam/hijack) · `show/sh` (last scan results) · `tz` (timezone config) · `volume/vol` (I2S volume) · `notif/nf` (per-level sound config) · `wifimon/wm` (airmon-ng rewrite: nets+clients views, targeted deauth, raw PCAP, probe logger `[p]` → `/apps/wifimon/probes.csv`) · `oui_lookup.h` (shared ~350-entry vendor+type table) · `pmkid/pm` (PMKID capture+crack, no client needed, passive M1 sniff) · `bmon/bm` (passive BLE adv sniffer — iBeacon/Eddystone/cleartext, PCAP) · `espvoice/ev` (ESP-NOW G.722 walkie-talkie) · `mictest/mt` (ES7210 mic test) · `trackme/tm` (anti-tracking, service-UUID sigs) · `ssh/sc` (interactive SSH client via LibSSH-ESP32) · `wardrive/wd` (WiFi+GPS → WiGLE 1.4 CSV, Plus only). SD layout
+`beaconflood/bf` · `bleinfo/bi` · `usbkbd/uk` · `usbexec/ux` (BadUSB) · `clock/ClockManager` · `buddy/bd` · `wguard/wg` · `hiddenssid/hs` · `blespam/bs` · `jiggle/jg` (mouse jiggler) · `fast_pair/fp` (Google Fast Pair scan/spam/hijack) · `show/sh` (last scan results) · `tz` (timezone config) · `volume/vol` (I2S volume) · `notif/nf` (per-level sound config) · `wifimon/wm` (airmon-ng rewrite: nets+clients views, targeted deauth, raw PCAP, probe logger `[p]` → `/apps/wifimon/probes.csv`) · `oui_lookup.h` (shared ~350-entry vendor+type table) · `pmkid/pm` (PMKID capture+crack, no client needed, passive M1 sniff) · `bmon/bm` (passive BLE adv sniffer — iBeacon/Eddystone/cleartext, PCAP) · `espvoice/ev` (ESP-NOW G.722 walkie-talkie) · `mictest/mt` (ES7210 mic test) · `trackme/tm` (anti-tracking, service-UUID sigs) · `ssh/sc` (interactive SSH client via LibSSH-ESP32) · `wardrive/wd` (WiFi+GPS → WiGLE 1.4 CSV, Plus only) · `karma/km` (Karma/MANA: harvest+PNL fingerprint, rogue-AP half-handshake, auto mode, captive portal — wifi/attacks/karma/). SD layout
 is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.md`.
 
 ---
 
 ## WiFi Pentest
 
-1. **Karma / MANA** — softAP responding to any probe with matching SSID; log probing clients; `[p]` attach captive portal. Command: `karma/km`
+1. **Karma / MANA** — ✅ DONE as `karma/km` (harvest + PNL union-find fingerprinting, rogue-AP half-handshake [`km hs`], captive portal [`km portal`/`[p]`], `km auto` hands-free sweep, never-overwrite `.cap`, GDMA-safe). Module `wifi/attacks/karma/`. HW-verified end-to-end (associate→M2→on-device crack).
 2. **ARP Poisoning** — MITM via fake ARP replies. Command: `arpspoof/as <victim-ip> <gw-ip>`
 3. **LAN MITM (Gateway Takeover)** — join real net as STA, ARP poison all devices + GW, relay traffic, sniff DNS/HTTP, `[b]` block / `[t]` throttle / `[d]` DNS spoof. Command: `lanmitm/lm`
 5. **AP Bridge** — transparent AP+STA bridge; clients get real internet; sniff + redirect. Command: `apbridge/ab [ssid]`

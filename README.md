@@ -129,7 +129,8 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `info` | `inf` | — | Device info (chip, MACs, battery, SD) |
 | `show` | `sh` | `<wifi\|ble\|hosts>` | Re-display last scan without rescanning |
 | `clear` | `clr` | — | Clear screen |
-| `pwrsave` | `psv` | `[status\|on\|off\|set ...]` | Power save config |
+| `pwrsave` | `psv` | `[status\|on\|off\|set ...]` | Power save config (dim/screen-off on inactivity) |
+| `sleep` | `slp` | — | Deep sleep (~240 µA) — manual only; click the trackball to wake (reboots) |
 | `lock` | `lk` | `[new\|update\|clean\|timeout <s>\|status]` | Screen lock — PIN optional; hold trackpad 3 s or run `lock` to lock |
 | `volume` | `vol` | `[0-100\|up\|down\|off]` | General audio volume |
 | `notif` | `nf` | `[on\|off\|vol <n>\|test [lvl]\|<lvl> on\|off\|file <f>]` | Notification manager — per-level enable/disable, custom WAV, `test` sound picker |
@@ -137,9 +138,7 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | **WiFi** | | | |
 | `scanwifi` | `sw` | — | Scan WiFi networks |
 | `connectwifi` | `cw` | `<index\|ssid>` | Connect by scan index or SSID name |
-| `wifipass` | `wp` | — | View all saved WiFi passwords (SD + NVS merged) |
-| `wifiexport` | `wex` | — | Export NVS credentials → wpa_supplicant.conf |
-| `clearwifi` | `clrw` | — | Erase saved credentials |
+| `wifipass` | `wp` | `[export\|clear]` | Saved WiFi creds — no arg: view all (SD + NVS); `export` → wpa_supplicant.conf; `clear` → erase all |
 | `wifimon` | `wm` | `[ch]` | Monitor mode — Nets view (BSSID/CH/RSSI/clients) + Clients view (vendor/type/AP, trackpad cursor, `[d]` targeted deauth); `[s]` raw PCAP → `/apps/wifimon/NNN_YYYYMMDD_HHMMSS.cap`; `[p]` probe logger → `/apps/wifimon/probes.csv` (MAC+SSID harvest, deduped) |
 | `deauth` | `da` | `<bssid\|#> [ch] [client]` | Deauth attack |
 | `eviltwin` | `et` | — | Evil Twin AP + captive portal |
@@ -158,8 +157,7 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `espvoice` | `ev` | `[ch 1-13]` | ESP-NOW walkie-talkie — half-duplex G.722 HD voice; SPACE = push-to-talk toggle; Roger beep + `RECEIVING` indicator; app-local volume (`+/-`) & mic gain (`o/p`) |
 | **Network** | | | |
 | `netdiscover` | `nd` | — | ARP scan local /24 |
-| `portscan` | `ps` | `<ip\|#> <start> <end>` | TCP port scan |
-| `topscan` | `ts` | `<ip\|#>` | Top 31 common ports |
+| `portscan` | `ps` | `<ip\|#> <start> <end>` · `top <ip\|#>` | TCP port scan; `ps top` scans the 26 common ports |
 | `ping` | `pg` | `<ip\|hostname>` | ICMP ping |
 | `ssh` | `sc` | `<ip\|name> [user]` | Interactive SSH client (libssh) — password auth, PTY shell, 16-colour terminal + trackpad scrollback; saved host profiles (`ssh save/list/rm`); connect WiFi (`cw`) first |
 | **Bluetooth** | | | |
@@ -184,12 +182,10 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `usbexec` | `ux` | `demo\|<path>` | BadUSB — execute DuckyScript payload (Flipper Zero compatible) |
 | **Diagnostics** | | | |
 | `gps` | `gps` | `on\|off\|test` | GPS task control + coordinate test (T-Deck Plus) |
-| `spktest` | `st` | — | Speaker tone test |
-| `mictest` | `mt` | — | Microphone test (ES7210) — live level meter, voice-activity detection, record 3 s + replay |
-| `loratest` | `lt` | — | LoRa SX1262 diagnostic |
+| `test` | `tst` | `<spk\|mic\|lora>` | Hardware self-tests — `spk` speaker tones, `mic` ES7210 (level meter, VAD, record+replay), `lora` SX1262 diagnostic |
 | `MATRIX` | `matrix` | — | Matrix rain animation |
 
-> **Tip:** Run `nd` first, then use the host index in `ps`/`ts` instead of typing the IP.
+> **Tip:** Run `nd` first, then use the host index in `ps` / `ps top` instead of typing the IP.
 
 ---
 

@@ -22,13 +22,15 @@ On successful connection the network is always appended to `/wpa_supplicant.conf
 
 ---
 
-## `wifipass` / `wp` — View Saved Passwords
+## `wifipass` / `wp` — Manage Saved Credentials
 
 ```
-CMD> wp
+CMD> wp            # view saved passwords
+CMD> wp export     # copy NVS networks → SD wpa_supplicant.conf
+CMD> wp clear      # erase all saved credentials
 ```
 
-Shows all saved credentials in a paginated table. Reads from SD card first; falls back to NVS if no SD or no file found.
+With no argument, shows all saved credentials in a paginated table. Reads from SD card first; falls back to NVS if no SD or no file found. The `export` and `clear` sub-commands (formerly the standalone `wifiexport` / `clearwifi` commands) are documented below.
 
 Header shows the active source in colour: **SD** (green) or **NVS** (yellow).
 
@@ -46,14 +48,23 @@ Header shows the active source in colour: **SD** (green) or **NVS** (yellow).
 
 ---
 
-## `wifiexport` / `wex` — Export NVS to SD
+## `wp export` — Export NVS to SD
 
 ```
-CMD> wifiexport
-CMD> wex
+CMD> wp export
 ```
 
-Exports all WiFi networks stored in NVS (on-device flash) to `/wpa_supplicant.conf` on the SD card. Useful after connecting to networks without an SD card inserted — run `wex` once the card is inserted to sync them.
+Exports all WiFi networks stored in NVS (on-device flash) to `/wpa_supplicant.conf` on the SD card. Useful after connecting to networks without an SD card inserted — run `wp export` once the card is inserted to sync them.
+
+---
+
+## `wp clear` — Erase Saved Credentials
+
+```
+CMD> wp clear
+```
+
+Erases all saved WiFi passwords from NVS. The next connection to a known network will prompt for the password again. Does not disconnect the active session.
 
 ---
 

@@ -286,6 +286,15 @@ static const ArgHintEntry kArgHints[] = {
     { "km",          "",              "auto hs portal" },
     { "karma",       "auto",          "deauth" },
     { "km",          "auto",          "deauth" },
+    // wifipass / wp  (merged: was clearwifi + wifiexport)
+    { "wifipass",    "",              "export clear" },
+    { "wp",          "",              "export clear" },
+    // portscan / ps  (merged: was topscan)
+    { "portscan",    "",              "top" },
+    { "ps",          "",              "top" },
+    // test / tst  (merged: was spktest + mictest + loratest)
+    { "test",        "",              "spk mic lora" },
+    { "tst",         "",              "spk mic lora" },
     // show / sh
     { "show",        "",              "wifi ble hosts" },
     { "sh",          "",              "wifi ble hosts" },
@@ -651,6 +660,7 @@ void CommandManager::setupCommands() {
     registerCommand("clear",       "clr",    [](char* a) { displayManager.tdeck_begin(); },                                  "Clear screen",                            false, "System");
     registerCommand("MATRIX",      "matrix", [](char* a) { displayManager.launchMatrixAnimation(); },                       "Matrix rain animation",                   false, "System");
     registerCommand("pwrsave",     "psv",    [](char* a) { PowerSaveManager::handleCommand(a); },                         "Power save: on/off/set/status",  true,  "System");
+    registerCommand("sleep",       "slp",    [](char* a) { PowerSaveManager::getInstance().deepSleep(); },                "Deep sleep (~240uA); click trackball to wake", false, "System");
     registerCommand("lock",        "lk",     [](char* a) { LockScreenManager::getInstance().cmd(a); },                       "Screen lock  [new|update|clean|timeout <s>|status]", true,  "System");
     registerCommand("tz",          "tz",     [](char* a) { runTzCmd(a); },                                                    "Timezone  [+3 | -5:30 | <posix> | status]",          true,  "System");
     registerCommand("volume",      "vol",    [](char* a) { handleVolumeCmd(a); },                                             "General volume: vol [0-100|up|down|off]",   true,  "System");
@@ -658,7 +668,6 @@ void CommandManager::setupCommands() {
     // ── WiFi ──────────────────────────────────────────────────────────────────
     registerCommand("scanwifi",    "sw",     [](char* a) { wifiFunctions.scanWiFiNetworks(); },                              "Scan WiFi networks",                      false, "WiFi");
     registerCommand("connectwifi", "cw",     [](char* a) { wifiFunctions.connectToWiFiCommand(a); },                        "Connect to WiFi: cw <index>",             true,  "WiFi");
-    registerCommand("clearwifi",   "clrw",   [](char* a) { wifiFunctions.clearAllWiFiCredentials(); },                      "Clear saved WiFi credentials",            false, "WiFi");
     registerCommand("wifimon",     "wm",     [](char* a) { stopEspchatBg(); wifiMonitor.start(a && *a ? atoi(a) : 0); },  "WiFi monitor [ch 1-13, 0=hop]",           true,  "WiFi");
     registerCommand("deauth",      "da",     [](char* a) { stopEspchatBg(); deauthAttack.start(a); },                       "Deauth: da <bssid> [ch] [client]",        true,  "WiFi");
     registerCommand("eviltwin",    "et",     [](char* a) { stopEspchatBg(); evilTwin.start(a); },                           "Evil Twin AP + captive portal",           true,  "WiFi");
@@ -675,12 +684,10 @@ void CommandManager::setupCommands() {
     registerCommand("esptest",     "est",    [](char* a) { runEspTest(a); },                                                   "ESP-NOW test TX/RX: est [ch 1-13]",                  true,  "WiFi");
     registerCommand("espchat",     "ec",     [](char* a) { runEspchat(a); },                                                   "ESP-NOW chat: ec [pub [set <ch>]|prv <M>|bg|stop]",  true,  "WiFi");
     registerCommand("espvoice",    "ev",     [](char* a) { stopEspchatBg(); runEspVoice(a); },                                 "ESP-NOW walkie-talkie: ev [ch 1-13]",                true,  "WiFi");
-    registerCommand("wifipass",    "wp",     [](char* a) { wifiPassCommand(); },                                               "Saved WiFi passwords",                    false, "WiFi");
-    registerCommand("wifiexport",  "wex",    [](char* a) { wifiExportCommand(); },                                             "Export NVS networks to wpa_supplicant",   false, "WiFi");
+    registerCommand("wifipass",    "wp",     [](char* a) { if (a && Utils::matchesCmd(a,"export")) wifiExportCommand(); else if (a && Utils::matchesCmd(a,"clear")) wifiFunctions.clearAllWiFiCredentials(); else wifiPassCommand(); }, "Saved WiFi creds: wp [export|clear]", true, "WiFi");
     // ── Network ───────────────────────────────────────────────────────────────
     registerCommand("netdiscover", "nd",     [](char* a) { networkScanner.networkDiscovery(); },                             "ARP scan local subnet",                   false, "Network");
-    registerCommand("portscan",    "ps",     [](char* a) { networkScanner.networkPortScan(a); },                            "Port scan: ps <ip|#> <start> <end>",      true,  "Network");
-    registerCommand("topscan",     "ts",     [](char* a) { networkScanner.topPortScan(a); },                                "Top 26 ports: ts <ip|#>",                 true,  "Network");
+    registerCommand("portscan",    "ps",     [](char* a) { if (a && Utils::matchesCmd(a,"top")) { char* r=a+3; while(*r==' ')r++; networkScanner.topPortScan(*r?r:nullptr); } else networkScanner.networkPortScan(a); }, "Port scan: ps <ip|#> <s> <e> | ps top <ip|#>", true, "Network");
     registerCommand("ping",        "pg",     [](char* a) { networkScanner.pingHost(a); },                                   "Ping: pg <ip or hostname>",               true,  "Network");
     registerCommand("ssh",         "sc",     [](char* a) { runSshCon(a); },                                                 "SSH client: ssh <ip|name> [user] | save/list/rm", true,  "Network");
     // ── Bluetooth ─────────────────────────────────────────────────────────────
@@ -706,8 +713,6 @@ void CommandManager::setupCommands() {
     registerCommand("jiggle",      "jg",     [](char* a) { if (a && (a[0]=='b'||a[0]=='B')) bleKeyboard.jiggle(); else usbKeyboard.jiggle(); }, "Jiggler: jg [ble] — prevent screen lock", true,  "USB");
     // ── Diagnostics ───────────────────────────────────────────────────────────
     registerCommand("gps",         "gps",    [](char* a) { runGps(a); },                                                "GPS: gps on|off|test",                    true,  "Diagnostics");
-    registerCommand("spktest",     "st",     [](char* a) { runSpeakerTest(); },                                              "Speaker tone test",                       false, "Diagnostics");
-    registerCommand("loratest",    "lt",     [](char* a) { runLoraTest(); },                                                 "LoRa SX1262 diagnostic",                  false, "Diagnostics");
+    registerCommand("test",        "tst",    [](char* a) { if (a && Utils::matchesCmd(a,"spk")) runSpeakerTest(); else if (a && Utils::matchesCmd(a,"mic")) runMicTest(); else if (a && Utils::matchesCmd(a,"lora")) runLoraTest(); else { displayManager.println("Usage: test <spk|mic|lora>"); displayManager.printCommandScreen(); } }, "HW test: test <spk|mic|lora>", true, "Diagnostics");
     registerCommand("i2cscan",     "isc",    [](char* a) { runI2cScan(a); },                                                 "[EXP] I2C scanner: isc [r|w|d] <args>",  true,  "Diagnostics");
-    registerCommand("mictest",     "mt",     [](char* a) { runMicTest(); },                                                  "Mic test: level/VAD/record+play",        false, "Diagnostics");
 }

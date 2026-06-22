@@ -10,8 +10,8 @@ WiFi scanning, credential management, attacks, monitoring, and IDS — all from 
 
 | Guide | Commands |
 |-------|---------|
-| [Scan & Connect](wifi-scan) | `scanwifi` / `sw` · `connectwifi` / `cw` · `clearwifi` / `clrw` |
+| [Scan & Connect](wifi-scan) | `scanwifi` / `sw` · `connectwifi` / `cw` |
 | [WiFi Monitor](wifimon) | `wifimon` / `wm` — promiscuous 802.11 frame monitor |
-| [WiFi Credentials](wifi-credentials) | `wifipass` / `wp` · `wifiexport` / `wex` |
+| [WiFi Credentials](wifi-credentials) | `wifipass` / `wp` · `wp export` · `wp clear` |
 | [MAC Changer](macchanger) | `macchanger` / `mc` — driver-level MAC spoofing |
 | [WiFi Attacks](wifi-attacks) | `deauth` · `eviltwin` · `hiddenssid` · `wpasniff` · `wguard` · `beaconflood` |

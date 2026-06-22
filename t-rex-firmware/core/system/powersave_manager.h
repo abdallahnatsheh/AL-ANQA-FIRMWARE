@@ -52,6 +52,7 @@ public:
     void updateActivity();    // Called when user provides input
     void toggleManualOff();  // Double-click: toggle screen off/on
     void forceWake();         // Force wake regardless of _manualOff — used by notifications
+    void deepSleep();         // Command-only deep sleep (~240uA); wake = trackball click → reboot
 
     // Settings modification
     void setTimeoutMs(uint32_t ms);
