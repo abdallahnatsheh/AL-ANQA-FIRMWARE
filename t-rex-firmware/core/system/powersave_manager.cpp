@@ -1,7 +1,12 @@
 #include "powersave_manager.h"
 #include "display_manager.h"
 #include "battery_manager.h"
+#include "utilities.h"        // BOARD_BOOT_PIN
 #include <SD.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <WiFi.h>
+#include "esp_sleep.h"
 
 // Static instance and config file path
 PowerSaveManager* g_powerSaveInstance = nullptr;
@@ -109,6 +114,37 @@ void PowerSaveManager::wakeUp() {
         isScreenOffState = false;
     }
     batteryModeActive = false;
+}
+
+// Manual deep sleep — invoked ONLY by the `sleep`/`slp` command, never on a
+// timeout (the inactivity path just dims / blanks the backlight; see update()).
+// Powers the chip down to ~240uA. Wakes on a trackball center-click (GPIO0,
+// active-low) via ext1, which reboots the device through setup().
+void PowerSaveManager::deepSleep() {
+    extern LGFX tft;
+
+    // 1. Bring WiFi to idle STA and let any in-flight SD/GDMA transfer settle
+    //    before we tear the buses down (GDMA rule — never kill a live DMA write).
+    WiFi.mode(WIFI_STA);
+    vTaskDelay(pdMS_TO_TICKS(150));
+
+    // 2. Fade the backlight out, then put the panel controller to sleep (SLPIN).
+    for (int b = tft.getBrightness(); b >= 0; b -= 8) {
+        tft.setBrightness(b < 0 ? 0 : b);
+        vTaskDelay(pdMS_TO_TICKS(15));
+    }
+    tft.setBrightness(0);
+    tft.sleep();
+
+    // 3. Release the shared SPI2 + I2C buses so they idle low-power.
+    SPI.end();
+    Wire.end();
+
+    // 4. Wake on trackball center-click (GPIO0 active-low). GPIO10/BOARD_POWERON
+    //    is intentionally NOT held — letting it drop powers peripherals down for
+    //    the ~240uA figure; setup() re-drives it HIGH on the wake reboot.
+    esp_sleep_enable_ext1_wakeup(1ULL << BOARD_BOOT_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
+    esp_deep_sleep_start();   // never returns — wake = full reboot via setup()
 }
 
 void PowerSaveManager::updateActivity() {

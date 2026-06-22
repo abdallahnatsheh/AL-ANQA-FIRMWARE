@@ -4,6 +4,37 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-06-22 (command merges — free up the 64-cmd cap, 62→57)
+- **3 low-risk merges** folding sibling commands into sub-commands (kept all underlying functions;
+  just collapsed the registrations + routed sub-args via `Utils::matchesCmd`):
+  1. `wifiexport`+`clearwifi` → **`wifipass`**: `wp` (show) / `wp export` / `wp clear`.
+  2. `topscan` → **`portscan`**: `ps <ip> <s> <e>` (full) / `ps top <ip|#>` (top ports). Routed by
+     stripping "top" + spaces, passing rest to `topPortScan` (NULL if empty).
+  3. `spktest`+`mictest`+`loratest` → **`test`/`tst`**: `test spk|mic|lora`, no-arg prints usage.
+- Net: 62→**57 commands** (5 slots freed). Updated EVERYWHERE: command_manager.cpp (regs + kArgHints
+  autocomplete entries for wp/ps/test), man_pages.cpp (merged 6 man entries → 3), README.md, CLAUDE.md
+  (cmd lists), docs/* (wifi.md, wifi-scan.md, wifi-credentials.md, network.md, portscan.md,
+  netdiscover.md, diagnostics.md, audio.md, troubleshooting.md, system.md, index.md, workflows.md).
+- ESP-NOW (`es/est/ec/ev`) and USB families left FLAT — flagship apps, rename cost too high.
+- NOT yet flashed/tested after the merges.
+
+## Session 2026-06-22 (deep sleep command `sleep`/`slp` — ✅ HW-VERIFIED)
+- **New `sleep`/`slp` System command** = ESP32-S3 deep sleep (~240uA), modelled on the LilyGo
+  UnitTest.ino example. `PowerSaveManager::deepSleep()` (core/system/powersave_manager.cpp): WiFi→STA
+  + 150ms settle (GDMA), fade backlight, `tft.sleep()` (LGFX SLPIN), `SPI.end()`+`Wire.end()`,
+  `esp_sleep_enable_ext1_wakeup(1ULL<<BOARD_BOOT_PIN, ESP_EXT1_WAKEUP_ANY_LOW)`, `esp_deep_sleep_start()`.
+- **Wake = trackball CLICK only (GPIO0, RTC-capable).** Keyboard CANNOT wake it — keyboard INT is
+  GPIO46, not an RTC pin (ESP32-S3 ext1 needs GPIO0-21); also peripherals power down. Wake = full
+  reboot via setup() (RAM-only state lost). BOARD_POWERON(GPIO10) deliberately NOT held → drops for
+  the 240uA figure, setup() re-drives HIGH.
+- **Command-only by design** (user requirement): deepSleep() is invoked ONLY from the `slp` lambda;
+  pwrsave's inactivity timeout path is untouched (still just dims/blanks backlight). No auto-sleep.
+- Gotcha fixed: `ESP_EXT1_WAKEUP_ALL_LOW` is deprecated on S3 → use `ESP_EXT1_WAKEUP_ANY_LOW` (same
+  for 1 pin). LGFX `getBrightness()`/`sleep()` verified in LGFXBase.hpp.
+- Surfaces: powersave_manager.cpp/.h, command_manager.cpp (reg + count now 62/64), man_pages.cpp
+  (man entry), README.md, docs/system.md, CLAUDE.md System cmd line. To extend wake to trackball
+  *roll*: add BOARD_TBOX_G01/G02/G03/G04 (GPIO 3/2/15/1, all RTC) to the ext1 mask.
+
 ## Session 2026-06-21 (wardrive: switched to Bruce's SYNCHRONOUS scan)
 - **Replaced the async scan with synchronous `WiFi.scanNetworks(false,true)`** (Bruce's method,
   `BruceDevices/firmware` src/modules/gps/wardriving.cpp — studied via GitHub API/raw). RATIONALE:
@@ -19,7 +50,8 @@ type: project
 - **AccuracyMeters changed HDOP×5 → HDOP×1** to match Bruce's convention (user endorsed Bruce's
   method). Altitude unchanged (`gm.altitude()` == Bruce's `gps.altitude.meters()`, confirmed identical).
 - Web-verified the whole design against Bruce + Marauder; altitude/HDOP/dedup/scanDelete all match.
-- NOT yet flashed/field-tested after the sync switch.
+- ✅ **FIELD-VERIFIED 2026-06-22** — sync scan method works on T-Deck Plus (wardrive logs APs to WiGLE
+  CSV with GPS fix). The "scans APs but logs nothing" async bug class is gone for good.
 
 ## Session 2026-06-21 (wardrive: real alt/HDOP + logging-regression fix)
 NOTE: the async logging-regression fix + scan self-healing below were SUPERSEDED same day by the
@@ -48,8 +80,10 @@ sync switch above (async removed entirely). Alt/HDOP exposure in GpsManager stil
   only thing that actually un-sticks a wedged async scan. Builds clean; verify on the outdoor run.
 - ✅ **HW-VERIFIED 2026-06-21** — flashed to T-Deck Plus (build RAM 60.8% / Flash 37.4%), wardrive
   logging works again. (Flashed by Claude this session via `~/.platformio/penv/bin/pio run -e
-  T-Deck-Plus -t upload --upload-port /dev/ttyACM0` — note: user is NOT in `dialout` group, needed
-  `sudo chmod 666 /dev/ttyACM0` first; permanent fix = `sudo usermod -aG dialout $USER` + re-login.)
+  T-Deck-Plus -t upload --upload-port /dev/ttyACM0`. Port is `/dev/ttyACM0` (`root:dialout`).
+  UPDATE 2026-06-22: user is NOW in `dialout` (re-login done) — no `chmod` needed anymore. The
+  PlatformIO `99-platformio-udev.rules` warning on upload is cosmetic (dialout already grants access);
+  optional silence = install the rules file to `/etc/udev/rules.d/`.)
 
 ## Session 2026-06-21 (jg ble / btkbd — Linux BlueZ discoverability)
 - **FIXED: `jg ble` (BLE mouse jiggler) + `btkbd` invisible in Ubuntu Bluetooth Settings** (paired fine

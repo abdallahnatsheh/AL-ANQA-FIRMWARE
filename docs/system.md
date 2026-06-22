@@ -10,12 +10,12 @@ has_children: true
 |-------|---------|
 | [Help & Manual](help-man) | `help` / `hlp` · `man` / `mn` · `show` / `sh` · `clear` · `MATRIX` |
 | [Device Info](info) | `info` / `inf` |
-| [Power Save](pwrsave) | `pwrsave` / `psv` |
+| [Power Save](pwrsave) | `pwrsave` / `psv` · `sleep` / `slp` |
 | [Lock Screen](lock) | `lock` / `lk` |
 | [Timezone](tz) | `tz` |
-| [Audio & Notifications](audio) | `volume` / `vol` · `notif` / `nf` · `spktest` / `st` |
+| [Audio & Notifications](audio) | `volume` / `vol` · `notif` / `nf` · `test spk` |
 | [SD Commands](sd-commands) | `sdinfo` · `sdls` · `cd` · `cat` · `rm` · `sdformat` |
-| [Diagnostics](diagnostics) | `gps on` · `gps off` · `gps test` · `spktest` · `loratest` |
+| [Diagnostics](diagnostics) | `gps on` · `gps off` · `gps test` · `test spk` · `test mic` · `test lora` |
 | [SD Card Layout](sdcard) | File layout reference |
 | [Custom Splash Screen](splash) | Replace the boot image with your own PNG |
 
@@ -125,6 +125,28 @@ Config is saved to `/config/pwrsave.conf` on the SD card and restored on boot.
 
 ---
 
+## `sleep` / `slp` — Deep Sleep
+
+```
+CMD> sleep
+CMD> slp
+```
+
+Puts the ESP32-S3 into **deep sleep** (~240 µA) — a far deeper power state than `pwrsave`'s screen-off, which only blanks the backlight while the CPU keeps running. On `sleep` the device fades the backlight, puts the display panel to sleep, brings WiFi to idle, releases the SPI/I2C buses, and powers the peripherals down.
+
+**Wake:** click the trackball (the center button). Waking is a **full reboot** — the device comes back to a fresh prompt, so any RAM-only state (unsaved scan tables, captured creds not yet flushed, the lock-screen session) is lost.
+
+| | |
+|---|---|
+| Wake source | Trackball click only (GPIO0) |
+| Keyboard wake | **No** — the keyboard INT line (GPIO46) is not an RTC pin, so it cannot wake the chip |
+| Trigger | **Manual only** — never fires on a timeout (that's `pwrsave`'s job) |
+| Current draw | ~240 µA |
+
+> Before sleeping, exit any running attack/capture tool and let it flush to SD — deep sleep tears down the buses and reboots, so in-flight work is not saved.
+
+---
+
 ## Audio (`vol` / `notif`)
 
 → See [Audio & Notifications](audio.md) for the `vol` and `notif` commands.
@@ -176,8 +198,9 @@ CMD> sdformat [init]         # format SD card to FAT32 (WARNING: destroys all da
 CMD> gps on    # start GPS background task with live status (T-Deck Plus)
 CMD> gps off   # stop GPS task
 CMD> gps test  # one-shot GPS coordinate read (T-Deck Plus)
-CMD> spktest  # I2S speaker tone test + notif level test
-CMD> loratest # LoRa SX1262 init, TX test, RX monitor
+CMD> test spk   # I2S speaker tone test + notif level test
+CMD> test mic   # ES7210 mic test (level/VAD/record+play)
+CMD> test lora  # LoRa SX1262 init, TX test, RX monitor
 ```
 
 GPS status is shown in the status bar:

@@ -41,10 +41,10 @@ On a successful connection the network is saved to `/wpa_supplicant.conf`.
 
 ---
 
-## `clearwifi` / `clrw` — Erase Saved Credentials
+## `wp clear` — Erase Saved Credentials
 
 ```
-CMD> clrw
+CMD> wp clear
 ```
 
-Erases all saved WiFi passwords from NVS (non-volatile storage). The next connection to a known network will prompt for the password again.
+Erases all saved WiFi passwords from NVS (non-volatile storage). The next connection to a known network will prompt for the password again. (Formerly the standalone `clearwifi` / `clrw` command — now folded into `wifipass`; see the [WiFi Credentials](wifi-credentials) guide.)

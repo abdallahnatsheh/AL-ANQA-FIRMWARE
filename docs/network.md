@@ -11,7 +11,7 @@ has_children: true
 | Guide | Commands |
 |-------|---------|
 | [Net Discover](netdiscover) | `netdiscover` / `nd` — ARP scan local /24 |
-| [Port Scan](portscan) | `portscan` / `ps` · `topscan` / `ts` · banner grabber · OS fingerprint |
+| [Port Scan](portscan) | `portscan` / `ps` · `ps top` · banner grabber · OS fingerprint |
 | [Ping](ping) | `ping` / `pg` — ICMP ping |
 
 ---
@@ -30,11 +30,11 @@ Sends ARP requests across the entire local /24 subnet and displays a table of li
 | `u` | Re-scan |
 | `q` | Quit |
 
-**Index shortcut:** once `nd` runs, you can use the host index number instead of the IP address in `portscan`, `topscan`, and `ping`.
+**Index shortcut:** once `nd` runs, you can use the host index number instead of the IP address in `portscan` (incl. `ps top`) and `ping`.
 
 ```
 CMD> nd         # discovers: [0] 192.168.1.1  [1] 192.168.1.5 ...
-CMD> ts 0       # top-scan the router without typing the IP
+CMD> ps top 0   # top-scan the router without typing the IP
 CMD> ps 1 1 1024
 ```
 
@@ -58,15 +58,15 @@ Scans a TCP port range using 4 parallel tasks with a 150ms timeout per port. Ope
 
 ---
 
-## `topscan` / `ts` — Top 31 Ports
+## `ps top` — Top Common Ports
 
 ```
-CMD> ts <ip|index>
-CMD> ts 192.168.1.1
-CMD> ts 0
+CMD> ps top <ip|index>
+CMD> ps top 192.168.1.1
+CMD> ps top 0
 ```
 
-Scans the 31 most common ports (same list as nmap's default scan):
+A sub-command of `portscan` (formerly the standalone `topscan` / `ts`). Scans the most common ports (same list as nmap's default scan):
 
 `21 22 23 25 53 80 110 111 135 139 143 161 389 443 445 587 993 995 1433 1521 1723 3306 3389 5432 5900 6379 8080 8443 8888 9200 27017`
 
@@ -88,7 +88,7 @@ Sends 4 ICMP echo requests and displays RTT for each reply plus a summary with m
 
 ## Banner Grabber
 
-Available inside `portscan` / `topscan` results — press `b` while viewing an open port to grab its banner.
+Available inside `portscan` results (both `ps` and `ps top`) — press `b` while viewing an open port to grab its banner.
 
 T-Rex sends a protocol-aware probe and reads the response:
 
@@ -106,7 +106,7 @@ Displays the raw banner and, for HTTP, extracts the `Server:` header. An animate
 
 ## OS Fingerprinting
 
-Shown automatically in `portscan` / `topscan` results alongside open ports.
+Shown automatically in `portscan` results (both `ps` and `ps top`) alongside open ports.
 
 | Method | How |
 |--------|-----|

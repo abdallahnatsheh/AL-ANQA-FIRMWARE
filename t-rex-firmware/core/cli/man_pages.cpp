@@ -112,6 +112,24 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "sleep", "slp", {
+        "SYNTAX   sleep   (alias: slp)",
+        "",
+        "ABOUT    Enter ESP32-S3 deep sleep (~240uA).",
+        "         Fades backlight, sleeps the panel,",
+        "         powers peripherals down.",
+        "",
+        "WAKE     Click the trackball (center button).",
+        "         Wake = full reboot to a fresh prompt;",
+        "         RAM-only state (unsaved data) is lost.",
+        "",
+        "NOTE     Manual only — never auto-triggers.",
+        "         The keyboard CANNOT wake it (its INT",
+        "         line is not an RTC pin). pwrsave's",
+        "         timeout only dims/blanks the backlight.",
+        nullptr
+    }},
+
     { "volume", "vol", {
         "SYNTAX   vol [0-100|up|down|off]",
         "",
@@ -182,33 +200,22 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
-    { "clearwifi", "clrw", {
-        "SYNTAX   clearwifi",
-        "",
-        "ABOUT    Erase all saved WiFi passwords.",
-        "NOTE     Does not disconnect active session.",
-        nullptr
-    }},
-
     { "wifipass", "wp", {
-        "SYNTAX   wifipass",
+        "SYNTAX   wifipass            (alias: wp)",
+        "         wifipass export",
+        "         wifipass clear",
         "",
-        "ABOUT    Browse saved WiFi passwords.",
-        "         Reads wpa_supplicant.conf from SD.",
-        "         Falls back to NVS if no SD card.",
+        "ABOUT    Manage saved WiFi credentials.",
+        "         No arg: browse saved passwords",
+        "         (SD wpa_supplicant.conf, NVS fallback).",
+        "",
+        "EXPORT   Copy NVS networks to SD card",
+        "         (/wpa_supplicant.conf, skips dups,",
+        "         Linux-compatible).",
+        "CLEAR    Erase all saved passwords. Does not",
+        "         disconnect the active session.",
         "",
         "KEYS     [a]prev [l]next [q]quit",
-        nullptr
-    }},
-
-    { "wifiexport", "wex", {
-        "SYNTAX   wifiexport",
-        "",
-        "ABOUT    Copy NVS networks to SD card.",
-        "         Writes to /wpa_supplicant.conf.",
-        "         Skips duplicates already on SD.",
-        "         File stays Linux-compatible.",
-        "",
         "FILES    /wpa_supplicant.conf",
         nullptr
     }},
@@ -447,25 +454,18 @@ static const ManEntry PAGES[] = {
 
     { "portscan", "ps", {
         "SYNTAX   ps <ip|#> <start> <end>",
+        "         ps top <ip|#>",
         "",
         "ABOUT    TCP scan — 4 parallel tasks,",
         "         150ms timeout. b = banner grab.",
-        "",
-        "EXAMPLE  ps 192.168.1.1 1 1024",
-        "         ps 3 80 443  (use ARP index #3)",
-        "KEYS     [b] banner  [l]/[a] pages  [q]",
-        nullptr
-    }},
-
-    { "topscan", "ts", {
-        "SYNTAX   ts <ip|#>",
-        "",
-        "ABOUT    Scan top 26 common ports:",
+        "         'top' scans 26 common ports:",
         "         80 443 22 21 23 25 3389 8080",
         "         3306 5432 6379 27017 and more.",
         "",
-        "EXAMPLE  ts 192.168.1.1",
-        "         ts 2   (use ARP index #2)",
+        "EXAMPLE  ps 192.168.1.1 1 1024",
+        "         ps 3 80 443  (use ARP index #3)",
+        "         ps top 192.168.1.1",
+        "KEYS     [b] banner  [l]/[a] pages  [q]",
         nullptr
     }},
 
@@ -791,39 +791,21 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
-    { "spktest", "st", {
-        "SYNTAX   spktest",
+    { "test", "tst", {
+        "SYNTAX   test spk | test mic | test lora",
         "",
-        "ABOUT    I2S speaker hardware test.",
-        "         Raw tones at full volume + notif",
-        "         level test using your nf settings.",
+        "ABOUT    Hardware self-tests. Pick a target:",
         "",
-        "KEYS     [1]-[6] raw tones  [s] C scale",
-        "         [a]lert [w]arning [c]success",
-        "         [i]nfo  [p]ing    [q] quit",
-        "NOTE     notif keys honour nf vol + MP3.",
-        nullptr
-    }},
-
-    { "mictest", "mt", {
-        "SYNTAX   mictest",
-        "",
-        "ABOUT    ES7210 mic test. Live level meter,",
-        "         voice-activity detect, record 3s",
-        "         + replay. Both T-Deck & Plus.",
-        "",
-        "KEYS     [r]ecord 3s  [p]lay  [+/-]gain",
-        "         [q] quit",
-        nullptr
-    }},
-
-    { "loratest", "lt", {
-        "SYNTAX   loratest",
-        "",
-        "ABOUT    LoRa SX1262 diagnostic — init,",
-        "         TX test, RX monitor, freq switch",
-        "         868/915 MHz.",
-        "KEYS     [q] stop RX monitor",
+        "SPK      I2S speaker test — raw tones at full",
+        "         volume + notif level test (nf settings).",
+        "         [1]-[6] tones  [s] C scale  [a]lert",
+        "         [w]arning [c]success [i]nfo [p]ing [q].",
+        "         Notif keys honour nf vol + MP3.",
+        "MIC      ES7210 mic test — live level meter,",
+        "         voice-activity detect, record 3s+replay.",
+        "         [r]ecord [p]lay [+/-]gain [q]. Both boards.",
+        "LORA     SX1262 diagnostic — init, TX test, RX",
+        "         monitor, 868/915 MHz. [q] stop RX.",
         nullptr
     }},
 

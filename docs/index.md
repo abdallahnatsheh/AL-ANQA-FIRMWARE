@@ -35,10 +35,10 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 
 ### 📡 WiFi
 
-- [Scan & Connect](wifi-scan) — `scanwifi` · `connectwifi` · `clearwifi`
+- [Scan & Connect](wifi-scan) — `scanwifi` · `connectwifi`
 - [WiFi Monitor](wifimon) — `wifimon`
 - [Wardrive](wardrive) — `wardrive` — WiFi + GPS → WiGLE CSV (Plus only)
-- [WiFi Credentials](wifi-credentials) — `wifipass` · `wifiexport`
+- [WiFi Credentials](wifi-credentials) — `wifipass` · `wp export` · `wp clear`
 - [MAC Changer](macchanger) — `macchanger`
 - [WiFi Attacks](wifi-attacks)
   - [Deauth](deauth) — `deauth`
@@ -54,7 +54,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 ### 🌐 Network
 
 - [Net Discover](netdiscover) — `netdiscover`
-- [Port Scan](portscan) — `portscan` · `topscan` · banner grabber · OS fingerprint
+- [Port Scan](portscan) — `portscan` · `ps top` · banner grabber · OS fingerprint
 - [Ping](ping) — `ping`
 - [SSH Client](ssh) — `ssh` — interactive colour terminal + scrollback
 
@@ -85,12 +85,12 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 
 - [Help & Manual](help-man) — `help` · `man` · `show` · `clear` · `MATRIX`
 - [Device Info](info) — `info`
-- [Power Save](pwrsave) — `pwrsave`
+- [Power Save](pwrsave) — `pwrsave` · `sleep`
 - [Lock Screen](lock) — `lock`
 - [Timezone](tz) — `tz`
-- [Audio & Notifications](audio) — `volume` · `notif` · `spktest`
+- [Audio & Notifications](audio) — `volume` · `notif` · `test spk`
 - [SD Commands](sd-commands) — `sdinfo` · `sdls` · `cd` · `cat` · `rm` · `sdformat`
-- [Diagnostics](diagnostics) — `gps on/off/test` · `spktest` · `mictest` · `loratest`
+- [Diagnostics](diagnostics) — `gps on/off/test` · `test spk` · `test mic` · `test lora`
 - [SD Card Layout](sdcard) — file layout reference
 - [Custom Splash Screen](splash) — replace the boot image with your own PNG
 

@@ -16,15 +16,15 @@ CMD> ps 0 1 65535
 
 Scans a TCP port range using 4 parallel tasks with a 150ms timeout per port. Open ports are collected and displayed in a paginated table with service names.
 
-## `topscan` / `ts` — Top 31 Ports
+## `ps top` — Top Common Ports
 
 ```
-CMD> ts <ip|index>
-CMD> ts 192.168.1.1
-CMD> ts 0
+CMD> ps top <ip|index>
+CMD> ps top 192.168.1.1
+CMD> ps top 0
 ```
 
-Scans the 31 most common ports:
+A sub-command of `portscan` (formerly the standalone `topscan` / `ts`). Scans the most common ports:
 
 `21 22 23 25 53 80 110 111 135 139 143 161 389 443 445 587 993 995 1433 1521 1723 3306 3389 5432 5900 6379 8080 8443 8888 9200 27017`
 
