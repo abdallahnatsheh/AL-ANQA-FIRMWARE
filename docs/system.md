@@ -14,7 +14,7 @@ has_children: true
 | [Lock Screen](lock) | `lock` / `lk` |
 | [Timezone](tz) | `tz` |
 | [Audio & Notifications](audio) | `volume` / `vol` · `notif` / `nf` · `test spk` |
-| [SD Commands](sd-commands) | `sdinfo` · `sdls` · `cd` · `cat` · `rm` · `sdformat` |
+| [SD Commands](sd-commands) | `sdinfo` · `sdls` · `cd` · `cat` · `edit` · `rm` · `sdformat` |
 | [Diagnostics](diagnostics) | `gps on` · `gps off` · `gps test` · `test spk` · `test mic` · `test lora` |
 | [SD Card Layout](sdcard) | File layout reference |
 | [Custom Splash Screen](splash) | Replace the boot image with your own PNG |

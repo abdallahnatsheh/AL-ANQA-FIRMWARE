@@ -756,13 +756,46 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "edit", "ed", {
+        "SYNTAX   edit <path>",
+        "",
+        "ABOUT    nano-style text editor for SD.",
+        "         Missing file -> new (made on save).",
+        "         Up to 500 lines; bigger = read-only.",
+        "",
+        "KEYS     type to insert  Bksp delete",
+        "         Enter splits line (auto-indent)",
+        "         tpad U/D/L/R = move cursor",
+        "         (roll fast = jump/page)",
+        "         click = MENU",
+        "MENU     Save / Save As / Find / Go to",
+        "         line / Top / Bottom / Undo /",
+        "         Cut line / Paste line / Exit",
+        "         Undo = 1 step. Exit prompts",
+        "         if unsaved.",
+        "",
+        "NOTE     Paths relative to cwd (cd) —",
+        "         no leading / needed.",
+        "EXAMPLE  ed notes.txt",
+        "         ed wpasniff/wordlist.txt",
+        nullptr
+    }},
+
     { "rm", "rm", {
         "SYNTAX   rm <path>",
+        "         rm -d <dir>",
         "",
         "ABOUT    Delete a file from SD card.",
-        "WARNING  No confirmation — immediate.",
+        "         rm -d removes a directory and",
+        "         ALL its contents (recursive).",
+        "WARNING  Files: no confirmation.",
+        "         rm -d: asks y/N first.",
+        "         Won't delete root or the cwd.",
+        "NOTE     Paths are relative to cwd —",
+        "         no leading / needed.",
         "",
-        "EXAMPLE  rm /apps/eviltwin/creds.csv",
+        "EXAMPLE  rm creds.csv",
+        "         rm -d oldtool",
         nullptr
     }},
 

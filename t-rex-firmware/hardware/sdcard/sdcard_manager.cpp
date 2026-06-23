@@ -503,6 +503,29 @@ void SDCardManager::readFile(const char* path) {
     }
 }
 
+// Recursively delete a directory tree. Two-phase per level (gather child names,
+// then delete) so we never mutate a directory while its openNextFile() iterator
+// is live. name() is the basename on this core, so we rebuild the full path.
+static bool rmTree(const char* path) {
+    File dir = SD.open(path);
+    if (!dir) return false;
+    if (!dir.isDirectory()) { dir.close(); return SD.remove(path); }
+
+    std::vector<String> children;
+    for (File e = dir.openNextFile(); e; e = dir.openNextFile()) {
+        String child = String(path);
+        if (!child.endsWith("/")) child += "/";
+        child += e.name();
+        children.push_back(child);
+        e.close();
+    }
+    dir.close();
+
+    bool ok = true;
+    for (size_t i = 0; i < children.size(); i++) ok = rmTree(children[i].c_str()) && ok;
+    return SD.rmdir(path) && ok;
+}
+
 bool SDCardManager::removeFile(const char* path) {
     if (!canAccessSD()) {
         displayManager.setCursor(10, displayManager.getCursorY());
@@ -511,22 +534,106 @@ bool SDCardManager::removeFile(const char* path) {
         return false;
     }
 
-    char resolved[128];
-    resolvePath(path, resolved, sizeof(resolved));
-    path = resolved;
-
-    if (!SD.exists(path)) {
+    // "-d" flag → remove a directory (recursively).
+    bool dirMode = false;
+    while (*path == ' ') path++;
+    if (path[0] == '-' && path[1] == 'd' && (path[2] == ' ' || path[2] == '\0')) {
+        dirMode = true;
+        path += 2;
+        while (*path == ' ') path++;
+    }
+    if (*path == '\0') {
         displayManager.setCursor(10, displayManager.getCursorY());
-        displayManager.printText("Not found: ");
-        displayManager.println(path);
+        displayManager.println(dirMode ? "Usage: rm -d <dir>" : "Usage: rm <path>");
         displayManager.printCommandScreen();
         return false;
     }
 
-    bool ok = SD.remove(path);
-    displayManager.setCursor(10, displayManager.getCursorY());
+    char resolved[128];
+    resolvePath(path, resolved, sizeof(resolved));
+
+    if (!SD.exists(resolved)) {
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.printText("Not found: ");
+        displayManager.println(resolved);
+        displayManager.printCommandScreen();
+        return false;
+    }
+
+    File probe = SD.open(resolved);
+    bool isDir = probe && probe.isDirectory();
+    if (probe) probe.close();
+
+    // Removing a directory needs -d; refuse otherwise so a stray rm can't nuke a tree.
+    if (isDir && !dirMode) {
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.setTextColor(TFT_YELLOW);
+        displayManager.println("Is a directory — use: rm -d <dir>");
+        displayManager.setTextColor(TFT_WHITE);
+        displayManager.printCommandScreen();
+        return false;
+    }
+
+    // Plain file delete (covers `rm <file>` and `rm -d <file>`).
+    if (!isDir) {
+        bool ok = SD.remove(resolved);
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.setTextColor(ok ? TFT_GREEN : TFT_RED);
+        displayManager.println(ok ? "Deleted." : "Delete failed.");
+        displayManager.setTextColor(TFT_WHITE);
+        displayManager.printCommandScreen();
+        return ok;
+    }
+
+    // ── Directory delete (recursive) — guard dangerous targets, then confirm ──
+    if (strcmp(resolved, "/") == 0) {
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.setTextColor(TFT_RED);
+        displayManager.println("Refusing to delete root.");
+        displayManager.setTextColor(TFT_WHITE);
+        displayManager.printCommandScreen();
+        return false;
+    }
+    // Don't delete the cwd or any ancestor of it (would strand the shell).
+    size_t rl = strlen(resolved);
+    if (strncmp(_cwd, resolved, rl) == 0 && (_cwd[rl] == '\0' || _cwd[rl] == '/')) {
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.setTextColor(TFT_RED);
+        displayManager.println("Inside current dir — cd out first.");
+        displayManager.setTextColor(TFT_WHITE);
+        displayManager.printCommandScreen();
+        return false;
+    }
+
+    displayManager.clearScreen();
+    displayManager.setCursor(10, outputY);
+    displayManager.setTextColor(TFT_RED);
+    displayManager.println("======== WARNING ========");
+    displayManager.setTextColor(TFT_WHITE);
+    displayManager.println("");
+    displayManager.println("Recursively delete directory:");
+    displayManager.setTextColor(TFT_YELLOW);
+    displayManager.println(resolved);
+    displayManager.setTextColor(TFT_WHITE);
+    displayManager.println("and ALL of its contents?");
+    displayManager.println("");
+    displayManager.println("Press 'y' to confirm, any other key to cancel.");
+
+    char key = 0;
+    while (key == 0) { key = inputHandler.getKeyboardInput(); delay(50); }
+    if (key != 'y' && key != 'Y') {
+        displayManager.clearScreen();
+        displayManager.setCursor(10, outputY);
+        displayManager.println("Cancelled.");
+        displayManager.printCommandScreen();
+        return false;
+    }
+
+    bool ok = rmTree(resolved);
+    displayManager.clearScreen();
+    displayManager.setCursor(10, outputY);
     displayManager.setTextColor(ok ? TFT_GREEN : TFT_RED);
-    displayManager.println(ok ? "Deleted." : "Delete failed.");
+    displayManager.println(ok ? "Directory deleted." : "Delete failed (partial?).");
     displayManager.setTextColor(TFT_WHITE);
     displayManager.printCommandScreen();
     return ok;

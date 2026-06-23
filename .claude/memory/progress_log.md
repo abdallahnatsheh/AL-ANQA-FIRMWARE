@@ -4,6 +4,48 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-06-23 (rm: directory removal + dir autocomplete — NOT yet flashed)
+- **`rm -d <dir>`** = recursive directory delete (user hit: `rm` couldn't remove dirs). New static
+  `rmTree()` in sdcard_manager.cpp — two-phase per level (gather child names into `vector<String>`,
+  close dir, then delete) to avoid mutating a dir while its `openNextFile()` iterator is live;
+  `name()` is the basename on this core so paths are rebuilt. Asks `y/N` first (recursive = dangerous);
+  refuses to delete `/` or the cwd/any ancestor of it. Plain `rm <dir>` (no `-d`) now refused with a hint.
+- **Autocomplete fix**: `rm` was `COMP_FILE` (files only) → couldn't tab into/complete dirs; changed to
+  `COMP_ANY` (files + dirs), matching `cat`. Now you can tab through nested folders + target a dir for `-d`.
+- Surfaces: sdcard_manager.cpp (removeFile rewrite + rmTree), command_manager.cpp (reg COMP_ANY + usage),
+  man_pages.cpp, README.md, docs/sd-commands.md, CLAUDE.md (also fixed stale `sdrm/srm` → `rm/rm`).
+
+## Session 2026-06-23 (text editor `edit`/`ed` — nano-style SD editor)
+- **New module `core/editor/text_editor.cpp/.h`** — free function `runEditor(char*)` (wardrive
+  pattern), registered `edit`/`ed` (SD Card, COMP_ANY). Command count 57→**58**.
+- **Control scheme is forced by the I2C keyboard**: it's a separate ESP32-C3 that resolves
+  Alt/Shift/Sym internally and sends ONE byte/key — so NO Ctrl/Esc/arrow codes ever reach us
+  (verified via DeepWiki T-Deck keyboard-interface + the existing `getKeyboardInput()` 1-byte read).
+  Therefore: keyboard = text (type/Bksp/Enter-split), **trackball U/D/L/R = cursor** (wraps across
+  line ends), **CLICK = command menu** (Save/Save As/Find/Go to line/Cut/Paste/Exit). No `q` quit
+  (`q` is typeable) — exit only via menu; unsaved → `[s]`save/`[d]`discard/click-cancel.
+- Renders direct to global `tft` on the 6px Font0 grid (ssh-style): COLS=52 × ROWS≈12, inverse-cyan
+  block cursor, h/v autoscroll, scrollbar. Buffer = file-static `std::vector<String>`, ≤500 lines
+  (bigger → read-only, can't truncate on save), freed on exit (clear+shrink_to_fit, rule 5c).
+  Save = `SD.open(path, FILE_WRITE)` (truncates) + `\n`/line; missing path → new file on first save,
+  with `ensureParentDirs()` recursively creating any missing parent folders (ensureDir per prefix).
+- Lock-aware: all draws guarded by `isBlocked()`, full redraw on `consumeJustUnlocked()`, and ALL
+  input handling skipped while blocked (locked keys/trackball can't edit invisibly). Sub-loops
+  (runMenu/promptLine/confirmSaveExit) all lock-aware. No WiFi → no GDMA concern.
+- Surfaces: text_editor.cpp/.h, command_manager.cpp (fwd-decl + reg), platformio.ini (-I core/editor),
+  man_pages.cpp (entry), CLAUDE.md (module note + SD cmd line), README.md (table row), docs/sd-commands.md.
+- ✅ **HW-VERIFIED 2026-06-23** — flashed to T-Deck Plus, editor works (type/edit/save/menu/new-file).
+  Build fix: removed direct `#include "LGFX_T-Deck.h"` (no include guard → redefinition when also
+  pulled via display_manager.h); include only display_manager.h.
+- **Polish pass (2026-06-23, NOT yet flashed):** added 4 improvements — (1) **per-row dirty rendering**
+  (`g_rowDirty[]`/`g_allDirty`/`g_hintDirty` → `flushDraw()`; typing/cursor redraws only affected
+  row(s)+title, kills flicker); (2) **single-level undo** (`snapshot()`/`doUndo()`, coalesced per
+  run via `g_lastAction`, freed on exit); (3) **auto-indent** on Enter (new line inherits leading
+  whitespace, skipped if cursor inside the indent); (4) **trackball acceleration** (`accelStep()` —
+  same-dir <90ms doubles step→16, fast roll pages big files) + **Top/Bottom** menu jumps. Menu now
+  10 items (added Top/Bottom/Undo). Surfaces re-updated: text_editor.cpp, man_pages, CLAUDE.md,
+  docs/sd-commands.md. Trace-verified (String ref-before-realloc in Enter auto-indent checked OK).
+
 ## Session 2026-06-22 (command merges — free up the 64-cmd cap, 62→57)
 - **3 low-risk merges** folding sibling commands into sub-commands (kept all underlying functions;
   just collapsed the registrations + routed sub-args via `Utils::matchesCmd`):
@@ -16,7 +58,7 @@ type: project
   (cmd lists), docs/* (wifi.md, wifi-scan.md, wifi-credentials.md, network.md, portscan.md,
   netdiscover.md, diagnostics.md, audio.md, troubleshooting.md, system.md, index.md, workflows.md).
 - ESP-NOW (`es/est/ec/ev`) and USB families left FLAT — flagship apps, rename cost too high.
-- NOT yet flashed/tested after the merges.
+- ✅ **HW-VERIFIED 2026-06-23** — merged commands (`wp export/clear`, `ps top`, `test spk|mic|lora`) work on-device.
 
 ## Session 2026-06-22 (deep sleep command `sleep`/`slp` — ✅ HW-VERIFIED)
 - **New `sleep`/`slp` System command** = ESP32-S3 deep sleep (~240uA), modelled on the LilyGo

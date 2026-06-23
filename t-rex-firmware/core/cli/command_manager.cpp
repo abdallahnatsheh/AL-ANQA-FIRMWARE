@@ -64,6 +64,7 @@ void runLoraTest();
 void runI2cScan(char* a);
 void runMicTest();
 void runWardrive(char* a);
+void runEditor(char* a);
 
 CommandManager::CommandManager()
     : commandIndex(0), commandCount(0), _cursorPos(0),
@@ -726,7 +727,8 @@ void CommandManager::setupCommands() {
     registerCommand("sdls",        "ls",     [](char* a) { sdCardManager.listDirectory(a && *a ? a : nullptr); },           "List SD dir [path] — default: cwd",       true,  "SD Card", COMP_ANY);
     registerCommand("cd",          "cd",     [](char* a) { sdCardManager.cdCommand(a); },                                   "Change SD directory: cd <dir|..>",        true,  "SD Card", COMP_DIR);
     registerCommand("cat",         "cat",    [](char* a) { if (a&&*a) sdCardManager.readFile(a); else { displayManager.println("Usage: cat <path>"); displayManager.printCommandScreen(); } }, "Read file from SD",    true,  "SD Card", COMP_ANY);
-    registerCommand("rm",          "rm",     [](char* a) { if (a&&*a) sdCardManager.removeFile(a); else { displayManager.println("Usage: rm <path>"); displayManager.printCommandScreen(); } }, "Delete file from SD", true,  "SD Card", COMP_FILE);
+    registerCommand("edit",        "ed",     [](char* a) { runEditor(a); },                                                "Edit text file (nano-like): ed <path>",   true,  "SD Card", COMP_ANY);
+    registerCommand("rm",          "rm",     [](char* a) { if (a&&*a) sdCardManager.removeFile(a); else { displayManager.println("Usage: rm <path> | rm -d <dir>"); displayManager.printCommandScreen(); } }, "Delete file; rm -d <dir> removes a directory", true,  "SD Card", COMP_ANY);
     registerCommand("sdformat",    "sdf",    [](char* a) { sdCardManager.formatCommand(a); },                               "Format SD to FAT: sdf [init]",            true,  "SD Card");
     // ── USB ───────────────────────────────────────────────────────────────────
     registerCommand("usbmsc",      "um",     [](char* a) { usbManager.startMSC(); },                                                              "Expose SD card as USB drive",             false, "USB");

@@ -12,8 +12,8 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 ## Architecture
 
 **Command system** (`command_manager.cpp/h`): `registerCommand(name, shortName, fn, desc, hasArgs, category, compType=COMP_NONE)` — max 64, all one-liners in `setupCommands()`. Categories: System · WiFi · Network · Bluetooth · SD Card · Diagnostics.
-- Dispatch uses `Utils::matchesCmd(cmd, prefix)` — requires space or NUL after prefix (not bare `startsWith`). Critical: prevents `sdrm` matching `sdr`.
-- `CompType`: `COMP_NONE` (no file args) · `COMP_ANY` (ls) · `COMP_DIR` (cd) · `COMP_FILE` (cat/srm/ux)
+- Dispatch uses `Utils::matchesCmd(cmd, prefix)` — requires space or NUL after prefix (not bare `startsWith`). Critical: prevents a short name matching a longer one (e.g. `psv` must not dispatch as `ps`).
+- `CompType`: `COMP_NONE` (no file args) · `COMP_ANY` (ls/cat/rm) · `COMP_DIR` (cd) · `COMP_FILE` (ux)
 - History: 16-entry ring buffer in `_hist`; trackpad UP/DOWN navigates; `_histSaved` preserves in-progress line
 - Autocomplete: `'` key (Sym+K = 0x27, defined `KEY_AUTOCOMPLETE` in `input_handling.h`); fills common prefix, single match adds space, multiple lists up to 8
 
@@ -82,6 +82,12 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 **NetworkScanner** (`network_scanner.cpp/h`):
 - ARP scan full /24 · Port scan: `std::vector<int> openPorts` collected once then paginated
 
+**TextEditor** (`core/editor/text_editor.cpp/h`) — `edit`/`ed <path>`, nano-style SD editor:
+- Free function `runEditor(char*)` (wardrive pattern). Buffer = file-static `std::vector<String>`, freed on exit (`clear()`+`shrink_to_fit()` — rule 5c). Loads ≤`ED_LOAD_CAP`=500 lines; larger file → `g_readOnly` (edits no-op, can't save — data safety). Missing path → new empty buffer, created on first save.
+- **Control scheme forced by the I2C keyboard** (one resolved byte/key, no Ctrl/Esc/arrow codes): keyboard types/backspaces/Enter-splits (**auto-indent**: new line inherits leading whitespace); **trackball U/D/L/R = cursor** (wraps across line ends; **`accelStep()` acceleration** — same-dir moves <90ms apart double the step up to 16, so a fast roll pages big files); **CLICK = command menu** (Save/Save As/Find/Go to line/Top/Bottom/Undo/Cut line/Paste line/Exit). No `q` quit — exit only via menu (`q` is a typeable char). Exit-with-unsaved → `[s]`save/`[d]`discard/click-cancel prompt.
+- **Single-level undo** (`snapshot()`/`doUndo()`): one full-buffer copy, coalesced per run via `g_lastAction` (ACT_TYPE/ACT_DEL/ACT_NONE) — snapshots before the first char of a typing run, first of a delete run, and every structural op (Enter/Cut/Paste). Freed on exit.
+- Renders direct to global `tft` on the 6px Font0 grid (ssh-style): `ED_COLS`=52 × `ED_ROWS`≈12, inverse-cyan block cursor, h/v auto-scroll (`adjustScroll`), scrollbar. **Per-row dirty rendering** (`g_rowDirty[]`/`g_allDirty`/`g_hintDirty` → `flushDraw()`): a keystroke/cursor-move redraws only the affected row(s) + the title; scroll/structural changes set `markAll()`. Lock-aware: all draws guarded by `displayManager.isBlocked()`, full redraw on `consumeJustUnlocked()`, and **all input handling is skipped while blocked** (so locked keys/trackball can't edit invisibly). Save = `SD.open(path, FILE_WRITE)` (truncates) + one `\n` per line + `ensureParentDirs()` (recursive mkdir for new folders); no WiFi so no GDMA concern. Sub-loops (`runMenu`/`promptLine`/`confirmSaveExit`) are all lock-aware.
+
 **BeaconFlood** (`beacon_flood.cpp/h`):
 - `bf [list|seq <base>|file [path]]` — raw 802.11 beacon injection, 109-byte fixed-length frames
 - Modes: `list` (built-in 40 SSID list, PROGMEM), `seq <base>` (base1…base9999), `file` (one SSID/line from SD, default `/wordlist_beacons.txt`)
@@ -134,7 +140,7 @@ System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `sleep/s
 WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` (`wp export`/`wp clear` — merged wifiexport+clearwifi) `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `karma/km` `crack/cc` `wguard/wg` `beaconflood/bf` `wardrive/wd` `espsniff/es` `esptest/est` `espchat/ec` `espvoice/ev`
 Network: `netdiscover/nd` `portscan/ps` (`ps top <ip|#>` — merged topscan) `ping/pg` `ssh/sc`
 Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
-SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `sdrm/srm` `sdf/sdf`
+SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `edit/ed` `rm/rm` (`rm -d <dir>` = recursive dir delete) `sdf/sdf`
 Diagnostics: `gps/gps` `test/tst` (`test spk|mic|lora` — merged spktest+mictest+loratest) `i2cscan/isc [EXP]`
 
 **ESPChat** (`espchat/ec`, `espsniff/es`, `esptest/est`) — `radio/espnow/espchat/`, `espsniff/`, `esptest/`:
