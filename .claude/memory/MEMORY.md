@@ -6,7 +6,7 @@
 - [NimBLE v2.x Rules](nimble_v2_rules.md) — scan response name, cleanup no re-init, scan non-blocking, auto-bond-delete
 
 ## State
-- [Progress Log](progress_log.md) — last session 2026-06-22 (deep sleep `sleep`/`slp` cmd ✅HW-verified — trackball-click wake, command-only; wardrive SYNC scan field-verified); not-yet-built list
+- [Progress Log](progress_log.md) — last session 2026-06-23 (`edit`/`ed` nano-style SD editor ✅HW-verified, then polished: per-row dirty render + undo + auto-indent + trackball accel/Top/Bottom [unflashed]; `rm -d` recursive dir delete + dir autocomplete [unflashed]); not-yet-built list
 - [Next Steps](next_steps.md) — priority queue: WiFi(1-9)→BT(10-12)→GPS(13-14)→USB(15-18)→Other(19-26)
 
 ## Improvement backlog (hardening — user will consider)

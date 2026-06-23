@@ -173,7 +173,8 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `sdls` | `ls` | `[path]` | List directory (CWD if no path, paginated, dirs in cyan) |
 | `cd` | `cd` | `<dir\|..>` | Change working directory — `cd badusb`, `cd ..`, `cd /` |
 | `cat` | `cat` | `<path>` | Read file — scrollable viewer, tpad UP/DN, `q` quit |
-| `rm` | `rm` | `<path>` | Delete file (relative to CWD) |
+| `edit` | `ed` | `<path>` | nano-style text editor — type to edit, tpad=cursor, click=menu (save/find/exit) |
+| `rm` | `rm` | `<path>` | Delete file (relative to CWD); `rm -d <dir>` removes a directory + contents (asks y/N) |
 | `sdformat` | `sdf` | `[init]` | Format SD to FAT32 (`sdf init` also recreates directory structure) |
 | **USB** | | | |
 | `usbmsc` | `um` | — | Expose SD card as USB Mass Storage drive |
