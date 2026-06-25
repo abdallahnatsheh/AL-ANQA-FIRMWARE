@@ -195,6 +195,14 @@ void DisplayManager::updateStatusBar() {
         tft.print("EC");
     }
 
+    // ── MW (macwatch bg) badge — next to EC ─────────────────────────────────────
+    tft.fillRect(104, promptY + 20, 18, 8, 0x000F);  // clear area
+    if (_mwActive) {
+        tft.setTextColor(TFT_GREEN);
+        tft.setCursor(104, promptY + 20);
+        tft.print("MW");
+    }
+
     // ── BT icon ───────────────────────────────────────────────────────────────
     drawBTIcon(tft, 255, promptY + 15, _btActive);
 
@@ -223,6 +231,17 @@ void DisplayManager::setEcActive(bool active) {
         tft.setTextColor(TFT_CYAN);
         tft.setCursor(82, promptY + 20);
         tft.print("EC");
+    }
+}
+
+void DisplayManager::setMwActive(bool active) {
+    _mwActive = active;
+    // Partial redraw — just the MW badge area
+    tft.fillRect(104, promptY + 20, 18, 8, 0x000F);
+    if (_mwActive) {
+        tft.setTextColor(TFT_GREEN);
+        tft.setCursor(104, promptY + 20);
+        tft.print("MW");
     }
 }
 

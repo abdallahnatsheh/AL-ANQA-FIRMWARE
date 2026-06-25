@@ -5,6 +5,7 @@
 #include "clock_manager.h"
 #include "wguard.h"
 #include "espchat.h"
+#include "macwatch.h"
 #include <Wire.h>
 #include <esp_timer.h>
 
@@ -90,6 +91,7 @@ char InputHandling::getKeyboardInput() {
     ClockManager::instance().update();
     wGuard.pollBackground();
     pollEspchatBg();
+    pollMacwatchBg();
 
     // Double-click screen-off — ISR captured it, we just act on the flag
     if (s_doubleClickPending) {

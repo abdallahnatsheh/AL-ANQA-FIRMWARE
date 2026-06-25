@@ -9,6 +9,7 @@
 #include "wifimon_functions.h"
 #include "deauth_functions.h"
 #include "trackme.h"
+#include "macwatch.h"
 #include "eviltwin.h"
 #include "hidden_ssid.h"
 #include "handshake_capture.h"
@@ -320,6 +321,9 @@ static const ArgHintEntry kArgHints[] = {
     // trackme / tm  ("silent" IS a valid first arg: tm [silent])
     { "trackme",     "",              "silent" },
     { "tm",          "",              "silent" },
+    // macwatch / mw
+    { "macwatch",    "",              "add bg stop" },
+    { "mw",          "",              "add bg stop" },
     // jiggle / jg  (jg [usb|ble] — default USB)
     { "jiggle",      "",              "usb ble" },
     { "jg",          "",              "usb ble" },
@@ -715,13 +719,14 @@ void CommandManager::setupCommands() {
     registerCommand("ping",        "pg",     [](char* a) { networkScanner.pingHost(a); },                                   "Ping: pg <ip or hostname>",               true,  "Network");
     registerCommand("ssh",         "sc",     [](char* a) { runSshCon(a); },                                                 "SSH client: ssh <ip|name> [user] | save/list/rm", true,  "Network");
     // ── Bluetooth ─────────────────────────────────────────────────────────────
-    registerCommand("scanblue",    "sbl",    [](char* a) { bluetoothFunctions.scanBluetoothDevices(); },                    "BLE device scan",                         false, "Bluetooth");
-    registerCommand("bleinfo",     "bi",     [](char* a) { runBleInfo(a); },                                                         "GATT enumeration: bi <index|mac>",        true,  "Bluetooth");
-    registerCommand("trackme",     "tm",     [](char* a) { trackMe.start(a && (strncmp(a,"s",1)==0||strncmp(a,"silent",6)==0)); }, "[EXP] Anti-tracking: tm [silent]",   true, "Bluetooth");
-    registerCommand("bmon",        "bm",     [](char* a) { runBmon(a); },                                                          "BLE adv sniffer: bm",                     false, "Bluetooth");
-    registerCommand("fastpair",    "fp",     [](char* a) { fastPair.command(a); },                                                "Fast Pair attack: fp [scan|spam|h <idx>]", true, "Bluetooth");
-    registerCommand("blespam",    "bs",     [](char* a) { bleSpam.command(a); },                                                 "BLE spam: bs [apple|android|ms|samsung|all]", true, "Bluetooth");
-    registerCommand("buddy",      "bd",     [](char* a) { buddyCommand(a); },                                                        "Claude Desktop remote: bd [name]",            true,  "Bluetooth");
+    registerCommand("scanblue",    "sbl",    [](char* a) { stopMacwatchBg(); bluetoothFunctions.scanBluetoothDevices(); },   "BLE device scan",                         false, "Bluetooth");
+    registerCommand("bleinfo",     "bi",     [](char* a) { stopMacwatchBg(); runBleInfo(a); },                                       "GATT enumeration: bi <index|mac>",        true,  "Bluetooth");
+    registerCommand("trackme",     "tm",     [](char* a) { stopMacwatchBg(); trackMe.start(a && (strncmp(a,"s",1)==0||strncmp(a,"silent",6)==0)); }, "[EXP] Anti-tracking: tm [silent]",   true, "Bluetooth");
+    registerCommand("macwatch",    "mw",     [](char* a) { runMacwatch(a); },                                                      "Watch MACs: mw [add|bg|stop]",            true,  "Bluetooth");
+    registerCommand("bmon",        "bm",     [](char* a) { stopMacwatchBg(); runBmon(a); },                                        "BLE adv sniffer: bm",                     false, "Bluetooth");
+    registerCommand("fastpair",    "fp",     [](char* a) { stopMacwatchBg(); fastPair.command(a); },                              "Fast Pair attack: fp [scan|spam|h <idx>]", true, "Bluetooth");
+    registerCommand("blespam",    "bs",     [](char* a) { stopMacwatchBg(); bleSpam.command(a); },                               "BLE spam: bs [apple|android|ms|samsung|all]", true, "Bluetooth");
+    registerCommand("buddy",      "bd",     [](char* a) { stopMacwatchBg(); buddyCommand(a); },                                      "Claude Desktop remote: bd [name]",            true,  "Bluetooth");
     // ── SD Card ───────────────────────────────────────────────────────────────
     registerCommand("sdinfo",      "sdi",    [](char* a) { sdCardManager.printInfo(); },                                    "SD card type and size",                   false, "SD Card");
     registerCommand("sdls",        "ls",     [](char* a) { sdCardManager.listDirectory(a && *a ? a : nullptr); },           "List SD dir [path] — default: cwd",       true,  "SD Card", COMP_ANY);
@@ -733,7 +738,7 @@ void CommandManager::setupCommands() {
     // ── USB ───────────────────────────────────────────────────────────────────
     registerCommand("usbmsc",      "um",     [](char* a) { usbManager.startMSC(); },                                                              "Expose SD card as USB drive",             false, "USB");
     registerCommand("usbkbd",      "uk",     [](char* a) { usbKeyboard.start(); },                                                               "T-DECK as USB keyboard+mouse",            false, "USB");
-    registerCommand("btkbd",       "bk",     [](char* a) { bleKeyboard.start(); },                                                               "T-DECK as BLE keyboard+mouse",            false, "Bluetooth");
+    registerCommand("btkbd",       "bk",     [](char* a) { stopMacwatchBg(); bleKeyboard.start(); },                                              "T-DECK as BLE keyboard+mouse",            false, "Bluetooth");
     registerCommand("usbexec",     "ux",     [](char* a) { handleUsbExecCmd(a); },                                              "BadUSB/DuckyScript executor",             true,  "USB",  COMP_FILE);
     registerCommand("jiggle",      "jg",     [](char* a) { if (a && (a[0]=='b'||a[0]=='B')) bleKeyboard.jiggle(); else usbKeyboard.jiggle(); }, "Jiggler: jg [ble] — prevent screen lock", true,  "USB");
     // ── Diagnostics ───────────────────────────────────────────────────────────

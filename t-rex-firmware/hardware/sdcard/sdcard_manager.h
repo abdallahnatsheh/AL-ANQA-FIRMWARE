@@ -50,6 +50,10 @@
 
 #define SD_DIR_BMON          "/apps/bmon"
 
+#define SD_DIR_MACWATCH      "/apps/macwatch"
+#define SD_LOG_MACWATCH_LIST "/apps/macwatch/watchlist.csv"
+#define SD_LOG_MACWATCH_EVT  "/apps/macwatch/events.csv"
+
 #define SD_DIR_I2CSCAN       "/apps/i2cscan"
 #define SD_LOG_I2CSCAN       "/apps/i2cscan/results.csv"
 
