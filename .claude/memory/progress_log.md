@@ -4,7 +4,7 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
-## Session 2026-06-23 (rm: directory removal + dir autocomplete — NOT yet flashed)
+## Session 2026-06-23 (rm: directory removal + dir autocomplete — ✅ tested, committed 58d1207 + pushed)
 - **`rm -d <dir>`** = recursive directory delete (user hit: `rm` couldn't remove dirs). New static
   `rmTree()` in sdcard_manager.cpp — two-phase per level (gather child names into `vector<String>`,
   close dir, then delete) to avoid mutating a dir while its `openNextFile()` iterator is live;
@@ -37,7 +37,7 @@ type: project
 - ✅ **HW-VERIFIED 2026-06-23** — flashed to T-Deck Plus, editor works (type/edit/save/menu/new-file).
   Build fix: removed direct `#include "LGFX_T-Deck.h"` (no include guard → redefinition when also
   pulled via display_manager.h); include only display_manager.h.
-- **Polish pass (2026-06-23, NOT yet flashed):** added 4 improvements — (1) **per-row dirty rendering**
+- **Polish pass (2026-06-23, ✅ tested + committed 58d1207 + pushed):** added 4 improvements — (1) **per-row dirty rendering**
   (`g_rowDirty[]`/`g_allDirty`/`g_hintDirty` → `flushDraw()`; typing/cursor redraws only affected
   row(s)+title, kills flicker); (2) **single-level undo** (`snapshot()`/`doUndo()`, coalesced per
   run via `g_lastAction`, freed on exit); (3) **auto-indent** on Enter (new line inherits leading
