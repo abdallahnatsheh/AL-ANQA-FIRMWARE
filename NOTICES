@@ -63,3 +63,19 @@ This project incorporates code from the following open-source projects:
              gap-and-return analysis, crowd filtering) was inspired by
              AirGuard's published research by the Secure Mobile Networking
              Lab, TU Darmstadt. No source code was copied or adapted.
+
+11. BLE advertisement identifier data (specification reference — no code used)
+    Files:   t-rex-firmware/bluetooth/core/ble_ident.h
+    Sources: Bluetooth SIG "Assigned Numbers" — Company Identifiers
+             https://www.bluetooth.com/specifications/assigned-numbers/
+             furiousMAC/continuity (Apple Continuity protocol RE + paper
+             "Handoff All Your Privacy", Celosia & Cunche)
+             https://github.com/furiousMAC/continuity
+             kavishdevar/librepods, ECTO-1A/AppleJuice
+             https://github.com/kavishdevar/librepods
+             https://github.com/ECTO-1A/AppleJuice
+    Notes:   The company-ID -> vendor table, Apple Continuity message-type
+             codes, and AirPods/Beats proximity-pairing model-ID -> name
+             mappings are factual identifier data compiled from the public
+             Bluetooth SIG registry and the above community reverse-
+             engineering work. No source code was copied or adapted.

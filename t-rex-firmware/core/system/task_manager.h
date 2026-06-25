@@ -12,7 +12,7 @@
 
 struct TaskResult {
     enum Type : uint8_t { PORT_OPEN, HOST_FOUND, INFO, DONE } type;
-    char data[48];
+    char data[56];   // fits "addr|rssi|name|type|companyId" from the BLE scan
 };
 
 class TaskManager {

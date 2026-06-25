@@ -5,6 +5,7 @@
 #include "sdcard_manager.h"
 #include "clock_manager.h"
 #include "utilities.h"
+#include "ble_ident.h"
 #include <NimBLEDevice.h>
 #include <SD.h>
 
@@ -218,19 +219,19 @@ static BmonType parseAdv(const BmonRingEntry& e,
         return BM_CLRT;
     }
 
-    // ── Unknown MFR data ──────────────────────────────────────────────────────
+    // ── Manufacturer data — identify vendor / Apple model where possible ──────
     if (e.mfrLen >= 2) {
         uint16_t cid = (uint16_t)e.mfr[0] | ((uint16_t)e.mfr[1] << 8);
 
-        char shortHex[16] = "";
-        int n = min((int)e.mfrLen - 2, 4);
-        for (int i = 0; i < n; i++)
-            snprintf(shortHex + i * 3, 4, "%02X ", e.mfr[2 + i]);
-        snprintf(info, infoSz, "CID:%04X %s", cid, shortHex);
+        // bytes AFTER the 2-byte company ID = the vendor payload (Apple type, etc.)
+        char label[40];
+        bleDescribe(cid, e.mfr + 2, (size_t)(e.mfrLen - 2), label, sizeof(label));
 
-        char fullHex[96] = "";
-        hexDump(e.mfr + 2, min((int)e.mfrLen - 2, 30), fullHex, sizeof(fullHex), ' ');
-        snprintf(extended, extSz, "CID:%04X MFR:%s", cid, fullHex);
+        snprintf(info, infoSz, "%s", label);          // e.g. "Apple AirPods 2 (pairing)"
+
+        char fullHex[80] = "";
+        hexDump(e.mfr + 2, min((int)e.mfrLen - 2, 28), fullHex, sizeof(fullHex), ' ');
+        snprintf(extended, extSz, "%s  CID:%04X %s", label, cid, fullHex);
         return BM_UNKN;
     }
 
