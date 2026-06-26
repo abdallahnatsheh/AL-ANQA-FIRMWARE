@@ -5,7 +5,10 @@ type: project
 ---
 
 Command: `macwatch/mw` — watch specific WiFi/BLE MACs (or vendor OUI prefixes), alert when one
-comes into radio range. Use case: presence detection / counter-surveillance. NOT YET BUILT.
+comes into radio range. Use case: presence detection / counter-surveillance.
+**STATUS: BUILT 2026-06-25 (commits 9cec839 + a853f62) — NOT yet compiled/flashed/HW-tested.**
+This file is the design+reuse reference; the implementation diverged slightly (add flow uses a
+STABLE list with `[u]` rescan + `[h]` silent hunt meter; BLE device ID split into `ble_ident.h`).
 
 ## Architecture — "trackme-lite" (reuse trackme's dual-radio loop)
 trackme already runs BOTH radios in one command — macwatch is the same loop with a watchlist
@@ -118,8 +121,17 @@ pollMacwatchBg()/isMacwatchBgActive()` + a `g_mwBgActive` flag.
   WiFi command AND `wg bg`. BLE coexists with WiFi (time-division) and is the reliable presence
   radio anyway (associated phones stop probing). Full dual-radio stays foreground-only. Continuous
   NimBLE scan started in `startMacwatchBg()`, drained in `pollMacwatchBg()`, presence SM reused.
-- **Watchlist** loaded once in `startMacwatchBg()` (SD read, radios idle). `events.csv` writes in
-  bg are GDMA-trivial — no promiscuous, BLE+SD coexist (bmon proves it), so no pause window needed.
+- **Watchlist** loaded once in `startMacwatchBg()` (SD read). `events.csv` writes in bg.
+  ⚠️ **CORRECTED 2026-06-26 (real crash fix):** the original "no promiscuous in bg → GDMA-trivial,
+  no pause window needed" was WRONG. macwatch's *own* radio is BLE-only, but `pollMacwatchBg()`
+  runs right after `wGuard.pollBackground()` in the same `getKeyboardInput()` tick — and **`wg bg`
+  keeps promiscuous ON continuously**. So an `events.csv` write during a presence transition while
+  `wg bg` is up corrupts FatFS (GPS + wg bg + mw bg → T-Deck rebooted after ~1h). **FIX:** wrap
+  ALL macwatch SD access (`mwFlushEvts`/`mwSaveWatchlist`/`mwLoadWatchlist`) in `ScopedPromiscPause`
+  (`wifi/core/wifi_sd_guard.h`) — it pauses whoever owns promiscuous for the write, no-op if off.
+  Also: fg exit must NOT blanket `esp_wifi_set_promiscuous(false)` (kills wguard's IDS) — guard with
+  `!wGuard.isBackground()`. **Lesson: "my command doesn't run promiscuous" ≠ GDMA-safe — another
+  background command might. Default to `ScopedPromiscPause` on every mid-session SD write.**
 - **Status-bar badge**: `MW` icon via a new `displayManager.setMwActive(true)` flag (add alongside
   `setEcActive`); flashes alert-colour on a hit.
 - **Alert in bg** = beep (`NOTIF_ALERT`) + wake screen + **popup bar at y=222** (16px, lock-aware,

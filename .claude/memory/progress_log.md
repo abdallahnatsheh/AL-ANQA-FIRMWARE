@@ -4,6 +4,48 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-06-26 (macwatch GDMA crash fix — gps + wg bg + mw bg → reboot after ~1h)
+- **User field report:** ran `gps` on + `wg bg` + `mw bg` together; ~1h later the T-Deck had
+  rebooted on its own. **ROOT CAUSE = GDMA-rule violation.** `pollMacwatchBg()` runs right after
+  `wGuard.pollBackground()` in the same `getKeyboardInput()` tick, and **`wg bg` holds promiscuous
+  ON continuously**. macwatch's `mwFlushEvts()` wrote `events.csv` on a presence ARRIVE/LEAVE while
+  that promiscuous DMA was live → FatFS/GDMA corruption → reset. Only fires on a transition, hence
+  "~1h". The old `mwFlushEvts` comment "bg never runs promiscuous → always GDMA-safe" was wrong —
+  it only considered macwatch's OWN radio, not a co-running background command.
+- **FIX (macwatch.cpp):** `#include "wifi_sd_guard.h"`; wrapped `mwFlushEvts()`, `mwSaveWatchlist()`,
+  `mwLoadWatchlist()` in `ScopedPromiscPause` (reads current promiscuous, pauses wguard's for the
+  write, restores; no-op when off → correct in fg-sniff / bg / standalone paths). Also fixed a
+  second latent bug: fg `mwRunInteractive()` exit blanket-called `esp_wifi_set_promiscuous(false)`,
+  which would silently kill `wg bg`'s IDS sniffing — now `if (!wGuard.isBackground())`.
+- **Lesson (added to [[project_macwatch_idea]]):** "my command doesn't run promiscuous" ≠ GDMA-safe
+  — a background command (wg bg) might. Default to `ScopedPromiscPause` on every mid-session SD write.
+- ⚠️ NOT yet compiled/flashed (user flashes manually). Latent secondary risk noted but untouched:
+  GpsManager's one-time first-fix NVS *flash* write could also collide with `wg bg` promiscuous
+  (wardrive's "NVS write during live WiFi" lesson) — would crash ~4min in, not 1h, so not this bug.
+
+## Session 2026-06-25 (macwatch/mw + BLE device identification — built, UNTESTED, committed 9cec839 + a853f62)
+- **New `macwatch`/`mw` command (Bluetooth)** — watch specific WiFi/BLE MACs (or vendor OUI
+  prefixes) with a name + proximity gate; **beep + screen-wake + centered popup on arrival**.
+  Built as "trackme-lite" (dual-radio loop, presence state machine). Full design + reuse map in
+  [[project_macwatch_idea]].
+  - **Foreground** = bmon-style table UI. Add flow uses a **STABLE candidate list** ([[ui_rules]]:
+    manual-refresh, not auto-updating, so selection doesn't jump) — `[u]` rescan · `[n]` near-only
+    filter · `[h]` silent live-RSSI **hunt meter** (find which direction a tag is) · trackball select.
+  - **Background** = BLE-only (`mw bg` / `mw stop`), `MW` status-bar badge, hooked into
+    `getKeyboardInput()` like `ec bg`. Presence SM (3-min timeout) **persists across re-entry** so it
+    doesn't re-alert; foreground exit **resumes bg** if it was running.
+  - **No-Esc UI** (T-Deck keyboard has no Esc/arrows): cancel via trackball click / `q`.
+- **BLE device identification (`ble_ident.h`, header-only)** — Bluetooth SIG company IDs + Apple
+  Continuity message types + AirPods/Beats proximity-pairing model IDs. Wired into **bmon** (full
+  label e.g. `Apple AirPods 2 (pairing)`), **sbl** (vendor name + new selectable table, captures BLE
+  company id), and the **mw add** list.
+- Surfaces: new `bluetooth/tools/macwatch/` (macwatch.cpp/.h + macwatch_bg), `ble_ident.h`,
+  command_manager.cpp (reg), sdcard_manager (`/apps/macwatch` tree + watchlist.csv/events.csv),
+  display_manager (`setMwActive()` MW badge), task_manager (`TaskResult.data` 48→56 so BLE company-id
+  field never truncates), bmon.cpp, scanblue, NOTICES (credit Bluetooth SIG, furiousMAC/continuity,
+  librepods, AppleJuice).
+- ⚠️ **NOT yet compiled/flashed** — pending on-device verification. See verify checklist in [[project_macwatch_idea]].
+
 ## Session 2026-06-23 (rm: directory removal + dir autocomplete — ✅ tested, committed 58d1207 + pushed)
 - **`rm -d <dir>`** = recursive directory delete (user hit: `rm` couldn't remove dirs). New static
   `rmTree()` in sdcard_manager.cpp — two-phase per level (gather child names into `vector<String>`,
@@ -220,7 +262,5 @@ sync switch above (async removed entirely). Alt/HDOP exposure in GpsManager stil
 Lock screen write-block + unlock auto-redraw; backspace hold-repeat; btkbd/bk BLE HID keyboard+mouse; buddy MITM bonding; WiFi wrong-password fix; NTP sync fix; status bar 3s live refresh; wguard WiFi isolation; `sdrm→rm` rename.
 
 ## Not Yet Built
-- macwatch/mw — MAC proximity watchlist
 - LoRa scanner — lorascan/ls
-- bmon — passive BLE ad sniffer (iBeacon/Eddystone/cleartext, PCAP linktype 251)
-- ES7210 mic, GT911 touchscreen (pins: project_future_peripherals.md)
+- GT911 touchscreen (pins: project_future_peripherals.md)
