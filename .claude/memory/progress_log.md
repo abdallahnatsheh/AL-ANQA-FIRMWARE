@@ -4,6 +4,26 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-06-26 (csidetect/csi — WiFi CSI presence radar MVP — ✅ HW-VERIFIED)
+- **New `csidetect`/`csi` (Diagnostics)** — single-chip WiFi CSI human-presence detector with a
+  phosphor **radar UI**. Ported the reference's single-device CSI path (skizzophrenic/
+  Cardputer-CSI-Human-Detector, MIT). ✅ **works on the T-Deck** (user confirmed). Cmd 58→**59/64**.
+  Full reference + next steps in [[project_csi_camdetect_plan]].
+- **Algorithm (verbatim from ref)**: IRAM `csiCb` → per-subcarrier amp `sqrt(r²+im²)` + mean
+  sin(phase), 50-frame window, amp+phase variance, asymmetric-EMA self-cal (0.1/0.002/0.005), blend
+  `0.6·amp+0.4·pha`; hold/coast presence (thresh **0.15**, hold 150 @15Hz). `wifi_csi_config_t` =
+  IDF-4.4 fields (correct for espressif32 6.x).
+- **UI = HONEST radar** (single antenna → no bearing/count, just one motion-energy signal): sweep
+  angle = TIME, blip radius = motion intensity, center reticle CLEAR↔CONTACT. `[`/`]` thresh, `c`
+  calibrate, `q` quit. On-screen bring-up diag (`fr:<n>` + `CSI live|ERR|no frames`) per rule-7.
+- **MVP scope (user: confirm radar first, then expand)**: NO SD, NO beep. Requires WiFi connected;
+  bails if `wg bg` owns promiscuous.
+- **camdetect DROPPED** — not CSI (a promiscuous OUI sniffer that shared the plan doc); separate later.
+- Files: `wifi/sensing/csidetect.cpp/.h`, command_manager (fwd-decl+reg), platformio (`-I wifi/sensing`),
+  NOTICES (#12 MIT, #13 esp-csi). **Next: sprite double-buffer → flicker fix + mockup look (soft sweep
+  wedge / amber contact / presence box); then SD+beep; then coexistence.**
+- Note: built/committed across PCs — this commit done in user's name only (no Co-Authored-By).
+
 ## Session 2026-06-26 (macwatch GDMA crash fix — gps + wg bg + mw bg → reboot after ~1h)
 - **User field report:** ran `gps` on + `wg bg` + `mw bg` together; ~1h later the T-Deck had
   rebooted on its own. **ROOT CAUSE = GDMA-rule violation.** `pollMacwatchBg()` runs right after

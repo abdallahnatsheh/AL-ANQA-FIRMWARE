@@ -1,13 +1,49 @@
 ---
 name: csidetect + camdetect plan (CSI presence + hidden-camera scan)
-description: NOT YET BUILT — csidetect (WiFi CSI human presence) + camdetect/cm (hidden camera OUI scanner). cd alias COLLIDES.
+description: csidetect/csi BUILT + HW-VERIFIED (MVP radar) 2026-06-26; camdetect DROPPED (not CSI). Next = sprite/mockup polish.
 type: project
 ---
 
-**Commands: `csidetect` + `camdetect`/`cm`** (new Sensing category). NOT YET BUILT. Full plan in
-repo: `.claude/memory/TREX_CSI_CAMDETECT_PLAN.md`. Both use the ESP32-S3's built-in WiFi only — no
-extra sensors. Ref: skizzophrenic/Cardputer-CSI-Human-Detector (**MIT**, attribution required in
-adapted files) + official espressif/esp-csi (Apache-2.0, has S3 human-detect examples).
+**Commands: `csidetect`/`csi` (BUILT) + ~~camdetect~~ (dropped).** Full original plan in repo:
+`.claude/memory/TREX_CSI_CAMDETECT_PLAN.md`. ESP32-S3 built-in WiFi only — no extra sensors. Ref:
+skizzophrenic/Cardputer-CSI-Human-Detector (**MIT**) + official espressif/esp-csi (Apache-2.0).
+
+## IMPLEMENTATION STATUS (2026-06-26)
+- **`csidetect`/`csi` — BUILT + HW-VERIFIED (MVP). Radar works on the T-Deck.** Alias is **`csi`**
+  (NOT `hd`/`cd` — `cd` is change-dir). Category **Diagnostics**. Cmd count 58→**59/64**.
+- **`camdetect` NOT built — DROPPED from this effort**: it's not CSI at all, just a promiscuous
+  camera-OUI sniffer that shared the plan doc. Revisit separately if wanted; same for the trackme
+  cam-OUI integration.
+- **Files**: `t-rex-firmware/wifi/sensing/csidetect.cpp` + `.h`; fwd-decl + `registerCommand` in
+  `core/cli/command_manager.cpp`; `-I .../wifi/sensing` in `platformio.ini`; credited in `NOTICES`
+  (#12 Cardputer-CSI MIT, #13 esp-csi). File-header `Sources:` block present.
+- **What the MVP has**: CSI enable (promiscuous MGMT|DATA + `esp_wifi_set_csi`); IRAM `csiCb` with the
+  reference's EXACT math — per-subcarrier amplitude `sqrt(r²+im²)` + mean sin(phase), 50-frame window,
+  amp+phase variance, **asymmetric-EMA** self-cal (rates 0.1/0.002/0.005), blend `0.6·amp+0.4·pha`;
+  hold/coast presence (thresh **0.15**, hold 150 @ ~15 Hz, graceful fade); **honest phosphor radar**
+  (sweep angle = time, blip radius = motion intensity, **NO bearing**); `[`/`]` threshold, `c`
+  calibrate, `q` quit; on-screen bring-up diag line (`fr:<n>` + `CSI live|CSI ERR n|no frames`).
+- **What the MVP does NOT have — next phases (recommended order)**:
+  1. **Sprite double-buffer** (LGFX_Sprite for the radar disc) → kills flicker AND unlocks the
+     mockup look: soft translucent sweep wedge, amber pulsing contact blip, bordered presence box.
+     **Highest value — the radar UI is the whole point.**
+  2. SD event log → `/apps/csidetect/` (use `ScopedPromiscPause`, GDMA) + presence beep
+     (`NotificationManager::notify`).
+  3. Coexistence: currently **requires WiFi connected** (`WL_CONNECTED`) and **bails if `wg bg`**
+     owns promiscuous (`wGuard.isBackground()` guard). Make it save/restore the promisc rx cb to run
+     alongside.
+- **Gotchas for the next PC**:
+  - CSI needs WiFi **connected** (frames come from the AP's channel) — `cw` first; it stays on that channel.
+  - `wifi_csi_config_t` uses **IDF-4.4 field names** (lltf_en/htltf_en/stbc_htltf2_en/ltf_merge_en/
+    channel_filter_en/manu_scale/shift) — correct for `platform = espressif32` 6.x. A core bump to
+    IDF 5.2+ renames the struct → guard then.
+  - Detection scales with ambient WiFi traffic; quiet net → low `fr:` → sluggish. Self-ping gateway
+    is an optional future nicety (the reference also relies on ambient traffic).
+  - **Single antenna = ONE motion signal, no direction/count.** The radar is deliberately honest
+    (sweep=time, not bearing). Do NOT add fake per-human positions — the reference fakes blip angles
+    too and is explicit it's "motion-over-time, not direction finding."
+  - The reference's "Monster C5" is just an OPTIONAL external display, NOT a sensor — sensing is 100%
+    on one S3 (this is the `enableCsi`/`csiCallback` path in its `src/main.cpp`).
 
 ## ⚠️ ALIAS COLLISION — fix before building
 Plan proposes `csidetect`/**`cd`** but **`cd` is TAKEN** (change-directory, SD). Use a free alias:
