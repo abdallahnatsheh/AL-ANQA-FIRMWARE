@@ -23,6 +23,7 @@
 #include "oui_lookup.h"
 #include "ble_ident.h"
 #include "wguard.h"
+#include "wifi_sd_guard.h"   // ScopedPromiscPause — GDMA-safe SD writes while wg bg holds promiscuous
 
 extern DisplayManager displayManager;
 extern SDCardManager  sdCardManager;
@@ -210,10 +211,17 @@ static void mwQueueEvt(char kind, const MwEntry& e) {
     q.wifi = e.lastWiFi;
 }
 
-// Flush queued events — caller MUST guarantee promiscuous is OFF (GDMA rule).
+// Flush queued events. macwatch itself never runs promiscuous in bg, BUT wguard's
+// background IDS (`wg bg`) keeps promiscuous ON the whole time — and pollMacwatchBg()
+// runs right after wGuard.pollBackground() in the same getKeyboardInput() tick. Writing
+// SD with that promiscuous DMA live corrupts FatFS (the ~1h "T-Deck rebooted" crash with
+// gps+wg bg+mw bg). ScopedPromiscPause reads the *current* promiscuous state and pauses
+// whoever owns it (wguard) for the write, restoring it after — a no-op when promiscuous
+// is already off, so it's correct in every path (fg sniff, bg, standalone).
 static void mwFlushEvts() {
     if (s_evtCount == 0) return;
     if (!sdCardManager.isReady()) { s_evtCount = 0; return; }
+    ScopedPromiscPause _;          // pause wguard's (or any) promiscuous for the SD write
     sdCardManager.ensureDir(SD_DIR_MACWATCH);
     for (uint8_t i = 0; i < s_evtCount; i++) {
         MwEvt& q = s_evtQ[i];
@@ -363,6 +371,7 @@ static void mwWifiSniff(uint32_t durMs, bool collect,
 static void mwLoadWatchlist() {
     s_watchCount = 0;
     if (!sdCardManager.isReady() || !SD.exists(SD_LOG_MACWATCH_LIST)) return;
+    ScopedPromiscPause _;          // startMacwatchBg()/mwEnsureLoaded() may run while wg bg promiscuous is live
     File f = SD.open(SD_LOG_MACWATCH_LIST, FILE_READ);
     if (!f) return;
     while (f.available() && s_watchCount < MW_MAX) {
@@ -409,6 +418,7 @@ static void mwEnsureLoaded() {
 
 static bool mwSaveWatchlist() {
     if (!sdCardManager.isReady()) return false;
+    ScopedPromiscPause _;          // [a]/[r] may save while wg bg holds promiscuous (or fg sniff returned early)
     sdCardManager.ensureDir(SD_DIR_MACWATCH);
     File f = SD.open(SD_LOG_MACWATCH_LIST, FILE_WRITE);   // truncate + rewrite
     if (!f) return false;
@@ -825,8 +835,7 @@ static void mwAddMode() {
     int idx = mwAddOrUpdate(chosen.mac, prefixLen, name, radio, nearRssi);
     if (idx < 0) { mwSetNotice("Watchlist full", TFT_RED); return; }
 
-    // promiscuous is OFF here (mwWifiSniff ended) → SD write is GDMA-safe
-    if (mwSaveWatchlist()) mwSetNotice("Saved", TFT_GREEN);
+    if (mwSaveWatchlist()) mwSetNotice("Saved", TFT_GREEN);   // self-guarded (ScopedPromiscPause)
     else                   mwSetNotice("Added (no SD - session only)", TFT_YELLOW);
 }
 
@@ -1047,7 +1056,10 @@ static void mwRunInteractive(bool addFirst) {
     }
 
     mwBleStop();
-    esp_wifi_set_promiscuous(false);
+    // Clean up only macwatch's OWN promiscuous. If wguard bg owns it, leave it ON —
+    // mwWifiSniff() bailed early in that case and never enabled it, so disabling here
+    // would silently stop wguard's IDS sniffing.
+    if (!wGuard.isBackground()) esp_wifi_set_promiscuous(false);
     s_logOn = false;
     if (wasBg) startMacwatchBg();          // resume the background watcher we paused
     else       displayManager.printCommandScreen();
