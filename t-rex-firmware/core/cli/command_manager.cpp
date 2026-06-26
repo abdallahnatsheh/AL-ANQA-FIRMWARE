@@ -66,6 +66,7 @@ void runI2cScan(char* a);
 void runMicTest();
 void runWardrive(char* a);
 void runEditor(char* a);
+void runCsiDetect(char* a);
 
 CommandManager::CommandManager()
     : commandIndex(0), commandCount(0), _cursorPos(0),
@@ -745,4 +746,5 @@ void CommandManager::setupCommands() {
     registerCommand("gps",         "gps",    [](char* a) { runGps(a); },                                                "GPS: gps on|off|test",                    true,  "Diagnostics");
     registerCommand("test",        "tst",    [](char* a) { handleHwTestCmd(a); },                                           "HW test: test <spk|mic|lora>",            true,  "Diagnostics");
     registerCommand("i2cscan",     "isc",    [](char* a) { runI2cScan(a); },                                                 "[EXP] I2C scanner: isc [r|w|d] <args>",  true,  "Diagnostics");
+    registerCommand("csidetect",   "csi",    [](char* a) { runCsiDetect(a); },                                               "WiFi CSI presence radar (needs cw)",     false, "Diagnostics");
 }

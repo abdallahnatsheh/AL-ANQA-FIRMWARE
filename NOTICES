@@ -79,3 +79,21 @@ This project incorporates code from the following open-source projects:
              mappings are factual identifier data compiled from the public
              Bluetooth SIG registry and the above community reverse-
              engineering work. No source code was copied or adapted.
+
+12. Cardputer-CSI-Human-Detector (algorithm reference)
+    Files:   t-rex-firmware/wifi/sensing/csidetect.cpp
+    Source:  https://github.com/skizzophrenic/Cardputer-CSI-Human-Detector
+    License: MIT License (Copyright (c) skizzophrenic / TalkingSasquach)
+    Notes:   The CSI acquisition config (wifi_csi_config_t fields), the
+             per-subcarrier amplitude/phase variance with asymmetric-EMA
+             self-calibration, and the hold/coast presence logic in csidetect
+             are adapted from its single-device CSI path. No source was copied
+             verbatim — the algorithm and constants were reimplemented for
+             T-REX. CSI is single-antenna: motion energy only, no bearing.
+
+13. esp-csi (official CSI reference — no code used)
+    Source:  https://github.com/espressif/esp-csi
+    License: Apache License 2.0
+    Notes:   Espressif's official ESP32-S3 Channel State Information examples
+             were used as an API/feasibility reference for csidetect. No source
+             code was copied or adapted.
