@@ -37,9 +37,9 @@ Assessment of the whole T-REX firmware (~60 commands, mature). Leverage now is i
    guard; wguard/wifimon/handshake/pmkid still hand-roll pause/resume — where GDMA corruption hides.
 
 ## Tier 3 — structural / housekeeping
-4. **64-command cap: at 58/64** (62 → 57 via the 2026-06-22 merges: `wp export/clear`, `ps top`,
-   `test spk/mic/lora`; then `edit`/`ed` + `macwatch`/`mw` re-added 2 — net 58). 6 slots left.
-   Further merge candidates if needed:
+4. **64-command cap: at 59/64** (62 → 57 via the 2026-06-22 merges: `wp export/clear`, `ps top`,
+   `test spk/mic/lora`; then `edit`/`ed` + `macwatch`/`mw` + `csidetect`/`csi` added 3 — net 59).
+   5 slots left. Further merge candidates if needed:
    ESP-NOW `es/est/ec/ev` → `esp <sub>` (−3, but flagship apps), USB family → `usb <sub>` (−2).
 5. **Centralized WiFi state helper** ("enter sniff / enter inject / return idle"). Most hard bugs
    lived in per-module `WiFi.mode`/promiscuous/APSTA juggling (GDMA, the karma churn we fixed).

@@ -53,14 +53,14 @@ ref: [[project_netspy_isoscan_plan]] (current-repo mapping + reuse + GDMA notes)
   gateway bounce, broadcast reflect, downlink/uplink port stealing (MAC spoof — **must restore MAC on
   every exit path**). `isoscan auto` runs all. No AirSnitch code used (techniques from the paper).
 
-## Sensing (WiFi CSI)  [NEW PLAN 2026-06-26]
+## Sensing (WiFi CSI)  [2026-06-26]
 ESP32-S3 WiFi only, no extra sensors. Full plan: `TREX_CSI_CAMDETECT_PLAN.md` · ref:
-[[project_csi_camdetect_plan]]. ⚠️ proposed alias `cd` COLLIDES with change-dir — use `hd`/`csi`.
-- **csidetect** (`hd`/`csi`, NOT `cd`) — human presence via WiFi CSI amp/phase variance + hold/coast;
-  needs WiFi connected; motion bar + graph + presence beep. (ref: Cardputer-CSI MIT / espressif/esp-csi.)
-- **camdetect** (`cm`) — hidden-camera/spy-device scan: promiscuous hop 1-13, match source-MAC OUI
-  vs camera/IoT vendors (extend `oui_lookup.h`), RSSI proximity alerts. Optional: fold OUI match into
-  `trackme` WiFi sniff as a `CAM` threat type.
+[[project_csi_camdetect_plan]] (implementation status + next phases live there).
+- **csidetect** (`csi`) — ✅ DONE (MVP, HW-VERIFIED 2026-06-26). WiFi CSI human-presence radar.
+  Module `wifi/sensing/csidetect.cpp`. Remaining: (1) sprite double-buffer → flicker fix + mockup
+  look (soft sweep wedge / amber contact / presence box); (2) SD log + presence beep; (3) coexistence
+  (currently needs WiFi connected + bails under `wg bg`).
+- ~~**camdetect**~~ — DROPPED (not CSI — a promiscuous camera-OUI sniffer; revisit separately if wanted).
 
 ## USB Attacks
 
