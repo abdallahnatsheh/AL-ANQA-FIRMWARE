@@ -5,7 +5,7 @@ type: project
 ---
 
 ## Already implemented (do NOT re-add)
-`beaconflood/bf` · `bleinfo/bi` · `usbkbd/uk` · `usbexec/ux` (BadUSB) · `clock/ClockManager` · `buddy/bd` · `wguard/wg` · `hiddenssid/hs` · `blespam/bs` · `jiggle/jg` (mouse jiggler) · `fast_pair/fp` (Google Fast Pair scan/spam/hijack) · `show/sh` (last scan results) · `tz` (timezone config) · `volume/vol` (I2S volume) · `notif/nf` (per-level sound config) · `wifimon/wm` (airmon-ng rewrite: nets+clients views, targeted deauth, raw PCAP, probe logger `[p]` → `/apps/wifimon/probes.csv`) · `oui_lookup.h` (shared ~350-entry vendor+type table) · `pmkid/pm` (PMKID capture+crack, no client needed, passive M1 sniff) · `bmon/bm` (passive BLE adv sniffer — iBeacon/Eddystone/cleartext, PCAP) · `espvoice/ev` (ESP-NOW G.722 walkie-talkie) · `mictest/mt` (ES7210 mic test) · `trackme/tm` (anti-tracking, service-UUID sigs) · `ssh/sc` (interactive SSH client via LibSSH-ESP32) · `wardrive/wd` (WiFi+GPS → WiGLE 1.4 CSV, Plus only) · `karma/km` (Karma/MANA: harvest+PNL fingerprint, rogue-AP half-handshake, auto mode, captive portal — wifi/attacks/karma/) · `edit/ed` (nano-style on-device SD text editor — core/editor/, trackball cursor + click-menu, NOT yet HW-tested). SD layout
+`beaconflood/bf` · `bleinfo/bi` · `usbkbd/uk` · `usbexec/ux` (BadUSB) · `clock/ClockManager` · `buddy/bd` · `wguard/wg` · `hiddenssid/hs` · `blespam/bs` · `jiggle/jg` (mouse jiggler) · `fast_pair/fp` (Google Fast Pair scan/spam/hijack) · `show/sh` (last scan results) · `tz` (timezone config) · `volume/vol` (I2S volume) · `notif/nf` (per-level sound config) · `wifimon/wm` (airmon-ng rewrite: nets+clients views, targeted deauth, raw PCAP, probe logger `[p]` → `/apps/wifimon/probes.csv`) · `oui_lookup.h` (shared ~350-entry vendor+type table) · `pmkid/pm` (PMKID capture+crack, no client needed, passive M1 sniff) · `bmon/bm` (passive BLE adv sniffer — iBeacon/Eddystone/cleartext, PCAP) · `espvoice/ev` (ESP-NOW G.722 walkie-talkie) · `mictest/mt` (ES7210 mic test) · `trackme/tm` (anti-tracking, service-UUID sigs) · `ssh/sc` (interactive SSH client via LibSSH-ESP32) · `wardrive/wd` (WiFi+GPS → WiGLE 1.4 CSV, Plus only) · `karma/km` (Karma/MANA: harvest+PNL fingerprint, rogue-AP half-handshake, auto mode, captive portal — wifi/attacks/karma/) · `edit/ed` (nano-style on-device SD text editor — core/editor/, trackball cursor + click-menu) · `macwatch/mw` (WiFi+BLE MAC watchlist → proximity alert: beep+wake+popup, presence SM, hunt meter, BLE-only bg mode + MW badge — bluetooth/tools/macwatch/, built but NOT yet HW-tested) · `ble_ident.h` (header-only BLE device ID: SIG company IDs + Apple Continuity + AirPods/Beats models — used by bmon/sbl/mw). SD layout
 is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.md`.
 
 ---
@@ -20,6 +20,10 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
 7. **SSH Connect** — ✅ DONE 2026-06-13 as `ssh/sc <ip> [user]` (LibSSH-ESP32, interactive PTY shell, colour terminal + trackpad scrollback). Remaining: `<#>` index from `nd`, host-key pinning + key auth on `/apps/ssh/`, Ctrl-C, fuller VT100.
 8. **TCP Listener/Client** — catch reverse shells / forward input. `tcplisten/tl <port>` · `tcpclient/tc <ip> <port>`
 9. **DPWO** — default credential checker against discovered hosts. Command: `dpwo/dw <ip|#>`
+4. **WPA3 transition-mode downgrade** — `wpa3down`/`w3d`. Detect transition-mode APs (`[TD]`) +
+   PMF (RSN-IE MFPC/MFPR + AKM SAE+PSK) in `sw`, deauth/pre-assoc-flood victim, WPA2-only rogue AP,
+   capture EAPOL+PMKID → HCCAPX/HC22000. Mostly assembles existing `ws`+`pm`+`eviltwin`+`sw`. Full
+   plan: `TREX_WPA3_DOWNGRADE_PLAN.md` · ref: [[project_wpa3down_plan]] (current-repo mapping + reuse).
 
 ## Bluetooth
 
@@ -29,7 +33,7 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
     - Host auto-reconnects to cloned MAC; exploits BLESA (2020) — unpatched Android/old iOS/some Windows accept unencrypted HID reconnect → keystrokes injected before re-auth
     - Patched devices require valid LTK → connection drops on encrypt failure (no injection)
     - NimBLE: set MAC before `init()` via `esp_wifi_set_mac` equivalent for BLE
-11. **macwatch** — see `project_macwatch_idea.md` for full spec. Command: `macwatch/mw`
+11. **macwatch** — ✅ DONE 2026-06-25 as `macwatch/mw` (WiFi+BLE MAC watchlist → proximity alert; presence state machine, hunt meter, BLE-only bg mode). Module `bluetooth/tools/macwatch/`. Built but NOT yet HW-tested. Full ref: `project_macwatch_idea.md`.
 12. **BT Command Relay** — send CLI command to remote T-Deck over BLE NUS; output streams back. `btcmd/btc <mac> <cmd>`
 
 ## GPS / T-Deck Plus Only
@@ -39,6 +43,24 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
     BSSID once per session, only while a fix is valid; dedup table in PSRAM; verified against the
     official WiGLE 1.4 spec (api.wigle.net/csvFormat-1_4.html). Module `wifi/tools/wardrive/`.
 14. **GPS Tracker** — log coords + timestamp every N seconds. Command: `gpstracker/gtr [interval_s]`
+
+## Network Intelligence (client-isolation bypass — AirSnitch, NDSS 2026)  [NEW PLAN 2026-06-26]
+Both require T-Deck connected to the target net (`cw`). Full plan: `TREX_NETSPY_ISOSCAN_PLAN.md` ·
+ref: [[project_netspy_isoscan_plan]] (current-repo mapping + reuse + GDMA notes).
+- **netspy** (`ns`) — discover devices despite client isolation via DHCP/mDNS/SSDP/IPv6-ND passive
+  sniff + assoc frames + GTK broadcast-ARP (responders = `GTK-REACHABLE` targets) + OUI. Reuse `oui_lookup.h`.
+- **isoscan** (`is` `[#]`) — bypass attacks on a target: GTK check/inject (ICMPv6-RA DNS poison),
+  gateway bounce, broadcast reflect, downlink/uplink port stealing (MAC spoof — **must restore MAC on
+  every exit path**). `isoscan auto` runs all. No AirSnitch code used (techniques from the paper).
+
+## Sensing (WiFi CSI)  [NEW PLAN 2026-06-26]
+ESP32-S3 WiFi only, no extra sensors. Full plan: `TREX_CSI_CAMDETECT_PLAN.md` · ref:
+[[project_csi_camdetect_plan]]. ⚠️ proposed alias `cd` COLLIDES with change-dir — use `hd`/`csi`.
+- **csidetect** (`hd`/`csi`, NOT `cd`) — human presence via WiFi CSI amp/phase variance + hold/coast;
+  needs WiFi connected; motion bar + graph + presence beep. (ref: Cardputer-CSI MIT / espressif/esp-csi.)
+- **camdetect** (`cm`) — hidden-camera/spy-device scan: promiscuous hop 1-13, match source-MAC OUI
+  vs camera/IoT vendors (extend `oui_lookup.h`), RSSI proximity alerts. Optional: fold OUI match into
+  `trackme` WiFi sniff as a `CAM` threat type.
 
 ## USB Attacks
 
