@@ -141,7 +141,7 @@ WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` (`wp export`/`wp clear` — m
 Network: `netdiscover/nd` `portscan/ps` (`ps top <ip|#>` — merged topscan) `ping/pg` `ssh/sc`
 Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
 SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `edit/ed` `rm/rm` (`rm -d <dir>` = recursive dir delete) `sdf/sdf`
-Diagnostics: `gps/gps` `test/tst` (`test spk|mic|lora` — merged spktest+mictest+loratest) `i2cscan/isc [EXP]`
+Diagnostics: `gps/gps` `test/tst` (`test spk|mic|lora` — merged spktest+mictest+loratest) `i2cscan/isc [EXP]` `csidetect/csi [EXP]`
 
 **ESPChat** (`espchat/ec`, `espsniff/es`, `esptest/est`) — `radio/espnow/espchat/`, `espsniff/`, `esptest/`:
 - Wire format: `EcMsg{type(1)+seq(1)+name[12]+text[100]}` = 114 bytes, type=0x01; broadcast ch compatible with any ESP32/ESP8266
@@ -317,6 +317,13 @@ orphaned, not migrated.
 - **Row selection**: trackpad UP/DOWN (`TBALL_UP`/`TBALL_DOWN`) moves selection within page; selected row gets dark-blue `fillRect` highlight + `>` marker + yellow info text; detail pane auto-updates
 - **Column layout** (6px/char): CX_SEL=4, CX_TYPE=16, CX_MAC=52, CX_AT=160, CX_RSSI=184, CX_INFO=214
 - `[a/l]` page navigation (7 rows/page, resets selection to row 0) · `[q]` quit → stops scan + closes log
+
+**CSIDetect (`csidetect.cpp/h`)** — `wifi/sensing/`, command `csidetect`/`csi` (Diagnostics):
+- WiFi **CSI motion detector** with a radar UI (first-of-kind on T-Deck). Ports the single-device CSI path of skizzophrenic/Cardputer-CSI-Human-Detector (MIT) — see `NOTICES` #12/#13. Requires WiFi **connected** (`cw`); reads CSI from frames on the AP's channel via promiscuous + `esp_wifi_set_csi`. Bails if `wg bg` owns promiscuous; no SD, no notifications.
+- **Algorithm** (IRAM `csiCb`): per-subcarrier amplitude `sqrt(r²+im²)` + mean sin(phase); global windowed variance + **asymmetric-EMA** self-cal → `gMotion` (presence core, hold/coast, thresh default 0.15); ALSO splits subcarriers into `CSI_BANDS=8` responsive-EMA bands → per-sector "contacts".
+- **`wifi_csi_config_t` = IDF-4.4 fields** (lltf_en/htltf_en/…) — correct for `platform = espressif32` 6.x; renames in IDF 5.2+.
+- **UI**: double-buffered PSRAM `LGFX_Sprite` radar (≈30 fps, no flicker) — sweep cone, sector blips (gated behind real motion, highlight bands reacting above average, strong→nearer centre), pulsing CLEAR/CONTACT reticle; right panel = CONTACT/CLEAR + activity word + zones + MOTION/THRESH bars + `fr:`/`CSI live` bring-up diag. `[h]` help overlay. `a/l`/trackball = sensitivity, `c` = recalibrate, `q` = quit.
+- **HONESTY (load-bearing)**: single antenna = ONE motion-energy signal — **no bearing, no count, no localization**. The 8 sectors are signal bands spread for readability, NOT directions (the Cardputer reference literally `random()`s the angle; real placement needs a multi-node mesh + ML like ruview). Motion only — a still person may read CLEAR. Never reintroduce fake per-person positions.
 
 ## Pending Features
 - LoRa scanner / packet logger

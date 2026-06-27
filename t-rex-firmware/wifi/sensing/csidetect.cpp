@@ -2,25 +2,31 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Abdallah Natsheh
 //
-// csidetect / csi (alias hd) — WiFi CSI human-presence detector with a radar UI.
+// csidetect / csi — WiFi CSI motion detector (sweep-style display, NOT a real
+// radar — it senses motion energy only, no direction/position/count).
 //
 // How it works: every received WiFi frame carries Channel State Information
 // (amplitude/phase of the OFDM subcarriers). A moving body perturbs the room's
 // multipath, so the CSI variance rises. We track that variance, self-calibrate
 // a floor/ceiling, and turn it into a 0..1 motion score → presence.
 //
-// IMPORTANT (honesty): a single antenna gives NO direction and CANNOT separate
-// individuals — CSI collapses the whole room into ONE motion-energy signal. The
-// radar is therefore a phosphor scope where the sweep angle = TIME and a blip's
-// distance = motion intensity. It is NOT direction finding. (The reference does
-// the same: blips get pseudo-random angles, never real bearings.)
+// PRO build: instead of averaging all subcarriers to one number, we ALSO split
+// the ~56 subcarriers into CSI_BANDS bands and track each band's variance →
+// multiple live "contacts" on a double-buffered sprite radar with a sweeping
+// cone (COD-style). Smooth 30 fps, snappy response, activity classification.
+//
+// HONESTY: a single antenna gives NO direction and CANNOT count/locate people —
+// CSI is ONE motion-energy field. The band→sector mapping is arbitrary (8
+// independent signal measurements shown around the dial), NOT bearing. The
+// sweep angle is cosmetic. We never claim positions.
 //
 // Sources (rule: credit what we learn from):
-//   - skizzophrenic/Cardputer-CSI-Human-Detector (MIT) — CSI acquisition config,
-//     the amplitude/phase variance + asymmetric-EMA normalization algorithm, and
-//     the hold/coast presence logic are adapted from its single-device CSI path.
+//   - skizzophrenic/Cardputer-CSI-Human-Detector (MIT) — single-device CSI
+//     acquisition config + amplitude/phase variance + asymmetric-EMA + hold/coast.
+//   - ruvnet/ruview (concept) — using subcarriers individually instead of one
+//     scalar. ruview itself needs a multi-node mesh + off-device ML; only the
+//     single-link "use the subcarriers" idea is borrowed here. No code copied.
 //   - espressif/esp-csi (Apache-2.0) — official ESP32-S3 CSI reference.
-//   No code copied verbatim; algorithm + constants reimplemented for T-REX.
 
 #include "csidetect.h"
 #include <Arduino.h>
@@ -37,108 +43,141 @@ extern InputHandling  inputHandler;
 extern LGFX           tft;            // global display from main.ino
 extern WGuard         wGuard;
 
-// ── tunables (from the reference) ─────────────────────────────────────────────
-#define CSI_WINDOW      50            // sliding-window frames for variance
-#define CSI_SLOTS       90            // radar phosphor history slots (one per 4deg)
-#define CSI_HOLD        150           // ~10 s of coast at 15 Hz
-#define CSI_HZ_MS       66            // ~15 Hz service tick
-#define CSI_SWEEP_MS    6000.0f       // one radar revolution
+// ── tunables ──────────────────────────────────────────────────────────────────
+#define CSI_WINDOW      40            // global variance window (presence core)
+#define CSI_BANDS       8             // per-subcarrier bands → radar sectors
+#define CSI_HOLD_MS     1200          // presence coast (snappy real-time feel)
+#define CSI_FPS_MS      33            // ~30 fps render
+#define CSI_SWEEP_MS    2600.0f       // one radar revolution (lively)
 #define TAU             6.28318531f
 
-// radar geometry (320x240, status bar 0-30, content from outputY=38)
-#define RAD_CX          106
-#define RAD_CY          142
-#define RAD_R           78
-#define PANEL_X         196
+// sprite radar region (pushed below the header)
+#define SPR_W           198
+#define SPR_H           188
+#define SPR_OX          0
+#define SPR_OY          40
+#define SC_X            99            // disc centre within the sprite
+#define SC_Y            94
+#define RAD_R           86
+#define PANEL_X         204           // right-hand stats (drawn straight to tft)
 
-// green phosphor palette (RGB565)
-#define C_RING          0x0BA8
-#define C_DIM           0x0320
-#define C_MID           0x05E5
-#define C_BRT           0x5FF6
-#define C_SWEEP         0x9FF8
+// palette (RGB565)
+#define C_BG            0x0140
+#define C_GRID          0x0320
+#define C_GRID2         0x0220
+#define C_RING          0x05E5
+
+static inline float clamp01(float v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
 
 // ── CSI state (written by the WiFi-task CSI callback, read in the loop) ────────
 static float            gAmpBuf[CSI_WINDOW];
 static float            gPhaBuf[CSI_WINDOW];
-static int              gAmpIdx     = 0;
-static int              gAmpFilled  = 0;
-static float            gVarMax     = 0.001f, gVarMin    = 0.0f;
-static float            gPhaVarMax  = 0.001f, gPhaVarMin = 0.0f;
-static volatile float   gMotion     = 0.0f;   // blended 0..1
-static volatile int8_t  gRssi       = 0;
-static volatile uint32_t gCount     = 0;      // CSI frames seen (bring-up diag)
+static int              gAmpIdx, gAmpFilled;
+static float            gVarMax, gVarMin, gPhaVarMax, gPhaVarMin;
+static volatile float   gMotion;                 // global blended 0..1 (presence)
+static volatile int8_t  gRssi;
+static volatile uint32_t gCount;                 // CSI frames seen (bring-up diag)
+
+// per-band (responsive EMA variance → 8 sector intensities)
+static float            gBMean[CSI_BANDS], gBVar[CSI_BANDS];
+static float            gBVMin[CSI_BANDS], gBVMax[CSI_BANDS];
+static volatile float   gBand[CSI_BANDS];        // normalized 0..1 per band
+
+// approach/recede trend (amplitude fast vs slow EMA)
+static float            gAmpFast, gAmpSlow;
+static volatile float   gTrend;                  // >0 approaching, <0 receding (hint)
 
 // ── UI state ──────────────────────────────────────────────────────────────────
-static float    gSlot[CSI_SLOTS];             // phosphor motion per angular slot
-static esp_err_t gCsiErr = ESP_OK;            // result of esp_wifi_set_csi(true)
+static float    gBDisp[CSI_BANDS];               // peak-hold + decay for blips
+static esp_err_t gCsiErr;
+static LGFX_Sprite gRadar;
 
-// Reset the adaptive baseline + window (init AND [c] calibrate).
 static void csiResetStats() {
     gAmpIdx = 0; gAmpFilled = 0;
     gVarMax = 0.001f; gVarMin = 0.0f;
     gPhaVarMax = 0.001f; gPhaVarMin = 0.0f;
     memset(gAmpBuf, 0, sizeof(gAmpBuf));
     memset(gPhaBuf, 0, sizeof(gPhaBuf));
+    for (int b = 0; b < CSI_BANDS; b++) {
+        gBMean[b] = 0; gBVar[b] = 0; gBVMin[b] = 0; gBVMax[b] = 0.001f; gBand[b] = 0;
+    }
+    gAmpFast = gAmpSlow = 0; gTrend = 0;
 }
 
-// ── CSI receive callback (runs in the WiFi task; kept in IRAM like the ref) ────
+// ── CSI receive callback (WiFi task; IRAM like the reference) ──────────────────
 static void IRAM_ATTR csiCb(void*, wifi_csi_info_t* info) {
-    if (!info || !info->buf || info->len < 4) return;
+    if (!info || !info->buf || info->len < 8) return;
     gCount++;
     int8_t* b      = info->buf;
-    int     nPairs = info->len / 2;          // I/Q int8 pairs per subcarrier
+    int     nPairs = info->len / 2;              // I/Q int8 pairs (subcarriers)
 
     float ampSum = 0.0f, sinSum = 0.0f;
     int   valid  = 0;
+    float bAmp[CSI_BANDS] = {0}; int bCnt[CSI_BANDS] = {0};
     for (int i = 0; i < nPairs; i++) {
         float r   = (float)b[2 * i];
         float im  = (float)b[2 * i + 1];
         float amp = sqrtf(r * r + im * im);
         ampSum += amp;
         if (amp > 1e-4f) { sinSum += im / amp; valid++; }
+        int bi = (CSI_BANDS * i) / nPairs; if (bi >= CSI_BANDS) bi = CSI_BANDS - 1;
+        bAmp[bi] += amp; bCnt[bi]++;
     }
     float meanAmp = ampSum / (float)nPairs;
     float meanSin = valid > 0 ? sinSum / (float)valid : 0.0f;
 
+    // ── global presence core (windowed variance + asymmetric EMA) ─────────────
     gAmpBuf[gAmpIdx] = meanAmp;
     gPhaBuf[gAmpIdx] = meanSin;
     gAmpIdx = (gAmpIdx + 1) % CSI_WINDOW;
     if (gAmpFilled < CSI_WINDOW) gAmpFilled++;
     int n = gAmpFilled;
 
-    // amplitude variance over the window
-    float s = 0.0f; for (int i = 0; i < n; i++) s += gAmpBuf[i];
+    float s = 0; for (int i = 0; i < n; i++) s += gAmpBuf[i];
     float mean = s / (float)n;
-    float var = 0.0f; for (int i = 0; i < n; i++) { float d = gAmpBuf[i] - mean; var += d * d; }
+    float var = 0; for (int i = 0; i < n; i++) { float d = gAmpBuf[i] - mean; var += d * d; }
     var /= (float)n;
-
-    // phase variance over the window
-    float ps = 0.0f; for (int i = 0; i < n; i++) ps += gPhaBuf[i];
+    float ps = 0; for (int i = 0; i < n; i++) ps += gPhaBuf[i];
     float pmean = ps / (float)n;
-    float pvar = 0.0f; for (int i = 0; i < n; i++) { float d = gPhaBuf[i] - pmean; pvar += d * d; }
+    float pvar = 0; for (int i = 0; i < n; i++) { float d = gPhaBuf[i] - pmean; pvar += d * d; }
     pvar /= (float)n;
 
-    // asymmetric-EMA self-calibration → normalize each to 0..1
     if (gVarMin < 0.0001f) gVarMin = var;
     else gVarMin += (var - gVarMin) * ((var < gVarMin) ? 0.1f : 0.002f);
     if (var > gVarMax) gVarMax = var; else gVarMax += (var - gVarMax) * 0.005f;
-    float range = gVarMax - gVarMin;
-    float ampMotion = (range > 0.0001f) ? (var - gVarMin) / range : 0.0f;
-    if (ampMotion < 0.0f) ampMotion = 0.0f; if (ampMotion > 1.0f) ampMotion = 1.0f;
+    float rng = gVarMax - gVarMin;
+    float ampMotion = (rng > 0.0001f) ? (var - gVarMin) / rng : 0.0f;
 
     if (gPhaVarMin < 0.0001f) gPhaVarMin = pvar;
     else gPhaVarMin += (pvar - gPhaVarMin) * ((pvar < gPhaVarMin) ? 0.1f : 0.002f);
     if (pvar > gPhaVarMax) gPhaVarMax = pvar; else gPhaVarMax += (pvar - gPhaVarMax) * 0.005f;
-    float prange = gPhaVarMax - gPhaVarMin;
-    float phaMotion = (prange > 0.0001f) ? (pvar - gPhaVarMin) / prange : 0.0f;
-    if (phaMotion < 0.0f) phaMotion = 0.0f; if (phaMotion > 1.0f) phaMotion = 1.0f;
+    float prng = gPhaVarMax - gPhaVarMin;
+    float phaMotion = (prng > 0.0001f) ? (pvar - gPhaVarMin) / prng : 0.0f;
 
-    gMotion = 0.6f * ampMotion + 0.4f * phaMotion;
+    gMotion = clamp01(0.6f * clamp01(ampMotion) + 0.4f * clamp01(phaMotion));
     gRssi   = info->rx_ctrl.rssi;
+
+    // ── per-band responsive variance (drives the radar contacts) ──────────────
+    for (int bb = 0; bb < CSI_BANDS; bb++) {
+        float x = bCnt[bb] ? bAmp[bb] / (float)bCnt[bb] : 0.0f;
+        float d = x - gBMean[bb];
+        gBMean[bb] += 0.15f * d;
+        float v = d * d;
+        gBVar[bb] += 0.18f * (v - gBVar[bb]);
+        if (gBVMin[bb] < 1e-6f) gBVMin[bb] = gBVar[bb];
+        else gBVMin[bb] += (gBVar[bb] - gBVMin[bb]) * ((gBVar[bb] < gBVMin[bb]) ? 0.1f : 0.003f);
+        if (gBVar[bb] > gBVMax[bb]) gBVMax[bb] = gBVar[bb];
+        else gBVMax[bb] += (gBVar[bb] - gBVMax[bb]) * 0.01f;
+        float br = gBVMax[bb] - gBVMin[bb];
+        gBand[bb] = clamp01((br > 1e-6f) ? (gBVar[bb] - gBVMin[bb]) / br : 0.0f);
+    }
+
+    // ── approach/recede trend (amplitude fast vs slow) ────────────────────────
+    gAmpFast += 0.30f * (meanAmp - gAmpFast);
+    gAmpSlow += 0.02f * (meanAmp - gAmpSlow);
+    gTrend = gAmpFast - gAmpSlow;
 }
 
-// no-op promiscuous sink — CSI needs promiscuous enabled to see all frames
 static void IRAM_ATTR csiPromiscCb(void*, wifi_promiscuous_pkt_type_t) {}
 
 // ── CSI radio setup / teardown ────────────────────────────────────────────────
@@ -150,9 +189,7 @@ static void csiStart() {
     pf.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA;
     esp_wifi_set_promiscuous_filter(&pf);
     esp_wifi_set_promiscuous_rx_cb(csiPromiscCb);
-
-    // wifi_csi_config_t — IDF 4.4 field set (platform = espressif32 6.x). If a
-    // future core bump fails to compile here, the struct was renamed in IDF 5.2+.
+    // wifi_csi_config_t — IDF 4.4 fields (platform = espressif32 6.x).
     wifi_csi_config_t cfg = {};
     cfg.lltf_en = true; cfg.htltf_en = true; cfg.stbc_htltf2_en = true;
     cfg.ltf_merge_en = true; cfg.channel_filter_en = true;
@@ -167,136 +204,216 @@ static void csiStop() {
     esp_wifi_set_csi_rx_cb(nullptr, nullptr);
     esp_wifi_set_promiscuous_rx_cb(nullptr);
     esp_wifi_set_promiscuous(false);
-    // keep the STA connection up — only undo what we added.
 }
 
-// ── header (cyberpunk style) ──────────────────────────────────────────────────
+// ── colour ramps ──────────────────────────────────────────────────────────────
+// green→yellow→red by intensity 0..1
+static uint16_t heatColor(float v) {
+    v = clamp01(v);
+    if (v > 0.85f) return 0xF904;   // hot red-orange
+    if (v > 0.65f) return 0xFEC0;   // amber
+    if (v > 0.40f) return 0x6FE8;   // bright green
+    if (v > 0.18f) return 0x05E8;   // mid green
+    return 0x0303;                  // faint green
+}
+static uint16_t sweepShade(float br) {
+    br = clamp01(br);
+    if (br > 0.80f) return 0x9FF8;
+    if (br > 0.55f) return 0x2F8A;
+    if (br > 0.30f) return 0x0BC6;
+    return 0x0322;
+}
+
+// ── radar render (into the sprite) ────────────────────────────────────────────
+static void csiDrawRadar(bool present, float sweepFrac) {
+    auto& g = gRadar;
+    g.fillScreen(C_BG);
+
+    // range rings + crosshair + radial spokes (game grid)
+    g.drawCircle(SC_X, SC_Y, RAD_R, C_RING);
+    g.drawCircle(SC_X, SC_Y, (RAD_R * 2) / 3, C_GRID);
+    g.drawCircle(SC_X, SC_Y, RAD_R / 3, C_GRID);
+    for (int s = 0; s < CSI_BANDS; s++) {
+        float a = (float)s / CSI_BANDS * TAU;
+        g.drawLine(SC_X, SC_Y, SC_X + (int)(cosf(a) * RAD_R), SC_Y + (int)(sinf(a) * RAD_R), C_GRID2);
+    }
+
+    // sweeping cone — fan of fading triangles behind a bright leading edge
+    float sa = sweepFrac * TAU;
+    const int FAN = 9;
+    const float step = 0.065f;
+    for (int i = FAN; i >= 1; i--) {
+        float a0 = sa - (float)i * step;
+        float a1 = sa - (float)(i - 1) * step;
+        uint16_t col = sweepShade(1.0f - (float)i / FAN);
+        g.fillTriangle(SC_X, SC_Y,
+                       SC_X + (int)(cosf(a0) * RAD_R), SC_Y + (int)(sinf(a0) * RAD_R),
+                       SC_X + (int)(cosf(a1) * RAD_R), SC_Y + (int)(sinf(a1) * RAD_R), col);
+    }
+    g.drawLine(SC_X, SC_Y, SC_X + (int)(cosf(sa) * RAD_R), SC_Y + (int)(sinf(sa) * RAD_R), 0xBFFA);
+
+    // band contacts — each sector flashes brighter as the sweep crosses it
+    for (int bd = 0; bd < CSI_BANDS; bd++) {
+        float inten = gBDisp[bd];
+        if (inten < 0.06f) continue;
+        float ang = (float)bd / CSI_BANDS * TAU;
+        // sweep proximity boost (classic "sweep reveals contact")
+        float da = fabsf(ang - sa);
+        while (da > TAU) da -= TAU;
+        if (da > TAU / 2) da = TAU - da;
+        float prox = 1.0f - clamp01(da / (TAU / (CSI_BANDS)));   // 1 when aligned
+        float show = clamp01(inten * (0.55f + 0.55f * prox));
+        float rad  = RAD_R * (0.82f - 0.55f * inten);   // stronger reaction → nearer centre
+        int x = SC_X + (int)(cosf(ang) * rad);
+        int y = SC_Y + (int)(sinf(ang) * rad);
+        uint16_t col = heatColor(show);
+        int sz = inten > 0.6f ? 4 : (inten > 0.3f ? 3 : 2);
+        if (show > 0.5f) g.drawCircle(x, y, sz + 3, col);        // contact halo
+        g.fillCircle(x, y, sz, col);
+    }
+
+    // centre reticle — CLEAR green / CONTACT red (pulses)
+    uint16_t cc = present ? TFT_RED : 0x2FE8;
+    if (present) {
+        int pr = 4 + (int)(3 * (0.5f + 0.5f * sinf((float)millis() / 120.0f)));
+        g.drawCircle(SC_X, SC_Y, pr, TFT_RED);
+    }
+    g.drawLine(SC_X - 4, SC_Y, SC_X + 4, SC_Y, cc);
+    g.drawLine(SC_X, SC_Y - 4, SC_X, SC_Y + 4, cc);
+    g.fillCircle(SC_X, SC_Y, 2, cc);
+
+    g.pushSprite(&tft, SPR_OX, SPR_OY);
+}
+
+// ── header / panel / footer (straight to tft) ─────────────────────────────────
 static void csiHeader() {
     auto& dm = displayManager;
-    dm.setCursor(6, 34);
+    dm.setCursor(6, 32);
     dm.setTextColor(0x7BEF);     dm.printText("[");
     dm.setTextColor(TFT_CYAN);   dm.printText("CSI");
     dm.setTextColor(0x7BEF);     dm.printText("::");
-    dm.setTextColor(TFT_YELLOW); dm.printText("RADAR");
+    dm.setTextColor(TFT_YELLOW); dm.printText("MOTION");
     dm.setTextColor(0x7BEF);     dm.printText("]  ");
-    dm.setTextColor(0x4A66);     dm.printText("motion, no bearing");
+    dm.setTextColor(0x4A66);     dm.printText("exp - motion only, not a radar");
 }
 
-// pick a phosphor shade for a 0..1 brightness level
-static uint16_t csiShade(float level) {
-    if (level > 0.66f) return C_BRT;
-    if (level > 0.40f) return TFT_GREEN;
-    if (level > 0.16f) return C_MID;
-    return C_DIM;
+static const char* activityWord(float m) {
+    if (m < 0.12f) return "STILL ";
+    if (m < 0.32f) return "FIDGET";
+    if (m < 0.62f) return "WALK  ";
+    return "RUN   ";
 }
 
-// ── radar render ──────────────────────────────────────────────────────────────
-static void csiDrawRadar(float dispMotion, bool present, float sweepFrac) {
-    // disc backdrop + range rings + crosshair
-    tft.fillCircle(RAD_CX, RAD_CY, RAD_R, TFT_BLACK);
-    tft.drawCircle(RAD_CX, RAD_CY, RAD_R, C_RING);
-    tft.drawCircle(RAD_CX, RAD_CY, (RAD_R * 2) / 3, 0x0320);
-    tft.drawCircle(RAD_CX, RAD_CY, RAD_R / 3, 0x0320);
-    tft.drawLine(RAD_CX - RAD_R, RAD_CY, RAD_CX + RAD_R, RAD_CY, 0x0220);
-    tft.drawLine(RAD_CX, RAD_CY - RAD_R, RAD_CX, RAD_CY + RAD_R, 0x0220);
-
-    int curSlot = (int)(sweepFrac * CSI_SLOTS) % CSI_SLOTS;
-
-    // phosphor blips: angle = the time the sweep laid them, radius = intensity
-    for (int i = 0; i < CSI_SLOTS; i++) {
-        float m = gSlot[i];
-        if (m < 0.06f) continue;
-        float ang = (float)i / CSI_SLOTS * TAU - TAU / 4.0f;
-        float rad = RAD_R * (0.16f + 0.80f * (m > 1.0f ? 1.0f : m));
-        int   recent = (curSlot - i + CSI_SLOTS) % CSI_SLOTS;
-        float fresh = 1.0f - (float)recent / CSI_SLOTS;     // 1=just drawn
-        int x = RAD_CX + (int)(cosf(ang) * rad);
-        int y = RAD_CY + (int)(sinf(ang) * rad);
-        uint16_t col = csiShade(fresh * (0.45f + 0.55f * m));
-        tft.fillCircle(x, y, m > 0.55f ? 2 : 1, col);
-    }
-
-    // sweep arm + short trailing fade
-    float sa = sweepFrac * TAU - TAU / 4.0f;
-    for (int t = 2; t >= 0; t--) {
-        float a = sa - t * 0.13f;
-        uint16_t col = (t == 0) ? C_SWEEP : (t == 1 ? TFT_GREEN : C_MID);
-        tft.drawLine(RAD_CX, RAD_CY,
-                     RAD_CX + (int)(cosf(a) * RAD_R),
-                     RAD_CY + (int)(sinf(a) * RAD_R), col);
-    }
-
-    // centre reticle
-    uint16_t cc = present ? TFT_RED : TFT_GREEN;
-    tft.drawLine(RAD_CX - 3, RAD_CY, RAD_CX + 3, RAD_CY, cc);
-    tft.drawLine(RAD_CX, RAD_CY - 3, RAD_CX, RAD_CY + 3, cc);
-    tft.fillCircle(RAD_CX, RAD_CY, 2, cc);
-}
-
-// ── side panel ────────────────────────────────────────────────────────────────
-static void csiDrawPanel(float thresh, float dispMotion, bool present) {
+static void csiDrawPanel(float thresh, float disp, bool present, int zones) {
     auto& dm = displayManager;
-    dm.fillRect(PANEL_X, 60, SCREEN_WIDTH - PANEL_X, 158, TFT_BLACK);
+    dm.fillRect(PANEL_X, 44, SCREEN_WIDTH - PANEL_X, 184, TFT_BLACK);
 
-    // big presence state
     tft.setTextSize(2);
-    tft.setTextColor(present ? TFT_RED : TFT_GREEN);
-    tft.setCursor(PANEL_X, 66);
+    tft.setTextColor(present ? TFT_RED : 0x2FE8);
+    tft.setCursor(PANEL_X, 48);
     tft.print(present ? "CONTACT" : " CLEAR");
     tft.setTextSize(1);
-    dm.setDefaultTextSize();         // restore dm text state after the size-2 label
+    dm.setDefaultTextSize();
 
-    int mp = (int)(dispMotion * 100.0f);
-    int tp = (int)(thresh * 100.0f);
+    char b[24];
+    // activity + trend
+    dm.setTextColor(present ? TFT_YELLOW : 0x7BEF);
+    dm.setCursor(PANEL_X, 74); dm.printText(activityWord(disp));
+    float tr = gTrend;
+    const char* arrow = (tr > 0.6f) ? "^near" : (tr < -0.6f) ? "vfar " : "~hold";
+    dm.setTextColor(0x6E6C); dm.setCursor(PANEL_X + 60, 74); dm.printText(arrow);
 
-    dm.setTextColor(0x7BEF); dm.setCursor(PANEL_X, 96);  dm.printText("MOTION");
-    char b[20];
+    // zones (active signal sectors — NOT a person count)
+    snprintf(b, sizeof(b), "zones:%d", zones);
+    dm.setTextColor(zones > 0 ? 0x6FE8 : 0x7BEF);
+    dm.setCursor(PANEL_X, 90); dm.printText(b);
+
+    int mp = (int)(disp * 100.0f), tp = (int)(thresh * 100.0f);
+    dm.setTextColor(0x7BEF); dm.setCursor(PANEL_X, 110); dm.printText("MOTION");
     snprintf(b, sizeof(b), "%3d%%", mp);
-    dm.setTextColor(mp >= tp ? TFT_GREEN : 0xC618);
-    dm.setCursor(PANEL_X + 78, 96); dm.printText(b);
-    dm.fillRect(PANEL_X, 108, 116, 8, 0x0c22);
-    dm.fillRect(PANEL_X, 108, (116 * mp) / 100, 8, TFT_GREEN);
+    dm.setTextColor(mp >= tp ? 0x6FE8 : 0xC618);
+    dm.setCursor(PANEL_X + 70, 110); dm.printText(b);
+    dm.fillRect(PANEL_X, 122, 108, 8, 0x0c22);
+    dm.fillRect(PANEL_X, 122, (108 * mp) / 100, 8, 0x6FE8);
 
-    dm.setTextColor(0x7BEF); dm.setCursor(PANEL_X, 124); dm.printText("THRESH");
+    dm.setTextColor(0x7BEF); dm.setCursor(PANEL_X, 138); dm.printText("THRESH");
     snprintf(b, sizeof(b), "%3d%%", tp);
     dm.setTextColor(TFT_YELLOW);
-    dm.setCursor(PANEL_X + 78, 124); dm.printText(b);
-    dm.fillRect(PANEL_X, 136, 116, 8, 0x2104);
-    dm.fillRect(PANEL_X, 136, (116 * tp) / 100, 8, 0x8400);
-    int mx = PANEL_X + (116 * tp) / 100;
-    tft.drawLine(mx, 134, mx, 145, TFT_YELLOW);
+    dm.setCursor(PANEL_X + 70, 138); dm.printText(b);
+    dm.fillRect(PANEL_X, 150, 108, 8, 0x2104);
+    dm.fillRect(PANEL_X, 150, (108 * tp) / 100, 8, 0x8400);
+    int mx = PANEL_X + (108 * tp) / 100;
+    tft.drawLine(mx, 148, mx, 159, TFT_YELLOW);
 
-    // bring-up diagnostics: frames + rssi + CSI enable status
+    // bring-up diagnostics
     uint32_t fr = gCount;
-    snprintf(b, sizeof(b), "fr:%lu  %ddBm", (unsigned long)fr, (int)gRssi);
-    dm.setTextColor(0x7BEF); dm.setCursor(PANEL_X, 168); dm.printText(b);
-
+    snprintf(b, sizeof(b), "fr:%lu %ddBm", (unsigned long)fr, (int)gRssi);
+    dm.setTextColor(0x7BEF); dm.setCursor(PANEL_X, 180); dm.printText(b);
     if (gCsiErr != ESP_OK) {
         dm.setTextColor(TFT_RED);
         snprintf(b, sizeof(b), "CSI ERR %d", (int)gCsiErr);
-        dm.setCursor(PANEL_X, 184); dm.printText(b);
+        dm.setCursor(PANEL_X, 196); dm.printText(b);
     } else if (fr == 0) {
         dm.setTextColor(TFT_ORANGE);
-        dm.setCursor(PANEL_X, 184); dm.printText("CSI on, no frames");
-        dm.setCursor(PANEL_X, 196); dm.printText("need wifi traffic");
+        dm.setCursor(PANEL_X, 196); dm.printText("no frames-");
+        dm.setCursor(PANEL_X, 208); dm.printText("need traffic");
     } else {
-        dm.setTextColor(TFT_GREEN);
-        dm.setCursor(PANEL_X, 184); dm.printText("CSI live");
+        dm.setTextColor(0x6FE8);
+        dm.setCursor(PANEL_X, 196); dm.printText("CSI live");
     }
 }
 
 static void csiDrawFooter() {
     auto& dm = displayManager;
-    dm.fillRect(0, 224, SCREEN_WIDTH, 14, TFT_BLACK);
+    dm.fillRect(0, 229, SCREEN_WIDTH, 11, TFT_BLACK);
     dm.setTextColor(TFT_DARKGREY);
-    dm.setCursor(6, 226); dm.printText("[ []thr  [c]cal  [q]quit   sweep=time");
+    dm.setCursor(6, 230); dm.printText("a/l/ball=sens  c=cal  h=help  q=quit");
+}
+
+// full-screen help overlay ([h]); any key / click returns
+static void csiHelp() {
+    auto& dm = displayManager;
+    if (dm.isBlocked()) return;
+    auto line = [&](int n, uint16_t col, const char* t) {
+        dm.setTextColor(col); dm.setCursor(6, outputY + n * LINE_HEIGHT); dm.printText(t);
+    };
+    bool redraw = true;
+    while (true) {
+        if (redraw && !dm.isBlocked()) {
+            dm.clearScreen(); dm.updateStatusBar(); dm.setDefaultTextSize();
+            dm.setCursor(6, outputY);
+            dm.setTextColor(0x7BEF);     dm.printText("[");
+            dm.setTextColor(TFT_CYAN);   dm.printText("CSI");
+            dm.setTextColor(0x7BEF);     dm.printText("::");
+            dm.setTextColor(TFT_YELLOW); dm.printText("HELP");
+            dm.setTextColor(0x7BEF);     dm.printText("]");
+            line(1,  TFT_WHITE,    "WiFi motion detector.");
+            line(2,  TFT_WHITE,    "Senses movement via WiFi echoes.");
+            line(3,  TFT_CYAN,     "USE: cw <ssid>   then   csi");
+            line(4,  0x6FE8,       "STILL  = CLEAR (green)");
+            line(5,  TFT_RED,      "MOVING = CONTACT (red)");
+            line(6,  TFT_WHITE,    "MOTION% = amount of movement");
+            line(7,  TFT_WHITE,    "blips  = signal sectors (rough)");
+            line(8,  TFT_CYAN,     "KEYS: a/l or trackball = sens");
+            line(9,  TFT_WHITE,    "      c=recalibrate    q=quit");
+            line(10, 0x7BEF,       "Motion only: a still person can");
+            line(11, 0x7BEF,       "read CLEAR. Sectors are approx,");
+            line(12, 0x7BEF,       "not a real compass bearing.");
+            line(13, TFT_DARKGREY, "press any key to return");
+            redraw = false;
+        }
+        char k = inputHandler.getKeyboardInput();
+        TrackballEvent tb = inputHandler.getTrackballEvent();
+        if (k || tb == TBALL_CLICK) break;
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) redraw = true;
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
 }
 
 // ── entry ─────────────────────────────────────────────────────────────────────
 void runCsiDetect(char* /*args*/) {
     auto& dm = displayManager;
 
-    // CSI needs WiFi frames → must be connected (STA). Stay on the AP's channel.
     if (WiFi.status() != WL_CONNECTED) {
         dm.clearScreen();
         dm.setTextColor(TFT_RED);   dm.println("CSI radar needs WiFi.");
@@ -304,7 +421,6 @@ void runCsiDetect(char* /*args*/) {
         dm.printCommandScreen();
         return;
     }
-    // wguard bg owns the promiscuous rx cb — we'd clobber it. Tell the user.
     if (wGuard.isBackground()) {
         dm.clearScreen();
         dm.setTextColor(TFT_RED);   dm.println("Stop wguard bg first:");
@@ -313,52 +429,82 @@ void runCsiDetect(char* /*args*/) {
         return;
     }
 
-    memset(gSlot, 0, sizeof(gSlot));
+    // double-buffer sprite for the radar (PSRAM — radar region only)
+    gRadar.setPsram(true);
+    gRadar.setColorDepth(16);
+    if (!gRadar.createSprite(SPR_W, SPR_H)) {
+        dm.clearScreen();
+        dm.setTextColor(TFT_RED); dm.println("Radar: sprite alloc failed");
+        dm.printCommandScreen();
+        return;
+    }
+    memset(gBDisp, 0, sizeof(gBDisp));
+
     dm.clearScreen();
     dm.updateStatusBar();
     dm.setDefaultTextSize();
     csiHeader();
+    csiDrawFooter();
     csiStart();
 
-    float    thresh   = 0.15f;       // reference default
+    float    thresh   = 0.15f;
     float    held     = 0.0f;
-    int      hold     = 0;
+    uint32_t holdUntil = 0;
     uint32_t lastTick = 0;
 
     while (true) {
         char k = inputHandler.getKeyboardInput();
+        TrackballEvent tb = inputHandler.getTrackballEvent();
         if (k == 'q' || k == 'Q') break;
-        if (k == '[')                 { thresh -= 0.05f; if (thresh < 0.05f) thresh = 0.05f; }
-        else if (k == ']')            { thresh += 0.05f; if (thresh > 0.95f) thresh = 0.95f; }
-        else if (k == 'c' || k == 'C') csiResetStats();
+        // sensitivity: 'l' / trackball up = more sensitive, 'a' / down = less
+        if (k == 'l' || k == 'L' || tb == TBALL_UP)        { thresh -= 0.05f; if (thresh < 0.05f) thresh = 0.05f; }
+        else if (k == 'a' || k == 'A' || tb == TBALL_DOWN) { thresh += 0.05f; if (thresh > 0.95f) thresh = 0.95f; }
+        else if (k == 'c' || k == 'C')                      csiResetStats();
+        else if (k == 'h' || k == 'H') {
+            csiHelp();                                       // modal; redraw statics after
+            dm.clearScreen(); dm.updateStatusBar(); dm.setDefaultTextSize();
+            csiHeader(); csiDrawFooter();
+        }
 
         uint32_t now = millis();
-        if (now - lastTick < CSI_HZ_MS) { delay(4); continue; }
+        if (now - lastTick < CSI_FPS_MS) { delay(3); continue; }
         lastTick = now;
 
-        // hold/coast presence (reference logic)
+        // snappy presence: trip instantly, coast a short while
         float raw = gMotion;
-        if (raw > thresh) { hold = CSI_HOLD; held = raw; }
-        else if (hold > 0) hold--;
+        if (raw > thresh) { holdUntil = now + CSI_HOLD_MS; held = raw; }
+        bool present = (now < holdUntil);
         float disp = (raw > thresh) ? raw
-                   : (hold > 0 ? held * (0.10f + 0.90f * (float)hold / CSI_HOLD) : 0.0f);
-        bool present = (hold > 0);
+                   : (present ? held * (0.15f + 0.85f * (float)(holdUntil - now) / CSI_HOLD_MS) : 0.0f);
 
-        // lay the (coasted) motion into the slot the sweep is passing
+        // Sector contacts: only when there's real (global) motion, and only the
+        // bands reacting ABOVE the average light up → the standout sectors give a
+        // rough, repeatable "where" (not true bearing). Quiet room → empty scope.
+        float bsum = 0.0f;
+        for (int bd = 0; bd < CSI_BANDS; bd++) bsum += gBand[bd];
+        float bmean = bsum / CSI_BANDS;
+        int zones = 0;
+        for (int bd = 0; bd < CSI_BANDS; bd++) {
+            float rel = gBand[bd] - bmean;                       // standout reaction
+            float v = present ? clamp01(rel * 2.4f) : 0.0f;      // gate by real motion
+            gBDisp[bd] = v > gBDisp[bd] ? v : gBDisp[bd] * 0.86f;
+            if (gBDisp[bd] > 0.20f) zones++;
+        }
+
         float sweepFrac = (float)(now % (uint32_t)CSI_SWEEP_MS) / CSI_SWEEP_MS;
-        gSlot[(int)(sweepFrac * CSI_SLOTS) % CSI_SLOTS] = disp;
 
         if (LockScreenManager::getInstance().consumeJustUnlocked()) {
-            dm.clearScreen(); dm.updateStatusBar(); dm.setDefaultTextSize(); csiHeader();
+            dm.clearScreen(); dm.updateStatusBar(); dm.setDefaultTextSize();
+            csiHeader(); csiDrawFooter();
         }
         if (!dm.isBlocked()) {
-            csiHeader();
-            csiDrawRadar(disp, present, sweepFrac);
-            csiDrawPanel(thresh, disp, present);
-            csiDrawFooter();
+            csiDrawRadar(present, sweepFrac);
+            csiDrawPanel(thresh, disp, present, zones);
         }
     }
 
     csiStop();
+    gRadar.deleteSprite();
+    dm.clearScreen();                 // wipe the sweep display before returning to CLI
     dm.printCommandScreen();
 }

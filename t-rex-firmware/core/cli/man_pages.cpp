@@ -874,6 +874,36 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "csidetect", "csi", {
+        "SYNTAX   csi",
+        "",
+        "ABOUT    WiFi CSI motion detector (sweep-style",
+        "         display, NOT an actual radar). A moving",
+        "         body disturbs WiFi signal echoes; this",
+        "         senses that disturbance.",
+        "         Needs WiFi connected (run cw first) —",
+        "         it reads CSI from frames on the AP's",
+        "         channel. No camera, no extra sensor.",
+        "",
+        "READ     CLEAR (green)  = no motion",
+        "         CONTACT (red)  = movement near you",
+        "         MOTION%        = how much",
+        "         blips          = signal sectors (rough,",
+        "                          NOT a real bearing)",
+        "",
+        "KEYS     a / l / trackball  sensitivity",
+        "         c  recalibrate (re-baseline room)",
+        "         h  in-app help     q  quit",
+        "",
+        "LIMITS   Single antenna = motion energy only,",
+        "         no true direction or person count. A",
+        "         perfectly still person may read CLEAR.",
+        "",
+        "NOTE     [EXPERIMENTAL] environment-dependent;",
+        "         best as a covert motion/occupancy hint.",
+        nullptr
+    }},
+
     { "espchat", "ec", {
         "SYNTAX   ec [pub|prv|bg|stop] [ch]",
         "",
