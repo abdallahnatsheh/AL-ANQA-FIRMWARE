@@ -56,10 +56,10 @@ ref: [[project_netspy_isoscan_plan]] (current-repo mapping + reuse + GDMA notes)
 ## Sensing (WiFi CSI)  [2026-06-26]
 ESP32-S3 WiFi only, no extra sensors. Full plan: `TREX_CSI_CAMDETECT_PLAN.md` · ref:
 [[project_csi_camdetect_plan]] (implementation status + next phases live there).
-- **csidetect** (`csi`) — ✅ DONE (MVP, HW-VERIFIED 2026-06-26). WiFi CSI human-presence radar.
-  Module `wifi/sensing/csidetect.cpp`. Remaining: (1) sprite double-buffer → flicker fix + mockup
-  look (soft sweep wedge / amber contact / presence box); (2) SD log + presence beep; (3) coexistence
-  (currently needs WiFi connected + bails under `wg bg`).
+- **csidetect** (`csi`) — ✅ DONE + HW-VERIFIED 2026-06-26; now a PRO **WiFi motion detector** `[EXP]`
+  (sprite ~30fps, 8 subcarrier-band sectors, sweep cone, `h` help, full docs). **Honestly reframed:
+  NOT a radar** (single antenna = motion energy, no bearing). Module `wifi/sensing/csidetect.cpp`.
+  Remaining: (1) SD presence log + alert; (2) field-tune sector usefulness; (3) coexistence under `wg bg`.
 - ~~**camdetect**~~ — DROPPED (not CSI — a promiscuous camera-OUI sniffer; revisit separately if wanted).
 
 ## USB Attacks

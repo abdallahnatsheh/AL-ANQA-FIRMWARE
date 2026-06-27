@@ -1,6 +1,6 @@
 ---
 name: csidetect + camdetect plan (CSI presence + hidden-camera scan)
-description: csidetect/csi BUILT + HW-VERIFIED (MVP radar) 2026-06-26; camdetect DROPPED (not CSI). Next = sprite/mockup polish.
+description: csidetect/csi BUILT + HW-VERIFIED — pro WiFi motion detector [EXP] (sprite+8 bands, honest no-bearing) 2026-06-26; camdetect DROPPED. Next = SD log/alert.
 type: project
 ---
 
@@ -9,8 +9,10 @@ type: project
 skizzophrenic/Cardputer-CSI-Human-Detector (**MIT**) + official espressif/esp-csi (Apache-2.0).
 
 ## IMPLEMENTATION STATUS (2026-06-26)
-- **`csidetect`/`csi` — BUILT + HW-VERIFIED (MVP). Radar works on the T-Deck.** Alias is **`csi`**
-  (NOT `hd`/`cd` — `cd` is change-dir). Category **Diagnostics**. Cmd count 58→**59/64**.
+- **`csidetect`/`csi` — BUILT + HW-VERIFIED, now a PRO "WiFi motion detector" `[EXP]`.** Alias `csi`
+  (NOT `hd`/`cd` — `cd` is change-dir). Category **Diagnostics**. Cmd count 58→**59/64**. **Reframed
+  honestly: NOT a radar** (single antenna = motion energy only, no bearing) — in-app `[CSI::MOTION]`,
+  user text says "sweep-style display, not an actual radar". Tagged [EXPERIMENTAL] (env-dependent).
 - **`camdetect` NOT built — DROPPED from this effort**: it's not CSI at all, just a promiscuous
   camera-OUI sniffer that shared the plan doc. Revisit separately if wanted; same for the trackme
   cam-OUI integration.
@@ -23,15 +25,17 @@ skizzophrenic/Cardputer-CSI-Human-Detector (**MIT**) + official espressif/esp-cs
   hold/coast presence (thresh **0.15**, hold 150 @ ~15 Hz, graceful fade); **honest phosphor radar**
   (sweep angle = time, blip radius = motion intensity, **NO bearing**); `[`/`]` threshold, `c`
   calibrate, `q` quit; on-screen bring-up diag line (`fr:<n>` + `CSI live|CSI ERR n|no frames`).
-- **What the MVP does NOT have — next phases (recommended order)**:
-  1. **Sprite double-buffer** (LGFX_Sprite for the radar disc) → kills flicker AND unlocks the
-     mockup look: soft translucent sweep wedge, amber pulsing contact blip, bordered presence box.
-     **Highest value — the radar UI is the whole point.**
-  2. SD event log → `/apps/csidetect/` (use `ScopedPromiscPause`, GDMA) + presence beep
-     (`NotificationManager::notify`).
+- **DONE in the pro pass (2026-06-26)**: sprite double-buffer (PSRAM `LGFX_Sprite`, ~30fps, sweep
+  cone, pulsing reticle); per-subcarrier 8-band sectors (gated behind global motion + above-average
+  highlight; strong→centre); snappy ~1.2s coast; activity word; `h` help overlay; clears on exit;
+  full docs (man/README/diagnostics.md/CLAUDE.md); [EXPERIMENTAL] tag; honest reframe (not a radar).
+- **What it STILL does NOT have — next phases**:
+  1. **SD presence log + alert** → `/apps/csidetect/` (use `ScopedPromiscPause`, GDMA). Turns it from
+     a toy into an unattended recon tool ("motion at 14:32"). Highest value next.
+  2. **Field-tune the sectors** — confirm whether moving in different spots lights different sectors
+     consistently in real rooms; if not, the sectors are honest decoration only.
   3. Coexistence: currently **requires WiFi connected** (`WL_CONNECTED`) and **bails if `wg bg`**
-     owns promiscuous (`wGuard.isBackground()` guard). Make it save/restore the promisc rx cb to run
-     alongside.
+     owns promiscuous. Make it save/restore the promisc rx cb to run alongside.
 - **Gotchas for the next PC**:
   - CSI needs WiFi **connected** (frames come from the AP's channel) — `cw` first; it stays on that channel.
   - `wifi_csi_config_t` uses **IDF-4.4 field names** (lltf_en/htltf_en/stbc_htltf2_en/ltf_merge_en/

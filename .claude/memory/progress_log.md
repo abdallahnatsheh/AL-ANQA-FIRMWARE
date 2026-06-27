@@ -4,6 +4,30 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-06-26 (csidetect PRO upgrade + honest reframe → "WiFi motion detector" [EXP])
+- Reworked the single-dot MVP into a richer build, then **reframed it honestly** after UX testing:
+  it is NOT a radar. Renamed in-app `[CSI::MOTION]` ("exp - motion only, not a radar"); user-facing
+  text everywhere says "motion detector / sweep-style display, not an actual radar". Tagged **[EXP]**.
+- **Pro render**: double-buffered PSRAM `LGFX_Sprite` (~30 fps, no flicker; API mirrors buddy —
+  setColorDepth/createSprite/pushSprite/deleteSprite + `setPsram(true)`); sweep cone (fan of fading
+  triangles), pulsing CLEAR/CONTACT reticle. Sprite is radar region only (`SPR_W×SPR_H` at OY=40);
+  panel/header/footer drawn straight to tft.
+- **Per-subcarrier bands**: `csiCb` splits subcarriers into `CSI_BANDS=8` responsive-EMA bands →
+  sector "contacts". GATED behind global motion + only bands reacting ABOVE average light up (fixed
+  the "noisy when idle" complaint); strong reaction → nearer centre. Global windowed-variance presence
+  core kept intact (proven). Snappy: hold/coast cut to ~1.2 s. Activity word STILL/FIDGET/WALK/RUN.
+- **HONESTY (load-bearing, proven from the sources' own code)**: single antenna = ONE motion-energy
+  signal — no bearing/count/position. Cardputer `pickBlipAngle()` is literally `random()`; ruview gets
+  real placement only via multi-node mesh + ML. The 8 sectors are signal bands spread for readability,
+  NOT directions. **Never reintroduce fake per-person positions.**
+- Keys: `a`/`l` + trackball = sensitivity, `c` = recalibrate, `h` = full help overlay, `q` = quit
+  (now clears screen on exit). Requires WiFi connected; bails under `wg bg`.
+- **Docs/surfaces added**: man page (`man csi`), hlp desc, README row, docs/diagnostics.md section
+  (honest limits + credits), CLAUDE.md module note + commands line. NOTICES already has #12 (Cardputer
+  MIT) + #13 (esp-csi); ruview credited in code header.
+- HW: motion detection confirmed working across iterations. **Next (optional)**: SD presence log +
+  alert (turns it from toy → unattended tool); field-tune whether sectors give usable differentiation.
+
 ## Session 2026-06-26 (csidetect/csi — WiFi CSI presence radar MVP — ✅ HW-VERIFIED)
 - **New `csidetect`/`csi` (Diagnostics)** — single-chip WiFi CSI human-presence detector with a
   phosphor **radar UI**. Ported the reference's single-device CSI path (skizzophrenic/

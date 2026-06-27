@@ -18,7 +18,7 @@
 ## Planned features (NOT YET BUILT — design specs captured 2026-06-26; full plans in TREX_*_PLAN.md)
 - [wpa3down/w3d](project_wpa3down_plan.md) — WPA3 transition-mode downgrade: RSN-IE PMF/AKM detect, WPA2-only rogue AP, EAPOL+PMKID capture → HCCAPX/HC22000. Full: TREX_WPA3_DOWNGRADE_PLAN.md
 - [netspy/ns + isoscan/is](project_netspy_isoscan_plan.md) — client-isolation bypass (AirSnitch NDSS 2026): device discovery + GTK inject/gateway bounce/port stealing. Full: TREX_NETSPY_ISOSCAN_PLAN.md
-- [csidetect/csi](project_csi_camdetect_plan.md) — ✅ BUILT + HW-VERIFIED 2026-06-26 (MVP WiFi CSI presence radar, honest single-signal/no-bearing). Next: sprite/mockup polish, SD+beep, coexistence. camdetect DROPPED (not CSI). Full: TREX_CSI_CAMDETECT_PLAN.md
+- [csidetect/csi](project_csi_camdetect_plan.md) — ✅ BUILT + HW-VERIFIED 2026-06-26; PRO **WiFi motion detector** `[EXP]` (sprite ~30fps + 8 subcarrier-band sectors). **Honestly NOT a radar** (single antenna = motion energy, no bearing). Next: SD presence log/alert. camdetect DROPPED. Full: TREX_CSI_CAMDETECT_PLAN.md
 
 ## Feature References (look up when touching that feature)
 - [Karma/km](project_karma_plan.md) — NOT YET BUILT; design+build plan: Auto/Interactive modes, portal+WPA2-handshake bait, PNL fingerprinting (defeats MAC rand), intel cards, reactive karma
