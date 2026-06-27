@@ -184,6 +184,7 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | **Diagnostics** | | | |
 | `gps` | `gps` | `on\|off\|test` | GPS task control + coordinate test (T-Deck Plus) |
 | `test` | `tst` | `<spk\|mic\|lora>` | Hardware self-tests — `spk` speaker tones, `mic` ES7210 (level meter, VAD, record+replay), `lora` SX1262 diagnostic |
+| `csidetect` | `csi` | — | **[EXPERIMENTAL]** WiFi **CSI motion detector** (sweep-style display, not an actual radar) — senses movement from WiFi signal disturbance (needs `cw`). Motion energy only, no direction |
 | `MATRIX` | `matrix` | — | Matrix rain animation |
 
 > **Tip:** Run `nd` first, then use the host index in `ps` / `ps top` instead of typing the IP.
