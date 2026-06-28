@@ -62,15 +62,19 @@ static const ManEntry PAGES[] = {
     { "lock", "lk", {
         "SYNTAX   lock",
         "         lock new | update | clean | wipe",
+        "         lock boot on|off",
         "         lock timeout <s>  |  lock status",
         "",
         "ABOUT    No PIN: press Space x3 to unlock.",
         "         PIN: type password then Enter.",
         "",
         "LOCK     Run 'lock' or hold trackpad 3s.",
+        "BOOT     lock boot on  = lock at power-on",
         "TIMEOUT  lock timeout <s>  (0 = off)",
-        "RECOVER  Forgot? Remove SD + reboot,",
-        "         Space x3, then: lock wipe",
+        "RECOVER  Forgot PIN? Remove SD + reboot",
+        "         (PIN lives on the card). Or on",
+        "         a PC add 'reset=1' to",
+        "         /config/lockscreen.conf, reboot.",
         nullptr
     }},
 

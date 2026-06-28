@@ -95,7 +95,7 @@ Do nothing — firmware creates these when the relevant feature is first used.
 | `/apps/fastpair/sniff.csv` | `fastpair scan` | `mac,modelId,name,rssi,status` per line |
 | `/config/pwrsave.conf` | `pwrsave set ...` | power save settings (key=value) |
 | `/config/macchanger.conf` | `macchanger` on save | MAC spoof state + address |
-| `/config/lockscreen.conf` | `lock new` / `lock timeout` | PIN hash + salt + idle timeout |
+| `/config/lockscreen.conf` | `lock new` / `lock timeout` / `lock boot` | PIN hash + salt + idle timeout + lock-on-boot (add `reset=1` to clear PIN; remove the card to recover) |
 | `/config/notif.conf` | `notif` on any change | notification levels + volume + WAV paths |
 | `/config/clock.conf` | `tz` on save | timezone (`tz=<POSIX TZ string>`) |
 

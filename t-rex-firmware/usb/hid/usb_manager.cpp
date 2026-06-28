@@ -240,6 +240,10 @@ void USBManager::startMSC() {
     uint32_t lastKeyMs = millis();
     while (s_mscActive) {
         serviceMscIO();
+        // During an MSC session the user interacts via the PC, not the T-Deck
+        // keyboard — so keep the idle-lock timer alive every iteration, otherwise
+        // the screen auto-locks mid-session (gate closes, host write/eject breaks).
+        LockScreenManager::getInstance().updateActivity();
         if (LockScreenManager::getInstance().consumeJustUnlocked())
             drawMscScreen();
         if (millis() - lastKeyMs >= 200) {

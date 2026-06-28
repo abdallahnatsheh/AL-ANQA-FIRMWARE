@@ -63,13 +63,32 @@ void LockScreenManager::init() {
     prefs.end();
 
     loadConfig();
+
+    // Forgot-PIN recovery: a `reset=1` line added to /config/lockscreen.conf on a
+    // PC clears the PIN once, then the file is rewritten WITHOUT the flag (one-shot
+    // — can't keep wiping). Keeps timeout/lockonboot. (The primary recovery is just
+    // removing the SD: the PIN lives ONLY on the card, so a cardless boot loads no
+    // PIN and comes up unlocked — see loadConfig().)
+    if (_pendingReset) {
+        _pendingReset = false;
+        _hashHex[0] = '\0'; _saltHex[0] = '\0'; _hasPassword = false;
+        saveConfig();   // drops reset= (never written back) + clears hash/salt
+        return;         // don't lock-on-boot the same boot we just recovered
+    }
+
+    // Privacy: lock immediately at power-on when enabled (and a PIN is set).
+    if (_hasPassword && _lockOnBoot) lock();
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
+// PIN state lives ONLY on the SD card (/config/lockscreen.conf). This is by design
+// (user choice): removing the card is the forgot-PIN recovery, and the card stays
+// PC-readable. Trade-off: a cardless boot has no PIN → boots unlocked.
 
 bool LockScreenManager::loadConfig() {
     _hashHex[0] = '\0'; _saltHex[0] = '\0';
     _timeout = 0; _hasPassword = false;
+    _lockOnBoot = false; _pendingReset = false;
     if (!sdCardManager.canAccessSD()) return false;
     File f = SD.open("/config/lockscreen.conf", FILE_READ);
     if (!f) return false;
@@ -81,9 +100,11 @@ bool LockScreenManager::loadConfig() {
         if (eq < 0) continue;
         String k = line.substring(0, eq);
         String v = line.substring(eq + 1);
-        if      (k == "timeout") _timeout = (uint32_t)v.toInt();
-        else if (k == "hash")    { strncpy(_hashHex, v.c_str(), 64); _hashHex[64] = '\0'; }
-        else if (k == "salt")    { strncpy(_saltHex, v.c_str(), 16); _saltHex[16] = '\0'; }
+        if      (k == "timeout")    _timeout = (uint32_t)v.toInt();
+        else if (k == "hash")       { strncpy(_hashHex, v.c_str(), 64); _hashHex[64] = '\0'; }
+        else if (k == "salt")       { strncpy(_saltHex, v.c_str(), 16); _saltHex[16] = '\0'; }
+        else if (k == "lockonboot") _lockOnBoot   = (v.toInt() != 0);
+        else if (k == "reset")      _pendingReset = (v.toInt() != 0);
     }
     f.close();
     _hasPassword = (strlen(_hashHex) == 64);
@@ -95,7 +116,9 @@ bool LockScreenManager::saveConfig() {
     sdCardManager.ensureDir("/config");
     File f = SD.open("/config/lockscreen.conf", FILE_WRITE);
     if (!f) return false;
-    f.printf("timeout=%u\nhash=%s\nsalt=%s\n", _timeout, _hashHex, _saltHex);
+    // `reset` is intentionally never written back — recovery is one-shot.
+    f.printf("timeout=%u\nhash=%s\nsalt=%s\nlockonboot=%u\n",
+             _timeout, _hashHex, _saltHex, _lockOnBoot ? 1u : 0u);
     f.close();
     return true;
 }
@@ -452,11 +475,12 @@ void LockScreenManager::cmd(char* args) {
     else if (strcmp(sub, "update")  == 0) cmdUpdate();
     else if (strcmp(sub, "clean")   == 0) cmdClean();
     else if (strcmp(sub, "wipe")    == 0) cmdWipe();
+    else if (strcmp(sub, "boot")    == 0) cmdBoot(arg);
     else if (strcmp(sub, "timeout") == 0) cmdTimeout(arg);
     else if (strcmp(sub, "status")  == 0) cmdStatus();
     else {
         dm.setTextColor(TFT_RED);
-        dm.println("Usage: lock [new|update|clean|wipe|timeout <s>|status]");
+        dm.println("Usage: lock [new|update|clean|wipe|boot on|off|timeout <s>|status]");
         dm.setTextColor(TFT_WHITE);
     }
 
@@ -594,6 +618,32 @@ void LockScreenManager::cmdWipe() {
     dm.setTextColor(TFT_WHITE);
 }
 
+void LockScreenManager::cmdBoot(const char* arg) {
+    DisplayManager& dm = displayManager;
+    if (!arg) {
+        dm.setTextColor(TFT_WHITE);
+        dm.println(_lockOnBoot ? "Lock on boot: on" : "Lock on boot: off");
+        return;
+    }
+    if      (strcmp(arg, "on")  == 0) _lockOnBoot = true;
+    else if (strcmp(arg, "off") == 0) _lockOnBoot = false;
+    else {
+        dm.setTextColor(TFT_RED); dm.println("Usage: lock boot on|off");
+        dm.setTextColor(TFT_WHITE); return;
+    }
+    if (!saveConfig()) {
+        dm.setTextColor(TFT_YELLOW); dm.println("No SD — setting active this session only.");
+    }
+    dm.setTextColor(TFT_GREEN);
+    dm.println(_lockOnBoot ? "Will lock at every power-on."
+                           : "Lock on boot disabled.");
+    if (_lockOnBoot && !_hasPassword) {
+        dm.setTextColor(TFT_YELLOW);
+        dm.println("(No PIN set yet — set one with 'lock new'.)");
+    }
+    dm.setTextColor(TFT_WHITE);
+}
+
 void LockScreenManager::cmdTimeout(const char* arg) {
     DisplayManager& dm = displayManager;
     if (!arg) {
@@ -621,6 +671,8 @@ void LockScreenManager::cmdStatus() {
     dm.setTextColor(TFT_WHITE); dm.println(_locked ? "LOCKED" : "unlocked");
     dm.setTextColor(TFT_CYAN);  dm.printText("PIN:     ");
     dm.setTextColor(TFT_WHITE); dm.println(_hasPassword ? "set" : "not set");
+    dm.setTextColor(TFT_CYAN);  dm.printText("On boot: ");
+    dm.setTextColor(TFT_WHITE); dm.println(_lockOnBoot ? "lock" : "no");
     dm.setTextColor(TFT_CYAN);  dm.printText("Timeout: ");
     dm.setTextColor(TFT_WHITE);
     if (_timeout == 0) {
