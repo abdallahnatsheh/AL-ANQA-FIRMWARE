@@ -1067,10 +1067,24 @@ static void mwRunInteractive(bool addFirst) {
 
 // ── public: foreground dispatch ───────────────────────────────────────────────
 void runMacwatch(char* args) {
-    if (args && (strncmp(args, "bg", 2) == 0)) { startMacwatchBg(); return; }
+    if (args && (strncmp(args, "bg", 2) == 0)) {
+        if (isMacwatchBgActive()) {                 // idempotent — don't stop/restart
+            displayManager.setTextColor(TFT_YELLOW);
+            displayManager.println("macwatch already running in background");
+            displayManager.printCommandScreen();
+        } else {
+            startMacwatchBg();                       // prints its own status + screen
+        }
+        return;
+    }
     if (args && (strncmp(args, "stop", 4) == 0)) {
-        stopMacwatchBg();
-        displayManager.println("macwatch background stopped");
+        if (isMacwatchBgActive()) {
+            stopMacwatchBg();
+            displayManager.println("macwatch background stopped");
+        } else {
+            displayManager.setTextColor(TFT_YELLOW);
+            displayManager.println("macwatch not running in background");
+        }
         displayManager.printCommandScreen();
         return;
     }
