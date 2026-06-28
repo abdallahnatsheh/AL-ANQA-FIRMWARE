@@ -170,18 +170,21 @@ The firmware was compiled for the standard T-Deck (`env:T-Deck`). GPS-dependent 
 
 See the [Recovery (Forgot PIN)](lock#recovery-forgot-pin) section in the Lock Screen guide.
 
-**Short version:** Power off → remove SD card → power on → press Space three times to unlock → run `lock wipe` → set a new PIN with `lock new`.
+**Short version:** Power off → **remove the SD card** → power on. The PIN lives only on the card, so with it gone the device boots unlocked. Re-insert the card and set a new PIN with `lock new`.
+
+**Prefer not to pull the card?** Put the SD in a PC, add a line `reset=1` to `/config/lockscreen.conf`, re-insert, reboot — T-Rex clears the PIN once and boots unlocked. (If you remember the PIN, just unlock and run `lock clean` or `lock wipe`.) Both paths are owner convenience, not security — anyone with the card can do them; the lock protects the running device, not the card's contents.
 
 ---
 
 ### Lock screen appears after every boot
 
-Auto-lock timeout is set very short.
+Either lock-on-boot is enabled, or the auto-lock timeout is set very short.
 
 **Fix:**
 ```
-CMD> lock timeout 0     # disable auto-lock
-CMD> lock timeout 300   # or set to 5 minutes
+CMD> lock boot off      # disable lock-at-power-on
+CMD> lock timeout 0     # disable idle auto-lock
+CMD> lock timeout 300   # or set idle lock to 5 minutes
 ```
 
 ---

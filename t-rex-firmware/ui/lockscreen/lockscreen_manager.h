@@ -27,6 +27,8 @@ private:
 
     bool     _locked          = false;
     bool     _hasPassword     = false;
+    bool     _lockOnBoot      = false;  // lock immediately at power-on (needs a PIN)
+    bool     _pendingReset    = false;  // transient: `reset=1` in SD conf → clear PIN once at boot
     char     _hashHex[65]     = {};   // SHA-256 of salt||pin, as 64 hex chars
     char     _saltHex[17]     = {};   // 8 random bytes as 16 hex chars
     uint32_t _timeout         = 0;    // idle seconds before auto-lock; 0=off
@@ -61,6 +63,7 @@ private:
     void cmdUpdate();
     void cmdClean();
     void cmdWipe();
+    void cmdBoot(const char* arg);
     void cmdTimeout(const char* arg);
     void cmdStatus();
 };

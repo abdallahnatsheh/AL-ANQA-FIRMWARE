@@ -4,6 +4,77 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-06-28 (lockscreen: lock-on-boot + SD reset-flag recovery — FINAL, built, UNTESTED)
+- **DECISION (user, firm): PIN stays on the SD card ONLY — do NOT put it in NVS.** Mid-session I
+  moved hash/salt to NVS to close the SD-removal bypass; user reverted it: they WANT removing the SD
+  to be the forgot-PIN recovery, and want the card PC-readable. So the lock is SD-stored by design,
+  and "remove SD → boots unlocked" is the intended recovery, not a bug. (NVS path fully reverted via
+  `git checkout` + re-applied lock-on-boot; don't reintroduce NVS storage for the PIN.)
+- **What the user verified on HW:** cold-boot WITHOUT SD → unlocked CLI (intended recovery). Re-insert
+  SD → `ls` said "not mounted" (sdCardManager.ready latched false at boot, no hot-mount). NOTE for
+  future: `wp` + `fp/bs/bd/btkbd` use bare `SD.open`/`SD.begin(39)` ignoring `canAccessSD()`, so they
+  CAN still read a hot-inserted card — left as-is since this state is the intended recovery (unlocked).
+- **Final feature set:**
+  - `lock boot on|off` → `lockonboot=1` in `/config/lockscreen.conf` (default off); `init()` calls
+    `lock()` after `loadConfig()` when `_hasPassword && _lockOnBoot` (display up by setup() line 62,
+    `setBlocked(true)` stops `setupCommands()` painting over it). Guarded on `_hasPassword`.
+  - Recovery: (a) remove SD + reboot (no config → unlocked); (b) one-shot `reset=1` line in the conf
+    → `init()` clears hash/salt + rewrites file without the flag (keeps timeout/lockonboot).
+  - `cmdStatus` shows "On boot: lock/no". cmdWipe left as original (SD delete + NVS wipe-flag).
+- **SD-access GATE — BUILT then REVERTED same day. DO NOT REINTRODUCE.** I added `setLockGate`/
+  `_lockGated` (canAccessSD gated while locked) + bare-path guards (wp, fp/bs/bd/btkbd SD.begin) +
+  moved init() to end of setup(). User then pointed out the fatal flaw: it BLOCKS legitimate SD saving
+  while locked — wardrive logging, `wg bg`/`mw bg` loggers, bmon, etc. must keep saving with the
+  screen locked. And the gate was pointless: a locked device has NO CLI, so ls/wp/cat can't be typed
+  regardless; the gate's only real effect was breaking background/foreground saves. Fully reverted via
+  `git checkout` of sdcard_manager.{h,cpp}, wifi_creds.cpp, fast_pair/ble_spam/buddy/ble_keyboard,
+  main.ino (init() back at its original spot) + removed the 3 setLockGate calls in lockscreen. Net: no
+  SD gate; locking never blocks SD I/O.
+- **USB MSC idle-lock fix (KEPT, separate good bug fix):** see below.
+- **HONEST scope (told user):** lock protects the running device, NOT the SD contents (removable
+  plaintext, PC-readable by their choice). Any physical holder of the card can recover/read.
+- Surfaces: lockscreen_manager.h/.cpp (`_lockOnBoot`/`_pendingReset`, loadConfig parse, saveConfig
+  write lockonboot, init reset+boot-lock, cmdBoot, cmdStatus line, cmd dispatch+usage),
+  command_manager.cpp (reg desc + arg-hint `boot`), man_pages.cpp, docs/lock.md, docs/troubleshooting.md,
+  docs/sdcard.md, CLAUDE.md. ⚠️ NOT compiled/flashed (user builds manually).
+- **HW-found bug + fix (2026-06-28):** user's `reset=1` MSC edit "kept failing" — root cause was the
+  **idle auto-lock firing DURING the USB-MSC session**. MSC loop (`usb_manager.cpp` startMSC) only
+  reset the idle timer on a T-Deck keypress, but during MSC the user types on the PC → after
+  `timeout` (their 300s) the screen auto-locked mid-session, breaking the host write/eject so the edit
+  never persisted. FIX: call `LockScreenManager::updateActivity()` every MSC-loop iteration. (Same
+  latent risk exists for any long PC-driven, no-keypress session, e.g. `ux` BadUSB script run — not
+  fixed, note only.) ALSO clarified: MSC-based `reset=1` only works when already UNLOCKED (you can't
+  run `um` while locked) — true forgot-PIN recovery is the card-reader / remove-SD path.
+- Boot-security audit done (no SOFTWARE bypass at power-on, separate from the by-design SD-removal
+  recovery): single input chokepoint `getKeyboardInput()→intercept()`; `processInput(0)` no-op;
+  trackball swallowed while locked; no Serial cmd path; USB MSC `mediaPresent(false)` at boot (no auto
+  SD expose to host); nothing draws over the lock between init() and loop().
+
+_Original first-pass notes below — still accurate for the implementation details:_
+- **Privacy ask:** show the lock screen at power-on, plus a forgot-PIN recovery flag in the SD conf.
+- **lock-on-boot**: new `lockonboot` key in `/config/lockscreen.conf` (default off), toggled by
+  `lock boot on|off` (new `cmdBoot`). `init()` calls `lock()` after `loadConfig()` when
+  `_hasPassword && _lockOnBoot` — display is already up by line 62 of setup(), `setBlocked(true)`
+  keeps `setupCommands()` from painting over it, so no setup() reordering needed. Guarded on
+  `_hasPassword` (no PIN → nothing to protect, won't lock; cmdBoot warns).
+- **one-shot reset flag**: hand-add `reset=1` to the conf on a PC → `loadConfig()` parses it into
+  transient `_pendingReset`; `init()` clears hash/salt, `saveConfig()`s (which NEVER writes `reset`
+  back → one-shot, can't keep wiping), keeps timeout/lockonboot, boots unlocked. Only works with SD
+  present (loadConfig bails early with no SD, so `_pendingReset` stays false — correct, you need SD
+  to have edited the file).
+- **SECURITY FRAMING (load-bearing, in docs + CLAUDE + cmds):** the reset flag is OWNER CONVENIENCE,
+  NOT extra security — the PIN hash is plaintext on the *removable* SD, so physical-access recovery
+  is already inherent (pull SD + reboot → Space×3, or `lock wipe`). The lock deters someone grabbing
+  the running/unattended device; it does NOT resist an attacker who has the SD card. (If we ever want
+  SD-thief-proof lockdown → move hash to NVS; breaks the pull-SD recovery model — not done.)
+- Surfaces: lockscreen_manager.h/.cpp (members `_lockOnBoot`/`_pendingReset`, loadConfig parse,
+  saveConfig write, init reset+boot-lock, cmdBoot, cmdStatus "On boot" line, cmd dispatch+usage),
+  command_manager.cpp (reg desc + arg-hint `boot`), man_pages.cpp (lock entry), docs/lock.md
+  (lock-on-boot section + reset-flag recovery + config table), docs/troubleshooting.md,
+  docs/sdcard.md, CLAUDE.md (LockScreenManager triggers/recovery/config lines).
+- ⚠️ NOT compiled/flashed (user builds manually). Trace-verified: wipe path still returns before
+  loadConfig; reset rewrite is one-shot; lockonboot persists across `lock new`/`update`/`clean`.
+
 ## Session 2026-06-26 (csidetect PRO upgrade + honest reframe → "WiFi motion detector" [EXP])
 - Reworked the single-dot MVP into a richer build, then **reframed it honestly** after UX testing:
   it is NOT a radar. Renamed in-app `[CSI::MOTION]` ("exp - motion only, not a radar"); user-facing
