@@ -96,9 +96,15 @@ Initializes the LoRa SX1262, runs a TX test, then enters RX monitor mode. Press 
 > from WiFi disturbance, nothing spatial. See "Honest limits" below.
 
 ```
-CMD> cw <ssid> <password>   # must be connected first
-CMD> csi                    # opens the motion detector
+CMD> cw <ssid> <password>   # connected mode: join a network first
+CMD> csi                    # ...then open the detector (cleaner signal)
+
+CMD> csi auto               # passive mode: NO router join needed
 ```
+
+**Two modes:**
+- **`csi`** — uses the network you're connected to (run `cw` first). A busy link = more frames = snappier, cleaner detection.
+- **`csi auto`** — scans, locks onto the **strongest nearby AP's beacons**, and senses **without associating to anything**. Works against any router. Trade-off: beacon-rate is lower than a connected link, so it's a touch laggier. It locks to a *single* AP on purpose (mixing multiple transmitters would read as fake motion).
 
 A **single-chip WiFi motion detector** — believed to be the first WiFi-CSI
 sensing feature on a T-Deck. Every WiFi frame the radio receives carries
@@ -116,34 +122,65 @@ hardware — it rides the WiFi your environment is already transmitting.
 | **CONTACT** (red centre, pulses) | Movement near the device |
 | **MOTION %** | How much movement right now |
 | **Activity** (`STILL`/`FIDGET`/`WALK`/`RUN`) | Rough magnitude class |
-| **Blips / sectors** | Which subcarrier bands reacted most — a *rough, repeatable* hint of activity, gated so a still room stays empty |
-| **Sweep cone** | Cosmetic sweep animation (decorative only) |
+| **Blips / sectors** | **Decorative.** Blip *intensity* reflects real signal (how much a subcarrier band reacted), but the *position/angle* on the dial is arbitrary — the 8 sectors are mapped to fixed angles, **NOT** directions. A blip at "top" does not mean motion is in front of you. |
+| **Sweep cone** | **Decorative only** — a time-based animation, not scanning or aiming at anything. |
+| `AUTO c<ch> <mac>` / `LINK` | Source: passive AP lock (auto) or connected link |
+| `NBVI on/off` | Smart subcarrier weighting state (toggle with `n`) |
 | `fr:<n>` + `CSI live` | Bring-up health: CSI frames received + status |
 
 ### Keys
 
 | Key | Action |
 |-----|--------|
-| `a` / `l` / trackball | Sensitivity (− / +) |
-| `c` | Recalibrate — re-baseline the room |
+| `a` / `l` / trackball | Sensitivity (− / +). In adaptive mode these nudge the noise-floor *margin*. |
+| `c` | Recalibrate — re-baseline the room (also resets the noise floor) |
+| `t` | **Adaptive threshold** on/off — auto-tracks the quiet-room noise floor |
+| `n` | NBVI smart-subcarrier weighting on/off (A/B test) |
+| `s` | **SD logging** on/off → `/apps/csidetect/NNN.csv` |
 | `h` | In-app help overlay |
 | `q` | Quit |
 
+### Signal processing (what makes it more precise)
+
+- **NBVI subcarrier weighting** — instead of averaging all ~56 subcarriers equally, each subcarrier is weighted by its *normalized variance*, so the ones actually reacting to movement dominate and static ones contribute ~nothing. Auto-learned (no manual calibration); toggle `n` to compare on/off.
+- **Hampel filter** — a 7-sample median/MAD outlier reject on the motion signal, so a single RF glitch can't false-trip CONTACT.
+- **Adaptive threshold** (`t`) — instead of a fixed sensitivity, the trip level sits a small *margin* above the continuously-learned quiet-room noise floor. When the source gets noisier (e.g. `csi auto`'s sparse beacons), the bar auto-raises to match → fewer false CONTACTs. `a`/`l` adjust the margin; the panel shows `THR auto`.
+- **Single-source lock** (auto mode) — only one AP's frames feed the detector, avoiding false motion from channel traffic switching between transmitters.
+
+### SD logging (`s`)
+
+Press `s` to record **presence transitions** to `/apps/csidetect/NNN.csv` (sequential, never overwritten — like wguard/bmon). A row is written each time the state flips CLEAR↔CONTACT, so the file stays small and answers "when was there motion." Columns:
+
+```
+time,event,motion_pct,thresh_pct,zones,mode,channel,bssid,ssid
+```
+
+`time` is a real date-time when GPS/NTP is available, otherwise an `@<uptime>ms` counter (same convention as the other apps). `mode` is `AUTO`/`LINK`. `channel`/`bssid`/`ssid` identify the AP the motion was sensed off — the **full BSSID** (e.g. `A1:B2:C3:D4:7F:78`) and its **network name** (`ssid`, commas stripped for CSV; `(hidden)` if none). The panel shows `L<n>` next to `fr:` while recording. Writes are GDMA-guarded (promiscuous is paused for each write), so logging is safe even though CSI keeps the radio busy.
+
 ### How to use it
 
-1. Connect to any 2.4 GHz network with `cw` (CSI is read from frames on that
-   channel — a busier network gives more frames and snappier detection).
-2. Run `csi` and leave it still for ~10–15 s so it learns the empty room → **CLEAR**.
+1. Either connect with `cw` then run `csi`, **or** just run `csi auto` (no join — it
+   picks the strongest AP itself). A busier source gives more frames and snappier detection.
+2. Leave it still for ~10–15 s so it learns the empty room → **CLEAR**.
 3. Move or walk near it → **CONTACT** + the MOTION bar rises.
 4. Best confidence check: **leave the room → CLEAR; walk back → CONTACT**, repeated.
 
 ### Honest limits
 
+- **The radar layout is decorative.** The circular dial, the sweeping cone, and
+  the *angle/position* of every blip are a visual style only — **not** a map of
+  where motion is. Only two things carry real meaning: the centre (CLEAR/CONTACT)
+  and the MOTION % bar. A blip's brightness ≈ how much a subcarrier band moved;
+  its place on the dial is arbitrary.
 - **Single antenna = one motion-energy signal.** There is **no true direction,
-  no person count, and no localization.** The radar sectors are 8 independent
-  signal measurements spread around the dial for readability — *not* a compass
-  bearing. (The reference projects either randomize the angle or use a multi-node
-  mesh + ML to get real position; one T-Deck can't.)
+  no person count, and no localization** — in either `csi` or `csi auto`. The 8
+  sectors are independent signal measurements spread around the dial for
+  readability, *not* a compass bearing. (Reference projects either randomize the
+  angle or use a multi-node mesh + ML to get real position; one T-Deck can't.)
+- **`csi auto` looks noisier than `csi`** — passive beacon-rate (~10 frames/s) is
+  far sparser than a connected link, so the signal jitters more. Press `c` to
+  recalibrate while still, lower sensitivity with `a`, or use connected `csi` for
+  the cleanest read.
 - **Motion only** — a perfectly still person can read CLEAR.
 - **Environment-dependent** — needs WiFi traffic, benefits from `c` recalibration
   when you change rooms. Best treated as a covert *motion/occupancy* indicator,
@@ -151,5 +188,6 @@ hardware — it rides the WiFi your environment is already transmitting.
 
 Adapted from the single-device CSI path of
 [skizzophrenic/Cardputer-CSI-Human-Detector](https://github.com/skizzophrenic/Cardputer-CSI-Human-Detector)
-(MIT); subcarrier-band idea from [ruvnet/ruview](https://github.com/ruvnet/ruview).
-See `NOTICES`.
+(MIT); subcarrier-band idea from [ruvnet/ruview](https://github.com/ruvnet/ruview); the
+NBVI subcarrier weighting, Hampel filter, and passive operation are methodology from
+[ESPectre](https://github.com/francescopace/espectre) (GPL — no code copied). See `NOTICES`.

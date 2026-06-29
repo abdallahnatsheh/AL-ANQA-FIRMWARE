@@ -266,6 +266,9 @@ static const ArgHintEntry kArgHints[] = {
     // lock / lk
     { "lock",        "",              "new update clean wipe boot timeout status" },
     { "lk",          "",              "new update clean wipe boot timeout status" },
+    // csi / csidetect
+    { "csidetect",   "",              "auto" },
+    { "csi",         "",              "auto" },
     // tz
     { "tz",          "",              "status" },
     // macchanger / mc  (no "status" — no-args shows status, but "mc status" is not a keyword)
@@ -746,5 +749,5 @@ void CommandManager::setupCommands() {
     registerCommand("gps",         "gps",    [](char* a) { runGps(a); },                                                "GPS: gps on|off|test",                    true,  "Diagnostics");
     registerCommand("test",        "tst",    [](char* a) { handleHwTestCmd(a); },                                           "HW test: test <spk|mic|lora>",            true,  "Diagnostics");
     registerCommand("i2cscan",     "isc",    [](char* a) { runI2cScan(a); },                                                 "[EXP] I2C scanner: isc [r|w|d] <args>",  true,  "Diagnostics");
-    registerCommand("csidetect",   "csi",    [](char* a) { runCsiDetect(a); },                                               "[EXP] WiFi CSI motion detect (needs cw)", false, "Diagnostics");
+    registerCommand("csidetect",   "csi",    [](char* a) { runCsiDetect(a); },                                               "[EXP] WiFi CSI motion detect (csi | csi auto)", true,  "Diagnostics");
 }

@@ -33,7 +33,7 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
     - Host auto-reconnects to cloned MAC; exploits BLESA (2020) — unpatched Android/old iOS/some Windows accept unencrypted HID reconnect → keystrokes injected before re-auth
     - Patched devices require valid LTK → connection drops on encrypt failure (no injection)
     - NimBLE: set MAC before `init()` via `esp_wifi_set_mac` equivalent for BLE
-11. **macwatch** — ✅ DONE 2026-06-25 as `macwatch/mw` (WiFi+BLE MAC watchlist → proximity alert; presence state machine, hunt meter, BLE-only bg mode). Module `bluetooth/tools/macwatch/`. Built but NOT yet HW-tested. Full ref: `project_macwatch_idea.md`.
+11. **macwatch** — ✅ DONE + HW-VERIFIED 2026-06-28 as `macwatch/mw` (WiFi+BLE MAC watchlist → proximity alert; presence state machine, hunt meter, BLE-only bg mode). Module `bluetooth/tools/macwatch/`. Full ref: `project_macwatch_idea.md`.
 12. **BT Command Relay** — send CLI command to remote T-Deck over BLE NUS; output streams back. `btcmd/btc <mac> <cmd>`
 
 ## GPS / T-Deck Plus Only

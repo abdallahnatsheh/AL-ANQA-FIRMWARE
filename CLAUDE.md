@@ -221,6 +221,7 @@ orphaned, not migrated.
 `/apps/wguard/NNN.csv` — `001.csv`, `002.csv` … session files (never overwritten; new number on each boot/start)
 `/apps/beaconflood/wordlist.txt` — custom SSID list for `bf file` (`SD_CFG_WORDLIST_BCN`)
 `/apps/bmon/NNN.csv` — `001.csv`, `002.csv` … BLE advertisement logs (never overwritten; sequential on each start)
+`/apps/csidetect/NNN.csv` — CSI motion presence-transition logs (`SD_DIR_CSIDETECT`, sequential, `[s]` in `csi`)
 `/apps/i2cscan/results.csv` — I2C scanner results (`timestamp,0xADDR,chip_name,type,ACK/DEAD`)
 `/apps/fastpair/keys.csv` — saved Fast Pair anti-spoofing keys
 `/apps/fastpair/paired.csv` — successful pairings log
@@ -321,15 +322,17 @@ orphaned, not migrated.
 - **Column layout** (6px/char): CX_SEL=4, CX_TYPE=16, CX_MAC=52, CX_AT=160, CX_RSSI=184, CX_INFO=214
 - `[a/l]` page navigation (7 rows/page, resets selection to row 0) · `[q]` quit → stops scan + closes log
 
-**CSIDetect (`csidetect.cpp/h`)** — `wifi/sensing/`, command `csidetect`/`csi` (Diagnostics):
-- WiFi **CSI motion detector** with a radar UI (first-of-kind on T-Deck). Ports the single-device CSI path of skizzophrenic/Cardputer-CSI-Human-Detector (MIT) — see `NOTICES` #12/#13. Requires WiFi **connected** (`cw`); reads CSI from frames on the AP's channel via promiscuous + `esp_wifi_set_csi`. Bails if `wg bg` owns promiscuous; no SD, no notifications.
-- **Algorithm** (IRAM `csiCb`): per-subcarrier amplitude `sqrt(r²+im²)` + mean sin(phase); global windowed variance + **asymmetric-EMA** self-cal → `gMotion` (presence core, hold/coast, thresh default 0.15); ALSO splits subcarriers into `CSI_BANDS=8` responsive-EMA bands → per-sector "contacts".
-- **`wifi_csi_config_t` = IDF-4.4 fields** (lltf_en/htltf_en/…) — correct for `platform = espressif32` 6.x; renames in IDF 5.2+.
-- **UI**: double-buffered PSRAM `LGFX_Sprite` radar (≈30 fps, no flicker) — sweep cone, sector blips (gated behind real motion, highlight bands reacting above average, strong→nearer centre), pulsing CLEAR/CONTACT reticle; right panel = CONTACT/CLEAR + activity word + zones + MOTION/THRESH bars + `fr:`/`CSI live` bring-up diag. `[h]` help overlay. `a/l`/trackball = sensitivity, `c` = recalibrate, `q` = quit.
-- **HONESTY (load-bearing)**: single antenna = ONE motion-energy signal — **no bearing, no count, no localization**. The 8 sectors are signal bands spread for readability, NOT directions (the Cardputer reference literally `random()`s the angle; real placement needs a multi-node mesh + ML like ruview). Motion only — a still person may read CLEAR. Never reintroduce fake per-person positions.
+**CSIDetect (`csidetect.cpp/h`)** — `wifi/sensing/`, command `csidetect`/`csi [auto]` (Diagnostics):
+- WiFi **CSI motion detector** with a radar UI (first-of-kind on T-Deck). Ports the single-device CSI path of skizzophrenic/Cardputer-CSI-Human-Detector (MIT); algorithm upgrades from ESPectre (GPL, methodology only) — see `NOTICES` #12/#13/#14. Reads CSI from frames via promiscuous + `esp_wifi_set_csi`. Bails if `wg bg` owns promiscuous; no SD, no notifications.
+- **Two source modes:** `csi` = connected link (needs `cw`, cleaner/faster signal, all frames on the AP channel). `csi auto` = **passive, no association** — `csiAutoScout()` does a `WiFi.scanNetworks()`, picks the strongest AP, parks on its channel (`esp_wifi_set_channel`) and **single-source MAC-locks** to it (`gLockActive`/`gLockMac`, filtered in `csiCb` on `info->mac`). The MAC lock is essential: blending CSI from multiple transmitters reads as motion even when still.
+- **Algorithm** (IRAM `csiCb`): per-subcarrier amplitude `sqrt(r²+im²)` + mean sin(phase). **NBVI auto subcarrier weighting** (`gScMean/gScVar` per-subcarrier EMA → weight `var/mean²`, capped) emphasises motion-responsive subcarriers vs a plain average — warms up after `CSI_WINDOW*2` frames, falls back to uniform mean, toggle live with `[n]` (`gNbviOn`). Global windowed variance + **asymmetric-EMA** self-cal → `gMotion`; **Hampel outlier filter** (`csiHampel`, 7-sample median+MAD) on the motion stream in the main loop kills lone glitches before the threshold/hold-coast (thresh default 0.15). Also `CSI_BANDS=8` responsive-EMA bands → per-sector "contacts".
+- **`wifi_csi_config_t` = IDF-4.4 fields** (lltf_en/htltf_en/…) — correct for `platform = espressif32` 6.x; renames in IDF 5.2+. (Espressif's `esp_wifi_sensing`/`esp-radar` need IDF ≥5.4 → unusable here; that's why the methods are hand-ported.)
+- **Adaptive threshold** (`[t]`, `gAdaptive`): trip level = learned quiet-room noise floor (`gNoiseEMA`, updated only while not-present) + `gMargin`; auto-raises the bar when the source is noisy (helps `csi auto`). Manual `a/l` nudge `thresh` when off, `gMargin` when on. Panel shows `THR auto`.
+- **SD logging** (`[s]`, GDMA-safe): presence transitions (CLEAR↔CONTACT edges only — compact) → `/apps/csidetect/NNN.csv` (sequential, never overwritten; `SD_DIR_CSIDETECT`). Columns `time,event,motion_pct,thresh_pct,zones,mode,channel,bssid,ssid` (full BSSID + SSID of the sensed AP, both modes; `time` = ClockManager timestamp or `@<ms>` fallback, bmon convention). Every SD touch (`csiOpenLog`/`csiLogEvent`) wrapped in `ScopedPromiscPause` — CSI keeps promiscuous live, so the write must pause it (GDMA rule). Panel shows `L<n>` next to `fr:`.
+- **UI**: double-buffered PSRAM `LGFX_Sprite` radar (≈30 fps) — sweep cone, sector blips (gated behind real motion), pulsing CLEAR/CONTACT reticle; right panel = CONTACT/CLEAR + activity + zones(+`NBVI`) + MOTION/THRESH bars + **`AUTO c<ch> <mac>`/`LINK` source line** + `fr:`/`L<n>`/`CSI live` diag. `[h]` help. `a/l`/trackball=sens, `c`=recal, `t`=adaptive, `n`=NBVI, `s`=SD log, `q`=quit.
+- **HONESTY (load-bearing)**: single antenna = ONE motion-energy signal — **no bearing, no count, no localization**, in BOTH modes. Auto mode improves *robustness* (any AP, no join) not precision; NBVI/Hampel improve *signal quality / false-alarm rate*, still not direction. The 8 sectors are signal bands, NOT directions. Direction needs a multi-antenna array or multi-node mesh (confirmed against 2025-26 state of the art). Never reintroduce fake per-person positions.
 
 ## Pending Features
 - LoRa scanner / packet logger
-- macwatch — MAC watchlist with proximity alert
 - wguard: Karma detection needs real-world testing (probe-response sniff for 3+ SSIDs/60s from same BSSID)
 - espvoice: private/encrypted 1:1 mode (currently broadcast only); optional voice-activity TX gate
