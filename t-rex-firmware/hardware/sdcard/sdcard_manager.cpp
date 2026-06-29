@@ -110,6 +110,7 @@ void SDCardManager::ensureTreeStructure() {
     ensureDir(SD_DIR_CAPCRACK);
     ensureDir(SD_DIR_BMON);
     ensureDir(SD_DIR_CSIDETECT);
+    ensureDir(SD_DIR_NETSPY);
     ensureDir(SD_DIR_MACWATCH);
     ensureDir(SD_DIR_I2CSCAN);
     ensureDir(SD_DIR_FASTPAIR);

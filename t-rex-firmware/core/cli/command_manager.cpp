@@ -67,6 +67,7 @@ void runMicTest();
 void runWardrive(char* a);
 void runEditor(char* a);
 void runCsiDetect(char* a);
+void runNetspy(char* a);
 
 CommandManager::CommandManager()
     : commandIndex(0), commandCount(0), _cursorPos(0),
@@ -269,6 +270,9 @@ static const ArgHintEntry kArgHints[] = {
     // csi / csidetect
     { "csidetect",   "",              "auto" },
     { "csi",         "",              "auto" },
+    // netspy / ns
+    { "netspy",      "",              "gtk dump" },
+    { "ns",          "",              "gtk dump" },
     // tz
     { "tz",          "",              "status" },
     // macchanger / mc  (no "status" — no-args shows status, but "mc status" is not a keyword)
@@ -720,6 +724,7 @@ void CommandManager::setupCommands() {
     // ── Network ───────────────────────────────────────────────────────────────
     registerCommand("netdiscover", "nd",     [](char* a) { networkScanner.networkDiscovery(); },                             "ARP scan local subnet",                   false, "Network");
     registerCommand("portscan",    "ps",     [](char* a) { handlePortScanCmd(a); },                                         "Port scan: ps <ip|#> <s> <e> | ps top <ip|#>", true, "Network");
+    registerCommand("netspy",      "ns",     [](char* a) { runNetspy(a); },                                                  "[EXP] Client-isolation device recon (AirSnitch)", true,  "Network");
     registerCommand("ping",        "pg",     [](char* a) { networkScanner.pingHost(a); },                                   "Ping: pg <ip or hostname>",               true,  "Network");
     registerCommand("ssh",         "sc",     [](char* a) { runSshCon(a); },                                                 "SSH client: ssh <ip|name> [user] | save/list/rm", true,  "Network");
     // ── Bluetooth ─────────────────────────────────────────────────────────────
