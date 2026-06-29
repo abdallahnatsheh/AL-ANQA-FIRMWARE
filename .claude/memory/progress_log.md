@@ -176,10 +176,11 @@ _Original first-pass notes below — still accurate for the implementation detai
   now `time,event,motion_pct,thresh_pct,zones,mode,channel,bssid,ssid`; captured from scan (auto) or
   `WiFi.BSSID()`/`WiFi.SSID()` (connected). Build fix: connected BSSID uses the no-arg `WiFi.BSSID()`
   (the `BSSID(idx)` overload is scan-only → "invalid conversion" compile error).
-- ✅ **BUILT CLEAN + HW-tested** (T-Deck-Plus): `csi auto` locks an AP and detects motion; SD log writes
-  `/apps/csidetect/NNN.csv` (user verified rows). Known tuning note from a real log: **adaptive
-  threshold `[t]` overshoots upward in noisy auto mode** (ran to 97% then decayed) — asymmetric/capped
-  adaptation is a worthwhile follow-up (offered, not yet done).
+- ✅ **FULLY HW-VERIFIED** (T-Deck-Plus, committed d775aa3 + a6f899b): `csi auto` locks an AP + detects
+  motion; NBVI `[n]`, adaptive `[t]`, SD log → `/apps/csidetect/NNN.csv` (full bssid+ssid columns),
+  and the panel `AUTO/LINK c<ch> <ssid>` source line all confirmed working. csidetect upgrade DONE.
+  Note: adaptive `[t]` can read high if you nudge the margin up (user confirmed the 97% in an early log
+  was them adjusting it, NOT a bug) — asymmetric/capped tuning deliberately NOT done (not needed).
 
 ## Session 2026-06-28 (macwatch/mw — ✅ HW-VERIFIED)
 - User field-tested `mw` end-to-end on hardware: works, all good (add/presence/proximity/bg + the
