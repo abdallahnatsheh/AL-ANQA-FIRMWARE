@@ -50,6 +50,8 @@
 
 #define SD_DIR_BMON          "/apps/bmon"
 
+#define SD_DIR_CSIDETECT     "/apps/csidetect"        // CSI motion logs (NNN.csv)
+
 #define SD_DIR_MACWATCH      "/apps/macwatch"
 #define SD_LOG_MACWATCH_LIST "/apps/macwatch/watchlist.csv"
 #define SD_LOG_MACWATCH_EVT  "/apps/macwatch/events.csv"

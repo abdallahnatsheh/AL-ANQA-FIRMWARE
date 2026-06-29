@@ -96,4 +96,18 @@ This project incorporates code from the following open-source projects:
     License: Apache License 2.0
     Notes:   Espressif's official ESP32-S3 Channel State Information examples
              were used as an API/feasibility reference for csidetect. No source
-             code was copied or adapted.
+             code was copied or adapted. (Espressif's newer esp_wifi_sensing /
+             esp-radar components require ESP-IDF >= 5.4 and cannot run on this
+             project's IDF 4.4 / Arduino-core 2.x toolchain.)
+
+14. ESPectre (methodology reference — no code used)
+    Files:   t-rex-firmware/wifi/sensing/csidetect.cpp
+    Source:  https://github.com/francescopace/espectre
+    License: GPL-3.0
+    Notes:   Methodology/specification reference only — no source copied. Three
+             ideas were re-implemented as portable math in csidetect: (1) NBVI-
+             style automatic subcarrier weighting (emphasise motion-responsive
+             subcarriers via normalized per-subcarrier variance instead of a
+             plain average); (2) Hampel outlier rejection on the motion stream;
+             (3) fully passive operation — sensing off any AP's beacons with no
+             association (T-REX `csi auto` + single-source MAC lock).

@@ -26,29 +26,45 @@
 //   - ruvnet/ruview (concept) — using subcarriers individually instead of one
 //     scalar. ruview itself needs a multi-node mesh + off-device ML; only the
 //     single-link "use the subcarriers" idea is borrowed here. No code copied.
-//   - espressif/esp-csi (Apache-2.0) — official ESP32-S3 CSI reference.
+//   - espressif/esp-csi (Apache-2.0) — official ESP32-S3 CSI reference. NOTE:
+//     Espressif's newer esp_wifi_sensing / esp-radar components need IDF >= 5.4;
+//     this project is IDF 4.4 (Arduino core 2.x) so they cannot be used — the
+//     ideas below are re-implemented as portable math instead.
+//   - francescopace/ESPectre (concept/method, GPL-3.0) — methodology reference,
+//     no code copied: (1) NBVI-style auto subcarrier weighting (emphasise the
+//     most motion-responsive subcarriers via normalized per-subcarrier variance,
+//     instead of averaging all equally); (2) Hampel outlier rejection on the
+//     motion stream; (3) fully PASSIVE operation — sense off any AP's beacons
+//     with no association. Our `csi auto` mode + single-source MAC lock follow it.
 
 #include "csidetect.h"
 #include <Arduino.h>
 #include <WiFi.h>
+#include <SD.h>
 #include "esp_wifi.h"
 #include <math.h>
 #include "display_manager.h"
 #include "input_handling.h"
 #include "lockscreen_manager.h"
+#include "sdcard_manager.h"
+#include "clock_manager.h"
+#include "wifi_sd_guard.h"            // ScopedPromiscPause — GDMA-safe SD writes
 #include "wguard.h"
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
+extern SDCardManager  sdCardManager;
 extern LGFX           tft;            // global display from main.ino
 extern WGuard         wGuard;
 
 // ── tunables ──────────────────────────────────────────────────────────────────
 #define CSI_WINDOW      40            // global variance window (presence core)
 #define CSI_BANDS       8             // per-subcarrier bands → radar sectors
+#define CSI_MAXSC       128           // max subcarriers tracked (HT40 ~128, HT20 ~64)
 #define CSI_HOLD_MS     1200          // presence coast (snappy real-time feel)
 #define CSI_FPS_MS      33            // ~30 fps render
 #define CSI_SWEEP_MS    2600.0f       // one radar revolution (lively)
+#define CSI_HAMPEL_N    7             // Hampel outlier-reject window (motion stream)
 #define TAU             6.28318531f
 
 // sprite radar region (pushed below the header)
@@ -87,10 +103,43 @@ static volatile float   gBand[CSI_BANDS];        // normalized 0..1 per band
 static float            gAmpFast, gAmpSlow;
 static volatile float   gTrend;                  // >0 approaching, <0 receding (hint)
 
+// ── NBVI auto subcarrier weighting (ESPectre method, re-implemented) ───────────
+// Per-subcarrier EMA mean/var → weight = normalized variance (scVar/scMean^2).
+// Responsive subcarriers (high normalized variance) dominate the motion mean;
+// static ones contribute ~0. Falls back to a uniform mean until warmed up.
+static float            gScMean[CSI_MAXSC], gScVar[CSI_MAXSC];
+static bool             gScWarm;                 // enough frames for weights to be valid
+static volatile bool    gNbviOn = true;          // [n] toggles weighting on/off (A/B)
+
+// ── single-source lock: only accept CSI from one AP (auto mode) ───────────────
+// Avoids the "blend different transmitters" false-motion trap. Set before csiStart.
+static volatile bool    gLockActive = false;
+static uint8_t          gLockMac[6];
+static char             gLockSsid[33];           // AP name for the log (full mac+ssid)
+static bool             gAutoMode   = false;     // passive (beacon) vs connected link
+static uint8_t          gChan       = 0;         // channel to park on in auto mode
+
+// ── Hampel outlier filter state (motion stream; main-loop side) ───────────────
+static float            gHampBuf[CSI_HAMPEL_N];
+static int              gHampN, gHampIdx;
+
 // ── UI state ──────────────────────────────────────────────────────────────────
 static float    gBDisp[CSI_BANDS];               // peak-hold + decay for blips
 static esp_err_t gCsiErr;
 static LGFX_Sprite gRadar;
+
+// ── adaptive threshold ([t] toggles) ──────────────────────────────────────────
+// When on, the trip threshold tracks the quiet-room noise floor + a margin, so a
+// noisier source (e.g. csi auto's beacon-rate jitter) auto-raises the bar.
+static bool     gAdaptive = false;
+static float    gNoiseEMA = 0.0f;                // EMA of the score during quiet
+static float    gMargin   = 0.12f;               // adaptive headroom (a/l nudges it)
+
+// ── SD logging ([s] toggles) — /apps/csidetect/NNN.csv, presence transitions ──
+static bool     gLogOn = false;
+static char     gLogPath[40];
+static uint32_t gLogCount;
+static bool     gPrevPresent = false;            // edge-detect CLEAR<->CONTACT
 
 static void csiResetStats() {
     gAmpIdx = 0; gAmpFilled = 0;
@@ -102,17 +151,54 @@ static void csiResetStats() {
         gBMean[b] = 0; gBVar[b] = 0; gBVMin[b] = 0; gBVMax[b] = 0.001f; gBand[b] = 0;
     }
     gAmpFast = gAmpSlow = 0; gTrend = 0;
+    memset(gScMean, 0, sizeof(gScMean));
+    memset(gScVar,  0, sizeof(gScVar));
+    gScWarm = false;
+    memset(gHampBuf, 0, sizeof(gHampBuf));
+    gHampN = 0; gHampIdx = 0;
+    gNoiseEMA = 0.0f;                            // re-learn the quiet-room floor
+}
+
+// Hampel outlier filter on the motion stream — replaces a lone spike with the
+// window median (median + MAD test). Runs on the main task, not the IRAM cb.
+static float csiHampel(float x) {
+    gHampBuf[gHampIdx] = x;
+    gHampIdx = (gHampIdx + 1) % CSI_HAMPEL_N;
+    if (gHampN < CSI_HAMPEL_N) gHampN++;
+    if (gHampN < 5) return x;                       // not enough samples yet
+    float t[CSI_HAMPEL_N];
+    for (int i = 0; i < gHampN; i++) t[i] = gHampBuf[i];
+    for (int i = 1; i < gHampN; i++) { float k = t[i]; int j = i - 1;
+        while (j >= 0 && t[j] > k) { t[j+1] = t[j]; j--; } t[j+1] = k; }
+    float med = t[gHampN / 2];
+    float dev[CSI_HAMPEL_N];
+    for (int i = 0; i < gHampN; i++) dev[i] = fabsf(t[i] - med);
+    for (int i = 1; i < gHampN; i++) { float k = dev[i]; int j = i - 1;
+        while (j >= 0 && dev[j] > k) { dev[j+1] = dev[j]; j--; } dev[j+1] = k; }
+    float mad = dev[gHampN / 2];
+    float thr = 3.0f * 1.4826f * mad;               // 3-sigma equivalent
+    if (thr > 1e-4f && fabsf(x - med) > thr) return med;
+    return x;
 }
 
 // ── CSI receive callback (WiFi task; IRAM like the reference) ──────────────────
 static void IRAM_ATTR csiCb(void*, wifi_csi_info_t* info) {
     if (!info || !info->buf || info->len < 8) return;
+    // Single-source lock (auto/passive mode): only accept frames from the chosen
+    // AP. Mixing CSI from different transmitters reads as motion even when still.
+    if (gLockActive) {
+        const uint8_t* m = info->mac;
+        if (m[0]!=gLockMac[0]||m[1]!=gLockMac[1]||m[2]!=gLockMac[2]||
+            m[3]!=gLockMac[3]||m[4]!=gLockMac[4]||m[5]!=gLockMac[5]) return;
+    }
     gCount++;
     int8_t* b      = info->buf;
     int     nPairs = info->len / 2;              // I/Q int8 pairs (subcarriers)
+    if (nPairs > CSI_MAXSC) nPairs = CSI_MAXSC;  // bound per-subcarrier arrays
 
     float ampSum = 0.0f, sinSum = 0.0f;
     int   valid  = 0;
+    float wsum = 0.0f, wamp = 0.0f;              // NBVI-weighted accumulation
     float bAmp[CSI_BANDS] = {0}; int bCnt[CSI_BANDS] = {0};
     for (int i = 0; i < nPairs; i++) {
         float r   = (float)b[2 * i];
@@ -120,11 +206,21 @@ static void IRAM_ATTR csiCb(void*, wifi_csi_info_t* info) {
         float amp = sqrtf(r * r + im * im);
         ampSum += amp;
         if (amp > 1e-4f) { sinSum += im / amp; valid++; }
+        // per-subcarrier EMA mean/variance → normalized-variance weight (NBVI)
+        float d = amp - gScMean[i];
+        gScMean[i] += 0.05f * d;
+        gScVar[i]  += 0.05f * (d * d - gScVar[i]);
+        float w = gScVar[i] / (gScMean[i] * gScMean[i] + 0.5f);
+        if (w > 4.0f) w = 4.0f;                  // cap so one subcarrier can't dominate
+        wsum += w; wamp += w * amp;
         int bi = (CSI_BANDS * i) / nPairs; if (bi >= CSI_BANDS) bi = CSI_BANDS - 1;
         bAmp[bi] += amp; bCnt[bi]++;
     }
-    float meanAmp = ampSum / (float)nPairs;
-    float meanSin = valid > 0 ? sinSum / (float)valid : 0.0f;
+    float meanUnif = ampSum / (float)nPairs;     // plain average (fallback)
+    // NBVI weighting once warm; emphasises the motion-responsive subcarriers.
+    float meanAmp  = (gNbviOn && gScWarm && wsum > 1e-3f) ? (wamp / wsum) : meanUnif;
+    float meanSin  = valid > 0 ? sinSum / (float)valid : 0.0f;
+    if (!gScWarm && gCount > (uint32_t)(CSI_WINDOW * 2)) gScWarm = true;
 
     // ── global presence core (windowed variance + asymmetric EMA) ─────────────
     gAmpBuf[gAmpIdx] = meanAmp;
@@ -180,6 +276,24 @@ static void IRAM_ATTR csiCb(void*, wifi_csi_info_t* info) {
 
 static void IRAM_ATTR csiPromiscCb(void*, wifi_promiscuous_pkt_type_t) {}
 
+// Passive auto-source scout — pick the strongest nearby AP (no association),
+// return its BSSID + channel. Used by `csi auto` so it works against ANY router.
+static bool csiAutoScout(uint8_t outMac[6], uint8_t* outCh, char* outSsid, size_t ssidSz) {
+    WiFi.mode(WIFI_STA);                          // scan needs STA; do NOT connect
+    int n = WiFi.scanNetworks(false /*sync*/, true /*show_hidden*/);
+    if (n <= 0) { WiFi.scanDelete(); return false; }
+    int best = -1, bestRssi = -127;
+    for (int i = 0; i < n; i++) { int r = WiFi.RSSI(i); if (r > bestRssi) { bestRssi = r; best = i; } }
+    if (best < 0) { WiFi.scanDelete(); return false; }
+    const uint8_t* bm = WiFi.BSSID(best);
+    if (!bm) { WiFi.scanDelete(); return false; }
+    memcpy(outMac, bm, 6);
+    *outCh = (uint8_t)WiFi.channel(best);
+    strncpy(outSsid, WiFi.SSID(best).c_str(), ssidSz - 1); outSsid[ssidSz - 1] = '\0';
+    WiFi.scanDelete();
+    return true;
+}
+
 // ── CSI radio setup / teardown ────────────────────────────────────────────────
 static void csiStart() {
     csiResetStats();
@@ -189,6 +303,9 @@ static void csiStart() {
     pf.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA;
     esp_wifi_set_promiscuous_filter(&pf);
     esp_wifi_set_promiscuous_rx_cb(csiPromiscCb);
+    // Auto mode: park on the chosen AP's channel (connected mode stays on the link's).
+    if (gAutoMode && gChan >= 1 && gChan <= 14)
+        esp_wifi_set_channel(gChan, WIFI_SECOND_CHAN_NONE);
     // wifi_csi_config_t — IDF 4.4 fields (platform = espressif32 6.x).
     wifi_csi_config_t cfg = {};
     cfg.lltf_en = true; cfg.htltf_en = true; cfg.stbc_htltf2_en = true;
@@ -204,6 +321,57 @@ static void csiStop() {
     esp_wifi_set_csi_rx_cb(nullptr, nullptr);
     esp_wifi_set_promiscuous_rx_cb(nullptr);
     esp_wifi_set_promiscuous(false);
+}
+
+// ── SD logging (presence transitions) ─────────────────────────────────────────
+// /apps/csidetect/NNN.csv (sequential, never overwritten — wguard/bmon scheme).
+// CSI keeps promiscuous live, so every SD touch is wrapped in ScopedPromiscPause
+// (pauses promiscuous DMA for the write, resumes after — GDMA rule).
+static void csiTimestamp(char* out, size_t n) {
+    ClockManager::instance().getTimestamp(out, n);
+    if (!out[0]) snprintf(out, n, "@%lums", (unsigned long)millis());
+}
+
+static bool csiOpenLog() {
+    if (!sdCardManager.isReady()) return false;
+    ScopedPromiscPause _;                         // GDMA-safe: pause CSI RX DMA
+    sdCardManager.ensureDir(SD_DIR_CSIDETECT);
+    uint16_t seq = 1; char probe[40];
+    while (seq <= 999) {
+        snprintf(probe, sizeof(probe), SD_DIR_CSIDETECT "/%03u.csv", seq);
+        if (!SD.exists(probe)) break;
+        seq++;
+    }
+    strncpy(gLogPath, probe, sizeof(gLogPath) - 1); gLogPath[sizeof(gLogPath)-1] = '\0';
+    File f = SD.open(gLogPath, FILE_WRITE);
+    if (!f) return false;
+    f.println("time,event,motion_pct,thresh_pct,zones,mode,channel,bssid,ssid");
+    f.close();
+    gLogCount = 0;
+    return true;
+}
+
+// Log one presence transition (CONTACT on entry / CLEAR on exit).
+static void csiLogEvent(bool present, int motionPct, int threshPct, int zones) {
+    if (!gLogOn || !sdCardManager.isReady()) return;
+    char ts[24]; csiTimestamp(ts, sizeof(ts));
+    char mac[18];
+    snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X",
+             gLockMac[0], gLockMac[1], gLockMac[2], gLockMac[3], gLockMac[4], gLockMac[5]);
+    char ssid[33];
+    strncpy(ssid, gLockSsid, sizeof(ssid) - 1); ssid[sizeof(ssid) - 1] = '\0';
+    for (char* p = ssid; *p; p++) if (*p == ',' || *p == '\r' || *p == '\n') *p = ' ';  // CSV-safe
+    if (!ssid[0]) strncpy(ssid, "(hidden)", sizeof(ssid));
+    char line[140];
+    snprintf(line, sizeof(line), "%s,%s,%d,%d,%d,%s,%u,%s,%s",
+             ts, present ? "CONTACT" : "CLEAR", motionPct, threshPct, zones,
+             gAutoMode ? "AUTO" : "LINK", gChan, mac, ssid);
+    ScopedPromiscPause _;                         // GDMA-safe write
+    File f = SD.open(gLogPath, FILE_APPEND);
+    if (!f) return;
+    f.println(line);
+    f.close();
+    gLogCount++;
 }
 
 // ── colour ramps ──────────────────────────────────────────────────────────────
@@ -323,10 +491,13 @@ static void csiDrawPanel(float thresh, float disp, bool present, int zones) {
     const char* arrow = (tr > 0.6f) ? "^near" : (tr < -0.6f) ? "vfar " : "~hold";
     dm.setTextColor(0x6E6C); dm.setCursor(PANEL_X + 60, 74); dm.printText(arrow);
 
-    // zones (active signal sectors — NOT a person count)
+    // zones (active signal sectors — NOT a person count) + NBVI weighting state
     snprintf(b, sizeof(b), "zones:%d", zones);
     dm.setTextColor(zones > 0 ? 0x6FE8 : 0x7BEF);
     dm.setCursor(PANEL_X, 90); dm.printText(b);
+    snprintf(b, sizeof(b), "NBVI:%s", gNbviOn ? "on" : "off");
+    dm.setTextColor(gNbviOn ? 0x6FE8 : 0x7BEF);
+    dm.setCursor(PANEL_X + 60, 90); dm.printText(b);
 
     int mp = (int)(disp * 100.0f), tp = (int)(thresh * 100.0f);
     dm.setTextColor(0x7BEF); dm.setCursor(PANEL_X, 110); dm.printText("MOTION");
@@ -336,7 +507,8 @@ static void csiDrawPanel(float thresh, float disp, bool present, int zones) {
     dm.fillRect(PANEL_X, 122, 108, 8, 0x0c22);
     dm.fillRect(PANEL_X, 122, (108 * mp) / 100, 8, 0x6FE8);
 
-    dm.setTextColor(0x7BEF); dm.setCursor(PANEL_X, 138); dm.printText("THRESH");
+    dm.setTextColor(gAdaptive ? TFT_CYAN : 0x7BEF);
+    dm.setCursor(PANEL_X, 138); dm.printText(gAdaptive ? "THR auto" : "THRESH");
     snprintf(b, sizeof(b), "%3d%%", tp);
     dm.setTextColor(TFT_YELLOW);
     dm.setCursor(PANEL_X + 70, 138); dm.printText(b);
@@ -345,9 +517,19 @@ static void csiDrawPanel(float thresh, float disp, bool present, int zones) {
     int mx = PANEL_X + (108 * tp) / 100;
     tft.drawLine(mx, 148, mx, 159, TFT_YELLOW);
 
-    // bring-up diagnostics
+    // source / mode line: AUTO (passive beacon lock, ch + AP last-2-bytes) vs LINK
+    if (gAutoMode)
+        snprintf(b, sizeof(b), "AUTO c%u %02X%02X", gChan, gLockMac[4], gLockMac[5]);
+    else
+        snprintf(b, sizeof(b), "LINK (connected)");
+    dm.setTextColor(gAutoMode ? 0x6E6C : 0x7BEF);
+    dm.setCursor(PANEL_X, 164); dm.printText(b);
+
+    // bring-up diagnostics (+ SD log counter when recording)
     uint32_t fr = gCount;
-    snprintf(b, sizeof(b), "fr:%lu %ddBm", (unsigned long)fr, (int)gRssi);
+    if (gLogOn) snprintf(b, sizeof(b), "fr:%lu %ddBm L%lu",
+                         (unsigned long)fr, (int)gRssi, (unsigned long)gLogCount);
+    else        snprintf(b, sizeof(b), "fr:%lu %ddBm", (unsigned long)fr, (int)gRssi);
     dm.setTextColor(0x7BEF); dm.setCursor(PANEL_X, 180); dm.printText(b);
     if (gCsiErr != ESP_OK) {
         dm.setTextColor(TFT_RED);
@@ -367,7 +549,7 @@ static void csiDrawFooter() {
     auto& dm = displayManager;
     dm.fillRect(0, 229, SCREEN_WIDTH, 11, TFT_BLACK);
     dm.setTextColor(TFT_DARKGREY);
-    dm.setCursor(6, 230); dm.printText("a/l/ball=sens  c=cal  h=help  q=quit");
+    dm.setCursor(6, 230); dm.printText("a/l sens c=cal t=auto n=nbvi s=log q");
 }
 
 // full-screen help overlay ([h]); any key / click returns
@@ -388,18 +570,18 @@ static void csiHelp() {
             dm.setTextColor(TFT_YELLOW); dm.printText("HELP");
             dm.setTextColor(0x7BEF);     dm.printText("]");
             line(1,  TFT_WHITE,    "WiFi motion detector.");
-            line(2,  TFT_WHITE,    "Senses movement via WiFi echoes.");
-            line(3,  TFT_CYAN,     "USE: cw <ssid>   then   csi");
+            line(2,  TFT_CYAN,     "csi      = connected link");
+            line(3,  TFT_CYAN,     "csi auto = any AP, no join");
             line(4,  0x6FE8,       "STILL  = CLEAR (green)");
             line(5,  TFT_RED,      "MOVING = CONTACT (red)");
-            line(6,  TFT_WHITE,    "MOTION% = amount of movement");
-            line(7,  TFT_WHITE,    "blips  = signal sectors (rough)");
-            line(8,  TFT_CYAN,     "KEYS: a/l or trackball = sens");
-            line(9,  TFT_WHITE,    "      c=recalibrate    q=quit");
-            line(10, 0x7BEF,       "Motion only: a still person can");
-            line(11, 0x7BEF,       "read CLEAR. Sectors are approx,");
-            line(12, 0x7BEF,       "not a real compass bearing.");
-            line(13, TFT_DARKGREY, "press any key to return");
+            line(6,  TFT_WHITE,    "MOTION% = how much movement");
+            line(7,  TFT_CYAN,     "KEYS a/l=sens c=cal q=quit");
+            line(8,  TFT_CYAN,     "n=NBVI weight motion-reactive");
+            line(9,  TFT_WHITE,    "  subcarriers (cleaner signal)");
+            line(10, TFT_CYAN,     "t=auto-threshold   s=SD log");
+            line(11, 0x7BEF,       "Motion only (still=CLEAR).");
+            line(12, 0x7BEF,       "Blips/sweep decorative, NOT a");
+            line(13, TFT_DARKGREY, "bearing.   any key = back");
             redraw = false;
         }
         char k = inputHandler.getKeyboardInput();
@@ -411,13 +593,18 @@ static void csiHelp() {
 }
 
 // ── entry ─────────────────────────────────────────────────────────────────────
-void runCsiDetect(char* /*args*/) {
+void runCsiDetect(char* args) {
     auto& dm = displayManager;
 
-    if (WiFi.status() != WL_CONNECTED) {
+    // `csi auto` → passive mode: sense off the strongest nearby AP's beacons with
+    // NO association. Plain `csi` → use the current connected link (cleaner signal).
+    bool autoMode = (args && (args[0] == 'a' || args[0] == 'A'));
+
+    if (!autoMode && WiFi.status() != WL_CONNECTED) {
         dm.clearScreen();
-        dm.setTextColor(TFT_RED);   dm.println("CSI radar needs WiFi.");
-        dm.setTextColor(TFT_WHITE); dm.println("Connect first:  cw <ssid>");
+        dm.setTextColor(TFT_RED);   dm.println("CSI needs WiFi.");
+        dm.setTextColor(TFT_WHITE); dm.println("Connect (cw <ssid>) then csi,");
+        dm.println("or run 'csi auto' (no router needed).");
         dm.printCommandScreen();
         return;
     }
@@ -440,6 +627,29 @@ void runCsiDetect(char* /*args*/) {
     }
     memset(gBDisp, 0, sizeof(gBDisp));
 
+    // ── source selection ──────────────────────────────────────────────────────
+    gAutoMode = false; gLockActive = false; gChan = 0;
+    memset(gLockMac, 0, sizeof(gLockMac)); gLockSsid[0] = '\0';
+    if (autoMode) {
+        dm.clearScreen(); dm.updateStatusBar(); dm.setDefaultTextSize();
+        dm.setCursor(6, outputY);
+        dm.setTextColor(TFT_CYAN); dm.println("CSI auto: scanning for APs...");
+        if (!csiAutoScout(gLockMac, &gChan, gLockSsid, sizeof(gLockSsid))) {
+            dm.setTextColor(TFT_RED); dm.println("No APs found. Try 'csi' (connected).");
+            gRadar.deleteSprite();
+            dm.printCommandScreen();
+            return;
+        }
+        gAutoMode = true; gLockActive = true;     // lock to that single AP
+    } else {
+        // connected link: record the joined AP for the log (no MAC filter needed)
+        const uint8_t* bm = WiFi.BSSID();        // connected-AP BSSID (no-arg overload)
+        if (bm) memcpy(gLockMac, bm, 6);
+        strncpy(gLockSsid, WiFi.SSID().c_str(), sizeof(gLockSsid) - 1);
+        gLockSsid[sizeof(gLockSsid) - 1] = '\0';
+        gChan = (uint8_t)WiFi.channel();
+    }
+
     dm.clearScreen();
     dm.updateStatusBar();
     dm.setDefaultTextSize();
@@ -451,15 +661,29 @@ void runCsiDetect(char* /*args*/) {
     float    held     = 0.0f;
     uint32_t holdUntil = 0;
     uint32_t lastTick = 0;
+    gLogOn = false; gPrevPresent = false;        // SD logging starts off ([s])
+    gAdaptive = false; gMargin = 0.12f;          // manual threshold by default ([t])
 
     while (true) {
         char k = inputHandler.getKeyboardInput();
         TrackballEvent tb = inputHandler.getTrackballEvent();
         if (k == 'q' || k == 'Q') break;
-        // sensitivity: 'l' / trackball up = more sensitive, 'a' / down = less
-        if (k == 'l' || k == 'L' || tb == TBALL_UP)        { thresh -= 0.05f; if (thresh < 0.05f) thresh = 0.05f; }
-        else if (k == 'a' || k == 'A' || tb == TBALL_DOWN) { thresh += 0.05f; if (thresh > 0.95f) thresh = 0.95f; }
+        // sensitivity: 'l'/up = more sensitive, 'a'/down = less. In adaptive mode
+        // a/l nudge the noise-floor MARGIN instead of an absolute threshold.
+        if (k == 'l' || k == 'L' || tb == TBALL_UP) {
+            if (gAdaptive) { gMargin -= 0.03f; if (gMargin < 0.02f) gMargin = 0.02f; }
+            else           { thresh  -= 0.05f; if (thresh  < 0.05f) thresh  = 0.05f; }
+        } else if (k == 'a' || k == 'A' || tb == TBALL_DOWN) {
+            if (gAdaptive) { gMargin += 0.03f; if (gMargin > 0.60f) gMargin = 0.60f; }
+            else           { thresh  += 0.05f; if (thresh  > 0.95f) thresh  = 0.95f; }
+        }
         else if (k == 'c' || k == 'C')                      csiResetStats();
+        else if (k == 'n' || k == 'N')                      gNbviOn   = !gNbviOn;    // A/B the weighting
+        else if (k == 't' || k == 'T')                      gAdaptive = !gAdaptive;  // auto-threshold on/off
+        else if (k == 's' || k == 'S') {                                             // SD logging on/off
+            if (gLogOn) gLogOn = false;
+            else if (csiOpenLog()) { gLogOn = true; gPrevPresent = false; }
+        }
         else if (k == 'h' || k == 'H') {
             csiHelp();                                       // modal; redraw statics after
             dm.clearScreen(); dm.updateStatusBar(); dm.setDefaultTextSize();
@@ -470,10 +694,15 @@ void runCsiDetect(char* /*args*/) {
         if (now - lastTick < CSI_FPS_MS) { delay(3); continue; }
         lastTick = now;
 
-        // snappy presence: trip instantly, coast a short while
-        float raw = gMotion;
+        // snappy presence: trip instantly, coast a short while.
+        // Hampel-filter the motion stream first → a lone glitch can't false-trip.
+        float raw = csiHampel(gMotion);
+        // Adaptive threshold: sit just above the learned quiet-room noise floor.
+        if (gAdaptive) { thresh = clamp01(gNoiseEMA + gMargin); if (thresh < 0.06f) thresh = 0.06f; }
         if (raw > thresh) { holdUntil = now + CSI_HOLD_MS; held = raw; }
         bool present = (now < holdUntil);
+        // Learn the noise floor only while quiet, so real motion can't inflate it.
+        if (!present) gNoiseEMA += 0.02f * (raw - gNoiseEMA);
         float disp = (raw > thresh) ? raw
                    : (present ? held * (0.15f + 0.85f * (float)(holdUntil - now) / CSI_HOLD_MS) : 0.0f);
 
@@ -491,6 +720,12 @@ void runCsiDetect(char* /*args*/) {
             if (gBDisp[bd] > 0.20f) zones++;
         }
 
+        // SD log: write a row only on a CLEAR<->CONTACT transition (compact log).
+        if (present != gPrevPresent) {
+            csiLogEvent(present, (int)(disp * 100.0f), (int)(thresh * 100.0f), zones);
+            gPrevPresent = present;
+        }
+
         float sweepFrac = (float)(now % (uint32_t)CSI_SWEEP_MS) / CSI_SWEEP_MS;
 
         if (LockScreenManager::getInstance().consumeJustUnlocked()) {
@@ -504,6 +739,8 @@ void runCsiDetect(char* /*args*/) {
     }
 
     csiStop();
+    gLockActive = false; gAutoMode = false;   // don't carry the lock into a later run
+    gLogOn = false; gAdaptive = false;        // session toggles reset for next run
     gRadar.deleteSprite();
     dm.clearScreen();                 // wipe the sweep display before returning to CLI
     dm.printCommandScreen();

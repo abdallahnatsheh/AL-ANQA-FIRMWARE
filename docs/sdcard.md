@@ -55,6 +55,7 @@ created lazily.
 | `/apps/wguard/` | session CSV logs |
 | `/apps/beaconflood/` | wordlist.txt |
 | `/apps/bmon/` | BLE advertisement logs |
+| `/apps/csidetect/` | CSI motion presence logs (NNN.csv) |
 | `/apps/i2cscan/` | results.csv |
 | `/apps/fastpair/` | keys.csv, paired.csv, sniff.csv |
 | `/apps/espsniff/` | ESP-NOW captures (CSV + pcap) |
@@ -89,6 +90,7 @@ Do nothing — firmware creates these when the relevant feature is first used.
 | `/apps/wifimon/probes.csv` | `wifimon` `[p]` probe logger | `time_ms,mac,vendor,ssid,rssi` |
 | `/apps/i2cscan/results.csv` | `i2cscan` `[s]` save | `timestamp,0xADDR,chip_name,type,ACK/DEAD` |
 | `/apps/bmon/001.csv` … `NNN.csv` | `bmon` `[s]` toggle — one file per session | BLE advertisement log |
+| `/apps/csidetect/001.csv` … `NNN.csv` | `csi` `[s]` toggle — one file per session | CSI motion presence transitions (`time,event,motion_pct,thresh_pct,zones,mode,channel,bssid,ssid`) |
 | `/apps/espsniff/NNN.csv` + `NNN.pcap` | `espsniff` capture | ESP-NOW capture (CSV + pcap) |
 | `/apps/fastpair/keys.csv` | `fastpair` on key capture | cached anti-spoofing keys |
 | `/apps/fastpair/paired.csv` | `fastpair` on pairing | `addr,name` per line |

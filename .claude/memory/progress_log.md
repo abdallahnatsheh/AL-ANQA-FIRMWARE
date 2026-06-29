@@ -138,6 +138,54 @@ _Original first-pass notes below — still accurate for the implementation detai
   GpsManager's one-time first-fix NVS *flash* write could also collide with `wg bg` promiscuous
   (wardrive's "NVS write during live WiFi" lesson) — would crash ~4min in, not 1h, so not this bug.
 
+## Session 2026-06-28 (csidetect upgrade: NBVI + Hampel + passive `csi auto` — built, UNTESTED)
+- Web-researched 2025-26 CSI state of the art (WebSearch). Key findings: (a) direction/bearing is
+  STILL impossible on a single antenna — needs multi-antenna AoA or multi-node mesh (confirmed by
+  esp-csi repo + survey); auto mode does NOT add direction, only robustness. (b) Espressif's official
+  `esp_wifi_sensing`/`esp-radar` components need **IDF ≥5.4** → unusable on our IDF 4.4 — so I ported
+  the METHODS by hand instead. (c) ESPectre (GPL) validated passive/no-association sensing.
+- **Implemented (user: "do it, keep radar"):** radar UI untouched.
+  1. **NBVI auto subcarrier weighting** — per-subcarrier EMA mean/var in `csiCb` → weight `var/mean²`
+     (capped 4), weighted-mean amplitude emphasises motion-responsive subcarriers vs plain average.
+     Warmup fallback to uniform mean (`gScWarm` after CSI_WINDOW*2 frames); live A/B toggle `[n]`
+     (`gNbviOn`). `gScMean/gScVar` float[CSI_MAXSC=128] in DRAM (IRAM cb writes them).
+  2. **Hampel filter** (`csiHampel`, 7-sample median+MAD) on the motion stream in the main loop →
+     kills lone glitches before threshold/hold-coast.
+  3. **Passive `csi auto` mode** — `csiAutoScout()` (WiFi.scanNetworks, pick strongest AP) → park on
+     its channel (`esp_wifi_set_channel`) + **single-source MAC lock** (`gLockActive`/`gLockMac`,
+     filtered on `info->mac` in `csiCb`). No association needed → works vs ANY router. MAC lock is
+     load-bearing: blending multiple transmitters' CSI = false motion. Connected `csi` unchanged
+     (unfiltered, on-link, proven). Verified `wifi_csi_info_t.mac[6]` exists in the IDF-4.4 SDK header.
+  4. Panel shows `AUTO c<ch> <mac>`/`LINK` + `NBVI on/off`; footer/help/man updated; `n` key added.
+- **HONESTY kept:** still motion-only, no bearing/count/position in either mode. Auto = robustness,
+  NBVI/Hampel = signal quality, NOT direction. Direction would need multi-antenna or multi-T-Deck mesh.
+- Credit: ESPectre added as NOTICES #14 (methodology, no code) + file header; esp_wifi_sensing IDF-5.4
+  gap noted in NOTICES #13. Surfaces: csidetect.cpp, command_manager (hasArgs true + `auto` hint),
+  man_pages, CLAUDE.md, docs/diagnostics.md, NOTICES.
+- **Follow-up (same session): adaptive threshold + SD logger added.**
+  - **Adaptive threshold** `[t]` (`gAdaptive`): thresh = learned quiet-floor (`gNoiseEMA`, updated only
+    while not-present) + `gMargin`; auto-raises the bar on a noisy source (the real fix for `csi auto`
+    noise). `a/l` nudge `gMargin` when on, `thresh` when off. Panel shows `THR auto`.
+  - **SD logger** `[s]`: presence transitions (CLEAR↔CONTACT edges only) → `/apps/csidetect/NNN.csv`
+    (sequential never-overwrite; `SD_DIR_CSIDETECT` added to sdcard_manager + ensureTree). Columns
+    `time,event,motion_pct,thresh_pct,zones,mode,source`; time = ClockManager or `@<ms>` fallback.
+    **GDMA: every SD touch wrapped in `ScopedPromiscPause`** (CSI keeps promiscuous live). Panel shows
+    `L<n>` on the `fr:` line. CSV = chosen format (compact event log, like macwatch/bmon style).
+  - Keys now: a/l, c, t, n, s, h, q. Footer/help/man/docs/CLAUDE/sdcard all updated; help=13/13, man=31/31.
+- Log `source` field upgraded to TWO columns **full bssid + ssid** (was last-2-mac-bytes): csv header
+  now `time,event,motion_pct,thresh_pct,zones,mode,channel,bssid,ssid`; captured from scan (auto) or
+  `WiFi.BSSID()`/`WiFi.SSID()` (connected). Build fix: connected BSSID uses the no-arg `WiFi.BSSID()`
+  (the `BSSID(idx)` overload is scan-only → "invalid conversion" compile error).
+- ✅ **BUILT CLEAN + HW-tested** (T-Deck-Plus): `csi auto` locks an AP and detects motion; SD log writes
+  `/apps/csidetect/NNN.csv` (user verified rows). Known tuning note from a real log: **adaptive
+  threshold `[t]` overshoots upward in noisy auto mode** (ran to 97% then decayed) — asymmetric/capped
+  adaptation is a worthwhile follow-up (offered, not yet done).
+
+## Session 2026-06-28 (macwatch/mw — ✅ HW-VERIFIED)
+- User field-tested `mw` end-to-end on hardware: works, all good (add/presence/proximity/bg + the
+  idempotent `mw bg/stop` tweak committed aad4dad). No longer "untested" — removed from CLAUDE Pending
+  Features. Also `lock boot` + SD-while-locked logging confirmed this session (bmon).
+
 ## Session 2026-06-25 (macwatch/mw + BLE device identification — built, UNTESTED, committed 9cec839 + a853f62)
 - **New `macwatch`/`mw` command (Bluetooth)** — watch specific WiFi/BLE MACs (or vendor OUI
   prefixes) with a name + proximity gate; **beep + screen-wake + centered popup on arrival**.
