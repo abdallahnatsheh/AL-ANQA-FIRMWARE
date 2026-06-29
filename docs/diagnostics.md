@@ -124,7 +124,7 @@ hardware — it rides the WiFi your environment is already transmitting.
 | **Activity** (`STILL`/`FIDGET`/`WALK`/`RUN`) | Rough magnitude class |
 | **Blips / sectors** | **Decorative.** Blip *intensity* reflects real signal (how much a subcarrier band reacted), but the *position/angle* on the dial is arbitrary — the 8 sectors are mapped to fixed angles, **NOT** directions. A blip at "top" does not mean motion is in front of you. |
 | **Sweep cone** | **Decorative only** — a time-based animation, not scanning or aiming at anything. |
-| `AUTO c<ch> <mac>` / `LINK` | Source: passive AP lock (auto) or connected link |
+| `AUTO c<ch> <ssid>` / `LINK c<ch> <ssid>` | Source AP: mode, channel + network name (truncated; full BSSID/SSID in the CSV log) |
 | `NBVI on/off` | Smart subcarrier weighting state (toggle with `n`) |
 | `fr:<n>` + `CSI live` | Bring-up health: CSI frames received + status |
 
