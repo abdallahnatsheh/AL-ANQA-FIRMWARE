@@ -517,11 +517,13 @@ static void csiDrawPanel(float thresh, float disp, bool present, int zones) {
     int mx = PANEL_X + (108 * tp) / 100;
     tft.drawLine(mx, 148, mx, 159, TFT_YELLOW);
 
-    // source / mode line: AUTO (passive beacon lock, ch + AP last-2-bytes) vs LINK
-    if (gAutoMode)
-        snprintf(b, sizeof(b), "AUTO c%u %02X%02X", gChan, gLockMac[4], gLockMac[5]);
-    else
-        snprintf(b, sizeof(b), "LINK (connected)");
+    // source / mode line: AUTO (passive beacon lock) vs LINK, with channel + SSID
+    // name (truncated to the panel width; full BSSID/SSID live in the CSV log).
+    char ss[13];
+    strncpy(ss, gLockSsid[0] ? gLockSsid : "(hidden)", sizeof(ss) - 1);
+    ss[sizeof(ss) - 1] = '\0';
+    if (gAutoMode) snprintf(b, sizeof(b), "AUTO c%u %s", gChan, ss);
+    else           snprintf(b, sizeof(b), "LINK c%u %s", gChan, ss);
     dm.setTextColor(gAutoMode ? 0x6E6C : 0x7BEF);
     dm.setCursor(PANEL_X, 164); dm.printText(b);
 
