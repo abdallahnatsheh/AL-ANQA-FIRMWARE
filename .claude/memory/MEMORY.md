@@ -17,7 +17,7 @@
 
 ## Planned features (NOT YET BUILT — design specs captured 2026-06-26; full plans in TREX_*_PLAN.md)
 - [wpa3down/w3d](project_wpa3down_plan.md) — WPA3 transition-mode downgrade: RSN-IE PMF/AKM detect, WPA2-only rogue AP, EAPOL+PMKID capture → HCCAPX/HC22000. Full: TREX_WPA3_DOWNGRADE_PLAN.md
-- [netspy/ns + isoscan/is](project_netspy_isoscan_plan.md) — client-isolation bypass (AirSnitch NDSS 2026): device discovery + GTK inject/gateway bounce/port stealing. Full: TREX_NETSPY_ISOSCAN_PLAN.md
+- [netspy/ns + isoscan/is](project_netspy_isoscan_plan.md) — ⏸ IN PROGRESS (RESUME): AirSnitch client-isolation recon. Stage 0 ✅HW-verified (GTK at `gWpaSm+0x174`, platform pinned `espressif32@7.0.1`) + Stage 1 ✅HW-verified (`ns` found 14 devices vs `nd`'s 1 on isolated net) — UNCOMMITTED. Key fact: associated ESP32 HW decrypts group frames → passive discovery needs no CCMP. Next: flash+test Stage 1 → 1b hostnames → Stage 2 GTK inject. See progress_log TOP + this file's BUILD STATUS.
 - [csidetect/csi](project_csi_camdetect_plan.md) — ✅ BUILT + HW-VERIFIED 2026-06-26; PRO **WiFi motion detector** `[EXP]` (sprite ~30fps + 8 subcarrier-band sectors). **Honestly NOT a radar** (single antenna = motion energy, no bearing). Next: SD presence log/alert. camdetect DROPPED. Full: TREX_CSI_CAMDETECT_PLAN.md
 
 ## Feature References (look up when touching that feature)

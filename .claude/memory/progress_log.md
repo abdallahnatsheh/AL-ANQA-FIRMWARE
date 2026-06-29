@@ -4,6 +4,41 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-06-29 (netspy/ns — AirSnitch client-isolation recon: Stage 0+1 BUILT, UNCOMMITTED) ⏸ RESUME HERE
+**Full detail in [[project_netspy_isoscan_plan]] (BUILD STATUS section). Cold-resume summary:**
+- **Goal:** `netspy`/`ns` (Network) — discover devices on a client-isolated WiFi that `nd` (ARP scan)
+  can't see. Based on AirSnitch (Vanhoef NDSS 2026; techniques only, no code; credited in file header).
+- **Feasibility resolved:** the AirSnitch GTK-*inject* core is gated by ESP32's CLOSED WiFi blob (no
+  GTK-export API; `esp_wifi_80211_tx` won't CCMP-encrypt) — a firmware not silicon wall. The GTK is in
+  the OPEN `wpa_supplicant`; its global `gWpaSm` is an EXPORTED symbol.
+- **Stage 0 ✅ HW-VERIFIED — GTK extraction:** read live GTK at **`gWpaSm+0x174`** (len `+0x194`, =16
+  CCMP). Offsets are framework-specific → **platform PINNED `espressif32@7.0.1`** (arduino 2.0.17 /
+  IDF 4.4.7). `ns gtk` shows it; changes per reconnect. Found via struct-math + `install_gtk` disasm +
+  an on-device `ns dump` (gWpaSm→`/apps/netspy/gwpasm.txt`). PMK is at `gWpaSm+0x00`.
+- **🔑 BIG FINDING (HW-verified):** while ASSOCIATED, the ESP32 HW already DECRYPTS group/broadcast
+  frames; promiscuous delivers them in CLEAR (CCMP header kept, payload plaintext at `hdrlen+8`). So
+  **passive discovery needs NO software CCMP / NO GTK** — just sniff + parse. (The `ns dec` decrypt
+  experiment MIC-failed because the bytes were already plaintext — that's how we discovered this.)
+- **Stage 1 ✅ HW-VERIFIED (2026-06-29):** `ns` found 14 real devices (IP+MAC) on a client-isolated net
+  where `nd` saw ONLY the gateway. Bypass proven end-to-end. CSV save works (real NTP datetime). `?`
+  vendors = OUIs not in oui_lookup (cosmetic); LA-MAC rows correctly flagged RandMAC.
+  **`ns` scanner internals:** promiscuous-capture group
+  data frames (fromDS, A1 group, A2==our BSSID) → ring → main-loop parse LLC/SNAP: ARP (sender MAC+IP),
+  IPv4 (A3 src MAC + src IP) → `NsDev[48]` table (MAC/IP/vendor via `ouiLookup`/how). UI table, `[s]`
+  save `/apps/netspy/NNN.csv` (ScopedPromiscPause — promiscuous is live), `[c]` clear, `[l]/[a]` page,
+  `[q]` quit. `ns gtk` / `ns dump` subcmds. Module `wifi/intel/netspy.cpp/.h`.
+- **Files touched (ALL UNCOMMITTED):** `wifi/intel/netspy.cpp/.h` (new), `command_manager.cpp` (fwd-decl
+  + register `netspy`/`ns` Network 60/64 + arg-hints `gtk dump`), `platformio.ini` (`-I wifi/intel` +
+  pinned `espressif32@7.0.1` ×3 envs), `sdcard_manager.h/.cpp` (`SD_DIR_NETSPY` + ensureTree).
+- **GOTCHAS:** DisplayManager has `printText()`/`println()`, NO `print()`. gWpaSm decl =
+  `extern "C" { extern uint8_t gWpaSm[]; }`. SD writes during `ns` MUST use `ScopedPromiscPause` (GDMA).
+- **NEXT STEPS (do in order):** (1) flash + TEST Stage 1 — `cw` then `ns`; confirm devices appear that
+  `nd` misses; check `/apps/netspy/001.csv`. (2) Stage 1b — parse DHCP/mDNS/SSDP for hostnames/services.
+  (3) Stage 2 INJECT (the active AirSnitch): software CCMP-encrypt a non-QoS broadcast data frame with
+  the GTK + spoof AP MAC + high PN, send via `esp_wifi_80211_tx` (allows non-QoS data) → ICMPv6-RA DNS
+  poison etc. — uses the Stage-0 GTK. Unproven; spike it. (4) docs/man/README/NOTICES + commit.
+- **NOT committed, NOT fully tested.** Commit after Stage 1 is HW-confirmed (user flashes).
+
 ## Session 2026-06-28 (lockscreen: lock-on-boot + SD reset-flag recovery — FINAL, built, UNTESTED)
 - **DECISION (user, firm): PIN stays on the SD card ONLY — do NOT put it in NVS.** Mid-session I
   moved hash/salt to NVS to close the SD-removal bypass; user reverted it: they WANT removing the SD
