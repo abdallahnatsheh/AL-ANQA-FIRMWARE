@@ -4,12 +4,16 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
-## Session 2026-06-30 (netspy Stage 1b COMPLETE + ping UI bug fix)
+## Session 2026-06-30 (netspy Stage 1b COMPLETE + device probing + ping UI bug fix) — ✅ ALL HW-VERIFIED
 - **netspy/ns Stage 1b** (DHCP/mDNS/SSDP hostnames + service enum + `[i]`/Enter detail view + UI polish +
-  docs/man/README/CLAUDE/NOTICES/sdcard map): all built, DHCP+mDNS HW-verified, SSDP/detail pending HW.
-  Usability: detail opens on **Enter** (not click — user found click annoying), CSV saves ALL fields incl
-  a `services` column. **Full detail in [[project_netspy_isoscan_plan]] BUILD STATUS.** HW-validated: `ns`
-  found a device pingable but invisible to `nd` → confirms soft/discovery-only isolation on the test net.
+  docs/man/README/CLAUDE/NOTICES/sdcard map): **✅ fully HW-verified.** Usability: detail opens on **Enter**
+  (not click — user found click annoying), CSV saves ALL fields incl a `services` column.
+- **Device probing from netspy** (✅ HW-verified): in-app `[p]` ping / `[o]` port-scan the selected row in
+  place (`nsProbe` suspends promiscuous→runs tool→resumes); AND CLI `ps ns#`/`pg ns#`/`ps top ns#` targeting
+  via a source prefix in `resolveTarget` (`ns#`=netspy, `#`/`nd#`=netdiscover) + a `#` index column on the
+  table. netspy exports `netspyDeviceCount/Ip`. Commits `5c45ee8` (Stage 1b) + `dbceef8` (probe). Unpushed.
+  **Full detail in [[project_netspy_isoscan_plan]] BUILD STATUS.** HW-validated end-to-end: `ns` found a
+  device pingable but invisible to `nd` → soft/discovery-only isolation on the test net.
 - **ping/pg UI BUG FIXED** (`wifi/monitor/netscanner/network_scanner.cpp` `pingHost`): old code used
   `println()` in a loop advancing via `getCursorY()`; with ~10 results + resolve + summary the cursor ran
   past the 240px screen bottom and **wrapped back to y=0, drawing OVER the status bar**. Rewrote with a
