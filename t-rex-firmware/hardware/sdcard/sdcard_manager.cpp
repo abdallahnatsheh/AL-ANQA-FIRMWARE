@@ -70,6 +70,7 @@ void SDCardManager::ensureAppsReadme() {
     f.println("fastpair/   fp          FastPair keys/pairings/sniff log");
     f.println("hiddenssid/ hs          discovered hidden SSIDs (found.csv)");
     f.println("i2cscan/    isc         I2C bus scan results (results.csv)");
+    f.println("netspy/     ns          client-isolation device recon (NNN.csv)");
     f.println("pmkid/      pm          PMKID captures (.cap), wordlist.txt, cracked.csv");
     f.println("ssh/        ssh         hosts.csv host profiles; known_hosts/keys (planned)");
     f.println("trackme/    tm          session log, whitelist, custom signatures.csv");

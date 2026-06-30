@@ -21,7 +21,62 @@ type: project
   MAC+IP) and IPv4 (A3 src MAC + IP) → `NsDev[48]` table (MAC/IP/vendor via oui_lookup/how). UI table
   (IP/VENDOR/H), `[s]` save `/apps/netspy/NNN.csv` (GDMA via ScopedPromiscPause since promiscuous is
   live), `[c]` clear, `[l]/[a]` page, `[q]` quit. Subcmds: `ns gtk`, `ns dump`. Module `wifi/intel/`.
-- **NEXT:** Stage 1b — parse DHCP/mDNS/SSDP for hostnames/services (richer table). Stage 2 — GTK inject
+- **Stage 1b DHCP BUILT (untested, 2026-06-30):** added DHCP/BOOTP hostname parsing inside `nsParse`'s
+  IPv4 branch → UDP(17)→ports 67/68→`nsParseDHCP()`. Extracts chaddr (real client MAC), yiaddr/ciaddr/
+  opt50 IP, and **opt 12 hostname** → `NsDev.name[24]`. Table now shows NAME (falls back to vendor) +
+  a `D` how-flag; CSV header now `time,mac,ip,name,vendor,type,how`. **GOTCHA fixed:** bumped
+  `NS_PL_MAX 256→400` — DHCP options sit past BOOTP sname(64)+file(128), magic cookie @236/options @240,
+  so 256B capture never reached them (ring now ~4.9KB DRAM). `nsAddDev` gained optional `name` param
+  (DHCP name authoritative, overwrites). **NEXT in 1b:** mDNS (5353, `.local`+service types) + SSDP
+  (1900, SERVER/USN model strings) — defer the `[i]` detail view until those add per-device services.
+  Docs/man/CLAUDE.md NOT yet updated (pending HW-verify). Flash + test: `cw` → `ns`, watch for hostnames
+  appearing (forces a device to DHCP-renew = quickest test; phones re-DHCP on wifi reconnect).
+  **✅ DHCP HW-VERIFIED 2026-06-30** (user confirmed hostnames appear with the `D` flag). First test w/o
+  any reconnect showed 37 devices but 0 names (no DHCP event in-window, all `A`/`I`/`AI`) — expected,
+  confirms the timing caveat; forcing a reconnect populated names.
+- **Stage 1b mDNS BUILT (untested, 2026-06-30):** added `nsParseMDNS()` (UDP 5353) → takes `<host>.local`
+  from A(1)/AAAA(28) answer records, strips `.local`, attaches to the frame's L2 src MAC with an `M`
+  how-flag (A-record also fills the IPv4). Devices announce mDNS far more often than they DHCP → fills
+  names on a quiet net w/o waiting for a DHCP moment (esp. the RandMAC phones). New `dnsName()` helper
+  handles DNS label compression (0xC0 ptrs) with a 6-jump loop guard + full bounds checks (can't loop/
+  over-read on a crafted pkt). Responses only (QR=1 = announcements). PTR/SRV **service-type** enum
+  deliberately deferred → goes in the future `[i]` detail view (with a `services` field). Table/CSV now
+  carry `M`. **Caveat:** big multi-record mDNS responses may exceed NS_PL_MAX(400) → later records
+  truncated (bounded, no crash; A record is usually near the front). If names are sparse in testing,
+  bump NS_PL_MAX.
+  **✅ mDNS HW-VERIFIED 2026-06-30** (user confirmed `.local` names appear).
+- **Stage 1b SSDP BUILT (untested, 2026-06-30):** added `nsParseSSDP()` (UDP 1900) — `ssdpHeader()` does a
+  case-insensitive line-start scan for the `SERVER:` header in the plaintext NOTIFY/M-SEARCH-response,
+  extracts the product token after `UPnP/1.x` (e.g. `Roku/9.4`) → name. Uses the new `strongName=false`
+  path in `nsAddDev` so a model string fills the name **only when empty** (DHCP/mDNS hostnames stay
+  authoritative). `S` how-flag added to table + CSV. Good for media players / TVs / printers that do UPnP
+  but no friendly mDNS. **Stage 1b passive parsers now: ARP, IPv4, DHCP(D), mDNS(M), SSDP(S).**
+  **✅ SSDP HW status pending** (built 2026-06-30).
+- **Stage 1b detail view + service enum + UI polish BUILT (untested, 2026-06-30):** Stage 1b now
+  FEATURE-COMPLETE.
+  - **Service enum:** `NsDev.svc` uint16 bitmask (11 bits: AirPlay/Cast/Apple/Printer/SSH/SMB/HomeKit/
+    Spotify/Alexa/HTTP/DLNA). mDNS: `nsSvcFromName()` maps PTR/SRV record names (`_airplay._tcp.local`
+    etc.) → bits; `nsParseMDNS` refactored to ACCUMULATE host+svc across the whole response then commit
+    once (`nsAddDev` + `nsOrSvc`). SSDP: `nsRawHas()` scans for `MediaRenderer`/`MediaServer` → DLNA bit.
+  - **`[i]` detail overlay** (`nsDetail`): full MAC/IP/Name/Vendor(Type)/Seen(spelled HOW)/Svc(tag list),
+    any-key/click to return, lock-aware. Entered via `[i]` OR trackball CLICK on the selected row.
+  - **UI polish** (`nsDraw` rewrite): trackball UP/DOWN row selection (bmon pattern) w/ dark-blue
+    highlight bar + `>` marker; color-coded — name=cyan, vendor-fallback=grey, selected=yellow; pixel
+    columns (NSX_*); `+` cyan service marker on rows with services. Footer shows `trkbl+i=info`.
+  - **DOCS DONE (2026-06-30):** man_pages (`ns` entry), README (Network table row + autocomplete example
+    `net`→`netd` since `net` is now ambiguous + feature checklist), CLAUDE.md (NetSpy module note +
+    Network cmd line + `/apps/netspy` SD-layout line), docs/netspy.md (new standalone page) + docs/index.md
+    + docs/network.md (table + inline section), NOTICES #15 (AirSnitch), sdcard_manager `/apps/README.txt`
+    folder map line. Autocomplete arg-hints (`gtk dump`) + `SD_DIR_NETSPY` ensureTree already existed.
+  - **USABILITY (2026-06-30, user-requested):** (1) detail overlay now opens on **Enter** (`\r`/`\n`) or
+    `[i]` — trackball CLICK is NO LONGER the open trigger (user found it annoying); click still *closes*
+    the detail (forgiving). Footer→`ent=info`. (2) **CSV now saves ALL fields** incl. a new `services`
+    column → header `time,mac,ip,name,vendor,type,how,services`. Shared `nsSvcStr()` helper (+ `NS_SVC_BITS[]`
+    moved up next to the early svc helpers) builds the space-sep tag list, used by BOTH `nsSave` and
+    `nsDetail`. Line buf 128→256. Docs synced (man/CLAUDE/netspy.md/network.md).
+  - **NEXT:** flash+verify the whole Stage-1b set (DHCP/mDNS already HW-OK; verify SSDP `S` flags, the
+    `+`/Enter detail, services populate + saved in CSV). Then **commit Stage 1b** (code + docs together).
+- **NEXT (after 1b commit):** Stage 2 — GTK inject
   (software CCMP-encrypt a broadcast data frame + AP-MAC spoof + high PN) = the AirSnitch active attack.
 - **Name: keep `netspy`/`ns`.** Module `wifi/intel/netspy.cpp/.h`, registered Network, `-I wifi/intel`,
   `SD_DIR_NETSPY=/apps/netspy` + ensureTree. Cmd count 60/64.

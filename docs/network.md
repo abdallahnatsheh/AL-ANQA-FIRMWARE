@@ -11,6 +11,7 @@ has_children: true
 | Guide | Commands |
 |-------|---------|
 | [Net Discover](netdiscover) | `netdiscover` / `nd` — ARP scan local /24 |
+| [Net Spy](netspy) | `netspy` / `ns` — **[EXP]** passive client-isolation device recon (AirSnitch) |
 | [Port Scan](portscan) | `portscan` / `ps` · `ps top` · banner grabber · OS fingerprint |
 | [Ping](ping) | `ping` / `pg` — ICMP ping |
 
@@ -37,6 +38,28 @@ CMD> nd         # discovers: [0] 192.168.1.1  [1] 192.168.1.5 ...
 CMD> ps top 0   # top-scan the router without typing the IP
 CMD> ps 1 1 1024
 ```
+
+---
+
+## `netspy` / `ns` — Client-Isolation Device Recon  `[EXP]`
+
+Finds devices that `nd` **can't** see when the network has **client isolation** (the AP blocks client-to-client unicast, so ARP scans only reveal the gateway). Connect first with `cw`. **Own networks only.**
+
+```
+CMD> ns
+```
+
+`ns` is **100% passive — it never transmits.** Client isolation doesn't filter broadcast/multicast, and an associated ESP32 decrypts those group frames in hardware, so `ns` just listens and parses them. It reconstructs each device's IP, MAC, vendor, hostname and services from **ARP, IPv4, DHCP, mDNS and SSDP**.
+
+| Key | Action |
+|-----|--------|
+| trackball `↑`/`↓` | Select a row |
+| **Enter** (or `i`) | Device detail (name, vendor, seen-via, services) |
+| `s` / `c` | Save to SD / clear |
+| `l` / `a` | Page |
+| `q` | Quit |
+
+The **HOW** column shows the discovery source: `A`=ARP `I`=IPv4 `D`=DHCP `M`=mDNS `S`=SSDP. A `+` marks rows with detected services. Saves to `/apps/netspy/NNN.csv`. Subcommands: `ns gtk` (show group key), `ns dump` (state → SD). See the [full Net Spy guide](netspy).
 
 ---
 

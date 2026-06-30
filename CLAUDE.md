@@ -85,6 +85,14 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 **NetworkScanner** (`network_scanner.cpp/h`):
 - ARP scan full /24 · Port scan: `std::vector<int> openPorts` collected once then paginated
 
+**NetSpy** (`wifi/intel/netspy.cpp/h`) — `netspy`/`ns` (Network) [EXP] — client-isolation device recon:
+- **Purpose:** discover devices on a WiFi with **client isolation** (AP blocks client↔client unicast), where `nd` (ARP scan) sees only the gateway. Technique from **AirSnitch** (Vanhoef, NDSS 2026) — paper only, no code; credited in file header + NOTICES #15. **Own networks only.**
+- **100% PASSIVE — never transmits.** Key finding (HW-verified): while ASSOCIATED, the ESP32 WiFi HW already DECRYPTS the group/broadcast frames the AP relays to all clients; promiscuous delivers them in CLEAR (CCMP header kept, payload plaintext at `hdrlen+8`). So discovery needs **NO software CCMP / NO GTK** — just sniff group data frames (fromDS, A1 group, A2==our BSSID) + parse. Active attacks are a deliberately SEPARATE future command (`isoscan`/`is`, not built) so recon can't accidentally transmit.
+- **Parsers** (`nsParse` on LLC/SNAP): ARP (sender MAC+IP), IPv4 (src MAC+IP), then UDP → **DHCP** (67/68: chaddr MAC + yiaddr/opt50 IP + **opt-12 hostname**), **mDNS** (5353: `<host>.local` from A/AAAA + service types from PTR/SRV names, responses/QR=1 only), **SSDP** (1900: `SERVER:` product string + DLNA). `dnsName()` handles DNS label compression (0xC0 ptrs) with a jump-guard + full bounds checks. **`NS_PL_MAX=400`** capture cap (DHCP options sit past the BOOTP sname/file fields @240).
+- **Device table** `NsDev[48]`: MAC, IP, `name[24]` (DHCP/mDNS host, or SSDP product — `strongName` so a model can't clobber a real hostname), `vendor`/`type` (via `oui_lookup.h`), `svc` 11-bit service bitmask (AirPlay/Cast/Apple/Printer/SSH/SMB/HomeKit/Spotify/Alexa/HTTP/DLNA), `how` flags. Capture ring drains in the main loop (not the cb) → parse.
+- **UI:** trackball U/D row select (highlight bar + `>`), color-coded (name=cyan, vendor=grey, sel=yellow), `+` marker on rows with services. **Enter (or `[i]`)** = full detail overlay (MAC/IP/Name/Vendor/Seen-flags/Services) — any key returns. (Trackball CLICK is deliberately NOT the detail trigger — user found it annoying; Enter is the primary.) `[s]` save → `/apps/netspy/NNN.csv` (**`ScopedPromiscPause`** — promiscuous is live, GDMA rule), `[c]` clear, `[l]/[a]` page, `q` quit. HOW flags: **A**=ARP **I**=IPv4 **D**=DHCP **M**=mDNS **S**=SSDP. CSV saves ALL fields incl. the services column.
+- **Subcmds:** `ns gtk` (show live group key from `gWpaSm+0x174` — reads RAM, doesn't transmit; Stage-2 groundwork), `ns dump` (`gWpaSm` hex → `/apps/netspy/gwpasm.txt`). **Platform PINNED `espressif32@7.0.1`** (the gWpaSm offset is framework-specific).
+
 **TextEditor** (`core/editor/text_editor.cpp/h`) — `edit`/`ed <path>`, nano-style SD editor:
 - Free function `runEditor(char*)` (wardrive pattern). Buffer = file-static `std::vector<String>`, freed on exit (`clear()`+`shrink_to_fit()` — rule 5c). Loads ≤`ED_LOAD_CAP`=500 lines; larger file → `g_readOnly` (edits no-op, can't save — data safety). Missing path → new empty buffer, created on first save.
 - **Control scheme forced by the I2C keyboard** (one resolved byte/key, no Ctrl/Esc/arrow codes): keyboard types/backspaces/Enter-splits (**auto-indent**: new line inherits leading whitespace); **trackball U/D/L/R = cursor** (wraps across line ends; **`accelStep()` acceleration** — same-dir moves <90ms apart double the step up to 16, so a fast roll pages big files); **CLICK = command menu** (Save/Save As/Find/Go to line/Top/Bottom/Undo/Cut line/Paste line/Exit). No `q` quit — exit only via menu (`q` is a typeable char). Exit-with-unsaved → `[s]`save/`[d]`discard/click-cancel prompt.
@@ -141,7 +149,7 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 ## Commands
 System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `sleep/slp` `lock/lk`
 WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` (`wp export`/`wp clear` — merged wifiexport+clearwifi) `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `karma/km` `crack/cc` `wguard/wg` `beaconflood/bf` `wardrive/wd` `espsniff/es` `esptest/est` `espchat/ec` `espvoice/ev`
-Network: `netdiscover/nd` `portscan/ps` (`ps top <ip|#>` — merged topscan) `ping/pg` `ssh/sc`
+Network: `netdiscover/nd` `netspy/ns [EXP]` `portscan/ps` (`ps top <ip|#>` — merged topscan) `ping/pg` `ssh/sc`
 Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
 SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `edit/ed` `rm/rm` (`rm -d <dir>` = recursive dir delete) `sdf/sdf`
 Diagnostics: `gps/gps` `test/tst` (`test spk|mic|lora` — merged spktest+mictest+loratest) `i2cscan/isc [EXP]` `csidetect/csi [EXP]`
@@ -222,6 +230,7 @@ orphaned, not migrated.
 `/apps/beaconflood/wordlist.txt` — custom SSID list for `bf file` (`SD_CFG_WORDLIST_BCN`)
 `/apps/bmon/NNN.csv` — `001.csv`, `002.csv` … BLE advertisement logs (never overwritten; sequential on each start)
 `/apps/csidetect/NNN.csv` — CSI motion presence-transition logs (`SD_DIR_CSIDETECT`, sequential, `[s]` in `csi`)
+`/apps/netspy/NNN.csv` — client-isolation device recon from `ns` (`SD_DIR_NETSPY`, sequential; `time,mac,ip,name,vendor,type,how,services`) + `gwpasm.txt` (`ns dump`)
 `/apps/i2cscan/results.csv` — I2C scanner results (`timestamp,0xADDR,chip_name,type,ACK/DEAD`)
 `/apps/fastpair/keys.csv` — saved Fast Pair anti-spoofing keys
 `/apps/fastpair/paired.csv` — successful pairings log

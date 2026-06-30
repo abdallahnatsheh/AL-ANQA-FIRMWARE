@@ -111,3 +111,16 @@ This project incorporates code from the following open-source projects:
              plain average); (2) Hampel outlier rejection on the motion stream;
              (3) fully passive operation — sensing off any AP's beacons with no
              association (T-REX `csi auto` + single-source MAC lock).
+
+15. AirSnitch (research technique reference — no code used)
+    Files:   t-rex-firmware/wifi/intel/netspy.cpp
+    Source:  https://github.com/vanhoefm/airsnitch
+             https://papers.mathyvanhoef.com/ndss2026-airsnitch.pdf
+    License: All rights reserved (no license file) — techniques only, from the
+             published paper (Mathy Vanhoef et al., NDSS 2026).
+    Notes:   The netspy / ns client-isolation device-discovery technique was
+             reimplemented from the paper's description — no AirSnitch source was
+             read, copied or adapted. T-REX uses only the passive portion (sniff
+             the AP-relayed group/broadcast frames, which an associated ESP32
+             decrypts in hardware, and parse ARP/DHCP/mDNS/SSDP). The paper's
+             active GTK-injection attack is not implemented.
