@@ -74,8 +74,26 @@ type: project
     column → header `time,mac,ip,name,vendor,type,how,services`. Shared `nsSvcStr()` helper (+ `NS_SVC_BITS[]`
     moved up next to the early svc helpers) builds the space-sep tag list, used by BOTH `nsSave` and
     `nsDetail`. Line buf 128→256. Docs synced (man/CLAUDE/netspy.md/network.md).
+  - **IN-APP PROBE (2026-06-30):** `[p]` ping / `[o]` port-scan the SELECTED device IN PLACE (`nsProbe()`).
+    Chosen OVER the `nd`-style `ps <#>`/`pg <#>` index shortcut (user asked "why only netdiscover") because
+    in-context probing has no stale-index problem and acts on the row you're looking at. `nsProbe` suspends
+    promiscuous (ps/pg need normal TCP/ICMP), calls `networkScanner.pingHost(ip)`/`topPortScan(ip)` (which
+    take over the screen until `q`), then re-enables promiscuous+`nsCb` (s_dev table preserved, no SD so no
+    GDMA issue). netspy.cpp now `#include "network_scanner.h"` + `extern NetworkScanner networkScanner`.
+    Footer→`p=ping o=port`. Docs/man/CLAUDE synced.
+  - **CLI TARGETING (2026-06-30):** ALSO support targeting the netspy list from the CLI (user wanted both,
+    like nd's `ps 0`). netspy exports `netspyDeviceCount()`/`netspyDeviceIp(idx)` (netspy.h; read `s_dev[]`
+    which persists after exit). `network_scanner.cpp` `#include "netspy.h"` + `resolveTarget()` now parses a
+    source prefix on the index token: bare `#`/`nd#` = netdiscover ARP idx (unchanged), **`ns#` = netspy idx**
+    → `ps ns3`, `ps top ns2`, `pg ns0` (all 3 scan paths share resolveTarget @645/909/1039). Added a `#`
+    INDEX COLUMN to the netspy table (replaced the `>` marker; selection still shown via highlight bar +
+    yellow) so the user can see which number to type. Columns reflowed (NSX_IDX/IP/WHO/HOW/SVC). Prefix
+    collision w/ a bare hostname like `ns3` is accepted/rare (a dotted host `ns3.x.com` still DNS-resolves
+    fine — substring isn't all-digits → falls through). man(ps/pg/ns)/README/docs(netspy/portscan/ping)/
+    CLAUDE all synced.
   - **NEXT:** flash+verify the whole Stage-1b set (DHCP/mDNS already HW-OK; verify SSDP `S` flags, the
-    `+`/Enter detail, services populate + saved in CSV). Then **commit Stage 1b** (code + docs together).
+    `+`/Enter detail, services populate + saved in CSV, `p`/`o` probe→resume). Then **commit** (1b was
+    committed `5c45ee8`; this probe feature is a follow-up commit).
 - **NEXT (after 1b commit):** Stage 2 — GTK inject
   (software CCMP-encrypt a broadcast data frame + AP-MAC spoof + high PN) = the AirSnitch active attack.
 - **Name: keep `netspy`/`ns`.** Module `wifi/intel/netspy.cpp/.h`, registered Network, `-I wifi/intel`,

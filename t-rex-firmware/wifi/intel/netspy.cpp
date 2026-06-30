@@ -38,10 +38,12 @@
 #include "lockscreen_manager.h"
 #include "wifi_sd_guard.h"            // ScopedPromiscPause — GDMA-safe SD writes
 #include "oui_lookup.h"
+#include "network_scanner.h"        // launch ps/pg directly on a discovered device
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
 extern SDCardManager  sdCardManager;
+extern NetworkScanner networkScanner;
 
 // Exported wpa_supplicant global (IDF 4.4.7 / arduino-esp32 2.0.17). GTK lives at
 // +0x174 (len at +0x194). Framework-specific — platform is pinned in platformio.ini.
@@ -93,6 +95,11 @@ struct NsRing { uint8_t mac[6]; uint16_t len; uint8_t pl[NS_PL_MAX]; };
 static volatile NsRing   s_ring[NS_RING];
 static volatile uint8_t  s_head, s_tail;
 static uint8_t           s_bssid[6];
+
+// Exposed so portscan/ping can target the netspy list (ps ns3 / pg ns0). The
+// table persists after `ns` exits (s_devN isn't cleared), like the ARP cache.
+int      netspyDeviceCount()      { return s_devN; }
+uint32_t netspyDeviceIp(int idx)  { return (idx >= 0 && idx < s_devN) ? s_dev[idx].ip : 0; }
 
 // ── header ─────────────────────────────────────────────────────────────────────
 static void netspyHeader(const char* tag) {
@@ -509,12 +516,13 @@ static void nsSave() {
 
 // ── discovery UI ───────────────────────────────────────────────────────────────
 #define NS_ROWS 9
-// pixel columns (6px/char): marker · IP · name/vendor · HOW flags · svc dot
-#define NSX_MARK  6
-#define NSX_IP    16
-#define NSX_WHO   112
-#define NSX_HOW   214
-#define NSX_SVC   250
+// pixel columns (6px/char): index · IP · name/vendor · HOW flags · svc dot.
+// The index column is the number to type for `ps ns<#>` / `pg ns<#>`.
+#define NSX_IDX   4
+#define NSX_IP    26
+#define NSX_WHO   122
+#define NSX_HOW   220
+#define NSX_SVC   252
 
 static void nsIpStr(uint32_t ip, char* b, int n) {
     snprintf(b, n, "%u.%u.%u.%u", (unsigned)((ip >> 24) & 0xff), (unsigned)((ip >> 16) & 0xff),
@@ -525,6 +533,7 @@ static void nsDraw(int page, int sel) {
     auto& dm = displayManager;
     netspyHeader("client-isolation recon");
     dm.setTextColor(0x7BEF);
+    dm.setCursor(NSX_IDX, outputY + LINE_HEIGHT * 2); dm.printText("#");
     dm.setCursor(NSX_IP,  outputY + LINE_HEIGHT * 2); dm.printText("IP");
     dm.setCursor(NSX_WHO, outputY + LINE_HEIGHT * 2); dm.printText("NAME / VENDOR");
     dm.setCursor(NSX_HOW, outputY + LINE_HEIGHT * 2); dm.printText("HOW");
@@ -537,9 +546,9 @@ static void nsDraw(int page, int sel) {
         NsDev& d = s_dev[idx];
         bool s = (r == sel);
         if (s) dm.fillRect(0, y, SCREEN_WIDTH, LINE_HEIGHT, 0x0010);  // dark-blue bar
-        // marker
-        dm.setCursor(NSX_MARK, y); dm.setTextColor(s ? TFT_YELLOW : TFT_DARKGREY);
-        dm.printText(s ? ">" : " ");
+        // index (type this for ps ns<#> / pg ns<#>)
+        char nb[4]; snprintf(nb, sizeof(nb), "%d", idx);
+        dm.setCursor(NSX_IDX, y); dm.setTextColor(s ? TFT_YELLOW : TFT_DARKGREY); dm.printText(nb);
         // IP
         char ipb[16]; nsIpStr(d.ip, ipb, sizeof(ipb));
         dm.setCursor(NSX_IP, y); dm.setTextColor(s ? TFT_YELLOW : TFT_WHITE); dm.printText(ipb);
@@ -558,8 +567,8 @@ static void nsDraw(int page, int sel) {
         // service marker
         if (d.svc) { dm.setCursor(NSX_SVC, y); dm.setTextColor(s ? TFT_YELLOW : TFT_CYAN); dm.printText("+"); }
     }
-    char foot[56];
-    snprintf(foot, sizeof(foot), "dev:%d pg%d/%d ent=info s=save c=clr q=quit",
+    char foot[64];
+    snprintf(foot, sizeof(foot), "dev:%d pg%d/%d ent=info p=ping o=port s=save q",
              s_devN, page + 1, total);
     dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText(foot);
 }
@@ -607,6 +616,24 @@ static void nsDetail(int idx) {
     }
 }
 
+// Probe the selected device with ps/pg. These use normal TCP/ICMP, so we
+// suspend promiscuous sniffing for the duration, then resume — the device
+// table (s_dev) is static and preserved. No-op if the row has no IP yet.
+static void nsProbe(int idx, bool portScan) {
+    if (idx < 0 || idx >= s_devN) return;
+    NsDev& d = s_dev[idx];
+    if (!d.ip) return;                               // need an IP to probe
+    char ipb[16]; nsIpStr(d.ip, ipb, sizeof(ipb));
+    esp_wifi_set_promiscuous(false);
+    esp_wifi_set_promiscuous_rx_cb(NULL);
+    if (portScan) networkScanner.topPortScan(ipb);   // both take over the screen
+    else          networkScanner.pingHost(ipb);      // until the user quits them
+    wifi_promiscuous_filter_t flt = {}; flt.filter_mask = WIFI_PROMIS_FILTER_MASK_DATA;
+    esp_wifi_set_promiscuous_filter(&flt);
+    esp_wifi_set_promiscuous_rx_cb(nsCb);
+    esp_wifi_set_promiscuous(true);
+}
+
 static void netspyDiscover() {
     auto& dm = displayManager;
     const uint8_t* bm = WiFi.BSSID();
@@ -642,6 +669,8 @@ static void netspyDiscover() {
         else if ((k == '\r' || k == '\n' || k == 'i' || k == 'I') && pageCount > 0) {
             nsDetail(page * NS_ROWS + sel); lastDraw = 0;   // Enter / i = detail
         }
+        else if ((k == 'p' || k == 'P') && pageCount > 0) { nsProbe(page * NS_ROWS + sel, false); lastDraw = 0; }
+        else if ((k == 'o' || k == 'O') && pageCount > 0) { nsProbe(page * NS_ROWS + sel, true);  lastDraw = 0; }
         else if (tb == TBALL_DOWN) { if (sel < pageCount - 1) { sel++; lastDraw = 0; } }
         else if (tb == TBALL_UP)   { if (sel > 0)             { sel--; lastDraw = 0; } }
 

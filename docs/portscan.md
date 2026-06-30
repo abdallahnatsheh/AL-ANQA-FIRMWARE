@@ -11,10 +11,13 @@ nav_order: 2
 ```
 CMD> ps <ip|index> <start> <end>
 CMD> ps 192.168.1.1 1 1024
-CMD> ps 0 1 65535
+CMD> ps 0 1 65535       # netdiscover index 0
+CMD> ps ns2 1 1024      # netspy device 2
 ```
 
 Scans a TCP port range using 4 parallel tasks with a 150ms timeout per port. Open ports are collected and displayed in a paginated table with service names.
+
+**Target by index:** a bare number (or `nd<#>`) is the **netdiscover** ARP-cache index; **`ns<#>`** is the **netspy** discovered-device index (the `#` column in the `ns` table). So `ps top ns2` scans netspy device #2 without typing its IP.
 
 ## `ps top` — Top Common Ports
 
