@@ -6,7 +6,7 @@
 - [NimBLE v2.x Rules](nimble_v2_rules.md) — scan response name, cleanup no re-init, scan non-blocking, auto-bond-delete
 
 ## State
-- [Progress Log](progress_log.md) — last session 2026-06-23 (`edit`/`ed` nano-style SD editor — per-row dirty render + undo + auto-indent + trackball accel/Top/Bottom; `rm -d` recursive dir delete + dir autocomplete — all ✅tested, committed 58d1207 + pushed); not-yet-built list
+- [Progress Log](progress_log.md) — last session 2026-06-30 (netspy `ns` Stage 1b COMPLETE: DHCP/mDNS/SSDP hostnames + service enum + Enter/`[i]` detail + CSV services; device probing in-app `[p]`/`[o]` + CLI `ps ns#`/`pg ns#` + `#` index col; ping UI overflow-over-statusbar bug fixed → bounded layout — all ✅HW-verified, committed 5c45ee8+dbceef8+8eb6ac5, UNPUSHED); not-yet-built list
 - [Next Steps](next_steps.md) — priority queue: WiFi(1-9)→BT(10-12)→GPS(13-14)→USB(15-18)→Other(19-26)
 
 ## Improvement backlog (hardening — user will consider)
@@ -17,7 +17,7 @@
 
 ## Planned features (NOT YET BUILT — design specs captured 2026-06-26; full plans in TREX_*_PLAN.md)
 - [wpa3down/w3d](project_wpa3down_plan.md) — WPA3 transition-mode downgrade: RSN-IE PMF/AKM detect, WPA2-only rogue AP, EAPOL+PMKID capture → HCCAPX/HC22000. Full: TREX_WPA3_DOWNGRADE_PLAN.md
-- [netspy/ns + isoscan/is](project_netspy_isoscan_plan.md) — ⏸ IN PROGRESS (RESUME): AirSnitch client-isolation recon. Stage 0 ✅HW-verified (GTK at `gWpaSm+0x174`, platform pinned `espressif32@7.0.1`) + Stage 1 ✅HW-verified (`ns` found 14 devices vs `nd`'s 1 on isolated net) — UNCOMMITTED. Key fact: associated ESP32 HW decrypts group frames → passive discovery needs no CCMP. Next: flash+test Stage 1 → 1b hostnames → Stage 2 GTK inject. See progress_log TOP + this file's BUILD STATUS.
+- [netspy/ns + isoscan/is](project_netspy_isoscan_plan.md) — Stage 0+1+**1b ✅DONE & HW-verified** (committed, unpushed). `ns` = PASSIVE client-isolation recon (AirSnitch): sniffs AP-relayed group frames (assoc'd ESP32 HW decrypts them → no CCMP needed), parses ARP/IPv4/DHCP/mDNS/SSDP → IP+name+services; Enter/`[i]` detail; `[p]`/`[o]` + `ps ns#`/`pg ns#` probe discovered devices; GTK at `gWpaSm+0x174` (platform pinned `espressif32@7.0.1`). **NEXT = Stage 2: active `isoscan`/`is` GTK-inject** (separate opt-in command, transmits). See this file's BUILD STATUS.
 - [csidetect/csi](project_csi_camdetect_plan.md) — ✅ BUILT + HW-VERIFIED 2026-06-26; PRO **WiFi motion detector** `[EXP]` (sprite ~30fps + 8 subcarrier-band sectors). **Honestly NOT a radar** (single antenna = motion energy, no bearing). Next: SD presence log/alert. camdetect DROPPED. Full: TREX_CSI_CAMDETECT_PLAN.md
 
 ## Feature References (look up when touching that feature)

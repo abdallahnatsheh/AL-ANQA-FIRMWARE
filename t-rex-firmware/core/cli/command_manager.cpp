@@ -723,9 +723,9 @@ void CommandManager::setupCommands() {
     registerCommand("wifipass",    "wp",     [](char* a) { handleWifiPassCmd(a); },                                         "Saved WiFi creds: wp [export|clear]",     true,  "WiFi");
     // ── Network ───────────────────────────────────────────────────────────────
     registerCommand("netdiscover", "nd",     [](char* a) { networkScanner.networkDiscovery(); },                             "ARP scan local subnet",                   false, "Network");
-    registerCommand("portscan",    "ps",     [](char* a) { handlePortScanCmd(a); },                                         "Port scan: ps <ip|#> <s> <e> | ps top <ip|#>", true, "Network");
+    registerCommand("portscan",    "ps",     [](char* a) { handlePortScanCmd(a); },                                         "Port scan: ps <ip|#|ns#> <s> <e> | ps top <ip|#|ns#>", true, "Network");
     registerCommand("netspy",      "ns",     [](char* a) { runNetspy(a); },                                                  "[EXP] Client-isolation device recon (AirSnitch)", true,  "Network");
-    registerCommand("ping",        "pg",     [](char* a) { networkScanner.pingHost(a); },                                   "Ping: pg <ip or hostname>",               true,  "Network");
+    registerCommand("ping",        "pg",     [](char* a) { networkScanner.pingHost(a); },                                   "Ping: pg <ip|host|#|ns#>",                 true,  "Network");
     registerCommand("ssh",         "sc",     [](char* a) { runSshCon(a); },                                                 "SSH client: ssh <ip|name> [user] | save/list/rm", true,  "Network");
     // ── Bluetooth ─────────────────────────────────────────────────────────────
     registerCommand("scanblue",    "sbl",    [](char* a) { stopMacwatchBg(); bluetoothFunctions.scanBluetoothDevices(); },   "BLE device scan",                         false, "Bluetooth");
