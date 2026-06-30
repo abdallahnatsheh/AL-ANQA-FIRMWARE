@@ -1023,103 +1023,139 @@ void NetworkScanner::topPortScan(char* args) {
 // ── ping ──────────────────────────────────────────────────────────────────────
 
 void NetworkScanner::pingHost(char* args) {
+    auto& dm = displayManager;
     if (!args || !*args) {
-        displayManager.setCursor(10, displayManager.getCursorY());
-        displayManager.println("Usage: ping <ip or host>");
-        displayManager.printCommandScreen();
+        dm.setCursor(10, dm.getCursorY());
+        dm.println("Usage: ping <ip or host>");
+        dm.printCommandScreen();
         return;
     }
 
     String host(args);
     host.trim();
 
-    displayManager.clearScreen();
-    displayManager.setCursor(10, outputY);
-    displayManager.setTextColor(TFT_CYAN);
-    displayManager.println("-- Ping --");
-    displayManager.setTextColor(TFT_WHITE);
-    displayManager.setCursor(10, displayManager.getCursorY());
-    displayManager.printText("Host: ");
-    displayManager.println(host);
-    displayManager.setCursor(10, displayManager.getCursorY());
-    displayManager.setTextColor(0x7BEF);
-    displayManager.println("q=stop  ─────────────────");
-    displayManager.setTextColor(TFT_WHITE);
-
+    // ── resolve: ARP index (pg 0) or IP literal, else DNS for a hostname ─────
     IPAddress target;
-    if (!target.fromString(host)) {
+    if (!resolveTarget(host, target)) {
+        dm.clearScreen();
+        dm.setCursor(10, outputY);
+        dm.setTextColor(TFT_CYAN); dm.println("Resolving...");
+        dm.setTextColor(TFT_WHITE);
         int err = WiFi.hostByName(host.c_str(), target);
         if (err != 1) {
-            displayManager.setTextColor(TFT_RED);
-            displayManager.setCursor(10, displayManager.getCursorY());
-            displayManager.println("Could not resolve host.");
-            displayManager.setTextColor(TFT_WHITE);
-            delay(2000);
-            displayManager.printCommandScreen();
+            dm.setCursor(10, dm.getCursorY());
+            dm.setTextColor(TFT_RED); dm.println("Could not resolve host.");
+            dm.setTextColor(TFT_WHITE);
+            delay(1500);
+            dm.printCommandScreen();
             return;
         }
-        displayManager.setCursor(10, displayManager.getCursorY());
-        displayManager.setTextColor(0x7BEF);
-        displayManager.printText("Resolved: ");
-        displayManager.println(target.toString());
-        displayManager.setTextColor(TFT_WHITE);
     }
 
-    int sent = 0, received = 0;
-    const int count = 10;
+    // ── fixed layout (all Y explicit → never wraps past the status bar) ──────
+    const int ROWS   = 7;
+    const int Y_HEAD = outputY;
+    const int Y_TGT  = outputY + LINE_HEIGHT;
+    const int Y_SEP1 = outputY + LINE_HEIGHT * 2;
+    const int Y_ROW0 = outputY + LINE_HEIGHT * 3;
+    const int Y_SEP2 = Y_ROW0 + LINE_HEIGHT * ROWS;
+    const int Y_STAT = Y_SEP2 + LINE_HEIGHT;
+    const int Y_RTT  = Y_STAT + LINE_HEIGHT;
+    const int Y_FOOT = 226;
 
-    for (int i = 1; i <= count; i++) {
-        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
-            displayManager.clearScreen();
-            displayManager.setCursor(10, outputY);
-            displayManager.setTextColor(TFT_CYAN);
-            displayManager.println("-- Ping --");
-            displayManager.setTextColor(TFT_WHITE);
-            displayManager.setCursor(10, displayManager.getCursorY());
-            displayManager.printText("Host: ");
-            displayManager.println(host);
-            displayManager.setCursor(10, displayManager.getCursorY());
-            displayManager.setTextColor(0x7BEF);
-            displayManager.println("q=stop  ─────────────────");
-            displayManager.setTextColor(TFT_WHITE);
+    struct PingRow { int seq; bool ok; uint16_t rtt; };
+    PingRow ring[ROWS];
+    int rcount = 0, rhead = 0;
+    int sent = 0, recv = 0;
+    uint32_t rmin = 0xFFFFFFFF, rmax = 0, rsum = 0;
+
+    auto draw = [&]() {
+        if (dm.isBlocked()) return;
+        dm.clearScreen(); dm.updateStatusBar();
+        // header — [NET::PING]  <host>
+        dm.setCursor(6, Y_HEAD);
+        dm.setTextColor(0x7BEF);     dm.printText("[");
+        dm.setTextColor(TFT_CYAN);   dm.printText("NET");
+        dm.setTextColor(0x7BEF);     dm.printText("::");
+        dm.setTextColor(TFT_YELLOW); dm.printText("PING");
+        dm.setTextColor(0x7BEF);     dm.printText("]  ");
+        char hb[24]; snprintf(hb, sizeof(hb), "%.18s", host.c_str());
+        dm.setTextColor(TFT_WHITE);  dm.printText(hb);
+        // target IP
+        dm.setCursor(10, Y_TGT); dm.setTextColor(0x7BEF);
+        dm.printText("-> "); dm.printText(target.toString().c_str());
+        // separator
+        dm.setCursor(10, Y_SEP1); dm.printSeparator();
+        // rolling results (oldest -> newest)
+        for (int i = 0; i < rcount; i++) {
+            int idx = (rhead - rcount + i + ROWS * 4) % ROWS;
+            PingRow& r = ring[idx];
+            char lb[36];
+            dm.setCursor(10, Y_ROW0 + i * LINE_HEIGHT);
+            if (r.ok) {
+                dm.setTextColor(TFT_GREEN);
+                snprintf(lb, sizeof(lb), "[+] seq %-3d  %u ms", r.seq, (unsigned)r.rtt);
+            } else {
+                dm.setTextColor(TFT_RED);
+                snprintf(lb, sizeof(lb), "[-] seq %-3d  timeout", r.seq);
+            }
+            dm.printText(lb);
         }
-
-        char k = inputHandler.getKeyboardInput();
-        if (k == 'q' || k == 'Q') break;
-
-        sent++;
-        unsigned long t0 = millis();
-        bool ok = Ping.ping(target, 1);
-        unsigned long rtt = millis() - t0;
-
-        displayManager.setCursor(10, displayManager.getCursorY());
-        if (ok) {
-            received++;
-            displayManager.setTextColor(TFT_GREEN);
-            displayManager.printText("[+] ");
-            displayManager.printText(target.toString().c_str());
-            displayManager.setTextColor(TFT_WHITE);
-            displayManager.printText("  ");
-            displayManager.printText((int)rtt);
-            displayManager.println(" ms");
+        // separator + stats
+        dm.setCursor(10, Y_SEP2); dm.printSeparator();
+        int loss = sent ? (sent - recv) * 100 / sent : 0;
+        char sb[40];
+        snprintf(sb, sizeof(sb), "sent %d  recv %d  loss %d%%", sent, recv, loss);
+        dm.setCursor(10, Y_STAT);
+        dm.setTextColor(loss == 0 ? TFT_GREEN : (loss == 100 ? TFT_RED : TFT_YELLOW));
+        dm.printText(sb);
+        // rtt min/avg/max
+        dm.setCursor(10, Y_RTT); dm.setTextColor(0x7BEF);
+        if (recv > 0) {
+            char rb[40];
+            snprintf(rb, sizeof(rb), "rtt %u/%u/%u ms (min/avg/max)",
+                     (unsigned)rmin, (unsigned)(rsum / recv), (unsigned)rmax);
+            dm.printText(rb);
         } else {
-            displayManager.setTextColor(TFT_RED);
-            displayManager.println("[-] Request timed out.");
-            displayManager.setTextColor(TFT_WHITE);
+            dm.printText("rtt --");
         }
-        delay(1000);
+        // footer
+        dm.setCursor(6, Y_FOOT); dm.setTextColor(TFT_DARKGREY);
+        dm.printText("q=stop");
+    };
+
+    draw();
+
+    // ── continuous ping until q ──────────────────────────────────────────────
+    bool run = true;
+    while (run) {
+        sent++;
+        uint32_t t0 = millis();
+        bool ok = Ping.ping(target, 1);
+        uint32_t rtt = millis() - t0;
+        if (ok) {
+            recv++;
+            if (rtt < rmin) rmin = rtt;
+            if (rtt > rmax) rmax = rtt;
+            rsum += rtt;
+        }
+        ring[rhead].seq = sent;
+        ring[rhead].ok  = ok;
+        ring[rhead].rtt = (uint16_t)(rtt > 65535 ? 65535 : rtt);
+        rhead = (rhead + 1) % ROWS;
+        if (rcount < ROWS) rcount++;
+
+        draw();
+
+        // pace ~1s while staying responsive to q and lock/unlock
+        uint32_t w = millis();
+        while (millis() - w < 1000) {
+            char k = inputHandler.getKeyboardInput();
+            if (k == 'q' || k == 'Q') { run = false; break; }
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) draw();
+            delay(20);
+        }
     }
 
-    int loss = sent > 0 ? ((sent - received) * 100 / sent) : 100;
-    displayManager.setCursor(10, displayManager.getCursorY());
-    displayManager.setTextColor(0x7BEF);
-    displayManager.println("──────────────────────────");
-    displayManager.setTextColor(TFT_WHITE);
-    displayManager.setCursor(10, displayManager.getCursorY());
-    char summary[48];
-    snprintf(summary, sizeof(summary), "%d sent  %d recv  %d%% loss", sent, received, loss);
-    displayManager.setTextColor(loss == 0 ? TFT_GREEN : loss == 100 ? TFT_RED : TFT_YELLOW);
-    displayManager.println(summary);
-    displayManager.setTextColor(TFT_WHITE);
-    displayManager.printCommandScreen();
+    dm.printCommandScreen();
 }

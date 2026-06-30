@@ -4,6 +4,24 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-06-30 (netspy Stage 1b COMPLETE + ping UI bug fix)
+- **netspy/ns Stage 1b** (DHCP/mDNS/SSDP hostnames + service enum + `[i]`/Enter detail view + UI polish +
+  docs/man/README/CLAUDE/NOTICES/sdcard map): all built, DHCP+mDNS HW-verified, SSDP/detail pending HW.
+  Usability: detail opens on **Enter** (not click — user found click annoying), CSV saves ALL fields incl
+  a `services` column. **Full detail in [[project_netspy_isoscan_plan]] BUILD STATUS.** HW-validated: `ns`
+  found a device pingable but invisible to `nd` → confirms soft/discovery-only isolation on the test net.
+- **ping/pg UI BUG FIXED** (`wifi/monitor/netscanner/network_scanner.cpp` `pingHost`): old code used
+  `println()` in a loop advancing via `getCursorY()`; with ~10 results + resolve + summary the cursor ran
+  past the 240px screen bottom and **wrapped back to y=0, drawing OVER the status bar**. Rewrote with a
+  **fixed-Y bounded layout** (explicit setCursor per element, never wraps): `[NET::PING]` header + target +
+  rolling 7-row results ring (oldest→newest) + live `sent/recv/loss%` + `min/avg/max RTT` + `q=stop`,
+  full-redraw each tick (lock-aware via `isBlocked`/`consumeJustUnlocked`). Now **continuous until q**
+  (was fixed 10). Also wired `resolveTarget()` so `pg 0` (nd ARP index) works — docs promised it but code
+  never did it (DNS-only). delay(20) poll keeps q responsive. man/docs/ping.md/README synced.
+- **LESSON:** any screen that prints lines in a loop via `println`/`getCursorY` without a Y bound can
+  overflow past y=240 and wrap over the status bar. Fixed-Y layouts (like bmon/netspy) are immune. Other
+  simple println-based screens may have the same latent bug — audit if reported.
+
 ## Session 2026-06-29 (netspy/ns — AirSnitch client-isolation recon: Stage 0+1 BUILT, UNCOMMITTED) ⏸ RESUME HERE
 **Full detail in [[project_netspy_isoscan_plan]] (BUILD STATUS section). Cold-resume summary:**
 - **Goal:** `netspy`/`ns` (Network) — discover devices on a client-isolated WiFi that `nd` (ARP scan)
@@ -37,7 +55,15 @@ type: project
   (3) Stage 2 INJECT (the active AirSnitch): software CCMP-encrypt a non-QoS broadcast data frame with
   the GTK + spoof AP MAC + high PN, send via `esp_wifi_80211_tx` (allows non-QoS data) → ICMPv6-RA DNS
   poison etc. — uses the Stage-0 GTK. Unproven; spike it. (4) docs/man/README/NOTICES + commit.
-- **NOT committed, NOT fully tested.** Commit after Stage 1 is HW-confirmed (user flashes).
+- **COMMITTED `c8d127e`** (Stage 0+1, both HW-verified). Unpushed (user pushes manually; HTTPS auth
+  unavailable here).
+- **USER DECISION: keep PASSIVE vs ACTIVE as TWO separate commands** — `netspy`/`ns` = PASSIVE recon
+  (done, never transmits, safe default) · `isoscan`/`is` = ACTIVE attacks (Stage 2, opt-in, transmits;
+  authorization warning + mandatory MAC-restore). Deliberate separation so running recon can't
+  accidentally transmit. So Stage 2 = build the `isoscan` command. Feasible active module = GTK inject
+  (software CCMP-encrypt a broadcast data frame w/ unicast victim IP + spoof AP MAC + high PN, via
+  esp_wifi_80211_tx using the Stage-0 GTK) → ICMPv6-RA DNS poison; gateway-bounce/port-steal are
+  murkier on ESP32. All ACTIVE work = authorized/own networks only.
 
 ## Session 2026-06-28 (lockscreen: lock-on-boot + SD reset-flag recovery — FINAL, built, UNTESTED)
 - **DECISION (user, firm): PIN stays on the SD card ONLY — do NOT put it in NVS.** Mid-session I

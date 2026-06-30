@@ -456,6 +456,30 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "netspy", "ns", {
+        "SYNTAX   netspy           recon table",
+        "         ns gtk           show group key",
+        "         ns dump          gWpaSm -> SD",
+        "",
+        "ABOUT    [EXP] Find devices on a WiFi with",
+        "         CLIENT ISOLATION, where nd (ARP",
+        "         scan) sees only the gateway.",
+        "         PASSIVE - never transmits a frame.",
+        "",
+        "HOW      Sniffs the broadcast/multicast the",
+        "         AP relays to all clients (your HW",
+        "         decrypts them). Parses ARP/IPv4 +",
+        "         DHCP/mDNS/SSDP for names+services.",
+        "",
+        "KEYS     tpad U/D select  Enter detail",
+        "         [s] save [c] clr [l]/[a] page  q",
+        "FLAGS    A=ARP I=IPv4 D=DHCP M=mDNS S=SSDP",
+        "FILES    /apps/netspy/NNN.csv",
+        "NOTE     Connect first (cw). AirSnitch",
+        "         technique. Own networks only.",
+        nullptr
+    }},
+
     { "portscan", "ps", {
         "SYNTAX   ps <ip|#> <start> <end>",
         "         ps top <ip|#>",
@@ -474,13 +498,15 @@ static const ManEntry PAGES[] = {
     }},
 
     { "ping", "pg", {
-        "SYNTAX   pg <ip|hostname>",
+        "SYNTAX   pg <ip|hostname|#>",
         "",
-        "ABOUT    ICMP ping — 5 packets.",
-        "         Shows min/avg/max RTT + loss %.",
+        "ABOUT    Continuous ICMP ping. Rolling",
+        "         results + live sent/recv/loss and",
+        "         min/avg/max RTT. # = nd index.",
         "",
         "EXAMPLE  pg 192.168.1.1",
-        "         pg google.com",
+        "         pg google.com   pg 0",
+        "KEYS     q = stop",
         nullptr
     }},
 

@@ -157,8 +157,9 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `espvoice` | `ev` | `[ch 1-13]` | ESP-NOW walkie-talkie — half-duplex G.722 HD voice; SPACE = push-to-talk toggle; Roger beep + `RECEIVING` indicator; app-local volume (`+/-`) & mic gain (`o/p`) |
 | **Network** | | | |
 | `netdiscover` | `nd` | — | ARP scan local /24 |
+| `netspy` | `ns` | `gtk` · `dump` | **[EXP]** Client-isolation device recon — finds devices `nd` can't see by passively parsing broadcast/multicast (ARP/IPv4 + DHCP/mDNS/SSDP) for IP, name + services; never transmits. Connect (`cw`) first. AirSnitch technique |
 | `portscan` | `ps` | `<ip\|#> <start> <end>` · `top <ip\|#>` | TCP port scan; `ps top` scans the 26 common ports |
-| `ping` | `pg` | `<ip\|hostname>` | ICMP ping |
+| `ping` | `pg` | `<ip\|hostname\|#>` | Continuous ICMP ping — rolling results + live sent/recv/loss + min/avg/max RTT; `#` = netdiscover index; `q` stops |
 | `ssh` | `sc` | `<ip\|name> [user]` | Interactive SSH client (libssh) — password auth, PTY shell, 16-colour terminal + trackpad scrollback; saved host profiles (`ssh save/list/rm`); connect WiFi (`cw`) first |
 | **Bluetooth** | | | |
 | `scanblue` | `sbl` | — | BLE device scan |
@@ -214,7 +215,7 @@ All scan tables share the same keys:
 **Backspace auto-repeat:** Hold Backspace for **1.5 seconds** → auto-deletes at ~16 chars/sec. Press any char key to stop — the timer resets immediately so the next hold starts fresh. Pressing Backspace a second time while repeat is armed cancels it (tap safety).
 
 **Autocomplete:** Press `'` (Sym+K) at any point in a command.
-- At the start → completes command names and short names (`net` + `'` → `netdiscover`; `por` + `'` → `portscan`)
+- At the start → completes command names and short names (`netd` + `'` → `netdiscover`; `por` + `'` → `portscan`)
 - After a command with file args → completes file/dir paths from the current working directory
 - After a command with subcommands → shows valid args in yellow (`psv ` + `'` → `on off status save reset set`; `ssh ` + `'` → `save list rm`)
 - Two-level context: `psv set ` + `'` → shows settable options; `mc target ` + `'` → `wifi bt both`
@@ -260,6 +261,7 @@ All scan tables share the same keys:
 
 - [x] WiFi scan, connect, monitor, deauth, Evil Twin, hidden SSID, MAC spoof, WPA2 handshake capture+crack, PMKID capture+crack (passive, no client needed), WPS flag, saved credential manager, Linux wpa_supplicant.conf sync
 - [x] ARP discovery, port scan, ping, banner grabber, OS fingerprinting
+- [x] `netspy` **[EXP]** — passive client-isolation device recon: finds devices ARP can't see by parsing AP-relayed broadcast/multicast (ARP/IPv4 + DHCP/mDNS/SSDP) for IP, hostname + services; never transmits (AirSnitch technique)
 - [x] BLE scanner, anti-tracking detector
 - [x] BLE GATT enumeration (`bi`) — full service/char tree, 0x2904 auto-decode, write (trackpad cursor, write-without-response fallback), fuzz, notify/indicate sniff with write-while-connected, pairing/bonding, `bi all` sweep, full UUID + full hex saved to SD
 - [x] BLE auth leak detector (`[b]` audit view) — inline risk scoring for AES blobs / hex secrets / PINs
