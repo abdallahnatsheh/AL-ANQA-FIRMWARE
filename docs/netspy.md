@@ -41,10 +41,26 @@ The **HOW** column flags which sources saw each device: `A`=ARP `I`=IPv4 `D`=DHC
 |-----|--------|
 | trackball `↑` / `↓` | Select a device row |
 | **Enter** (or `i`) | Open the device **detail** (full MAC, IP, name, vendor, seen-via, services) — any key returns |
+| **`p`** | **Ping** the selected device |
+| **`o`** | **Port-scan** the selected device (top ports) |
 | `s` | Save the table to SD |
 | `c` | Clear the table |
 | `l` / `a` | Next / previous page |
 | `q` | Quit |
+
+`p` and `o` run the normal `ping` / `portscan` tools against the selected device's IP without leaving `netspy` — sniffing pauses while the scan runs, then resumes with the table intact. No need to remember an index. (This is the recon → probe workflow: find a device isolation hid, then ping/scan it in place.)
+
+### Targeting netspy devices from the CLI
+
+The table's leftmost **`#`** column is the device index. After `ns` runs (the list persists after you quit, like the netdiscover cache), you can target those devices from the command line with an **`ns<#>`** token — the same way a bare `#` targets the netdiscover list:
+
+```
+CMD> pg ns0          # ping netspy device 0
+CMD> ps top ns2      # top-ports scan of netspy device 2
+CMD> ps ns3 1 1024   # full port scan of netspy device 3
+```
+
+`#` (or `nd<#>`) still means the netdiscover ARP-cache index; `ns<#>` means the netspy index.
 
 A `+` next to a row means services were detected — press **Enter** to see them (AirPlay, Cast, HomeKit, Printer, SSH, SMB, DLNA, …).
 

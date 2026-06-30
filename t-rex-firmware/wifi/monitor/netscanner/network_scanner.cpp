@@ -5,6 +5,7 @@
 #include "lockscreen_manager.h"
 #include "task_manager.h"
 #include "utils.h"
+#include "netspy.h"                  // netspyDeviceIp() — `ps ns3` / `pg ns0` targeting
 #include <ESP32Ping.h>
 #include <lwip/raw.h>
 #include <lwip/icmp.h>
@@ -33,17 +34,33 @@ static const uint16_t TOP_PORTS[] = {
 };
 static const int TOP_PORTS_COUNT = (int)(sizeof(TOP_PORTS) / sizeof(TOP_PORTS[0]));
 
-// Resolve first arg — bare number = ARP index, otherwise IP string
+// Resolve first arg into an IP. Accepts:
+//   <ip>           literal address
+//   <n> / nd<n>    netdiscover ARP-cache index (default source)
+//   ns<n>          netspy discovered-device index
 static bool resolveTarget(const String& tok, IPAddress& out) {
-    bool allDigits = tok.length() > 0;
-    for (char c : tok) { if (!isdigit((unsigned char)c)) { allDigits = false; break; } }
+    String t = tok;
+    bool useNetspy = false;
+    // optional source prefix on a numeric index (ns3 / nd3)
+    if (t.length() > 2 && isdigit((unsigned char)t[2])) {
+        if      (t.startsWith("ns")) { useNetspy = true;  t = t.substring(2); }
+        else if (t.startsWith("nd")) {                    t = t.substring(2); }
+    }
+    bool allDigits = t.length() > 0;
+    for (char c : t) { if (!isdigit((unsigned char)c)) { allDigits = false; break; } }
     if (allDigits) {
-        int idx = tok.toInt();
+        int idx = t.toInt();
+        if (useNetspy) {
+            uint32_t ip = netspyDeviceIp(idx);
+            if (!ip) return false;
+            out = IPAddress((uint8_t)(ip >> 24), (uint8_t)(ip >> 16), (uint8_t)(ip >> 8), (uint8_t)ip);
+            return true;
+        }
         if (idx < 0 || idx >= (int)g_arpResults.size()) return false;
         out = g_arpResults[idx].ip;
         return true;
     }
-    return out.fromString(tok);
+    return out.fromString(tok);   // IP literal (use the original token)
 }
 
 static const char* portService(int port) {

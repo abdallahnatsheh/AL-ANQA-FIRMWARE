@@ -43,7 +43,7 @@ DNS hostnames are resolved before sending — `pg google.com` resolves the IP fi
 
 ## Notes
 
-- **Index shortcut** — after running `netdiscover` (`nd`), you can ping hosts by their index number: `pg 0` pings the first discovered host. No need to type the IP.
+- **Index shortcut** — after running `netdiscover` (`nd`), ping hosts by their index number: `pg 0` pings the first discovered host. After running `netspy` (`ns`), use the `ns` prefix: `pg ns3` pings netspy device #3 (the `#` column in the netspy table). No need to type the IP.
 - **Packet loss > 0%** — could indicate wireless interference, the host firewall dropping ICMP, or the host being down.
 - **Very high RTT** — normal for internet hosts (50–200ms); <5ms expected for local LAN targets.
 - **All timeouts** — host is either down, blocking ICMP, or not reachable from this network.

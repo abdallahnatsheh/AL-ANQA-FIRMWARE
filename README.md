@@ -158,8 +158,8 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | **Network** | | | |
 | `netdiscover` | `nd` | — | ARP scan local /24 |
 | `netspy` | `ns` | `gtk` · `dump` | **[EXP]** Client-isolation device recon — finds devices `nd` can't see by passively parsing broadcast/multicast (ARP/IPv4 + DHCP/mDNS/SSDP) for IP, name + services; never transmits. Connect (`cw`) first. AirSnitch technique |
-| `portscan` | `ps` | `<ip\|#> <start> <end>` · `top <ip\|#>` | TCP port scan; `ps top` scans the 26 common ports |
-| `ping` | `pg` | `<ip\|hostname\|#>` | Continuous ICMP ping — rolling results + live sent/recv/loss + min/avg/max RTT; `#` = netdiscover index; `q` stops |
+| `portscan` | `ps` | `<ip\|#\|ns#> <start> <end>` · `top <ip\|#\|ns#>` | TCP port scan; `ps top` scans the 26 common ports. `#` = netdiscover index, `ns#` = netspy index |
+| `ping` | `pg` | `<ip\|hostname\|#\|ns#>` | Continuous ICMP ping — rolling results + live sent/recv/loss + min/avg/max RTT; `#` = netdiscover index, `ns#` = netspy index; `q` stops |
 | `ssh` | `sc` | `<ip\|name> [user]` | Interactive SSH client (libssh) — password auth, PTY shell, 16-colour terminal + trackpad scrollback; saved host profiles (`ssh save/list/rm`); connect WiFi (`cw`) first |
 | **Bluetooth** | | | |
 | `scanblue` | `sbl` | — | BLE device scan |

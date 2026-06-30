@@ -55,6 +55,7 @@ CMD> ns
 |-----|--------|
 | trackball `↑`/`↓` | Select a row |
 | **Enter** (or `i`) | Device detail (name, vendor, seen-via, services) |
+| **`p`** / **`o`** | Ping / port-scan the selected device in place |
 | `s` / `c` | Save to SD / clear |
 | `l` / `a` | Page |
 | `q` | Quit |
