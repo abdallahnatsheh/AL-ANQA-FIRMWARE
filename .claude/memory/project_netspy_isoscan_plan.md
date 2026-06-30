@@ -91,9 +91,13 @@ type: project
     collision w/ a bare hostname like `ns3` is accepted/rare (a dotted host `ns3.x.com` still DNS-resolves
     fine — substring isn't all-digits → falls through). man(ps/pg/ns)/README/docs(netspy/portscan/ping)/
     CLAUDE all synced.
-  - **NEXT:** flash+verify the whole Stage-1b set (DHCP/mDNS already HW-OK; verify SSDP `S` flags, the
-    `+`/Enter detail, services populate + saved in CSV, `p`/`o` probe→resume). Then **commit** (1b was
-    committed `5c45ee8`; this probe feature is a follow-up commit).
+  - **✅ FULLY HW-VERIFIED 2026-06-30** (user confirmed working): the whole Stage-1b set (DHCP/mDNS/SSDP
+    flags + services + Enter/`[i]` detail + CSV w/ services), the in-app `[p]`/`[o]` probe→resume, AND the
+    CLI `ps ns#`/`pg ns#` targeting + `#` index column. Also validated end-to-end earlier: `ns` found a
+    device pingable but invisible to `nd` (soft/discovery-only isolation on the test net).
+  - **Committed:** `5c45ee8` (Stage 1b) + `dbceef8` (probe + CLI targeting). Unpushed → user pushes manually.
+  - **STAGE 1b + probe = DONE.** Next milestone is **Stage 2 — the active `isoscan` GTK-inject** (separate
+    command, opt-in, transmits; uses the Stage-0 GTK at `gWpaSm+0x174`). See below.
 - **NEXT (after 1b commit):** Stage 2 — GTK inject
   (software CCMP-encrypt a broadcast data frame + AP-MAC spoof + high PN) = the AirSnitch active attack.
 - **Name: keep `netspy`/`ns`.** Module `wifi/intel/netspy.cpp/.h`, registered Network, `-I wifi/intel`,
