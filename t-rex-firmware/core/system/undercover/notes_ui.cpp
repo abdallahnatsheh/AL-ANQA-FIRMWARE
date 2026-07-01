@@ -143,13 +143,13 @@ static const int NOTE_COUNT = sizeof(NOTES) / sizeof(NOTES[0]);
 
 // ── Layout (real px @ 320x240) ───────────────────────────────────────────────
 #define SB_H        18                 // fake status bar height
-#define APPBAR_Y    (SB_H + 4)
-#define SEARCH_Y    46
+#define APPBAR_Y    (SB_H + 8)          // Notes title — clearance under the status-bar clock
+#define SEARCH_Y    54                  // gap below the 20px title so it isn't crowded
 #define SEARCH_H    26
-#define LIST_TOP    (SEARCH_Y + SEARCH_H + 8)   // scroll region top
+#define LIST_TOP    (SEARCH_Y + SEARCH_H + 8)   // scroll region top (= 86)
 #define CARD_X      10
 #define CARD_W      (SCREEN_WIDTH - 20)
-#define CARD_H      54
+#define CARD_H      58                  // tall enough for title + preview + day meta
 #define CARD_GAP    6
 #define LABEL_H     18
 #define FAB_R       22
@@ -191,10 +191,11 @@ static void drawClipped(const char* s, int x, int y, int maxW, uint16_t color) {
 // ── Status chrome (fake clock + signal + battery) ────────────────────────────
 static void drawStatusBar() {
     G->fillRect(0, 0, SCREEN_WIDTH, SB_H, C_PAPER);
-    G->setTextDatum(textdatum_t::top_left);
-    G->setFont(&s_fTitle);
+    G->setTextDatum(textdatum_t::middle_left);
+    G->setFont(&s_fMeta);                 // small status clock (mockup ~10px), not the 15px title font
     G->setTextColor(C_INK);
-    G->drawString("14:32", 12, 2);
+    G->drawString("14:32", 12, SB_H / 2);
+    G->setTextDatum(textdatum_t::top_left);
 
     // signal bars (right)
     int bx = SCREEN_WIDTH - 58, by = SB_H - 4;
@@ -224,17 +225,17 @@ static void drawCard(int i, int screenY, bool selected) {
     G->setFont(&s_fTitle);
     int titleX = tx;
     if (n.pinned) {
-        G->fillSmoothCircle(tx + 3, screenY + 16, 3, C_ACCENT);
+        G->fillSmoothCircle(tx + 3, screenY + 17, 3, C_ACCENT);
         titleX = tx + 13;
     }
-    drawClipped(n.title, titleX, screenY + 8, CARD_X + CARD_W - 13 - titleX, C_INK);
+    drawClipped(n.title, titleX, screenY + 9, CARD_X + CARD_W - 13 - titleX, C_INK);
     // preview (smaller, secondary)
     G->setFont(&s_fMeta);
-    drawClipped(n.preview, tx, screenY + 28, CARD_W - 26, C_PREV);
-    // meta
+    drawClipped(n.preview, tx, screenY + 31, CARD_W - 26, C_PREV);
+    // meta / day — sits well clear of the card's bottom edge
     G->setFont(&s_fMeta);
     G->setTextColor(C_META);
-    G->drawString(n.meta, tx, screenY + 41);
+    G->drawString(n.meta, tx, screenY + 43);
 }
 
 static void drawSectionLabel(const char* s, int screenY) {
