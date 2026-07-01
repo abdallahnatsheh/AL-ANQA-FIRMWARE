@@ -8,6 +8,7 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 - Audio I2S: BCK=7, WS=5, DOUT=6 — **must use i2s_driver_install(); tone() fails**
 - GPS (Plus): RX=44, TX=43, 9600 baud — L76K or u-blox M10Q, ~4 min cold fix
 - Power: GPIO10 must be HIGH
+- Touch: GT911 capacitive, shared I2C bus (SDA=18/SCL=8) with the keyboard — addr **0x5D** (`GT911_SLAVE_ADDRESS_L`), 0x14 fallback, both auto-probed by the driver; INT=GPIO16 (`BOARD_TOUCH_INT`, wired into the driver — used as a level-check optimization before falling back to a full I2C read, not a hardware IRQ callback); no reset GPIO broken out
 
 ## Architecture
 
@@ -21,6 +22,19 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 
 **Input** (`input_handling.cpp/h`): `getKeyboardInput()` → `char` or `0`. Every blocking loop must poll for `q`.
 - Backspace hold-repeat: `_repeatKey` / `_repeatStart` / `_lastBsReturnMs`. Hold **1500 ms** → auto-delete at 80 ms intervals. Any char key stops repeat and resets `_lastBsReturnMs = 0` so the next `\b` press starts a fresh hold immediately. Second `\b` while timer is armed cancels it (prevents accidental auto-delete on rapid taps). usbkbd / btkbd use identical logic via `bsLastBsMs` / `lastKey == '\x08'`.
+
+**TouchManager** (`core/input/touch/touch_manager.cpp/h`) — singleton, GT911 capacitive touch, **Phase 0 of the undercover-mode plan** (`.claude/memory/PLAN-undercover-touch.md`), ✅ HW-verified (tracks 1:1, orientation correct, gestures OK):
+- Driver = **`lewisxhe/SensorLib`'s `TouchDrvGT911`** (`lib_deps` registry pkg `lewisxhe/SensorLib @ ^0.4.1`, replaced an earlier `mmMicky/TouchLib` attempt — that library's `init()` unconditionally `return true` regardless of I2C ACK, and its coordinate transform had to be guessed). `begin()`/orientation config mirrors LilyGo's own official `Xinyuan-LilyGO/T-Deck examples/Touchpad/Touchpad.ino` **verbatim** — vendor-validated for this exact board, not derived: no reset pin wired (`setPins(-1, BOARD_TOUCH_INT)`), driver auto-probes `GT911_SLAVE_ADDRESS_L` (0x5D) then `_H` (0x14) internally by reading the real product-ID register (`==911`) — far more robust than a bare ACK check. `setMaxCoordinates(320,240)` + `setSwapXY(true)` + `setMirrorXY(false,true)` are the exact vendor values; `TouchManager::poll()` reads already-mapped screen coordinates straight out of the driver — no manual axis math.
+- **SensorLib API note:** LilyGo's example ships SensorLib 0.2.x, but the project pins **0.4.x** (current). The read path uses 0.4.x's `getTouchPoints()` → `TouchPoints`/`TouchPoint{x,y}` (`hasPoints()`/`getPointCount()`/`getPoint(i)`), **not** the older `getPoint(int16_t*,int16_t*,n)` overload — that overload still exists in 0.4.x but is `__attribute__((deprecated))` and would warn on every compile. The `setPins`/`begin`/`setMaxCoordinates`/`setSwapXY`/`setMirrorXY`/`getSupportTouchPoint`/`isPressed` signatures are unchanged 0.2→0.4, so the vendor config lines port as-is. Include the umbrella **`TouchDrv.hpp`**, NOT `TouchDrvGT911.hpp` — the per-driver top-level header is `#pragma message`-deprecated in 0.4.x. **Compiles clean on both envs** (verified — zero warnings).
+- `isPresent()==false` (no panel found / product-ID mismatch) must degrade every consumer gracefully — touch is additive, never required, keyboard/trackball still drive everything.
+- Reuses the existing global `Wire` (already begun by `DisplayManager::init()` at SDA=18/SCL=8), passed explicitly to `begin(Wire, addr, BOARD_I2C_SDA, BOARD_I2C_SCL)` — never give it different pins or a second `Wire` instance (shared bus with the keyboard).
+- `poll()` (called once per `main.ino loop()` iteration, throttled to ~20 ms internally) returns a `TouchEvent{type, x, y, dx, dy}` — `NONE/TAP/LONG_PRESS/DRAG_START/DRAG_MOVE/DRAG_END`, classified by travel (`TOUCH_MOVE_PX=8`), hold time (`TOUCH_LONGPRESS_MS=600`) and tap duration (`TOUCH_TAP_MS=250`).
+- `main.ino loop()` feeds touch activity into `PowerSaveManager`/`LockScreenManager` the same way trackball events do, then passes the event through `LockScreenManager::interceptTouch()` (swallows all touch while locked, mirrors `interceptTrackball`). No touch-driven UI consumes events yet (Phase 2 Notes UI is the first) — commands that want touch poll `TouchManager::instance().poll()` directly, same pattern as `wm`/`trackme` calling `inputHandler.getTrackballEvent()` directly instead of going through `CommandManager`.
+- Consumed as a **registry `lib_deps`** package (like AceButton/NimBLE/RadioLib), not hand-vendored under `lib/` — installed at 0.4.1 into `.pio/libdeps/`. It's a large multi-driver library (touch + many unrelated sensors); leaving it as a pinned registry dep avoids committing all that unused code.
+- `test touch` (folded into the existing `test`/`tst` HW-test dispatcher, **not** a separate `tt` command — stays under the 64-command cap) — full-screen crosshair + corner brackets, live raw/mapped x/y and event-type readout. This is the hardware verification step for the mapping guess above.
+
+**Notes cover UI** (`core/system/undercover/notes_ui.cpp/h`) — command **`notes`/`nt`** [EXP], **Phase 2 of the undercover plan, built as a UI-only test** (visual+nav, no undercover machinery yet). First consumer of `TouchManager`. Renders the disguise from the approved mockup (`~/Downloads/trex-undercover-notes.html`, real px = mockup/2): fake status chrome, Notes list (appbar/avatar/search/section labels/tinted rounded cards/FAB) + note detail (back bar + word-wrapped paragraphs/checkboxes). Draws straight to global `tft`. `displayManager.setBlocked(true)` suppresses the real status bar (lock-screen pattern), restored on `q`. Nav: touch tap/drag-scroll, trackball select/click/scroll. Sample notes hardcoded. **NOT yet built** (deferred to full Phase 2/3): SD `/notes/*.txt`, secret-passphrase exit, duress/decoy, `g_covert` leak wiring, boot-cover — see `.claude/memory/PLAN-undercover-touch.md`.
+- **Anti-aliased text (the modern look).** Uses **Noto Sans** (Android's font family), Regular+Bold, baked to LovyanGFX **VLW smooth fonts** — 4 sizes (`notes_fonts.h`: BIG 20 / TITLE 15 / BODY 14 / META 11), generated by `convert_font.py` (root, mirrors `convert_splash.py`; a `pre:` build step). Held as 4 persistent `lgfx::VLWfont` + `PointerWrapper` objects loaded once per session (`loadFonts`/`unloadFonts`) — `setFont()` switches cost nothing. `convert_font.py` is **best-effort**: no-ops (keeping the committed `notes_fonts.h`) if Pillow or the Noto TTFs are absent, so CI / PlatformIO's font-less Python still build. VLW format verified against LovyanGFX `VLWfont::loadFont`: 24B header + 28B/glyph metrics (`unicode,h,w,xAdv,dY,gdX,0`, BE, sorted) + row-major 8-bit-alpha bitmaps. Noto Sans credited in `NOTICES` #18 (OFL-1.1, embedded as glyph data not a TTF).
 
 **GpsManager** (`gps_manager.cpp/h`) — T-Deck Plus only, singleton:
 - FreeRTOS task core 0, 30 ms poll, volatile primitives (no mutex needed on ARM32)
@@ -148,12 +162,12 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 - `wguard.cpp` uses `ouiVendor()` (backward-compat wrapper); replaces old private `lookupOui()`
 
 ## Commands
-System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `sleep/slp` `lock/lk`
+System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `sleep/slp` `lock/lk` `notes/nt [EXP]`
 WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` (`wp export`/`wp clear` — merged wifiexport+clearwifi) `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `karma/km` `crack/cc` `wguard/wg` `beaconflood/bf` `wardrive/wd` `espsniff/es` `esptest/est` `espchat/ec` `espvoice/ev`
 Network: `netdiscover/nd` `netspy/ns [EXP]` `portscan/ps` (`ps top <ip|#>` — merged topscan) `ping/pg` `ssh/sc`
 Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
 SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `edit/ed` `rm/rm` (`rm -d <dir>` = recursive dir delete) `sdf/sdf`
-Diagnostics: `gps/gps` `test/tst` (`test spk|mic|lora` — merged spktest+mictest+loratest) `i2cscan/isc [EXP]` `csidetect/csi [EXP]`
+Diagnostics: `gps/gps` `test/tst` (`test spk|mic|lora|touch` — merged spktest+mictest+loratest+touchtest) `i2cscan/isc [EXP]` `csidetect/csi [EXP]`
 
 **ESPChat** (`espchat/ec`, `espsniff/es`, `esptest/est`) — `radio/espnow/espchat/`, `espsniff/`, `esptest/`:
 - Wire format: `EcMsg{type(1)+seq(1)+name[12]+text[100]}` = 114 bytes, type=0x01; broadcast ch compatible with any ESP32/ESP8266

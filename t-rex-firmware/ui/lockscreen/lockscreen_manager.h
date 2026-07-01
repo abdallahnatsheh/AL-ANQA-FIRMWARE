@@ -8,6 +8,7 @@
 #include <Arduino.h>
 #include "display_manager.h"
 #include "input_handling.h"
+#include "touch_manager.h"
 
 class LockScreenManager {
 public:
@@ -16,6 +17,7 @@ public:
     void           init();
     char           intercept(char k, uint32_t now);
     TrackballEvent interceptTrackball(TrackballEvent evt);
+    TouchEvent     interceptTouch(TouchEvent evt);
     void           updateActivity();           // call on any user input to reset idle timer
     void           lock();
     bool           isLocked() const { return _locked; }

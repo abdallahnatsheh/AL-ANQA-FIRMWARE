@@ -124,3 +124,30 @@ This project incorporates code from the following open-source projects:
              the AP-relayed group/broadcast frames, which an associated ESP32
              decrypts in hardware, and parse ARP/DHCP/mDNS/SSDP). The paper's
              active GTK-injection attack is not implemented.
+
+16. SensorLib
+    Source:  https://github.com/lewisxhe/SensorLib  (PlatformIO: lewisxhe/SensorLib @ ^0.4.1)
+    License: MIT License (Copyright (c) 2022 Lewis He)
+    Files:   t-rex-firmware/core/input/touch/touch_manager.cpp
+    Use:     TouchDrvGT911 — GT911 capacitive touch controller driver.
+
+17. LilyGo T-Deck official examples (configuration reference)
+    Source:  https://github.com/Xinyuan-LilyGO/T-Deck
+             examples/Touchpad/Touchpad.ino
+    License: MIT License (Copyright (c) 2023 Shenzhen Xin Yuan Electronic
+             Technology Co., Ltd)
+    Files:   t-rex-firmware/core/input/touch/touch_manager.cpp
+    Notes:   The GT911 begin()/setPins/setMaxCoordinates/setSwapXY/setMirrorXY
+             configuration (address, swap-XY, mirror-Y-only, 320x240) is taken
+             verbatim from the vendor's own reference sketch for this exact
+             board — not derived or guessed. No other code was copied.
+
+18. Noto Sans (embedded font)
+    Source:  https://fonts.google.com/noto/specimen/Noto+Sans  (Google / Noto Project)
+    License: SIL Open Font License 1.1
+    Files:   t-rex-firmware/core/system/undercover/notes_fonts.h (generated),
+             convert_font.py (generator)
+    Notes:   Noto Sans Regular + Bold are rendered to anti-aliased VLW smooth
+             fonts by convert_font.py and embedded for the undercover Notes cover
+             UI (notes_ui.cpp). The OFL permits embedding; the font is bundled as
+             bitmap glyph data, not redistributed as a TTF.

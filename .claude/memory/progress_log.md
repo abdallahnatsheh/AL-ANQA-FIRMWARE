@@ -4,6 +4,91 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-07-01 (undercover Phase 2 UI — Notes cover, first pass) — compiles clean, awaiting HW feedback
+- Abdallah reordered: build the Notes UI as a **test first** ("not full feature like duress password, just
+  simple ui"), ahead of Phase 1. Reference = `~/Downloads/trex-undercover-notes.html` (mockup at 2x; real
+  px = mockup/2).
+- **New module** `core/system/undercover/notes_ui.{h,cpp}` + command **`notes`/`nt`** ([EXP], System). Renders
+  fake status chrome (clock/signal/battery), Notes LIST (appbar + "A" avatar + search pill + Pinned/Recent
+  labels + tinted `fillSmoothRoundRect` cards w/ title+2-line preview+meta + amber `+` FAB) and note DETAIL
+  (back chevron bar + title + word-wrapped paragraphs + checkbox items). Draws straight to global `tft` with
+  anti-aliased **Noto Sans** VLW smooth fonts (see below). `displayManager.setBlocked(true)` suppresses the
+  real status bar (lock-screen pattern), restored on exit. Nav: touch tap/drag + trackball select/click/
+  scroll + `q` quit. 6 hardcoded sample notes.
+- **Smooth fonts (Abdallah wanted "modern like an Android app").** First built with LovyanGFX bundled FreeSans
+  (bitmap/aliased) — then baked **Noto Sans** (Android's family) Regular+Bold to LovyanGFX **VLW smooth fonts**
+  for anti-aliased text. `convert_font.py` (root, mirrors convert_splash.py, `pre:` build step) renders glyphs
+  with Pillow → `t-rex-firmware/core/system/undercover/notes_fonts.h` (4 sizes: BIG 20/TITLE 15/BODY 14/META
+  11, ~45KB). VLW format reverse-engineered from LovyanGFX `VLWfont::loadFont` (24B header + 28B/glyph metrics
+  `unicode,h,w,xAdv,dY,gdX,0` BE sorted + row-major 8-bit-alpha bitmaps). Loaded as 4 persistent `lgfx::VLWfont`
+  + `PointerWrapper` (memcpy_P from flash) once/session; `setFont()` switches are free. Script is best-effort:
+  no-ops keeping the committed header if Pillow/TTFs absent (PlatformIO's Python has no Pillow → it used the
+  committed header, build still clean). Noto Sans OFL-1.1, credited NOTICES #18.
+- **Deliberately NOT built yet** (deferred): SD `/notes/*.txt`, secret-passphrase exit, duress/decoy dual
+  passphrase, `g_covert` leak-suppression wiring, boot-cover. This is a pure look/feel + nav test.
+- Compiles clean both `T-Deck` + `T-Deck-Plus`. Man page + CLAUDE/plan updated.
+- **Feedback 1 — "not retro, want modern like an Android app":** replaced bitmap FreeSans with anti-aliased
+  Noto Sans VLW smooth fonts (see the font entry above). Compiled clean.
+- **Feedback 2 — "the ui flickers so much when I touch the screen":** root cause = every touch/drag event
+  repainted the whole view straight to the panel (clear→redraw visible). Fix = **double buffering**: all
+  draws routed through a `G` pointer targeting a full-screen 320x240 PSRAM `LGFX_Sprite` (150KB, alloc on
+  entry / `deleteSprite` on exit — rule 5c), composed off-screen then one `pushSprite` per frame (csidetect
+  pattern). Added `paintList`/`paintDetail` wrappers; graceful fallback to direct-panel if PSRAM alloc fails.
+  ✅ **HW-CONFIRMED SMOOTH** by Abdallah ("ui is smooth") — flicker gone; the `lgfx::LovyanGFX*` pointer +
+  `pushSprite(&tft,...)` approach compiled + ran fine on his manual build.
+- **Visual tuning pass** (2026-07-01, after "ui is smooth"): brought the render closer to the mockup —
+  (1) card **tints** restored (blue/green/pink per mockup: Groceries=green, Lemon cake=blue, Movies=pink;
+  `Note.tint` is now a 0-3 index → `cardTint`/`cardBorder`); (2) soft **drop shadow** under each card
+  (C_SHADOW, 2px offset) for depth; (3) tint-matched hairline **card borders**; (4) **preview text smaller**
+  (moved to s_fMeta 11px, secondary look — was same size as title); (5) cleaner **magnifier** icon
+  (drawWideLine handle); (6) decorative **share/download** icons in the detail bar (accent, non-functional).
+  NOT compiled by me (manual build). Awaiting Abdallah's manual test → then commit "when all is good".
+- Next: after visuals approved + committed, Phase 1 (g_covert audit) + real hidden-exit passphrase.
+- Uncommitted (Abdallah builds/flashes manually).
+
+## Session 2026-07-01 (touchscreen activation — Phase 0 of undercover-mode plan) — ✅ HW-VERIFIED & WORKING
+- **`test touch` field-tested OK**: GT911 @ 0x5D detected, crosshair tracks finger 1:1 into all four
+  corners (orientation correct out of the box — vendor `setSwapXY(true)`/`setMirrorXY(false,true)` config
+  was right, no flip needed), tap/long-press/drag classify correctly, fast/responsive, keyboard+trackball
+  unaffected on the shared I2C bus. Abdallah: "all works amazing and fast and all good." **Phase 0 complete.**
+  Next: Phase 1 (undercover glance cover — `g_covert` flag + `UndercoverManager`).
+- **TouchManager** (`core/input/touch/`) — GT911 singleton, `begin()`/`poll()` mirroring `InputHandling`'s
+  event-poll style. Reuses existing global `Wire` (SDA=18/SCL=8, already begun by `DisplayManager::init()`).
+- **Driver switched mid-session**: first built against `mmMicky/TouchLib`, then Abdallah linked LilyGo's
+  official T-Deck example (`Xinyuan-LilyGO/T-Deck examples/Touchpad/Touchpad.ino`), which uses a different
+  driver — `lewisxhe/SensorLib`'s `TouchDrvGT911`. Switched to match. Two concrete wins: (1) TouchLib's
+  `init()` was found to unconditionally `return true` regardless of I2C ACK (checked the vendored source) —
+  would have broken 0x5D->0x14 fallback / "no panel" detection; SensorLib's auto-probe instead verifies the
+  actual product-ID register (`==911`). (2) Coordinate mapping is no longer a guess — copied LilyGo's own
+  `setMaxCoordinates(320,240)`+`setSwapXY(true)`+`setMirrorXY(false,true)` verbatim for this exact board;
+  `poll()` reads already-mapped coords straight from the driver, no hand-rolled axis math.
+  `platformio.ini` lib_deps: `mmMicky/TouchLib` -> `lewisxhe/SensorLib @ ^0.4.1`; unused vendored
+  `lib/TouchLib` removed. **Registry dep** (Abdallah installed 0.4.1 via PlatformIO into `.pio/libdeps/`),
+  not hand-vendored under `lib/` — large multi-driver lib, left as a pinned registry dep like AceButton/NimBLE.
+- **0.4.x API version gotcha (handled):** LilyGo's example ships SensorLib 0.2.x (header-only `.tpp`), but
+  0.4.1 was refactored (`.cpp/.hpp` split, new `getTouchPoints()` API). Verified the code against the
+  *installed* 0.4.1 source, not 0.2.x: `setPins`/`begin(Wire,addr,sda,scl)`/`setMaxCoordinates`/`setSwapXY`/
+  `setMirrorXY`/`isPressed` unchanged, but the old `getPoint(int16_t*,int16_t*,n)` overload is now
+  `__attribute__((deprecated))` → migrated `poll()` to `getTouchPoints()` → `TouchPoints`/`TouchPoint{x,y}`
+  (`hasPoints()`/`getPoint(0)`) to avoid per-compile warning spam.
+- **Compiled clean on request** (both `T-Deck` + `T-Deck-Plus` envs, zero warnings/errors, RAM 65.2% /
+  Flash 38.9% on Plus). The warning Abdallah hit was `#pragma message: TouchDrvGT911.hpp is deprecated.
+  Include TouchDrv.hpp instead` — SensorLib 0.4.x deprecated the per-driver top-level headers for the
+  umbrella `TouchDrv.hpp`; `touch_manager.cpp` now includes that instead. (One-off exception to the usual
+  don't-compile rule in [[feedback_rules]] — he explicitly asked me to build + diagnose the warning.)
+- `poll()` classifies `TAP`/`LONG_PRESS`/`DRAG_START`/`DRAG_MOVE`/`DRAG_END` by travel/hold-time. Wired into
+  `main.ino` (`begin()` after `inputHandler.begin()`; `poll()` in `loop()` feeds `PowerSaveManager`/
+  `LockScreenManager` activity, then passed through new `LockScreenManager::interceptTouch()` which swallows
+  touch while locked, mirroring `interceptTrackball`).
+- **`test touch`** diagnostic — folded into the existing `test`/`tst` HW-test dispatcher (NOT a new `tt`
+  command — keeps the 64-cmd cap headroom per [[project_improvement_backlog]] #5). Full-screen crosshair +
+  4 corner brackets + live raw/mapped x/y + event-type readout — this is the hardware verification step.
+- Full spec + build-order + acceptance checklist: `.claude/memory/PLAN-undercover-touch.md`. Phase 0 only;
+  Phases 1-3 (undercover Notes-app disguise mode) not started — Phase 1 needs Phase 0 HW-verified first.
+- **Next action for the user:** flash + run `test touch`, confirm the dot tracks 1:1 into all four corner
+  brackets — should just work now since the mapping is the vendor's own config. Changes uncommitted (user
+  compiles/flashes manually).
+
 ## Session 2026-06-30 (netspy Stage 1b COMPLETE + device probing + ping UI bug fix) — ✅ ALL HW-VERIFIED
 - **netspy/ns Stage 1b** (DHCP/mDNS/SSDP hostnames + service enum + `[i]`/Enter detail view + UI polish +
   docs/man/README/CLAUDE/NOTICES/sdcard map): **✅ fully HW-verified.** Usability: detail opens on **Enter**
@@ -492,4 +577,4 @@ Lock screen write-block + unlock auto-redraw; backspace hold-repeat; btkbd/bk BL
 
 ## Not Yet Built
 - LoRa scanner — lorascan/ls
-- GT911 touchscreen (pins: project_future_peripherals.md)
+- Undercover mode Phases 1-3 (glance cover / Notes UI / duress) — see PLAN-undercover-touch.md; GT911 touch itself is Phase 0, code-complete pending HW verify (this session)

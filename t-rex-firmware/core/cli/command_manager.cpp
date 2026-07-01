@@ -39,6 +39,8 @@
 #include "ssh_client.h"
 #include "lockscreen_manager.h"
 #include "clock_manager.h"
+#include "touch_test.h"
+#include "notes_ui.h"
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
 extern WiFiFunctions      wifiFunctions;
@@ -681,10 +683,11 @@ static void handlePortScanCmd(char* a) {
 
 // Hardware self-tests: test spk|mic|lora (merged spktest/mictest/loratest)
 static void handleHwTestCmd(char* a) {
-    if (a && Utils::matchesCmd(a, "spk"))       runSpeakerTest();
-    else if (a && Utils::matchesCmd(a, "mic"))  runMicTest();
-    else if (a && Utils::matchesCmd(a, "lora")) runLoraTest();
-    else { displayManager.println("Usage: test <spk|mic|lora>"); displayManager.printCommandScreen(); }
+    if (a && Utils::matchesCmd(a, "spk"))        runSpeakerTest();
+    else if (a && Utils::matchesCmd(a, "mic"))   runMicTest();
+    else if (a && Utils::matchesCmd(a, "lora"))  runLoraTest();
+    else if (a && Utils::matchesCmd(a, "touch")) runTouchTest();
+    else { displayManager.println("Usage: test <spk|mic|lora|touch>"); displayManager.printCommandScreen(); }
 }
 
 void CommandManager::setupCommands() {
@@ -698,6 +701,7 @@ void CommandManager::setupCommands() {
     registerCommand("pwrsave",     "psv",    [](char* a) { PowerSaveManager::handleCommand(a); },                         "Power save: on/off/set/status",  true,  "System");
     registerCommand("sleep",       "slp",    [](char* a) { PowerSaveManager::getInstance().deepSleep(); },                "Deep sleep (~240uA); click trackball to wake", false, "System");
     registerCommand("lock",        "lk",     [](char* a) { LockScreenManager::getInstance().cmd(a); },                       "Screen lock  [new|update|clean|wipe|boot on|off|timeout <s>|status]", true,  "System");
+    registerCommand("notes",       "nt",     [](char* a) { runNotesUi(); },                                                 "[EXP] Undercover Notes cover UI (Phase 2 test)", false, "System");
     registerCommand("tz",          "tz",     [](char* a) { runTzCmd(a); },                                                    "Timezone  [+3 | -5:30 | <posix> | status]",          true,  "System");
     registerCommand("volume",      "vol",    [](char* a) { handleVolumeCmd(a); },                                             "General volume: vol [0-100|up|down|off]",   true,  "System");
     registerCommand("notif",       "nf",     [](char* a) { NotificationManager::handleNotifCmd(a); },                        "Notifications: nf [on|off|vol <n>|test|<lvl> on|off|file <f>]", true, "System");
@@ -752,7 +756,7 @@ void CommandManager::setupCommands() {
     registerCommand("jiggle",      "jg",     [](char* a) { if (a && (a[0]=='b'||a[0]=='B')) bleKeyboard.jiggle(); else usbKeyboard.jiggle(); }, "Jiggler: jg [ble] — prevent screen lock", true,  "USB");
     // ── Diagnostics ───────────────────────────────────────────────────────────
     registerCommand("gps",         "gps",    [](char* a) { runGps(a); },                                                "GPS: gps on|off|test",                    true,  "Diagnostics");
-    registerCommand("test",        "tst",    [](char* a) { handleHwTestCmd(a); },                                           "HW test: test <spk|mic|lora>",            true,  "Diagnostics");
+    registerCommand("test",        "tst",    [](char* a) { handleHwTestCmd(a); },                                           "HW test: test <spk|mic|lora|touch>",      true,  "Diagnostics");
     registerCommand("i2cscan",     "isc",    [](char* a) { runI2cScan(a); },                                                 "[EXP] I2C scanner: isc [r|w|d] <args>",  true,  "Diagnostics");
     registerCommand("csidetect",   "csi",    [](char* a) { runCsiDetect(a); },                                               "[EXP] WiFi CSI motion detect (csi | csi auto)", true,  "Diagnostics");
 }
