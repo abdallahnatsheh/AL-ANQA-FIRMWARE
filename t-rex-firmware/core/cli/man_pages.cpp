@@ -877,6 +877,26 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "undercover", "uc", {
+        "SYNTAX   undercover   (alias: uc)",
+        "",
+        "ABOUT    [EXP] Drop into undercover mode — a silent",
+        "         Notes disguise. Same cover as `notes`, but",
+        "         raises the covert flag so the device also",
+        "         goes SILENT: notification sounds and the",
+        "         hidden-SSID beep are suppressed, and the",
+        "         real status bar (GPS/shield) is hidden.",
+        "",
+        "         Passive tools keep running and logging to SD",
+        "         underneath the cover — only the tells (beeps,",
+        "         popups, shield icon) go quiet.",
+        "",
+        "USE      Navigate like `notes`. [q] exits back to the",
+        "         CLI (a secret-passphrase exit + panic-chord",
+        "         entry are still TODO).",
+        nullptr
+    }},
+
     { "test", "tst", {
         "SYNTAX   test spk | test mic | test lora | test touch",
         "",

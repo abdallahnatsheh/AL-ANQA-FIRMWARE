@@ -3,6 +3,7 @@
 #include "display_manager.h"
 #include "sdcard_manager.h"
 #include "input_handling.h"
+#include "covert.h"
 #include <SD.h>
 #include <driver/i2s.h>
 #include <math.h>
@@ -180,6 +181,7 @@ bool NotificationManager::playWav(const char* path) {
 // ── Public notify ─────────────────────────────────────────────────────────────
 
 void NotificationManager::notify(NotifLevel level, bool force) {
+    if (g_covert) return;   // undercover: total silence, and no screen-wake tell
     if (!force && !_enabled[level]) return;
     if (_wakeCallback) _wakeCallback();
 

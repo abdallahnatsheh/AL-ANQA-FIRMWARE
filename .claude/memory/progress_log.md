@@ -4,6 +4,30 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-07-01 (undercover Phase 1a — g_covert flag + sound-leak audit) — NOT compiled/tested by me
+- After Phase 0 (touch) + Phase 2 UI (Notes cover) shipped & pushed (b273edd), started Phase 1 = "glance cover"
+  (silent + invisible). Did **Phase 1a** = the flag + the audio audit + a deliberate entry.
+- **`covert.h`** — `extern volatile bool g_covert;` (tiny header so leak points include just the flag).
+  **`undercover.{h,cpp}`** — defines `g_covert=false` + `runUndercover()` (`uc` cmd): sets g_covert=true, runs
+  the blocking Notes cover (`runNotesUi`), clears on exit. New cmd **`undercover`/`uc`** [EXP] System (count 63).
+- **Sound-leak audit — 2 gates, that's all it took:** (1) `NotificationManager::notify()` early-returns when
+  `g_covert` — ONE gate covers wguard (notifyThrottled) + macwatch + espchat-bg + all notif sounds, and kills
+  the screen-wake tell too (checked: all route through notify()). (2) `hidden_ssid` `playBeep()` (direct
+  `i2s_write`, bypasses NotificationManager) gates on g_covert. No other bg-capable emitters (buddy/trackme are
+  foreground-only; they won't run under the blocking cover).
+- **Visual tells need no g_covert gate for the blocking cover:** the Notes UI already calls
+  `displayManager.setBlocked(true)`, and wguard shield/popup + macwatch popup already honour `isBlocked()`, so
+  they're suppressed while the cover is up. g_covert is specifically for AUDIO (bypasses display blocking).
+- **NOT built (next increments):** panic-chord entry (fire mid-command — needs the non-blocking
+  `UndercoverManager` intercept model, a notes_ui refactor to stateful begin/handleEvent/end); secret-passphrase
+  exit (still `q`, which is a tell); duress/decoy; boot-cover. See PLAN-undercover-touch.md.
+- Docs: man `uc`, CLAUDE.md undercover entry + System cmd list. Uncommitted; Abdallah builds/tests manually.
+- **Notes UI layout fixes** (HW feedback): (a) card day-meta clipped → CARD_H 54->58, meta to screenY+43;
+  (b) "Notes header still above [the] watch a little" = the fake status-bar CLOCK ("watch") was oversized
+  (drawn at s_fTitle 15px vs mockup ~10px), so it filled the 18px status bar and crowded the "Notes" title
+  right below it → shrank the clock to s_fMeta (~11px, middle-left centered) + more gap (APPBAR_Y +6->+8,
+  SEARCH_Y 52->54, LIST_TOP -> 88). Pure font/layout-constant tweaks. Awaiting Abdallah's confirmation.
+
 ## Session 2026-07-01 (undercover Phase 2 UI — Notes cover, first pass) — compiles clean, awaiting HW feedback
 - Abdallah reordered: build the Notes UI as a **test first** ("not full feature like duress password, just
   simple ui"), ahead of Phase 1. Reference = `~/Downloads/trex-undercover-notes.html` (mockup at 2x; real
@@ -43,8 +67,10 @@ type: project
   (moved to s_fMeta 11px, secondary look — was same size as title); (5) cleaner **magnifier** icon
   (drawWideLine handle); (6) decorative **share/download** icons in the detail bar (accent, non-functional).
   NOT compiled by me (manual build). Awaiting Abdallah's manual test → then commit "when all is good".
-- Next: after visuals approved + committed, Phase 1 (g_covert audit) + real hidden-exit passphrase.
-- Uncommitted (Abdallah builds/flashes manually).
+- ✅ Visuals approved ("all good like it") → **committed `b273edd`** ("feat(undercover): GT911 touchscreen +
+  Notes cover UI (phase 0+2)", 42 files) and **PUSHED** to origin/feature/pentest-enhancements.
+- Next: Phase 1 (g_covert leak audit + UndercoverManager + `uc`/panic-chord triggers), then rest of Phase 2
+  (SD `/notes/*.txt` + hidden-exit passphrase), then Phase 3 (boot-cover + dual/decoy duress).
 
 ## Session 2026-07-01 (touchscreen activation — Phase 0 of undercover-mode plan) — ✅ HW-VERIFIED & WORKING
 - **`test touch` field-tested OK**: GT911 @ 0x5D detected, crosshair tracks finger 1:1 into all four

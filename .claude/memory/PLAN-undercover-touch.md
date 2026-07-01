@@ -1,6 +1,16 @@
 # PLAN — Undercover Mode + Touchscreen Activation
 
-> **STATUS 2026-07-01: Phase 0 ✅ HW-VERIFIED & WORKING.** `test touch` on real hardware:
+> **STATUS 2026-07-01: Phase 0 ✅ + Phase 2 UI ✅ (committed+pushed b273edd) + Phase 1a built (uncommitted).**
+> Phase 1a = `g_covert` flag (`covert.h`/`undercover.cpp`) + `undercover`/`uc` cmd (blocking silent cover) +
+> the sound-leak audit: `NotificationManager::notify()` and `hidden_ssid` beep both no-op when covert (that
+> ONE notify() gate silences wguard/macwatch/espchat too — all route through it). Visual tells already
+> covered by the Notes UI's `setBlocked(true)`. **Phase 1 REMAINING:** panic-chord entry (needs the
+> non-blocking `UndercoverManager` intercept model → refactor `runNotesUi` into stateful begin/handleEvent/
+> end so a chord in `getKeyboardInput` can drop to cover mid-command); the deliberate `uc` blocking entry is
+> a stopgap. Then rest of Phase 2 (SD notes + secret-passphrase exit, replacing the `q` tell) + Phase 3.
+>
+> ---
+> **Phase 0 ✅ HW-VERIFIED & WORKING.** `test touch` on real hardware:
 > GT911 detected at 0x5D, crosshair tracks the finger 1:1 into all four corners (orientation
 > correct — the vendor `setSwapXY`/`setMirrorXY` config was right, no flip needed), tap/
 > long-press/drag classify correctly, keyboard+trackball unaffected on the shared I2C bus.

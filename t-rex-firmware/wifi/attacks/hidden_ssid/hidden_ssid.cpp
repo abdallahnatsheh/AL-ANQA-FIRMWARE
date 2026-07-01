@@ -8,6 +8,7 @@
 #include "utilities.h"
 #include "sdcard_manager.h"
 #include "lockscreen_manager.h"
+#include "covert.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <driver/i2s.h>
@@ -54,6 +55,7 @@ static void IRAM_ATTR snifferCb(void* buf, wifi_promiscuous_pkt_type_t pktType) 
 
 // ── Rising two-tone beep (1 kHz → 2 kHz, 250 ms each) ────────────────────────
 static void playBeep() {
+    if (g_covert) return;   // undercover: no beep on a hidden-SSID find
     i2s_config_t cfg = {};
     cfg.mode                 = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX);
     cfg.sample_rate          = 22050;
