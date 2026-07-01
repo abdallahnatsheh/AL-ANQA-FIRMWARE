@@ -6,7 +6,10 @@
 - [NimBLE v2.x Rules](nimble_v2_rules.md) — scan response name, cleanup no re-init, scan non-blocking, auto-bond-delete
 
 ## State
-- [Progress Log](progress_log.md) — last session 2026-06-30 (netspy `ns` Stage 1b COMPLETE: DHCP/mDNS/SSDP hostnames + service enum + Enter/`[i]` detail + CSV services; device probing in-app `[p]`/`[o]` + CLI `ps ns#`/`pg ns#` + `#` index col; ping UI overflow-over-statusbar bug fixed → bounded layout — all ✅HW-verified, committed 5c45ee8+dbceef8+8eb6ac5, UNPUSHED); not-yet-built list
+- [Progress Log](progress_log.md) — last session 2026-07-01 (touchscreen activation, Phase 0 of undercover-mode plan: `TouchManager` singleton + `test touch` diagnostic, ✅ HW-VERIFIED & working via SensorLib 0.4.x/TouchDrvGT911; compiles clean both envs — uncommitted); not-yet-built list
+
+## In progress
+- [Undercover mode + touchscreen](PLAN-undercover-touch.md) — Phase 0 (GT911 touch) ✅ HW-VERIFIED 2026-07-01 (SensorLib 0.4.x, tracks 1:1, orientation correct). **Next = Phase 1** (`g_covert` flag wired everywhere + `UndercoverManager` glance cover). Full 4-phase spec + acceptance checklist in the plan file.
 - [Next Steps](next_steps.md) — priority queue: WiFi(1-9)→BT(10-12)→GPS(13-14)→USB(15-18)→Other(19-26)
 
 ## Improvement backlog (hardening — user will consider)

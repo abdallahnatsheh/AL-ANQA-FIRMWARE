@@ -420,6 +420,11 @@ TrackballEvent LockScreenManager::interceptTrackball(TrackballEvent evt) {
     return TBALL_NONE;   // swallow all trackball events while locked
 }
 
+TouchEvent LockScreenManager::interceptTouch(TouchEvent evt) {
+    if (!_locked) return evt;
+    return TouchEvent();   // swallow all touch events while locked (type defaults to NONE)
+}
+
 void LockScreenManager::updateActivity() {
     if (!_locked) _lastActivityMs = millis();
 }

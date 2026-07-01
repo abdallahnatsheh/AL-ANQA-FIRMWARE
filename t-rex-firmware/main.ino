@@ -24,6 +24,7 @@
 #include "wguard.h"
 #include "lockscreen_manager.h"
 #include "clock_manager.h"
+#include "touch_manager.h"
 
 LGFX tft;
 DisplayManager   displayManager(tft);
@@ -49,6 +50,7 @@ void setup() {
     Serial.begin(115200);
     displayManager.init();
     inputHandler.begin();
+    TouchManager::instance().begin();   // after inputHandler.begin() — needs Wire + BOARD_POWERON already up
     showSplashScreen();
     displayManager.tdeck_begin();
 
@@ -76,4 +78,15 @@ void loop() {
     TrackballEvent evt = inputHandler.getTrackballEvent();
     evt = LockScreenManager::getInstance().interceptTrackball(evt);
     commandManager.processTrackball(evt);
+
+    TouchEvent te = TouchManager::instance().poll();
+    if (te.type != TouchEvent::NONE) {
+        inputHandler.updateActivity();
+        if (!PowerSaveManager::getInstance().isManualOff())
+            PowerSaveManager::getInstance().updateActivity();
+        LockScreenManager::getInstance().updateActivity();
+    }
+    te = LockScreenManager::getInstance().interceptTouch(te);
+    // No touch-driven UI consumes `te` yet (Phase 2 Notes UI); commands that
+    // want touch poll TouchManager::instance() directly, same as `test touch`.
 }

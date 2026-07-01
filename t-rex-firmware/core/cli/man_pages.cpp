@@ -856,8 +856,29 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "notes", "nt", {
+        "SYNTAX   notes",
+        "",
+        "ABOUT    [EXP] Undercover 'Notes cover' UI — Phase 2",
+        "         test of the disguise mode. Renders an",
+        "         ordinary notes app (warm paper, amber",
+        "         accent, no terminal cues) so the look and",
+        "         touch/trackball navigation can be tuned on",
+        "         hardware.",
+        "",
+        "USE      Tap a card (or trackball-select + click) to",
+        "         open a note; tap the back chevron to return;",
+        "         tap the + FAB for a new note. Drag or",
+        "         trackball up/down to scroll. [q] exits.",
+        "",
+        "NOTE     UI ONLY — no secret-passphrase exit, no",
+        "         duress/decoy, no SD notes yet. Sample notes",
+        "         are hardcoded. Full undercover mode is TODO.",
+        nullptr
+    }},
+
     { "test", "tst", {
-        "SYNTAX   test spk | test mic | test lora",
+        "SYNTAX   test spk | test mic | test lora | test touch",
         "",
         "ABOUT    Hardware self-tests. Pick a target:",
         "",
@@ -871,6 +892,10 @@ static const ManEntry PAGES[] = {
         "         [r]ecord [p]lay [+/-]gain [q]. Both boards.",
         "LORA     SX1262 diagnostic — init, TX test, RX",
         "         monitor, 868/915 MHz. [q] stop RX.",
+        "TOUCH    [EXP] GT911 capacitive touch — live",
+        "         crosshair tracks the finger, shows raw",
+        "         mapped x/y + tap/long-press/drag events.",
+        "         Corner brackets verify no mirror/swap.",
         nullptr
     }},
 
