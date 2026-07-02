@@ -82,11 +82,34 @@ with existing tooling. The on-device `mc status` signal (address populates + cha
 on API success) is accepted as sufficient verification for this fix. A future throwaway
 raw-advertising test path could close that gap if ever wanted — not currently planned.
 
-Also confirmed pre-existing UI bug (unrelated to this fix, not fixed): `mc random`'s "New
-MAC:" status line always prints `_currentMac` (the WiFi field) regardless of `_target`, so
-running it with `target=bt` shows a misleading all-zero WiFi MAC. `mc status` shows the
-correct per-target fields; the one-line confirmation print just doesn't respect `_target`.
-Small, cosmetic, not yet fixed — flag if it comes up again.
+## Follow-up UX fixes (found during the same HW test session, all FIXED + committed)
+- **Target-aware confirmation print.** `mc random`/`mc set` always printed `_currentMac`
+  (the WiFi field) regardless of `_target`, so `target=bt` showed a misleading all-zero
+  WiFi line. Fixed with `printAppliedMac()` — prints `WiFi:`/`BLE :` only for the field(s)
+  `_target` actually applies.
+- **`applyBleMac()`/`applyAll()` now return success**, not `void` — needed so the UI can
+  tell "spoof applied" from "BLE requested but stack not up" instead of just showing zeros
+  both times.
+- **Two-state-aware status message.** First pass just said "BLE not active" whenever
+  `_currentBleMac` was zero, conflating two different real states: (a) BT stack never
+  initialized this session vs. (b) BT stack IS up (e.g. after running `sbl`) but `mc
+  random`/`mc set` was never actually run yet. Caught via user HW test: ran `sbl`, quit,
+  checked `mc status`, saw "not active" even though NimBLE was genuinely still initialized
+  (confirmed `sbl`'s exit path never deinits — `bluetooth_functions.cpp:215-217` — by
+  design, so btkbd can find the stack still warm). Fixed by checking
+  `NimBLEDevice::isInitialized()` directly instead of inferring from the zeroed MAC:
+  `"not applied yet — run: mc random"` vs `"BT stack not active — run a BT tool first"`.
+- **Autocomplete**: `mc`'s subcommand hints already existed in `kArgHints`
+  (`on off random set restore target`, `target→wifi/bt/both`, `restore→on/off`) — only
+  `status` was missing (deliberately, since it's not a distinct code path — bare `mc` and
+  `mc status` both fall through to the same `printStatus()`). Added it anyway since it
+  works and users expect it, matching `pwrsave`/`lock`'s pattern of listing `status`.
+- **Unrelated bug caught by the build**: an earlier man_pages.cpp edit (undercover mode
+  docs, different session topic) had overflowed the fixed `const char* lines[32]` array —
+  trimmed it back under budget.
+
+User confirmed final state working: "now all good commit it". Committed as `89965e0` on
+`feature/pentest-enhancements`.
 
 Related: [[nimble_v2_rules]], [[project_improvement_backlog]] (Tier 2b — mark done),
 [[macwatch]] (reference NimBLE usage pattern this fix followed).
