@@ -11,6 +11,11 @@
 #define SD_DIR_CONFIG_NOTIF "/config/notification"
 #define SD_DIR_APPS         "/apps"
 
+// Undercover Notes cover — real files at SD ROOT (NOT /apps/), so a PC-browsed
+// card shows an ordinary "notes" folder, not a T-REX tool folder. NNN.txt,
+// sequential, never reused. See core/system/undercover/notes_ui.cpp.
+#define SD_DIR_NOTES         "/notes"
+
 // Per-app /apps/<tool> subfolders + files shared across multiple source files.
 // (Tools that only reference their own folder define it locally instead.)
 #define SD_DIR_TRACKME       "/apps/trackme"

@@ -702,7 +702,7 @@ void CommandManager::setupCommands() {
     registerCommand("pwrsave",     "psv",    [](char* a) { PowerSaveManager::handleCommand(a); },                         "Power save: on/off/set/status",  true,  "System");
     registerCommand("sleep",       "slp",    [](char* a) { PowerSaveManager::getInstance().deepSleep(); },                "Deep sleep (~240uA); click trackball to wake", false, "System");
     registerCommand("lock",        "lk",     [](char* a) { LockScreenManager::getInstance().cmd(a); },                       "Screen lock  [new|update|clean|wipe|boot on|off|timeout <s>|status]", true,  "System");
-    registerCommand("notes",       "nt",     [](char* a) { runNotesUi(); },                                                 "[EXP] Undercover Notes cover UI (Phase 2 test)", false, "System");
+    registerCommand("notes",       "nt",     [](char* a) { runNotesUi(); },                                                 "[EXP] Notes cover UI: SD-backed notes, cursor editor", false, "System");
     registerCommand("undercover",  "uc",     [](char* a) { runUndercover(a); },                                            "[EXP] Undercover: cover + passphrase [set|clear|status]", true,  "System");
     registerCommand("tz",          "tz",     [](char* a) { runTzCmd(a); },                                                    "Timezone  [+3 | -5:30 | <posix> | status]",          true,  "System");
     registerCommand("volume",      "vol",    [](char* a) { handleVolumeCmd(a); },                                             "General volume: vol [0-100|up|down|off]",   true,  "System");

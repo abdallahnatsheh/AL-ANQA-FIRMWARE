@@ -1,15 +1,19 @@
 # PLAN — Undercover Mode + Touchscreen Activation
 
-> **STATUS 2026-07-02:**
-> - Phase 0 ✅ GT911 touch HW-verified
+> **STATUS 2026-07-02: Phase 2 is FULLY COMPLETE — all HW-verified.**
+> - Phase 0 ✅ GT911 touch
 > - Phase 1a ✅ `g_covert` flag + `uc` entry + sound-leak audit (notify + hiddenssid beep gated)
-> - Phase 2 UI ✅ Notes cover look+nav HW-verified (committed b273edd)
-> - Phase 2 secret exit ✅ **HW-verified 2026-07-02**: `undercover_config.h/.cpp` (SHA-256 passphrase,
->   `/config/undercover.conf`), `uc set/clear/status` subcommands, rolling-buffer check in notes_ui,
->   `q` blocked when phrase set, touch wake gated on `g_covert` (single-tap=dim, double-tap=screen-off).
+> - Phase 2 UI ✅ Notes cover look+nav (committed b273edd)
+> - Phase 2 secret exit ✅ `undercover_config.h/.cpp` (SHA-256 passphrase, `/config/undercover.conf`),
+>   `uc set/clear/status`, rolling-buffer keystroke scan, `q` blocked once a phrase is set.
+> - Phase 2 SD notes + real editor ✅ `/notes/*.txt` (SD root, outside `/apps/`), cursor-addressable
+>   editor (touch-to-position + trackball 4-way movement, not just append), functional save button,
+>   auto-save on exit, opsec-safe (passphrase-match exit never persists). Touch-wake gated on `g_covert`,
+>   correctly scoped inside `runNotesUi()`'s own loop. See progress_log.md session 2026-07-02b for full detail.
 >
 > **REMAINING — Phase 1 panic-chord** (needs non-blocking `UndercoverManager` + stateful notes_ui
-> refactor); **Phase 2 SD notes** (`/notes/*.txt`); **Phase 3** boot-cover + decoy passphrase + ops-policy.
+> refactor, so a chord can drop to cover mid-command instead of only via the blocking `uc` cmd);
+> **Phase 3** boot-cover + decoy/duress passphrase + ops-policy (freeze transmitters under cover).
 >
 > ---
 > **Phase 0 ✅ HW-VERIFIED & WORKING.** `test touch` on real hardware:

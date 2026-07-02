@@ -91,6 +91,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 - Man pages on-device (`man <cmd>`), paginated help, power save, Matrix animation
 - Trackpad cursor — move cursor mid-command, click to execute
 - **Lock screen** (`lock`) — [full guide](docs/lock.md) — idle-timeout auto-lock (keyboard **and** trackpad activity both reset the timer); hold trackpad center 3 s to lock from any app; no-PIN mode (Space ×3) or SHA-256 hashed PIN; live locked-duration counter; warns if no SD card; forgot PIN → remove SD + reboot
+- **Undercover mode** (`undercover`/`uc`) `[EXP]` — silent Notes-app disguise for opsec/duress: real SD-backed notes (`/notes/*.txt`, root of the card) with a cursor-addressable editor (touch-to-position, trackball 4-way nav), keyboard typing, save button; going covert (`g_covert`) also mutes notification sounds and hides the real status bar while passive tools keep logging underneath; secret SHA-256-hashed passphrase exits silently without saving the open note (so the phrase itself never touches SD); touch wakes a dimmed/off screen only while undercover. `notes`/`nt` runs the same cover UI standalone (no silent mode) for tuning. Panic-chord entry and duress/decoy are still TODO
 
 ---
 
@@ -135,6 +136,8 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `volume` | `vol` | `[0-100\|up\|down\|off]` | General audio volume |
 | `notif` | `nf` | `[on\|off\|vol <n>\|test [lvl]\|<lvl> on\|off\|file <f>]` | Notification manager — per-level enable/disable, custom WAV, `test` sound picker |
 | `tz` | `tz` | `[+HH\|-HH:MM\|<posix>\|status]` | Set device timezone (NVS, survives reboot) |
+| `notes` | `nt` | `[EXP]` — | Notes cover UI standalone (SD-backed notes, cursor editor) — no silent mode |
+| `undercover` | `uc` | `[EXP]` `[set\|clear\|status]` | Silent Notes disguise — mutes notifications, hides status bar; secret passphrase exits without saving |
 | **WiFi** | | | |
 | `scanwifi` | `sw` | — | Scan WiFi networks |
 | `connectwifi` | `cw` | `<index\|ssid>` | Connect by scan index or SSID name |

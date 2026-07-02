@@ -12,6 +12,7 @@ has_children: true
 | [Device Info](info) | `info` / `inf` |
 | [Power Save](pwrsave) | `pwrsave` / `psv` · `sleep` / `slp` |
 | [Lock Screen](lock) | `lock` / `lk` |
+| Undercover Mode | `notes` / `nt` · `undercover` / `uc` |
 | [Timezone](tz) | `tz` |
 | [Audio & Notifications](audio) | `volume` / `vol` · `notif` / `nf` · `test spk` |
 | [SD Commands](sd-commands) | `sdinfo` · `sdls` · `cd` · `cat` · `edit` · `rm` · `sdformat` |
@@ -170,6 +171,39 @@ CMD> MATRIX
 ```
 
 Launches the Matrix digital rain animation. Press `q` to exit.
+
+---
+
+## `notes` / `nt` and `undercover` / `uc` — Undercover Mode
+
+```
+CMD> notes            # standalone Notes cover UI (no silent mode)
+CMD> undercover        # silent Notes disguise
+CMD> uc set             # set a secret exit passphrase
+CMD> uc clear           # remove the exit passphrase
+CMD> uc status          # show whether one is set
+```
+
+A real, SD-backed notes app (`/notes/NNN.txt`, at SD root — not `/apps/` — so it looks like an ordinary folder to anyone browsing the card on a PC) that doubles as a disguise. `notes` just runs the cover UI. `undercover` runs the same UI but also raises the covert flag: notification sounds and the hidden-SSID beep go silent, and the real T-Rex status bar stays hidden — passive tools (wguard, macwatch, espchat, etc.) keep running and logging to SD underneath, only the audible/visible tells go quiet.
+
+| Action | Result |
+|--------|--------|
+| Tap a card / trackball UP-DOWN + click | Open a note |
+| Tap a line inside a note | Move the cursor there |
+| Type / Backspace / Enter | Edit the note in place |
+| Trackball UP / DOWN (in a note) | Move cursor a line at a time |
+| Trackball LEFT / RIGHT (in a note) | Move cursor a character at a time (wraps across lines) |
+| Tap the save icon | Save to SD (toast confirms "Saved" or "No SD") |
+| Tap the + FAB | New note |
+| Tap the back chevron | Return to the list |
+| `[q]` | Exit — fallback only, disabled once a passphrase is set |
+| Type the secret passphrase (uc only) | Exit silently to the CLI, without saving the open note |
+
+No SD card → notes still work for the session (typing, editing, navigating) but nothing persists across a reboot — there is no crash or degraded mode, just no save. The passphrase is stored as `SHA-256(salt + phrase)` in `/config/undercover.conf`, never in plaintext; on a passphrase-match exit the currently-open note is deliberately **not** saved, so the phrase's own keystrokes (typed live into the note before the match is detected) never reach the SD card.
+
+Touch wake — one tap wakes a half-dimmed screen, a double-tap (within 500 ms) wakes a fully screen-off device. This only works while undercover (`uc`) is active; the plain terminal and standalone `notes` never wake on touch.
+
+**Still TODO:** panic-chord entry (drop into cover mid-command via a keyboard chord instead of running `uc`), duress/decoy passphrase, boot-cover.
 
 ---
 
