@@ -1,13 +1,15 @@
 # PLAN — Undercover Mode + Touchscreen Activation
 
-> **STATUS 2026-07-01: Phase 0 ✅ + Phase 2 UI ✅ (committed+pushed b273edd) + Phase 1a built (uncommitted).**
-> Phase 1a = `g_covert` flag (`covert.h`/`undercover.cpp`) + `undercover`/`uc` cmd (blocking silent cover) +
-> the sound-leak audit: `NotificationManager::notify()` and `hidden_ssid` beep both no-op when covert (that
-> ONE notify() gate silences wguard/macwatch/espchat too — all route through it). Visual tells already
-> covered by the Notes UI's `setBlocked(true)`. **Phase 1 REMAINING:** panic-chord entry (needs the
-> non-blocking `UndercoverManager` intercept model → refactor `runNotesUi` into stateful begin/handleEvent/
-> end so a chord in `getKeyboardInput` can drop to cover mid-command); the deliberate `uc` blocking entry is
-> a stopgap. Then rest of Phase 2 (SD notes + secret-passphrase exit, replacing the `q` tell) + Phase 3.
+> **STATUS 2026-07-02:**
+> - Phase 0 ✅ GT911 touch HW-verified
+> - Phase 1a ✅ `g_covert` flag + `uc` entry + sound-leak audit (notify + hiddenssid beep gated)
+> - Phase 2 UI ✅ Notes cover look+nav HW-verified (committed b273edd)
+> - Phase 2 secret exit ✅ **HW-verified 2026-07-02**: `undercover_config.h/.cpp` (SHA-256 passphrase,
+>   `/config/undercover.conf`), `uc set/clear/status` subcommands, rolling-buffer check in notes_ui,
+>   `q` blocked when phrase set, touch wake gated on `g_covert` (single-tap=dim, double-tap=screen-off).
+>
+> **REMAINING — Phase 1 panic-chord** (needs non-blocking `UndercoverManager` + stateful notes_ui
+> refactor); **Phase 2 SD notes** (`/notes/*.txt`); **Phase 3** boot-cover + decoy passphrase + ops-policy.
 >
 > ---
 > **Phase 0 ✅ HW-VERIFIED & WORKING.** `test touch` on real hardware:
