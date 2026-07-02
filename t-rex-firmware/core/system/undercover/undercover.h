@@ -2,18 +2,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Abdallah Natsheh
 //
-// Undercover mode — Phase 1 of PLAN-undercover-touch. `uc`/`undercover` drops
-// the device into a silent Notes disguise: raises g_covert (so every leak point
-// goes quiet) and shows the Notes cover UI. Exit returns to the CLI.
+// Undercover mode — `uc`/`undercover` drops the device into a silent Notes
+// disguise. Subcommands:
+//   uc          — enter the cover (blocks until secret exit or q)
+//   uc set      — set the secret exit passphrase (SHA-256, SD-backed)
+//   uc clear    — remove the passphrase
+//   uc status   — show whether a passphrase is configured
 //
-// Phase 1a scope: deliberate `uc` entry + the sound-leak audit. NOT yet built:
-// panic-chord entry (fire mid-command), secret-passphrase exit, duress/decoy.
+// g_covert is raised for the whole cover session so every sound/visual tell
+// (notifications, direct I2S beeps) goes silent regardless of which background
+// tools are running underneath.
 
 #ifndef UNDERCOVER_H
 #define UNDERCOVER_H
 
 #include "covert.h"
 
-void runUndercover();   // `uc` — enter the silent cover, block until exit
+void runUndercover(char* args);
 
 #endif // UNDERCOVER_H

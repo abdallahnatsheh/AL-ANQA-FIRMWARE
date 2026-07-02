@@ -82,11 +82,11 @@ void loop() {
     TouchEvent te = TouchManager::instance().poll();
     if (te.type != TouchEvent::NONE) {
         inputHandler.updateActivity();
-        if (!PowerSaveManager::getInstance().isManualOff())
-            PowerSaveManager::getInstance().updateActivity();
         LockScreenManager::getInstance().updateActivity();
+        // Touch does NOT wake the screen on the terminal — keyboard/trackball only.
+        // (Touch wake for the Notes cover is handled inside runNotesUi(), which
+        //  blocks this loop while the cover is active.)
     }
     te = LockScreenManager::getInstance().interceptTouch(te);
-    // No touch-driven UI consumes `te` yet (Phase 2 Notes UI); commands that
-    // want touch poll TouchManager::instance() directly, same as `test touch`.
+    // No touch-driven UI consumes `te` here; commands poll TouchManager directly.
 }

@@ -4,6 +4,32 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-07-02 (undercover Phase 2 — secret-passphrase exit + touch wake) — HW-verified by Abdallah ✅
+
+### Secret-passphrase exit (Phase 2 complete)
+- **`undercover_config.h/.cpp`** — new module: SHA-256(salt+phrase) via mbedTLS, 8-byte `esp_random()` salt,
+  stored in `/config/undercover.conf` (`hash=`, `salt=`, `len=`). Same pattern as lockscreen PIN. Lazy-loads
+  on first use; `ucLoadConfig()` for explicit refresh. API: `ucHasPassphrase`, `ucPhraseLen`, `ucSetPassphrase`,
+  `ucClearPassphrase`, `ucCheckPhrase`.
+- **`undercover.cpp`** — `runUndercover(char* args)` now dispatches `uc set` (hidden star-entry, 4–32 chars,
+  double-confirm) / `uc clear` / `uc status`; no-args path calls `ucLoadConfig()` then enters the cover.
+  `promptPhrase()` mirrors lockscreen's `promptPin()` style. `hasArgs` flipped true in command registration.
+- **`notes_ui.cpp`** — rolling window: file-static `s_kbuf[33]`/`s_kpos`, reset each session entry. Every
+  printable keypress advances the `ucPhraseLen()`-wide sliding window and calls `ucCheckPhrase()` — match =
+  silent `break` (no tell, looks like typing a memo). `q` gated on `!ucHasPassphrase()` so it's the
+  fallback only when no phrase is configured.
+- **Touch wake (undercover-only)** — `main.ino` touch block gated on `g_covert`: in-cover, half-dim = single
+  touch wakes; screen-off = double-tap (two TAPs within 500 ms) wakes. On terminal `g_covert=false` so touch
+  never wakes the screen (keyboard/trackball only, unchanged).
+- `#include "covert.h"` added to `main.ino`.
+
+### What's still NOT built (next increments)
+- **Panic-chord entry** (fire mid-command) — needs the non-blocking `UndercoverManager` intercept model +
+  stateful `runNotesUi` refactor (begin/handleEvent/end). Panic chord is the real entry path; `uc` cmd is stopgap.
+- **SD-backed notes** (`/notes/*.txt`) — still hardcoded sample notes.
+- **Phase 3**: boot-cover (`boot_cover=1`), decoy/duress passphrase (`decoy_hash`/`decoy_salt` in config),
+  ops-policy (freeze transmitters under cover).
+
 ## Session 2026-07-01 (undercover Phase 1a — g_covert flag + sound-leak audit) — NOT compiled/tested by me
 - After Phase 0 (touch) + Phase 2 UI (Notes cover) shipped & pushed (b273edd), started Phase 1 = "glance cover"
   (silent + invisible). Did **Phase 1a** = the flag + the audio audit + a deliberate entry.
