@@ -88,6 +88,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 - [Device Info](info) — `info`
 - [Power Save](pwrsave) — `pwrsave` · `sleep`
 - [Lock Screen](lock) — `lock`
+- [Undercover Mode](system#notes--nt-and-undercover--uc--undercover-mode) — `notes` · `undercover`
 - [Timezone](tz) — `tz`
 - [Audio & Notifications](audio) — `volume` · `notif` · `test spk`
 - [SD Commands](sd-commands) — `sdinfo` · `sdls` · `cd` · `cat` · `edit` · `rm` · `sdformat`

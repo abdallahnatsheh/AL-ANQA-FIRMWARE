@@ -6,10 +6,10 @@
 - [NimBLE v2.x Rules](nimble_v2_rules.md) — scan response name, cleanup no re-init, scan non-blocking, auto-bond-delete
 
 ## State
-- [Progress Log](progress_log.md) — last session 2026-07-02 (undercover: **Phase 2 secret exit ✅ HW-verified** — `undercover_config` SHA-256 passphrase, `uc set/clear/status`, rolling-buffer check, q blocked when phrase set, touch wake gated on g_covert); not-yet-built: panic-chord, SD notes, Phase 3
+- [Progress Log](progress_log.md) — last session 2026-07-02b (undercover: **Phase 2 fully complete ✅** — SD-backed `/notes/*.txt` + real cursor-addressable editor (touch-to-position, trackball 4-way), functional save button, opsec-safe passphrase exit, lockscreen-collision + touch-wake bugfixes); not-yet-built: panic-chord, Phase 3
 
 ## In progress
-- [Undercover mode + touchscreen](PLAN-undercover-touch.md) — Phase 0 ✅ Phase 1a ✅ Phase 2 ✅ (touch+UI+secret-passphrase exit all HW-verified). **Next = panic-chord entry** (non-blocking UndercoverManager + stateful notes_ui), then Phase 3 (boot-cover, decoy passphrase). Full spec in plan file.
+- [Undercover mode + touchscreen](PLAN-undercover-touch.md) — Phase 0 ✅ Phase 1a ✅ Phase 2 ✅ FULLY DONE (touch, UI, secret-passphrase exit, SD-backed real notes with cursor-addressable editor, all HW-verified). **Next = panic-chord entry** (non-blocking UndercoverManager + stateful notes_ui), then Phase 3 (boot-cover, decoy passphrase). Full spec in plan file.
 - [Next Steps](next_steps.md) — priority queue: WiFi(1-9)→BT(10-12)→GPS(13-14)→USB(15-18)→Other(19-26)
 
 ## Improvement backlog (hardening — user will consider)

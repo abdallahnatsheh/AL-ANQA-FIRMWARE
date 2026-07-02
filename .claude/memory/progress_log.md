@@ -4,29 +4,56 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
-## Session 2026-07-02 (undercover Phase 2 — secret-passphrase exit + touch wake) — HW-verified by Abdallah ✅
-
-### Secret-passphrase exit (Phase 2 complete)
-- **`undercover_config.h/.cpp`** — new module: SHA-256(salt+phrase) via mbedTLS, 8-byte `esp_random()` salt,
-  stored in `/config/undercover.conf` (`hash=`, `salt=`, `len=`). Same pattern as lockscreen PIN. Lazy-loads
-  on first use; `ucLoadConfig()` for explicit refresh. API: `ucHasPassphrase`, `ucPhraseLen`, `ucSetPassphrase`,
-  `ucClearPassphrase`, `ucCheckPhrase`.
-- **`undercover.cpp`** — `runUndercover(char* args)` now dispatches `uc set` (hidden star-entry, 4–32 chars,
-  double-confirm) / `uc clear` / `uc status`; no-args path calls `ucLoadConfig()` then enters the cover.
-  `promptPhrase()` mirrors lockscreen's `promptPin()` style. `hasArgs` flipped true in command registration.
-- **`notes_ui.cpp`** — rolling window: file-static `s_kbuf[33]`/`s_kpos`, reset each session entry. Every
-  printable keypress advances the `ucPhraseLen()`-wide sliding window and calls `ucCheckPhrase()` — match =
-  silent `break` (no tell, looks like typing a memo). `q` gated on `!ucHasPassphrase()` so it's the
-  fallback only when no phrase is configured.
-- **Touch wake (undercover-only)** — `main.ino` touch block gated on `g_covert`: in-cover, half-dim = single
-  touch wakes; screen-off = double-tap (two TAPs within 500 ms) wakes. On terminal `g_covert=false` so touch
-  never wakes the screen (keyboard/trackball only, unchanged).
-- `#include "covert.h"` added to `main.ino`.
+## Session 2026-07-02b (undercover Phase 2 — real SD notes + cursor editor + bugfixes) — all HW-verified ✅
+- **SD-backed real notes** (plan's last Phase-2 gap, now closed). `/notes/*.txt` at SD ROOT (`SD_DIR_NOTES`,
+  outside `/apps/` — disguise: a PC-browsed card shows an ordinary notes folder). One file per note,
+  `NNN.txt` sequential (never reused); line 1 = title, remaining lines = body, plain text (checklist
+  rendering was demo-only, dropped). `NoteRec{title,body(vector<String>),path,dirty}`, loaded into
+  `s_notes` on cover entry, freed on exit. No SD → 4-note in-RAM fallback (`kSeeds`), edits session-only
+  (`saveNote()` bails via `canAccessSD()` check). First SD run with an empty `/notes/` auto-seeds the same
+  4 starter notes as real files (plan: "ship believable decoy notes"). List view dropped the old
+  pinned/tint demo decoration — flat list, card meta now shows real line count.
+- **Real cursor-addressable editor** (not append-only). Cursor = `(curLine, curCol)`, line 0=title,
+  1..N=body[i-1] — unifies title/body editing so moving the cursor UP out of the body naturally lands in
+  the title (no separate "titling mode"). `layoutNote()` word-wraps into `LayoutRow{vline,colStart,text,y}`
+  with exact column offsets into the UNWRAPPED source string, reused by measurement/cursor-placement/
+  touch-hit-testing/rendering (single wrap pass per repaint). Touch a line → `moveCursorToTap()` resolves
+  tap (x,y) to the nearest row then a column via width-scan. Trackball UP/DOWN move by stored line
+  (clamping column); LEFT/RIGHT move by character, wrapping across line boundaries; CLICK is now the ONLY
+  back-to-list trigger (LEFT/RIGHT repurposed from "back" to cursor movement). Backspace/Enter/printable
+  insert/delete/split at the cursor position via `vline()` pointer helper — careful ordering around
+  `n.body.insert/erase` (copy needed values BEFORE the vector mutation, never deref a body pointer after).
+- **Save button wired for real** (was decorative "download" icon) — tap saves immediately, shows green
+  "Saved" / amber "No SD" toast (`s_saveNoticeMs/Ok`) reflecting the ACTUAL `saveNote()` return value (a
+  first draft showed "Saved" unconditionally — caught before shipping). Auto-save also fires on back-nav
+  (`leaveDetail()`: saves if dirty, else drops a never-typed FAB placeholder so it doesn't ghost the list)
+  and on the `q` fallback exit (only reachable with no passphrase set, so no opsec concern).
+- **OPSEC: passphrase-match exit skips saving the open note.** The phrase's characters were already typed
+  into the note's title/body across earlier loop iterations (typed live, since this is now a real visible
+  editor) before the match could be known — saving on that exit path would write the passphrase itself
+  into a plaintext SD file. Skipping the save keeps the SHA-256 hash the only place it ever persists.
+- **Bugfix — real T-REX status bar + "Locked: HH:MM:SS" leaking over the cover.** Root cause:
+  `runNotesUi()`'s loop calls `getKeyboardInput()` every iteration (for the passphrase scan), which
+  internally pumps `LockScreenManager::intercept()`; if the device is ALSO actually locked (its own
+  independent idle timer, unrelated to undercover), `intercept()`'s `refreshDuration()` fires every 1s and
+  draws the real status bar + duration counter DIRECTLY to `tft` — bypassing the Notes UI's sprite
+  compositing entirely (it explicitly force-unblocks around itself). Fix: while `LockScreenManager::
+  isLocked()`, Notes UI now stands down completely (still pumps `getKeyboardInput()` so PIN entry works,
+  `continue`s past all drawing) — same pattern wguard/buddy already use via `isBlocked()`, just via
+  `isLocked()` since Notes UI intentionally bypasses `isBlocked()` for its own content.
+- **Bugfix — touch-wake dead code.** First draft put the dim/screen-off touch-wake logic in `main.ino`'s
+  loop — but that loop never runs while `runUndercover()`→`runNotesUi()` blocks, so it never fired. Moved
+  into `runNotesUi()`'s own loop (where touch is actually polled); `main.ino` reverted to keyboard/
+  trackball-only wake on the terminal (touch never wakes there — `#include "covert.h"` removed, no longer
+  needed there). Undercover touch-wake: half-dim = single touch; screen-off = double-tap (500ms window).
+- **Bugfix — trackball way too sensitive + accidental click-through.** Raw trackball events fire far
+  faster than deliberate rolls; added a 300ms throttle. Also dropped RIGHT-to-open in the list (user found
+  it fired unintentionally) — list nav is UP/DOWN + CLICK only now; RIGHT is reserved for cursor movement
+  inside a note.
 
 ### What's still NOT built (next increments)
 - **Panic-chord entry** (fire mid-command) — needs the non-blocking `UndercoverManager` intercept model +
   stateful `runNotesUi` refactor (begin/handleEvent/end). Panic chord is the real entry path; `uc` cmd is stopgap.
-- **SD-backed notes** (`/notes/*.txt`) — still hardcoded sample notes.
 - **Phase 3**: boot-cover (`boot_cover=1`), decoy/duress passphrase (`decoy_hash`/`decoy_salt` in config),
   ops-policy (freeze transmitters under cover).
 

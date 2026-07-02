@@ -94,6 +94,7 @@ void SDCardManager::ensureTreeStructure() {
 
     ensureDir(SD_DIR_CONFIG);
     ensureDir(SD_DIR_CONFIG_NOTIF);
+    ensureDir(SD_DIR_NOTES);       // root-level, intentionally outside /apps (disguise)
 
     ensureDir(SD_DIR_APPS);
     ensureDir(SD_DIR_TRACKME);
