@@ -17,6 +17,7 @@
 
 ## Open Issues (verify / fix later)
 - [ESPVoice crash watch](project_espvoice_crash_watch.md) — `ev` sometimes crashes after a couple min; PS_NONE + draw-throttle applied (unconfirmed); read RESET REASON to classify (brownout vs panic vs WDT)
+- [Bluedroid/BLE-Mesh RAM+flash leak](project_bluedroid_ram_flash_leak.md) — **FIXED + HW-VERIFIED 2026-07-02**: `mac_changer.cpp` swapped legacy Bluedroid GAP calls for NimBLE-native (`setOwnAddrType`/`setOwnAddr`); saved 19.7KB RAM + 428KB flash on T-Deck-Plus. User confirmed `mc random`/`mc status` now actually changes the BLE MAC on hardware (old code was dead — Bluedroid never enabled elsewhere, so `mc target bt` silently no-op'd before). Note: `bk`/`bd` hardcode their own stable BLE address and can't be used to test this over the air (see file for why).
 
 ## Planned features (NOT YET BUILT — design specs captured 2026-06-26; full plans in TREX_*_PLAN.md)
 - [wpa3down/w3d](project_wpa3down_plan.md) — WPA3 transition-mode downgrade: RSN-IE PMF/AKM detect, WPA2-only rogue AP, EAPOL+PMKID capture → HCCAPX/HC22000. Full: TREX_WPA3_DOWNGRADE_PLAN.md
