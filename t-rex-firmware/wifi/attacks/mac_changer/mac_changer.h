@@ -25,8 +25,8 @@ private:
     void randomMac(uint8_t* mac);
     void randomBleMac(uint8_t* mac);
     void applyMac(const uint8_t* mac);
-    void applyBleMac(const uint8_t* mac);
-    void applyAll();
+    bool applyBleMac(const uint8_t* mac);
+    bool applyAll();
     void loadConfig();
     void saveConfig();
     void printStatus();

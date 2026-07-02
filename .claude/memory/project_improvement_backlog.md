@@ -36,6 +36,16 @@ Assessment of the whole T-REX firmware (~60 commands, mature). Leverage now is i
 3. **Migrate remaining modules to `ScopedPromiscPause`.** Only eviltwin + karma use the GDMA
    guard; wguard/wifimon/handshake/pmkid still hand-roll pause/resume — where GDMA corruption hides.
 
+## Tier 2b — RAM/flash reclaim — DONE + HW-VERIFIED 2026-07-02
+- **Bluedroid/BLE-Mesh accidentally linked in — FIXED.** `mac_changer.cpp`'s `applyBleMac()`
+  called legacy Bluedroid instead of NimBLE (the ONLY place in the codebase that did),
+  dragging in 150 extra objects from `libbt.a`. Swapped to `NimBLEDevice::setOwnAddrType`/
+  `setOwnAddr`. Measured: **-19.7KB RAM, -428KB flash** on T-Deck-Plus; both envs build
+  clean. Bonus finding: the old code was dead (Bluedroid never enabled elsewhere), so
+  `mc target bt` never actually worked before this fix either — user confirmed on hardware
+  that the BLE MAC now genuinely changes. See [[project_bluedroid_ram_flash_leak]] for full
+  detail, including why `bk`/`bd` can't be used to verify it over the air.
+
 ## Tier 3 — structural / housekeeping
 4. **64-command cap: at 59/64** (62 → 57 via the 2026-06-22 merges: `wp export/clear`, `ps top`,
    `test spk/mic/lora`; then `edit`/`ed` + `macwatch`/`mw` + `csidetect`/`csi` added 3 — net 59).

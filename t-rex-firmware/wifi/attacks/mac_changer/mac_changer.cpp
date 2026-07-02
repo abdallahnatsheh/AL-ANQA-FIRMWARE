@@ -6,8 +6,7 @@
 #include <WiFi.h>
 #include <SD.h>
 #include "esp_wifi.h"
-#include "esp_gap_ble_api.h"
-#include "esp_bt_main.h"
+#include <NimBLEDevice.h>
 #include "sdcard_manager.h"
 #include "mac_util.h"
 
@@ -31,6 +30,41 @@ static bool parseMac(const char* str, uint8_t* out) {
                   &out[0],&out[1],&out[2],&out[3],&out[4],&out[5]) == 6;
 }
 
+// Prints only the field(s) that _target actually applied — "random"/"set" used to always
+// print the WiFi MAC even when target was "bt" (BLE-only), showing a misleading all-zero
+// WiFi field since applyAll() never touched it. bleOk distinguishes "spoofed" from "BLE
+// target selected but the BT stack wasn't up" — the latter used to silently print zeros
+// with no explanation.
+static void printAppliedMac(DisplayManager& dm, const char* label, const char* target,
+                             const uint8_t* wifiMac, const uint8_t* bleMac, bool bleOk) {
+    bool doWifi = (strcmp(target, "wifi") == 0 || strcmp(target, "both") == 0);
+    bool doBle  = (strcmp(target, "bt")   == 0 || strcmp(target, "both") == 0);
+    char buf[18];
+
+    dm.setCursor(10, dm.getCursorY());
+    dm.setTextColor(TFT_GREEN); dm.println(label);
+    dm.setTextColor(TFT_WHITE);
+
+    if (doWifi) {
+        fmtMac(wifiMac, buf);
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(TFT_WHITE);  dm.printText("  WiFi: ");
+        dm.setTextColor(TFT_YELLOW); dm.println(buf);
+    }
+    if (doBle) {
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(TFT_WHITE);  dm.printText("  BLE : ");
+        if (bleOk) {
+            fmtMac(bleMac, buf);
+            dm.setTextColor(TFT_YELLOW); dm.println(buf);
+        } else {
+            dm.setTextColor(TFT_RED);
+            dm.println("not active — start a BT tool first (e.g. sbl)");
+        }
+    }
+    dm.setTextColor(TFT_WHITE);
+}
+
 void MacChanger::randomMac(uint8_t* mac)    { macutil::randomLaMac(mac); }
 void MacChanger::randomBleMac(uint8_t* mac) { macutil::randomBleMac(mac); }
 
@@ -48,14 +82,25 @@ void MacChanger::applyMac(const uint8_t* mac) {
     delay(300);
 }
 
-void MacChanger::applyBleMac(const uint8_t* mac) {
-    if (esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_ENABLED) return;
-    if (esp_ble_gap_set_rand_addr((uint8_t*)mac) == ESP_OK)
-        memcpy(_currentBleMac, mac, 6);
+bool MacChanger::applyBleMac(const uint8_t* mac) {
+    // NimBLE-native, not Bluedroid — the project's BT stack is NimBLE everywhere else
+    // (Bluedroid is never enabled in this codebase, so the old esp_bluedroid_get_status()
+    // check always failed and this was a silent no-op that only cost RAM/flash: see
+    // .claude/memory/project_bluedroid_ram_flash_leak.md). Needs a BT tool's
+    // NimBLEDevice::init() to already be active — same "no-op if the stack isn't up"
+    // contract as before, just checked against the stack this project actually uses.
+    if (!NimBLEDevice::isInitialized()) return false;
+    if (!NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM)) return false;
+    if (!NimBLEDevice::setOwnAddr(mac)) return false;
+    memcpy(_currentBleMac, mac, 6);
+    return true;
 }
 
-void MacChanger::applyAll() {
+// Returns false only when BLE was requested (target bt/both) but couldn't be applied
+// (BT stack not up yet) — callers use this to show an honest message instead of zeros.
+bool MacChanger::applyAll() {
     uint8_t wifiMac[6], bleMac[6];
+    bool bleOk = true;
 
     bool doWifi = (strcmp(_target, "wifi") == 0 || strcmp(_target, "both") == 0);
     bool doBle  = (strcmp(_target, "bt")   == 0 || strcmp(_target, "both") == 0);
@@ -73,8 +118,10 @@ void MacChanger::applyAll() {
         } else {
             randomBleMac(bleMac);
         }
-        applyBleMac(bleMac);
+        bleOk = applyBleMac(bleMac);
     }
+
+    return bleOk;
 }
 
 void MacChanger::applyIfEnabled() {
@@ -189,12 +236,23 @@ void MacChanger::printStatus() {
         dm.setTextColor(TFT_GREEN); dm.println(cur);
     }
 
+    bool targetsBle = (strcmp(_target, "bt") == 0 || strcmp(_target, "both") == 0);
     if (_enabled && (_currentBleMac[0] | _currentBleMac[1] | _currentBleMac[2] |
                      _currentBleMac[3] | _currentBleMac[4] | _currentBleMac[5])) {
         char ble[18]; fmtMac(_currentBleMac, ble);
         dm.setCursor(10, dm.getCursorY());
         dm.setTextColor(TFT_WHITE); dm.printText("BLE    : ");
         dm.setTextColor(TFT_GREEN); dm.println(ble);
+    } else if (_enabled && targetsBle) {
+        // Zero _currentBleMac has two different causes — distinguish them instead of
+        // guessing, so the message doesn't tell you to do something you already did.
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(TFT_WHITE); dm.printText("BLE    : ");
+        dm.setTextColor(TFT_RED);
+        if (NimBLEDevice::isInitialized())
+            dm.println("not applied yet — run: mc random");
+        else
+            dm.println("BT stack not active — run a BT tool first (e.g. sbl)");
     }
 
     dm.printSeparator();
@@ -234,9 +292,9 @@ void MacChanger::handleCommand(char* args) {
             esp_wifi_set_mac(WIFI_IF_STA, real);
             esp_wifi_start();
             delay(300);
-            // restore BLE — clear random address, reverts to public HW address
-            if (esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_ENABLED)
-                esp_ble_gap_clear_rand_addr();
+            // restore BLE — revert to the public (HW) address type
+            if (NimBLEDevice::isInitialized())
+                NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_PUBLIC);
         }
         memset(_currentMac,    0, 6);
         memset(_currentBleMac, 0, 6);
@@ -253,12 +311,8 @@ void MacChanger::handleCommand(char* args) {
         _useCustom = false;
         _enabled   = true;
         saveConfig();
-        applyAll();
-        char buf[18]; fmtMac(_currentMac, buf);
-        dm.setCursor(10, dm.getCursorY());
-        dm.setTextColor(TFT_GREEN);  dm.printText("New MAC: ");
-        dm.setTextColor(TFT_YELLOW); dm.println(buf);
-        dm.setTextColor(TFT_WHITE);
+        bool bleOk = applyAll();
+        printAppliedMac(dm, "New MAC:", _target, _currentMac, _currentBleMac, bleOk);
         dm.printCommandScreen();
         return;
     }
@@ -313,12 +367,8 @@ void MacChanger::handleCommand(char* args) {
         _useCustom = true;
         _enabled   = true;
         saveConfig();
-        applyAll();
-        char buf[18]; fmtMac(_currentMac, buf);
-        dm.setCursor(10, dm.getCursorY());
-        dm.setTextColor(TFT_GREEN);  dm.printText("Custom MAC set: ");
-        dm.setTextColor(TFT_YELLOW); dm.println(buf);
-        dm.setTextColor(TFT_WHITE);
+        bool bleOk = applyAll();
+        printAppliedMac(dm, "Custom MAC set:", _target, _currentMac, _currentBleMac, bleOk);
         dm.printCommandScreen();
         return;
     }

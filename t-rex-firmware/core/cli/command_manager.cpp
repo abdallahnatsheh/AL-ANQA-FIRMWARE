@@ -278,9 +278,11 @@ static const ArgHintEntry kArgHints[] = {
     { "ns",          "",              "gtk dump" },
     // tz
     { "tz",          "",              "status" },
-    // macchanger / mc  (no "status" — no-args shows status, but "mc status" is not a keyword)
-    { "macchanger",  "",              "on off random set restore target" },
-    { "mc",          "",              "on off random set restore target" },
+    // macchanger / mc  ("status" isn't a distinct code path — handleCommand() falls through
+    // to the same printStatus() as bare "mc" — but it's offered anyway since users expect
+    // it (matches pwrsave/lock's pattern of listing "status" explicitly) and it does work.
+    { "macchanger",  "",              "on off random set restore status target" },
+    { "mc",          "",              "on off random set restore status target" },
     { "macchanger",  "target",        "wifi bt both" },
     { "mc",          "target",        "wifi bt both" },
     { "macchanger",  "restore",       "on off" },
