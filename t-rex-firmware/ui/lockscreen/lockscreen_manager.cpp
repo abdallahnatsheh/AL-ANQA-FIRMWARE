@@ -17,6 +17,7 @@
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
 extern SDCardManager  sdCardManager;
+extern volatile bool  g_covert;   // from undercover.cpp — suppresses lock screen visuals during cover
 
 // ── Y-coordinate constants for lock screen layout ─────────────────────────────
 // Dormant (padlock art) layout:
@@ -291,8 +292,12 @@ void LockScreenManager::tryUnlock() {
         _pinBuf[0]      = '\0';
         _lastActivityMs = millis();
         _justUnlocked   = true;
-        displayManager.setBlocked(false);
-        displayManager.tdeck_begin();   // full redraw: status bar + prompt
+        if (!g_covert) {
+            // Normal unlock: restore the CLI. Under cover, Notes keeps the
+            // screen and manages setBlocked itself — don't paint over it.
+            displayManager.setBlocked(false);
+            displayManager.tdeck_begin();
+        }
     } else {
         // Flash red for 1.5 s, then redraw PIN entry
         displayManager.setBlocked(false);

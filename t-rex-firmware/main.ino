@@ -25,6 +25,7 @@
 #include "lockscreen_manager.h"
 #include "clock_manager.h"
 #include "touch_manager.h"
+#include "undercover.h"
 
 LGFX tft;
 DisplayManager   displayManager(tft);
@@ -51,17 +52,23 @@ void setup() {
     displayManager.init();
     inputHandler.begin();
     TouchManager::instance().begin();   // after inputHandler.begin() — needs Wire + BOARD_POWERON already up
-    showSplashScreen();
-    displayManager.tdeck_begin();
 
+    // SD must come before the splash so we can read boot_cover before showing anything.
     if (!sdCardManager.begin()) {
         Serial.println("SD card not found or failed to mount.");
+    }
+
+    if (ucBootCoverEnabled()) {
+        // Boot-cover mode: show nothing — Notes UI will paint the full screen immediately.
+        tft.fillScreen(TFT_BLACK);
+    } else {
+        showSplashScreen();
+        displayManager.tdeck_begin();
     }
 
     ClockManager::instance().init();
     MacChanger::getInstance().begin();
     PowerSaveManager::getInstance().init(&batteryManager);
-    LockScreenManager::getInstance().init();
     usbManager.begin();
     NotificationManager::getInstance().begin();
     NotificationManager::getInstance().setWakeCallback([]() {
@@ -69,6 +76,13 @@ void setup() {
     });
 
     commandManager.setupCommands();
+    ucInit();   // if boot_cover=1: blocks in Notes until passphrase; no-op otherwise
+
+    // LockScreenManager init is intentionally AFTER ucInit(): if boot_cover=1, ucInit()
+    // blocks here while Notes is running. LockScreen must not be locked yet — otherwise
+    // isLocked() causes Notes to freeze (stand-down branch). After Notes exits and g_covert
+    // clears, LockScreen inits normally; lock-on-boot fires as expected at that point.
+    LockScreenManager::getInstance().init();
 }
 
 void loop() {

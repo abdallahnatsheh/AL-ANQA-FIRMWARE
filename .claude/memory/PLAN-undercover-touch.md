@@ -13,7 +13,7 @@
 >
 > **REMAINING — Phase 1 panic-chord** (needs non-blocking `UndercoverManager` + stateful notes_ui
 > refactor, so a chord can drop to cover mid-command instead of only via the blocking `uc` cmd);
-> **Phase 3** boot-cover + decoy/duress passphrase + ops-policy (freeze transmitters under cover).
+> **Phase 3 (partial)** — boot-cover ✅ DONE + HW-VERIFIED 2026-07-02; decoy/duress passphrase + ops-policy (freeze transmitters under cover) still TODO.
 >
 > ---
 > **Phase 0 ✅ HW-VERIFIED & WORKING.** `test touch` on real hardware:

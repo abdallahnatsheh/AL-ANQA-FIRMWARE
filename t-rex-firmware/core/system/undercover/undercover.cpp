@@ -103,13 +103,38 @@ static void cmdUcClear() {
 static void cmdUcStatus() {
     DisplayManager& dm = displayManager;
     dm.setDefaultTextSize();
-    dm.setTextColor(TFT_WHITE); dm.printText("Undercover passphrase: ");
+    dm.setTextColor(TFT_WHITE); dm.printText("Passphrase : ");
     if (ucHasPassphrase()) {
         char buf[32]; snprintf(buf, sizeof(buf), "SET (%d chars)", ucPhraseLen());
         dm.setTextColor(TFT_GREEN); dm.println(buf);
     } else {
         dm.setTextColor(TFT_YELLOW); dm.println("not set  (use 'uc set')");
     }
+    dm.setTextColor(TFT_WHITE); dm.printText("Boot cover : ");
+    if (ucBootCoverEnabled()) {
+        dm.setTextColor(TFT_GREEN); dm.println("ON  — boots into Notes disguise");
+    } else {
+        dm.setTextColor(TFT_YELLOW); dm.println("off (use 'uc boot on')");
+    }
+    dm.setTextColor(TFT_WHITE);
+}
+
+static void cmdUcBoot(const char* arg) {
+    DisplayManager& dm = displayManager;
+    dm.setDefaultTextSize();
+    if (!arg || (*arg != 'o')) {
+        dm.setTextColor(TFT_RED); dm.println("Usage: uc boot on|off");
+        dm.setTextColor(TFT_WHITE); return;
+    }
+    bool on = (strncmp(arg, "on", 2) == 0);
+    bool saved = ucSetBootCover(on);
+    dm.setTextColor(TFT_GREEN);
+    if (on)
+        dm.println(saved ? "Boot cover ON — device boots into Notes disguise."
+                         : "Boot cover ON (no SD — active this session only).");
+    else
+        dm.println(saved ? "Boot cover OFF."
+                         : "Boot cover OFF (no SD — active this session only).");
     dm.setTextColor(TFT_WHITE);
 }
 
@@ -117,16 +142,18 @@ static void cmdUcStatus() {
 
 void runUndercover(char* args) {
     if (args && *args) {
-        char buf[32]; strncpy(buf, args, sizeof(buf) - 1); buf[sizeof(buf) - 1] = '\0';
-        char* sub = strtok(buf, " ");
+        char buf[40]; strncpy(buf, args, sizeof(buf) - 1); buf[sizeof(buf) - 1] = '\0';
+        char* sub  = strtok(buf, " ");
+        char* arg2 = strtok(nullptr, " ");
         if      (!sub)                    {}
-        else if (strcmp(sub, "set")    == 0) { cmdUcSet();    displayManager.printCommandScreen(); return; }
-        else if (strcmp(sub, "clear")  == 0) { cmdUcClear();  displayManager.printCommandScreen(); return; }
-        else if (strcmp(sub, "status") == 0) { cmdUcStatus(); displayManager.printCommandScreen(); return; }
+        else if (strcmp(sub, "set")    == 0) { cmdUcSet();          displayManager.printCommandScreen(); return; }
+        else if (strcmp(sub, "clear")  == 0) { cmdUcClear();        displayManager.printCommandScreen(); return; }
+        else if (strcmp(sub, "status") == 0) { cmdUcStatus();       displayManager.printCommandScreen(); return; }
+        else if (strcmp(sub, "boot")   == 0) { cmdUcBoot(arg2);     displayManager.printCommandScreen(); return; }
         else {
             displayManager.setDefaultTextSize();
             displayManager.setTextColor(TFT_RED);
-            displayManager.println("Usage: uc [set|clear|status]");
+            displayManager.println("Usage: uc [set|clear|status|boot on|off]");
             displayManager.setTextColor(TFT_WHITE);
             displayManager.printCommandScreen();
             return;
@@ -137,5 +164,15 @@ void runUndercover(char* args) {
     ucLoadConfig();
     g_covert = true;
     runNotesUi();        // blocks until secret-passphrase match OR q (q kept for now)
+    g_covert = false;
+}
+
+// Called from setup() after setupCommands(). If boot_cover is enabled, enters the
+// cover immediately so the device boots into the Notes disguise instead of the CLI.
+void ucInit() {
+    ucLoadConfig();
+    if (!ucBootCoverEnabled()) return;
+    g_covert = true;
+    runNotesUi();   // blocks; runNotesUi() restores display + calls printCommandScreen on exit
     g_covert = false;
 }
