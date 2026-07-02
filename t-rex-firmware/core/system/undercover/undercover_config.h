@@ -23,4 +23,8 @@ bool ucClearPassphrase();
 // True iff SHA-256(salt+candidate) matches stored hash and len matches.
 bool ucCheckPhrase(const char* candidate);
 
+// Boot-cover: device boots directly into the Notes disguise when enabled.
+bool ucBootCoverEnabled();
+bool ucSetBootCover(bool on);   // persists to SD; returns false if SD save failed
+
 #endif // UNDERCOVER_CONFIG_H

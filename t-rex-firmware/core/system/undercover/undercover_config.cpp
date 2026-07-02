@@ -14,10 +14,11 @@ extern SDCardManager sdCardManager;
 
 // ── In-RAM state ─────────────────────────────────────────────────────────────
 
-static char  s_hashHex[65] = {};   // 64-hex SHA-256 + NUL
-static char  s_saltHex[17] = {};   // 16-hex 8-byte salt + NUL
-static int   s_len         = 0;    // plaintext passphrase byte length
-static bool  s_loaded      = false;
+static char  s_hashHex[65]  = {};   // 64-hex SHA-256 + NUL
+static char  s_saltHex[17]  = {};   // 16-hex 8-byte salt + NUL
+static int   s_len          = 0;    // plaintext passphrase byte length
+static bool  s_bootCover    = false;
+static bool  s_loaded       = false;
 
 // ── Crypto ────────────────────────────────────────────────────────────────────
 
@@ -47,7 +48,8 @@ static void hashPhrase(const char* phrase, const char* saltHex, char* out65) {
 // ── SD I/O ────────────────────────────────────────────────────────────────────
 
 bool ucLoadConfig() {
-    s_hashHex[0] = '\0'; s_saltHex[0] = '\0'; s_len = 0; s_loaded = true;
+    s_hashHex[0] = '\0'; s_saltHex[0] = '\0'; s_len = 0; s_bootCover = false;
+    s_loaded = true;
     if (!sdCardManager.canAccessSD()) return false;
     File f = SD.open("/config/undercover.conf", FILE_READ);
     if (!f) return false;
@@ -57,9 +59,10 @@ bool ucLoadConfig() {
         int eq = line.indexOf('='); if (eq < 0) continue;
         String k = line.substring(0, eq);
         String v = line.substring(eq + 1);
-        if      (k == "hash") { strncpy(s_hashHex, v.c_str(), 64); s_hashHex[64] = '\0'; }
-        else if (k == "salt") { strncpy(s_saltHex, v.c_str(), 16); s_saltHex[16] = '\0'; }
-        else if (k == "len")  { s_len = v.toInt(); }
+        if      (k == "hash")       { strncpy(s_hashHex, v.c_str(), 64); s_hashHex[64] = '\0'; }
+        else if (k == "salt")       { strncpy(s_saltHex, v.c_str(), 16); s_saltHex[16] = '\0'; }
+        else if (k == "len")        { s_len = v.toInt(); }
+        else if (k == "boot_cover") { s_bootCover = (v.toInt() != 0); }
     }
     f.close();
     return strlen(s_hashHex) == 64 && s_len > 0;
@@ -70,7 +73,8 @@ static bool saveConfig() {
     sdCardManager.ensureDir("/config");
     File f = SD.open("/config/undercover.conf", FILE_WRITE);
     if (!f) return false;
-    f.printf("hash=%s\nsalt=%s\nlen=%d\n", s_hashHex, s_saltHex, s_len);
+    f.printf("hash=%s\nsalt=%s\nlen=%d\nboot_cover=%d\n",
+             s_hashHex, s_saltHex, s_len, s_bootCover ? 1 : 0);
     f.close();
     return true;
 }
@@ -107,4 +111,15 @@ bool ucCheckPhrase(const char* candidate) {
     char computed[65];
     hashPhrase(candidate, s_saltHex, computed);
     return strcmp(computed, s_hashHex) == 0;
+}
+
+bool ucBootCoverEnabled() {
+    if (!s_loaded) ucLoadConfig();
+    return s_bootCover;
+}
+
+bool ucSetBootCover(bool on) {
+    if (!s_loaded) ucLoadConfig();
+    s_bootCover = on;
+    return saveConfig();
 }

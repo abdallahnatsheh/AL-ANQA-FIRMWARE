@@ -181,7 +181,9 @@ CMD> notes            # standalone Notes cover UI (no silent mode)
 CMD> undercover        # silent Notes disguise
 CMD> uc set             # set a secret exit passphrase
 CMD> uc clear           # remove the exit passphrase
-CMD> uc status          # show whether one is set
+CMD> uc status          # show passphrase + boot-cover state
+CMD> uc boot on         # boot directly into Notes (no splash)
+CMD> uc boot off        # restore normal boot
 ```
 
 A real, SD-backed notes app (`/notes/NNN.txt`, at SD root — not `/apps/` — so it looks like an ordinary folder to anyone browsing the card on a PC) that doubles as a disguise. `notes` just runs the cover UI. `undercover` runs the same UI but also raises the covert flag: notification sounds and the hidden-SSID beep go silent, and the real T-Rex status bar stays hidden — passive tools (wguard, macwatch, espchat, etc.) keep running and logging to SD underneath, only the audible/visible tells go quiet.
@@ -203,7 +205,9 @@ No SD card → notes still work for the session (typing, editing, navigating) bu
 
 Touch wake — one tap wakes a half-dimmed screen, a double-tap (within 500 ms) wakes a fully screen-off device. This only works while undercover (`uc`) is active; the plain terminal and standalone `notes` never wake on touch.
 
-**Still TODO:** panic-chord entry (drop into cover mid-command via a keyboard chord instead of running `uc`), duress/decoy passphrase, boot-cover.
+**Boot-cover** (`uc boot on`) — the device boots directly into the Notes disguise with no T-REX splash screen or CLI flash. SD is initialised first so the `boot_cover` flag is read before anything is drawn; the screen goes black then Notes takes over immediately. If a lock PIN is also configured (`lock new` + `lock boot on`), the lock screen fires *after* the passphrase exits Notes — not before — so an observer only ever sees Notes from cold boot through unlock.
+
+**Still TODO:** panic-chord entry (drop into cover mid-command via a keyboard chord), duress/decoy passphrase.
 
 ---
 

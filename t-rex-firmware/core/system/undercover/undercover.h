@@ -4,10 +4,11 @@
 //
 // Undercover mode — `uc`/`undercover` drops the device into a silent Notes
 // disguise. Subcommands:
-//   uc          — enter the cover (blocks until secret exit or q)
-//   uc set      — set the secret exit passphrase (SHA-256, SD-backed)
-//   uc clear    — remove the passphrase
-//   uc status   — show whether a passphrase is configured
+//   uc              — enter the cover (blocks until secret exit or q)
+//   uc set          — set the secret exit passphrase (SHA-256, SD-backed)
+//   uc clear        — remove the passphrase
+//   uc status       — show whether a passphrase / boot-cover is configured
+//   uc boot on|off  — enable/disable boot-cover (boots into Notes from cold start)
 //
 // g_covert is raised for the whole cover session so every sound/visual tell
 // (notifications, direct I2S beeps) goes silent regardless of which background
@@ -17,7 +18,9 @@
 #define UNDERCOVER_H
 
 #include "covert.h"
+#include "undercover_config.h"
 
+void ucInit();              // call from setup() after setupCommands(); boots into cover if boot_cover=1
 void runUndercover(char* args);
 
 #endif // UNDERCOVER_H
