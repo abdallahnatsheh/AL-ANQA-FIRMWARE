@@ -6,10 +6,10 @@
 - [NimBLE v2.x Rules](nimble_v2_rules.md) — scan response name, cleanup no re-init, scan non-blocking, auto-bond-delete
 
 ## State
-- [Progress Log](progress_log.md) — last session 2026-07-02b (undercover: **Phase 2 fully complete ✅** — SD-backed `/notes/*.txt` + real cursor-addressable editor (touch-to-position, trackball 4-way), functional save button, opsec-safe passphrase exit, lockscreen-collision + touch-wake bugfixes); not-yet-built: panic-chord, Phase 3
+- [Progress Log](progress_log.md) — last session **2026-07-04: undercover PANIC BUTTON ✅ HW-verified** (`uc panic set|off`, `panic_key` default `@`, instant-hide from anywhere incl. mid-command; re-entrant hook in getKeyboardInput; cover-exit `signalRedraw()` fixes mid-command repaint). Undercover now feature-complete (Phase 2 + boot-cover 044d860 + panic). Decoy/duress + freeze-TX ops-policy = user DROPPED. Prior: mc/NimBLE spoof fix (89765e0/6a50e50)
 
-## In progress
-- [Undercover mode + touchscreen](PLAN-undercover-touch.md) — Phase 0 ✅ Phase 1a ✅ Phase 2 ✅ FULLY DONE (touch, UI, secret-passphrase exit, SD-backed real notes with cursor-addressable editor, all HW-verified). **Next = panic-chord entry** (non-blocking UndercoverManager + stateful notes_ui), then Phase 3 (boot-cover, decoy passphrase). Full spec in plan file.
+## Done
+- [Undercover mode + touchscreen](PLAN-undercover-touch.md) — Phase 0 ✅ Phase 1a ✅ Phase 2 ✅ boot-cover ✅ **panic-button ✅ (2026-07-04)** — ALL HW-verified. Touch, Notes cover UI, secret-passphrase exit, SD-backed notes + cursor editor, boot-cover, and instant-hide `panic_key` (default `@`, re-entrant hook in getKeyboardInput, cover-exit `signalRedraw()` repaints mid-command apps). **Decoy/duress passphrase + freeze-transmitters ops-policy = user DROPPED as not useful.** Feature-complete for the user. Optional polish only (ux/portal-picker repaint). Full detail: progress_log 2026-07-04.
 - [Next Steps](next_steps.md) — priority queue: WiFi(1-9)→BT(10-12)→GPS(13-14)→USB(15-18)→Other(19-26)
 
 ## Improvement backlog (hardening — user will consider)

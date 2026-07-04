@@ -6,7 +6,7 @@ type: project
 
 Command: `macwatch/mw` — watch specific WiFi/BLE MACs (or vendor OUI prefixes), alert when one
 comes into radio range. Use case: presence detection / counter-surveillance.
-**STATUS: BUILT 2026-06-25 (commits 9cec839 + a853f62) — NOT yet compiled/flashed/HW-tested.**
+**STATUS: ✅ BUILT + HW-VERIFIED 2026-06-28 (built 2026-06-25 commits 9cec839 + a853f62; field-tested end-to-end — add/presence/proximity/bg all work, idempotent `mw bg/stop` committed aad4dad).**
 This file is the design+reuse reference; the implementation diverged slightly (add flow uses a
 STABLE list with `[u]` rescan + `[h]` silent hunt meter; BLE device ID split into `ble_ident.h`).
 

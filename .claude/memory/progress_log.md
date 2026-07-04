@@ -4,6 +4,45 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-07-04 (undercover PANIC BUTTON — instant-hide key) — ✅ HW-VERIFIED
+- **The "panic-chord" from the plan, shipped via a simpler re-entrant model — no `UndercoverManager`
+  refactor.** A single keyboard byte (default `@`=0x40, Sym+P) drops the device into the Notes cover
+  from ANYWHERE, even mid-command. Hook lives in `getKeyboardInput()` right before the lock `intercept()`:
+  `if (key==(char)ucPanicKey() && !g_covert && !g_ucCapturingPanic && ucHasPassphrase() && !isLocked())
+  { runUndercover(nullptr); return 0; }`. Re-entrant: `runUndercover()` sets `g_covert=true` before the
+  blocking `runNotesUi()`, so the cover's own nested `getKeyboardInput()` calls skip the hook (`!g_covert`)
+  and `@` just types normally inside the cover; on passphrase-exit it returns and the trigger keypress is
+  swallowed (`return 0`) so the underlying command resumes. **Only armed once a passphrase exists** (always
+  a way back). Every blocking loop reads through `getKeyboardInput()`, which is why it works mid-command.
+- **Config:** `panic_key=<byte>` in `/config/undercover.conf` (default 64='@', 0=off). `ucPanicKey()`/
+  `ucSetPanicKey()` in undercover_config. `uc panic set` captures a key live — `g_ucCapturingPanic` (extern
+  in undercover.h) suppresses the hook during capture so the CURRENT panic key can be re-bound without
+  firing. Reserved keys blocked: `'` (autocomplete), `q` (cover exit), space, Enter, Backspace. `uc panic
+  off` disables; `uc status` shows the armed/inactive/off state.
+- **Key choice `@` (Sym+P):** user first proposed `#` (Sym+Q) but `#` is used for index targeting
+  (`ps #2`/`pg nd#`) → chose `@`, no clash. TRADEOFF (documented): while armed, that key can't be typed in
+  commands (it hides instead); inside the cover it types fine.
+- **Bugfix — mid-command redraw (found on HW with `ws`):** panic-hiding mid-`ws` then exiting left the
+  command half-drawn (only its live counters repainted, static header/layout gone). ROOT CAUSE: cover-exit
+  never raised a repaint signal, so commands that repaint on unlock never learned to. FIX: added
+  `LockScreenManager::signalRedraw()` (sets the existing `_justUnlocked` flag) and call it in `runNotesUi()`'s
+  exit cleanup. **Cover-exit is now byte-identical to a lock→unlock** → every command that already survives
+  idle-lock survives panic. Audited ALL ~40 interactive commands: all do a full redraw on the signal EXCEPT
+  (a) `ux` BadUSB — intentionally doesn't repaint (`scriptDelay` consumes the flag, no redraw; script is
+  what matters, not the screen), (b) eviltwin/karma portal-template picker (`captive_portal.cpp`) — repaints
+  on next keypress. Both pre-existing, harmless.
+- **Clarified (corrected a wrong claim mid-session):** panic-hiding during `ux` **pauses** the BadUSB script
+  (it blocks at `scriptDelay`'s `getKeyboardInput()` until the cover exits) — it does NOT run under the cover.
+  The "script keeps running" comment in bad_usb is about the idle-LOCK path (non-blocking), not panic (blocking).
+  True covert-execution-behind-the-cover would need a non-blocking cover / `ux`-in-a-task — NOT built.
+- **Build:** compiles clean both envs (T-Deck-Plus RAM 59.4%/Flash 33.6%, T-Deck RAM 59.1%/Flash 32.9%).
+  Fixes along the way: man `uc` entry overflowed the fixed `const char*[32]` array (trimmed to 32);
+  `undercover_config.h` needed `#include <stdint.h>` for uint8_t; installed missing `intelhex` py module into
+  the PlatformIO penv (esptool dep, pre-existing gap); a base-T-Deck link error was a stale build tree
+  (`pio run -e T-Deck -t clean` fixed it — main.ino.cpp.o hadn't regenerated). Docs: man page, CLAUDE.md.
+- **Still NOT built:** decoy/duress passphrase (user said not useful → dropped); ops-policy "freeze
+  transmitters under cover" (user dropped). Optional polish: make `ux`/portal-picker repaint on cover-exit.
+
 ## Session 2026-07-02b (undercover Phase 2 — real SD notes + cursor editor + bugfixes) — all HW-verified ✅
 - **SD-backed real notes** (plan's last Phase-2 gap, now closed). `/notes/*.txt` at SD ROOT (`SD_DIR_NOTES`,
   outside `/apps/` — disguise: a PC-browsed card shows an ordinary notes folder). One file per note,

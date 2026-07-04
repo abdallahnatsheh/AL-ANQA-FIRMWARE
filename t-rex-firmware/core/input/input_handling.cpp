@@ -6,6 +6,7 @@
 #include "wguard.h"
 #include "espchat.h"
 #include "macwatch.h"
+#include "undercover.h"
 #include <Wire.h>
 #include <esp_timer.h>
 
@@ -133,6 +134,18 @@ char InputHandling::getKeyboardInput() {
         key = _repeatKey;
         _repeatLast     = now;
         _lastBsReturnMs = now;  // keep state hot while auto-delete is running
+    }
+
+    // Panic key: instant drop into the Notes cover from anywhere — even mid-command,
+    // since every blocking loop reads keys through here. Only armed once an exit
+    // passphrase exists (so there's always a way back out). !g_covert means the same
+    // key just types normally once inside the cover; !g_ucCapturingPanic lets
+    // `uc panic set` re-capture the current key without firing. Runs re-entrantly:
+    // runUndercover() blocks in the cover and returns when the passphrase is typed.
+    if (key != 0 && key == (char)ucPanicKey() && !g_covert && !g_ucCapturingPanic
+        && ucHasPassphrase() && !LockScreenManager::getInstance().isLocked()) {
+        runUndercover(nullptr);
+        return 0;
     }
 
     return LockScreenManager::getInstance().intercept(key, now);

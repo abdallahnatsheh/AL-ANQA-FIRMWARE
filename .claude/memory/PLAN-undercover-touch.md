@@ -11,9 +11,14 @@
 >   auto-save on exit, opsec-safe (passphrase-match exit never persists). Touch-wake gated on `g_covert`,
 >   correctly scoped inside `runNotesUi()`'s own loop. See progress_log.md session 2026-07-02b for full detail.
 >
-> **REMAINING — Phase 1 panic-chord** (needs non-blocking `UndercoverManager` + stateful notes_ui
-> refactor, so a chord can drop to cover mid-command instead of only via the blocking `uc` cmd);
-> **Phase 3 (partial)** — boot-cover ✅ DONE + HW-VERIFIED 2026-07-02; decoy/duress passphrase + ops-policy (freeze transmitters under cover) still TODO.
+> **Panic-chord ✅ DONE + HW-VERIFIED 2026-07-04** — shipped as a `panic_key` (default `@`) caught
+> re-entrantly in `getKeyboardInput()`; NO `UndercoverManager`/stateful-notes_ui refactor was needed
+> (the blocking `runUndercover()` sets `g_covert` before `runNotesUi()`, so nested input skips the hook).
+> Cover-exit now calls `LockScreenManager::signalRedraw()` so mid-command apps repaint (was a HW bug on
+> `ws`). See progress_log 2026-07-04.
+> **REMAINING — Phase 3 (partial):** boot-cover ✅ DONE 2026-07-02. Decoy/duress passphrase + ops-policy
+> (freeze transmitters under cover) — **user DROPPED both as not useful** (2026-07-04). Undercover is
+> effectively feature-complete for the user's needs. Optional polish only: `ux`/portal-picker repaint on cover-exit.
 >
 > ---
 > **Phase 0 ✅ HW-VERIFIED & WORKING.** `test touch` on real hardware:
