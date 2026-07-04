@@ -189,6 +189,20 @@ CMD> lock timeout 300   # or set idle lock to 5 minutes
 
 ---
 
+### The screen keeps jumping into the Notes app when I type
+
+You have the **undercover panic key** armed (default `@`). Pressing it anywhere — even mid-command — instantly drops into the Notes cover, so that key can no longer be typed normally at the CLI.
+
+**Fix:** type your exit passphrase to return to the terminal, then either change the key or turn it off:
+```
+CMD> uc panic set       # bind a different key
+CMD> uc panic off       # disable the instant-hide key
+CMD> uc status          # check what's armed
+```
+The panic key only fires while an exit passphrase is set (`uc set`); clearing the passphrase (`uc clear`) also disarms it.
+
+---
+
 ## Display
 
 ### Screen is black / nothing visible
