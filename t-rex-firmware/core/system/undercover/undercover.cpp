@@ -18,6 +18,11 @@ extern InputHandling  inputHandler;
 // their own execution context to decide whether to stay silent.
 volatile bool g_covert = false;
 
+// True only while `uc panic set` is capturing a key. Read by the panic hook in
+// getKeyboardInput() so pressing the CURRENT panic key during capture gets read
+// as the new key instead of firing the cover. Same task as the hook → no race.
+volatile bool g_ucCapturingPanic = false;
+
 // ── Passphrase prompt (same look as lock new/update) ─────────────────────────
 
 static bool promptPhrase(const char* label, char* buf, uint8_t maxLen) {
@@ -45,6 +50,68 @@ static bool promptPhrase(const char* label, char* buf, uint8_t maxLen) {
         else if (k >= 0x20 && k < 0x7F && len < maxLen - 1)
             { buf[len++] = k; buf[len] = '\0'; redraw(); }
         delay(10);
+    }
+}
+
+// ── Panic key ─────────────────────────────────────────────────────────────────
+
+// Keys that already carry meaning — the panic trigger must not shadow them.
+static bool ucPanicReserved(char k) {
+    return k == '\''                                   // KEY_AUTOCOMPLETE
+        || k == 'q' || k == 'Q'                        // cover fallback exit
+        || k == ' '                                    // too easy to hit by accident
+        || k == '\r' || k == '\n' || k == '\b' || k == '\x7F';
+}
+
+static void cmdUcPanic(const char* arg) {
+    DisplayManager& dm = displayManager;
+    dm.setDefaultTextSize();
+
+    if (arg && strncmp(arg, "off", 3) == 0) {
+        bool saved = ucSetPanicKey(0);
+        dm.setTextColor(TFT_GREEN);
+        dm.println(saved ? "Panic key disabled."
+                         : "Panic key disabled (no SD — this session only).");
+        dm.setTextColor(TFT_WHITE);
+        return;
+    }
+    if (!arg || strncmp(arg, "set", 3) != 0) {
+        dm.setTextColor(TFT_RED); dm.println("Usage: uc panic set|off");
+        dm.setTextColor(TFT_WHITE); return;
+    }
+
+    dm.setTextColor(TFT_WHITE);
+    dm.println("Press the key for instant-hide:");
+    dm.setTextColor(0x7BEF);
+    dm.println("  blocked: ' q space Enter Bksp  (trackball click = cancel)");
+    dm.setTextColor(TFT_WHITE);
+
+    g_ucCapturingPanic = true;   // suppress the panic hook while we read the key
+    while (true) {
+        if (inputHandler.getTrackballEvent() == TBALL_CLICK) {
+            g_ucCapturingPanic = false;
+            dm.setTextColor(TFT_YELLOW); dm.println("Cancelled.");
+            dm.setTextColor(TFT_WHITE); return;
+        }
+        char k = inputHandler.getKeyboardInput();
+        if (k == 0) { delay(10); continue; }
+        if (k < 0x20 || k >= 0x7F) continue;           // printable only
+        if (ucPanicReserved(k)) {
+            char b[48]; snprintf(b, sizeof(b), "  '%c' is reserved — pick another.", k);
+            dm.setTextColor(TFT_RED); dm.println(b); dm.setTextColor(TFT_WHITE);
+            continue;
+        }
+        g_ucCapturingPanic = false;
+        bool saved = ucSetPanicKey((uint8_t)k);
+        char b[48]; snprintf(b, sizeof(b), "Panic key set to '%c'.", k);
+        dm.setTextColor(TFT_GREEN); dm.println(b);
+        if (!saved) { dm.setTextColor(TFT_YELLOW); dm.println("(no SD — this session only)"); }
+        if (!ucHasPassphrase()) {
+            dm.setTextColor(TFT_YELLOW);
+            dm.println("Set an exit passphrase (uc set) — panic won't fire without one.");
+        }
+        dm.setTextColor(TFT_WHITE);
+        return;
     }
 }
 
@@ -116,6 +183,17 @@ static void cmdUcStatus() {
     } else {
         dm.setTextColor(TFT_YELLOW); dm.println("off (use 'uc boot on')");
     }
+    dm.setTextColor(TFT_WHITE); dm.printText("Panic key  : ");
+    uint8_t pk = ucPanicKey();
+    if (pk == 0) {
+        dm.setTextColor(TFT_YELLOW); dm.println("off (use 'uc panic set')");
+    } else if (!ucHasPassphrase()) {
+        char b[48]; snprintf(b, sizeof(b), "'%c' set — inactive (no passphrase)", pk);
+        dm.setTextColor(TFT_YELLOW); dm.println(b);
+    } else {
+        char b[40]; snprintf(b, sizeof(b), "'%c'  — armed (instant hide)", pk);
+        dm.setTextColor(TFT_GREEN); dm.println(b);
+    }
     dm.setTextColor(TFT_WHITE);
 }
 
@@ -150,10 +228,11 @@ void runUndercover(char* args) {
         else if (strcmp(sub, "clear")  == 0) { cmdUcClear();        displayManager.printCommandScreen(); return; }
         else if (strcmp(sub, "status") == 0) { cmdUcStatus();       displayManager.printCommandScreen(); return; }
         else if (strcmp(sub, "boot")   == 0) { cmdUcBoot(arg2);     displayManager.printCommandScreen(); return; }
+        else if (strcmp(sub, "panic")  == 0) { cmdUcPanic(arg2);    displayManager.printCommandScreen(); return; }
         else {
             displayManager.setDefaultTextSize();
             displayManager.setTextColor(TFT_RED);
-            displayManager.println("Usage: uc [set|clear|status|boot on|off]");
+            displayManager.println("Usage: uc [set|clear|status|boot on|off|panic set|off]");
             displayManager.setTextColor(TFT_WHITE);
             displayManager.printCommandScreen();
             return;

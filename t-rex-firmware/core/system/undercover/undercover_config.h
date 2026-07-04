@@ -9,6 +9,8 @@
 #ifndef UNDERCOVER_CONFIG_H
 #define UNDERCOVER_CONFIG_H
 
+#include <stdint.h>
+
 // Returns true if a passphrase hash is currently loaded.
 bool ucLoadConfig();
 bool ucHasPassphrase();
@@ -26,5 +28,11 @@ bool ucCheckPhrase(const char* candidate);
 // Boot-cover: device boots directly into the Notes disguise when enabled.
 bool ucBootCoverEnabled();
 bool ucSetBootCover(bool on);   // persists to SD; returns false if SD save failed
+
+// Panic key: a single keyboard byte that instantly drops the device into the
+// Notes cover from anywhere (even mid-command). Default '@'. 0 = disabled.
+// Only actually fires when a passphrase is set (so there's always a way back).
+uint8_t ucPanicKey();
+bool    ucSetPanicKey(uint8_t key);   // persists to SD; returns false if SD save failed
 
 #endif // UNDERCOVER_CONFIG_H

@@ -948,4 +948,8 @@ void runNotesUi() {
     displayManager.clearScreen();
     displayManager.setCursor(10, outputY);
     displayManager.printCommandScreen();
+    // If we were panic-hidden mid-command, the command's static UI was blanked by
+    // the cover. Raise the unlock-style repaint signal so it fully redraws on its
+    // next loop (every consumeJustUnlocked-aware command: ws, sw, wguard, ...).
+    LockScreenManager::getInstance().signalRedraw();
 }

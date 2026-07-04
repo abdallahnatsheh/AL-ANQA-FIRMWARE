@@ -22,6 +22,10 @@ public:
     void           lock();
     bool           isLocked() const { return _locked; }
     bool           consumeJustUnlocked() { bool v = _justUnlocked; _justUnlocked = false; return v; }
+    // Any full-screen takeover that blanked an interactive command's UI can raise
+    // the same repaint signal the unlock path uses. Undercover's cover-exit calls
+    // this so a command panic-hidden mid-run (e.g. `ws`) fully repaints on return.
+    void           signalRedraw() { _justUnlocked = true; }
     void           cmd(char* args);
 
 private:
