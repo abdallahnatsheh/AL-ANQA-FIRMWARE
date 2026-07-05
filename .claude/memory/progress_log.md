@@ -4,6 +4,46 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-07-06 (isoscan/is — L1 smart-auto + L2 MITM + HONESTY pass + AirSnitch research + docs) — ✅ HW-TESTED, DONE
+- **Built L1+L2 then made the whole tool HONEST after HW testing showed the MITM was over-claiming.** All in
+  `wifi/attacks/isoscan/isoscan.cpp`. UNPUSHED (user compiles/flashes + pushes manually).
+- **L2 `mitm` (NEW combined attack `isoMitm`)** — gateway poison (TX) + promiscuous capture (RX→pcap) at once.
+  The cap cb (`isoCapCb`) now classifies each frame the AP relays back to us (`from-DS, A1=our MAC, A3=victim`)
+  by **ethertype**: ARP(`0x0806`)=`s_capArpAck` (victim merely reacted), IP(`0x0800/0x86dd`)=`s_capRedir` (real
+  data), else `s_capCand` (payload unreadable). Added `s_capOur[6]`/`s_capRedirOn`. Payload IS decrypted for
+  frames addressed to us (SNAP+ethertype at `hdrlen+8+6`, hdrlen 24 or 26 QoS).
+- **THE BUG we found + fixed (HW):** first `mitm` run showed "all green / MITM LIVE" but the victim's ping+web
+  were UNDISTURBED = false positive. Root cause via pcap (003.pcap): the redirect counter was counting the
+  victim's **ARP reply to our poison** (from-DS A1=us A3=victim) as "data redirect" — a reaction, not
+  interception. Fix = the ethertype split above + **rate-gating**: "MITM LIVE" now fires ONLY on a **sustained
+  ≥8 frames/s** data rate (2s window); a few stray frames read `leak N — NOT held` (yellow). auto's stage-5 uses
+  `redir>=16` over its 6s window = viable, else leak. Confirmed honest on HW: lab router (no isolation) →
+  `1 ACK, 0 data`, verdict correctly "poison seen, not holding → portdown".
+- **L1 smart `auto` (`isoSmartAuto`, replaced thin bounce-only stub)** — 6-stage probe→verdict (CCMP · GTK ·
+  normal-ARP · GTK-inject-reach ~6s · poison-hold L2 test ~6s · ICMP) → prints VERDICT + recommended attack.
+  **HW-verified 2026-07-06.**
+- **`bounce` reworked ARP-first (HW-verified)** — `etharp_request`+`find_addr` (works vs a Windows firewall that
+  drops ICMP), ICMP kept as secondary datapoint. Old ping-only wrongly said Windows victims unreachable. auto
+  stage-6 relabeled "ICMP ping … no reply (fw ok)" so it doesn't contradict `bounce`.
+- **Refactor (rule 5b):** extracted `isoTxGtkArp(...)` — inject/portup/mitm/auto all share it. Menu reordered
+  (auto first) + honest `[exp]` labels: auto,inject,bounce,portdown,mitm[exp],portup[exp],dns[exp],bcast.
+- **RESEARCH — AirSnitch/Bruce/Marauder (web):** settled that **real traffic MITM is NOT achievable on the
+  single-radio T-Deck.** AirSnitch's actual interception = **port stealing** (spoof victim MAC on a *2nd BSSID*
+  → AP switch remaps its port to us) = needs **2 radios** (they use 2 USB adapters). Our `inject` = AirSnitch's
+  GTK-abuse primitive (proven, novel on ESP32 — neither Bruce nor Marauder has it; Bruce's "MITM" is classic
+  random-MAC ARP-poison DoS, Marauder has no L3). ARP-poison also can't hold vs Windows / without forwarding.
+- **VERDICT: isoscan is DONE as an honest *isolation-AUDIT + recon + inject* tool** — reliable working parts =
+  `ns` discovery, `inject` (bypass proof), `bounce` (reachability), `portdown` (capture), `auto` (probe+
+  recommend). `mitm/portup/dns` `[exp]` run + report truthfully that a poison doesn't hold. NOT a traffic
+  interceptor. User accepted this ("so its not actual mitm" — confirmed).
+- **DOCS updated (2026-07-06):** man_pages (`is` entry — attacks + honest MITM-ceiling note), README (Network
+  table row + feature checklist), CLAUDE.md (IsoScan module — mitm/auto/bounce + HONESTY rewrite), docs/network.md
+  (table row + section), **new docs/isoscan.md** (full page, mirrors netspy.md). NOTICES already credits AirSnitch.
+- **▶ OPTIONAL NEXT (only if user wants MORE):** a **port-stealing spike** — can the single radio re-associate to
+  a 2nd BSSID under a spoofed victim MAC? That's the ONLY path to real interception, and it'd be half-duplex/
+  clunky on one radio — spike feasibility before promising. Otherwise isoscan is complete. L3 sweep / L4
+  keyid-auto still deferred. `dns` RA ICMPv6 checksum/ND still UNVERIFIED (needs an isolated L2 AP test bed).
+
 ## Session 2026-07-05 (isoscan/is Stage 2 — targeting + CCMP inject crypto) — IN PROGRESS
 - **isoscan/is command created** (`wifi/attacks/isoscan/`, Network, [EXP], registered #63/64 — cap now
   FULL). Active counterpart to netspy; TRANSMITS, so it's a separate opt-in command. Free-function

@@ -12,6 +12,7 @@ has_children: true
 |-------|---------|
 | [Net Discover](netdiscover) | `netdiscover` / `nd` — ARP scan local /24 |
 | [Net Spy](netspy) | `netspy` / `ns` — **[EXP]** passive client-isolation device recon (AirSnitch) |
+| [Iso Scan](isoscan) | `isoscan` / `is` — **[EXP]** active isolation audit: GTK inject + capture (AirSnitch) |
 | [Port Scan](portscan) | `portscan` / `ps` · `ps top` · banner grabber · OS fingerprint |
 | [Ping](ping) | `ping` / `pg` — ICMP ping |
 
@@ -61,6 +62,21 @@ CMD> ns
 | `q` | Quit |
 
 The **HOW** column shows the discovery source: `A`=ARP `I`=IPv4 `D`=DHCP `M`=mDNS `S`=SSDP. A `+` marks rows with detected services. Saves to `/apps/netspy/NNN.csv`. Subcommands: `ns gtk` (show group key), `ns dump` (state → SD). See the [full Net Spy guide](netspy).
+
+---
+
+## `isoscan` / `is` — Active Isolation Audit  `[EXP]`
+
+The offensive counterpart to `netspy`: where `ns` only listens, **`is` transmits** at a chosen victim to test whether the network's client isolation actually holds. Pick a victim from the `ns` list, then run an attack (it confirms before firing). **Own networks only.**
+
+```
+CMD> ns              # discover devices, note a victim #
+CMD> is ns3 auto     # probe device #3 and get a recommendation
+```
+
+Start with **`auto`** — it runs a 6-step probe (CCMP, GTK, ARP, GTK-inject reach, poison L2 test, ICMP) and prints a verdict recommending the attack that fits this network. Attacks: `inject` (GTK broadcast ARP → reach a victim past isolation, **HW-proven**), `bounce` (ARP reachability — works even against a Windows firewall that drops ping), `portdown` (capture the victim's frames → `/apps/isoscan/NNN.pcap`), and the `[exp]` poison attacks `mitm`/`portup`/`dns`.
+
+> **Honest limit:** real traffic **MITM is not achievable on the single-radio T-Deck** — AirSnitch's actual interception (port stealing) needs a second BSSID / second radio. The `[exp]` attacks run and report *truthfully* whether a poison holds (a sustained data-redirect rate), which on most networks is "not held." The reliable, useful capabilities are **isolation-bypass demonstration (inject), reachability (bounce), and device capture (portdown)**. See the [full Iso Scan guide](isoscan).
 
 ---
 
