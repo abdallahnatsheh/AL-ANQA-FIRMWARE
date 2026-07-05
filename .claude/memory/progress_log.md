@@ -101,6 +101,31 @@ type: project
     L2 AP; checksum/ND correctness UNVERIFIED (the #1 lab-debug target).**
   - `auto` = one-shot bounce probe. `bcast` = honest note (to-DS needs our PTK). Inject/poison rate tuned
     200ms→20ms (~50fps) to hold a poison on an L2 AP. Dispatch = switch.
+  - **BUILD FIX (compiles clean now, RAM 60.9% / Flash 33.8% on T-Deck-Plus):** `bounce`'s
+    `etharp_add_static_entry`/`_remove_static_entry` were compile errors — gated behind
+    `ETHARP_SUPPORT_STATIC_ENTRIES` (OFF in ESP-IDF lwip, symbols don't exist). Reworked `bounce` into a
+    plain `Ping.ping` reachability probe (lwip's broadcast ARP is still relayed by most soft-isolation APs).
+    Commits: ff7f4fd, a0aedf2, 260afc7, 8d1e932 — all on feature/pentest-enhancements, UNPUSHED (user
+    pushes manually + compiles manually — see [[feedback_user_compiles_manually]]).
+- **▶▶ RESUME HERE — isoscan status + next work (2026-07-05, user is HW-testing the suite now, then continue):**
+  - **STATE:** full `is` suite BUILT + COMPILES, only `inject`+`cctest` are HW-proven; bounce/portup/portdown/
+    dns/auto are compile-ready but UNVERIFIED. `portdown`=non-disruptive capture→`/apps/isoscan/NNN.pcap`;
+    `dns`=RA DNS poison→`/apps/isoscan/dns_NNN.csv` (ICMPv6 checksum/ND untested = #1 lab-debug target).
+    Interception needs a REAL L2 router w/ client isolation (a phone hotspot L3-routes past it — proven).
+  - **NEXT (user asked "make it smarter/automatic" — currently every attack is INDEPENDENT, manual pick-run-
+    stop; `auto` is thin = just bounce). Agreed plan, 4 levels:**
+    - **L1 — smart `auto`**: probe→decide→recommend engine. Run cctest + inject-reachability (timed ~10s,
+      check ARP cache) + bounce + a **poison-hold test that auto-detects L2-vs-L3** (does a brief gateway
+      poison actually break the victim's ping? = is MITM viable here) → print a summary + recommend the best
+      attack. This auto-answers the L2/L3 + reachability questions we found by hand.
+    - **L2 — combined MITM (the big one)**: run `portup` (redirect) + `portdown` (capture) SIMULTANEOUSLY in
+      one command → poison the gateway AND log the redirected traffic to a pcap. Turns the independent pieces
+      into one real automatic MITM.
+    - **L3 — whole-network sweep**: iterate ALL netspy `s_dev[]` devices, probe each, print a matrix
+      (reach? L2? best-attack) instead of one victim at a time.
+    - **L4 — auto-tuning**: auto-sweep keyid 1/2 (instead of manual `[k]`), auto params.
+    - Recommended build order when resuming: **L1 + L2 first** (biggest value). Honest limit: automation
+      can't beat a network that blocks the return path — but smart-auto DETECTS + reports it.
 
 ## Session 2026-07-04 (undercover PANIC BUTTON — instant-hide key) — ✅ HW-VERIFIED
 - **The "panic-chord" from the plan, shipped via a simpler re-entrant model — no `UndercoverManager`
