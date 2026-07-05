@@ -83,20 +83,24 @@ type: project
   INTERCEPTION (MITM/DNS) is network-dependent and a mobile hotspot is architecturally the WRONG test bed
   (L3-routes past L2 attacks). NEXT to validate interception = a REAL Wi-Fi router with "AP/client isolation"
   enabled (does L2 bridging → ARP-poison redirection behaves predictably).** See [[netspy + isoscan plan]].
-- **Full attack suite BUILT for a lab session (2026-07-05, committed ff7f4fd = inject/portup/cctest; the
-  rest in a follow-up commit — all compile-ready, static-reviewed, NOT HW-tested):**
-  - `bounce` — reach the victim at L3 via the gateway: static lwip ARP entry (victim IP → gateway MAC via
-    `etharp_add_static_entry`) + `Ping.ping` (ESP32Ping); reply = isolation bypassed at IP layer (if the
-    gateway hairpins). Entry removed on exit. Gateway MAC resolved via `isoResolveGw` (etharp).
-  - `portdown` — MAC-spoof downlink theft: `esp_wifi_stop`/`set_mac(victim)`/`start`/`WiFi.reconnect`
-    (mirrors MacChanger::applyMac) + promiscuous-counts FromDS frames to the cloned MAC. **DISRUPTIVE**
-    (MAC conflict, drops our WiFi); restores original MAC on every q-exit.
-  - `auto` — runs the one-shot bounce probe. `bcast` = honest note (to-DS needs our PTK, raw TX can't add).
-  - `is` rate tuned 200ms→20ms (~50fps) so a poison can hold on an L2 AP. Menu labels/dispatch = switch.
-  - **RA DNS poison DELIBERATELY NOT built** — checksum/ND-sensitive IPv6 (RA+RDNSS+UDP-53 logger) is far
-    better built HW-in-the-loop at the lab (untested it'd need line-by-line debugging there anyway), and it
-    faces the same isolation return-path wall. Groundwork confirmed present: `CONFIG_LWIP_IPV6=1`,
-    `WiFi.enableIpV6()`, `esp_netif_get_ip6_linklocal`, WiFiUDP. This is THE main lab task.
+- **FULL attack suite BUILT (2026-07-05) — all compile-ready, static-reviewed, NOT HW-tested. Commits:
+  ff7f4fd (inject/portup/cctest), a0aedf2 (bounce/portdown-v1/auto), + this one (RA DNS + portdown rework).
+  7 menu attacks; `is` = 63/64 cmds.**
+  - `bounce` — reach the victim at L3 via the gateway: static lwip ARP entry (victim IP → gateway MAC,
+    `etharp_add_static_entry`) + `Ping.ping`; reply = isolation bypassed at IP layer (if the gateway
+    hairpins). Entry removed on exit; gateway MAC via `isoResolveGw` (etharp).
+  - `portdown` — **REWORKED to non-disruptive victim CAPTURE → SD** (was a MAC-spoof that dropped WiFi;
+    user asked for no-drop + SD). Promiscuous grabs every data frame mentioning the victim MAC (A1/A2/A3)
+    → RAM ring (`isoCapCb`, 16×288B) → `/apps/isoscan/NNN.pcap` (`pcap::writeRecord` lt105), flushed with
+    `ScopedPromiscPause` (GDMA). No MAC change, stays associated.
+  - `dns` — **RA DNS poison flagship, NOW BUILT** (`isoRaDns`): GTK-encrypt a MULTICAST (A1=33:33::01,
+    ff02::1) ICMPv6 RA w/ RDNSS = our link-local → victim uses us as DNS. `WiFi.enableIpV6()` +
+    `esp_netif_get_ip6_linklocal(WIFI_STA_DEF)`; `isoBuildRA` (SNAP+IPv6+ICMPv6-RA), `isoIcmp6Cksum`
+    (pseudo-hdr internet cksum). WiFiUDP:53 + `isoDnsName` → log to `/apps/isoscan/dns_NNN.csv`. RA every
+    2s, `[k]` keyid. **Still faces the isolation return-path wall (victim→us query must arrive) → needs an
+    L2 AP; checksum/ND correctness UNVERIFIED (the #1 lab-debug target).**
+  - `auto` = one-shot bounce probe. `bcast` = honest note (to-DS needs our PTK). Inject/poison rate tuned
+    200ms→20ms (~50fps) to hold a poison on an L2 AP. Dispatch = switch.
 
 ## Session 2026-07-04 (undercover PANIC BUTTON — instant-hide key) — ✅ HW-VERIFIED
 - **The "panic-chord" from the plan, shipped via a simpler re-entrant model — no `UndercoverManager`

@@ -278,8 +278,8 @@ static const ArgHintEntry kArgHints[] = {
     { "netspy",      "",              "gtk dump" },
     { "ns",          "",              "gtk dump" },
     // isoscan / is
-    { "isoscan",     "",              "inject bounce bcast portdown portup auto cctest" },
-    { "is",          "",              "inject bounce bcast portdown portup auto cctest" },
+    { "isoscan",     "",              "inject bounce portup portdown dns bcast auto cctest" },
+    { "is",          "",              "inject bounce portup portdown dns bcast auto cctest" },
     // tz
     { "tz",          "",              "status" },
     // macchanger / mc  ("status" isn't a distinct code path — handleCommand() falls through
