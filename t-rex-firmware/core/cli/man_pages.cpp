@@ -482,6 +482,34 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "isoscan", "is", {
+        "SYNTAX   is                 pick victim+attack",
+        "         is ns<#> <attack>  target a netspy row",
+        "         is cctest          CCMP self-test",
+        "",
+        "ABOUT    [EXP] ACTIVE isolation-bypass. The",
+        "         offensive side of netspy - it",
+        "         TRANSMITS at a chosen victim.",
+        "         Victims come from the ns list.",
+        "",
+        "ATTACKS  inject   GTK broadcast ARP probe",
+        "         portup   gateway ARP-poison",
+        "         (bounce/bcast/portdown/auto: stub)",
+        "",
+        "HOW      Software-CCMP-encrypts a broadcast",
+        "         frame with the live GTK + spoofs the",
+        "         AP MAC, injected via 80211_tx. Lets",
+        "         you reach clients past isolation.",
+        "",
+        "KEYS     [k] keyid 1/2   [q] stop",
+        "NOTE     Confirms before firing. Efficacy is",
+        "         network-dependent (a phone hotspot",
+        "         L3-routes past L2 attacks; a real AP",
+        "         with client isolation is the target).",
+        "         Connect first (cw). Own networks only.",
+        nullptr
+    }},
+
     { "portscan", "ps", {
         "SYNTAX   ps <ip|#|ns#> <start> <end>",
         "         ps top <ip|#|ns#>",

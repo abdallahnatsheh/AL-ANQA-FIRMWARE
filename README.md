@@ -161,6 +161,7 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | **Network** | | | |
 | `netdiscover` | `nd` | — | ARP scan local /24 |
 | `netspy` | `ns` | `gtk` · `dump` | **[EXP]** Client-isolation device recon — finds devices `nd` can't see by passively parsing broadcast/multicast (ARP/IPv4 + DHCP/mDNS/SSDP) for IP, name + services; never transmits. Connect (`cw`) first. AirSnitch technique |
+| `isoscan` | `is` | `[ns#] [inject\|portup]` · `cctest` | **[EXP]** ACTIVE isolation bypass (**transmits**) — CCMP-encrypts a broadcast frame with the live GTK + spoofs the AP MAC to reach clients past isolation. `inject` = ARP reachability probe (HW-proven), `portup` = gateway ARP-poison, `cctest` = crypto self-test. Confirms before firing; targets a netspy row. Efficacy is network-dependent (needs an L2-bridging AP; a phone hotspot routes around it). Own networks only |
 | `portscan` | `ps` | `<ip\|#\|ns#> <start> <end>` · `top <ip\|#\|ns#>` | TCP port scan; `ps top` scans the 26 common ports. `#` = netdiscover index, `ns#` = netspy index |
 | `ping` | `pg` | `<ip\|hostname\|#\|ns#>` | Continuous ICMP ping — rolling results + live sent/recv/loss + min/avg/max RTT; `#` = netdiscover index, `ns#` = netspy index; `q` stops |
 | `ssh` | `sc` | `<ip\|name> [user]` | Interactive SSH client (libssh) — password auth, PTY shell, 16-colour terminal + trackpad scrollback; saved host profiles (`ssh save/list/rm`); connect WiFi (`cw`) first |
@@ -265,6 +266,7 @@ All scan tables share the same keys:
 - [x] WiFi scan, connect, monitor, deauth, Evil Twin, hidden SSID, MAC spoof, WPA2 handshake capture+crack, PMKID capture+crack (passive, no client needed), WPS flag, saved credential manager, Linux wpa_supplicant.conf sync
 - [x] ARP discovery, port scan, ping, banner grabber, OS fingerprinting
 - [x] `netspy` **[EXP]** — passive client-isolation device recon: finds devices ARP can't see by parsing AP-relayed broadcast/multicast (ARP/IPv4 + DHCP/mDNS/SSDP) for IP, hostname + services; never transmits (AirSnitch technique)
+- [x] `isoscan` **[EXP]** — active isolation bypass (AirSnitch Stage 2, transmits): software AES-CCMP-encrypts a broadcast frame with the live GTK + spoofs the AP MAC to inject at clients past isolation. GTK inject HW-proven; interception is network-dependent (needs an L2-bridging AP)
 - [x] BLE scanner, anti-tracking detector
 - [x] BLE GATT enumeration (`bi`) — full service/char tree, 0x2904 auto-decode, write (trackpad cursor, write-without-response fallback), fuzz, notify/indicate sniff with write-while-connected, pairing/bonding, `bi all` sweep, full UUID + full hex saved to SD
 - [x] BLE auth leak detector (`[b]` audit view) — inline risk scoring for AES blobs / hex secrets / PINs

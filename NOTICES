@@ -114,16 +114,20 @@ This project incorporates code from the following open-source projects:
 
 15. AirSnitch (research technique reference — no code used)
     Files:   t-rex-firmware/wifi/intel/netspy.cpp
+             t-rex-firmware/wifi/attacks/isoscan/isoscan.cpp
+             t-rex-firmware/wifi/attacks/isoscan/iso_ccmp.cpp
     Source:  https://github.com/vanhoefm/airsnitch
              https://papers.mathyvanhoef.com/ndss2026-airsnitch.pdf
     License: All rights reserved (no license file) — techniques only, from the
              published paper (Mathy Vanhoef et al., NDSS 2026).
-    Notes:   The netspy / ns client-isolation device-discovery technique was
-             reimplemented from the paper's description — no AirSnitch source was
-             read, copied or adapted. T-REX uses only the passive portion (sniff
-             the AP-relayed group/broadcast frames, which an associated ESP32
-             decrypts in hardware, and parse ARP/DHCP/mDNS/SSDP). The paper's
-             active GTK-injection attack is not implemented.
+    Notes:   Both the passive (netspy / ns) and active (isoscan / is) techniques
+             were reimplemented from the paper's description — no AirSnitch source
+             was read, copied or adapted. netspy uses only the passive portion
+             (sniff the AP-relayed group/broadcast frames, which an associated
+             ESP32 decrypts in hardware, and parse ARP/DHCP/mDNS/SSDP). isoscan
+             implements the active GTK-injection idea by software-CCMP-encrypting
+             a broadcast frame with the live group key and injecting it; the CCMP
+             (AES-CCM) is the standard IEEE 802.11 construction via mbedTLS.
 
 16. SensorLib
     Source:  https://github.com/lewisxhe/SensorLib  (PlatformIO: lewisxhe/SensorLib @ ^0.4.1)

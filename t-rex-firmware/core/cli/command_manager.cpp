@@ -71,6 +71,7 @@ void runWardrive(char* a);
 void runEditor(char* a);
 void runCsiDetect(char* a);
 void runNetspy(char* a);
+void runIsoscan(char* a);
 
 CommandManager::CommandManager()
     : commandIndex(0), commandCount(0), _cursorPos(0),
@@ -276,6 +277,9 @@ static const ArgHintEntry kArgHints[] = {
     // netspy / ns
     { "netspy",      "",              "gtk dump" },
     { "ns",          "",              "gtk dump" },
+    // isoscan / is
+    { "isoscan",     "",              "inject bounce bcast portdown portup auto cctest" },
+    { "is",          "",              "inject bounce bcast portdown portup auto cctest" },
     // tz
     { "tz",          "",              "status" },
     // macchanger / mc  ("status" isn't a distinct code path — handleCommand() falls through
@@ -740,6 +744,7 @@ void CommandManager::setupCommands() {
     registerCommand("netdiscover", "nd",     [](char* a) { networkScanner.networkDiscovery(); },                             "ARP scan local subnet",                   false, "Network");
     registerCommand("portscan",    "ps",     [](char* a) { handlePortScanCmd(a); },                                         "Port scan: ps <ip|#|ns#> <s> <e> | ps top <ip|#|ns#>", true, "Network");
     registerCommand("netspy",      "ns",     [](char* a) { runNetspy(a); },                                                  "[EXP] Client-isolation device recon (AirSnitch)", true,  "Network");
+    registerCommand("isoscan",     "is",     [](char* a) { runIsoscan(a); },                                                 "[EXP] Active isolation-bypass attacks: is [ns#] [attack]", true, "Network");
     registerCommand("ping",        "pg",     [](char* a) { networkScanner.pingHost(a); },                                   "Ping: pg <ip|host|#|ns#>",                 true,  "Network");
     registerCommand("ssh",         "sc",     [](char* a) { runSshCon(a); },                                                 "SSH client: ssh <ip|name> [user] | save/list/rm", true,  "Network");
     // ── Bluetooth ─────────────────────────────────────────────────────────────
