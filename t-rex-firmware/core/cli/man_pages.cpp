@@ -493,7 +493,7 @@ static const ManEntry PAGES[] = {
         "         Victims come from the ns list.",
         "",
         "ATTACKS  inject GTK ARP    portup gw-poison",
-        "         bounce via-gw     portdown->SD pcap",
+        "         bounce reach-test portdown->SD pcap",
         "         dns RA-poison     auto reach-sweep",
         "",
         "HOW      Software-CCMP-encrypts a broadcast",
