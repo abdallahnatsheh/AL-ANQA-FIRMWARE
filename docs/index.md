@@ -55,6 +55,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 
 - [Net Discover](netdiscover) — `netdiscover`
 - [Net Spy](netspy) — `netspy` / `ns` — **[EXP]** passive client-isolation device recon (AirSnitch)
+- [Iso Scan](isoscan) — `isoscan` / `is` — **[EXP]** active isolation audit: GTK inject + capture (AirSnitch)
 - [Port Scan](portscan) — `portscan` · `ps top` · banner grabber · OS fingerprint
 - [Ping](ping) — `ping`
 - [SSH Client](ssh) — `ssh` — interactive colour terminal + scrollback

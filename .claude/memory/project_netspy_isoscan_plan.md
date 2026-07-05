@@ -4,6 +4,25 @@ description: Stage 0 DONE (GTK extraction proven) — netspy/ns (discover device
 type: project
 ---
 
+## ✅ FINAL STATUS (2026-07-06) — isoscan DONE + HW-tested + HONEST
+`ns` (passive recon) + `is` (active) both built, HW-tested, documented. **Settled conclusion after AirSnitch
+research + HW tests: real traffic MITM is NOT achievable on the single-radio T-Deck.** AirSnitch's actual
+interception = **port stealing** (spoof victim MAC on a *2nd BSSID* → AP internal switch remaps the victim's
+port to the attacker) which needs **2 radios** (AirSnitch uses 2 USB adapters). Our `is inject` = AirSnitch's
+GTK-abuse primitive, HW-proven + novel on ESP32 (Bruce's "MITM" = classic random-MAC ARP-poison DoS; Marauder
+has no L3 — neither does GTK inject or isolation bypass). ARP-poison MITM can't hold vs Windows (ignores
+unsolicited ARP) or without traffic forwarding.
+- **isoscan's real value = isolation-AUDIT + recon + inject**, NOT interception: `ns` discovery, `inject`
+  (prove isolation is bypassable), `bounce` (ARP reachability, works vs Windows firewall), `portdown` (capture
+  →pcap), `auto` (6-stage probe→recommend). `mitm`/`portup`/`dns` are `[exp]` and **honestly report** whether a
+  poison holds (rate-gated ≥8/s = LIVE, else `leak N — not held`) — on normal nets they say "not held".
+- **Honest-detector fix (the key HW lesson):** the mitm redirect counter first false-positived on the victim's
+  ARP *reply* to our poison. Fix = classify relayed-to-us frames by ethertype (ARP=reacted, IP=real redirect,
+  else unreadable) + rate-gate the "MITM LIVE" verdict. See [[progress_log]] 2026-07-06.
+- **ONLY path to real MITM if ever revisited = port-stealing spike:** can 1 radio re-assoc to a 2nd BSSID under
+  a spoofed victim MAC? Half-duplex + needs the AP to expose ≥2 BSSIDs (open/guest = plaintext capture). Spike
+  feasibility before building. Everything below is the original design history.
+
 ## BUILD STATUS (2026-06-29) — Stage 0 + Stage 1 built (not yet committed)
 - **Stage 0 ✅ HW-VERIFIED:** `ns gtk` prints the live GTK from `gWpaSm+0x174`, changes per reconnect.
   Platform PINNED `espressif32@7.0.1` (offset can't drift). Build fix: `dm.printText()` not `print()`.
