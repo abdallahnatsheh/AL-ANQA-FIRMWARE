@@ -82,9 +82,21 @@ type: project
 - **VERDICT: GTK inject primitive = DONE + HW-proven (one-way inject bypassing isolation). Traffic
   INTERCEPTION (MITM/DNS) is network-dependent and a mobile hotspot is architecturally the WRONG test bed
   (L3-routes past L2 attacks). NEXT to validate interception = a REAL Wi-Fi router with "AP/client isolation"
-  enabled (does L2 bridging → ARP-poison redirection behaves predictably). Until then, `is` ships with:
-  inject (reachability probe, proven) + gateway-poison (lands, proven) + cctest; RA DNS poison deferred
-  pending a proper isolated-router test bed + the IPv6/UDP lift.** See [[netspy + isoscan plan]].
+  enabled (does L2 bridging → ARP-poison redirection behaves predictably).** See [[netspy + isoscan plan]].
+- **Full attack suite BUILT for a lab session (2026-07-05, committed ff7f4fd = inject/portup/cctest; the
+  rest in a follow-up commit — all compile-ready, static-reviewed, NOT HW-tested):**
+  - `bounce` — reach the victim at L3 via the gateway: static lwip ARP entry (victim IP → gateway MAC via
+    `etharp_add_static_entry`) + `Ping.ping` (ESP32Ping); reply = isolation bypassed at IP layer (if the
+    gateway hairpins). Entry removed on exit. Gateway MAC resolved via `isoResolveGw` (etharp).
+  - `portdown` — MAC-spoof downlink theft: `esp_wifi_stop`/`set_mac(victim)`/`start`/`WiFi.reconnect`
+    (mirrors MacChanger::applyMac) + promiscuous-counts FromDS frames to the cloned MAC. **DISRUPTIVE**
+    (MAC conflict, drops our WiFi); restores original MAC on every q-exit.
+  - `auto` — runs the one-shot bounce probe. `bcast` = honest note (to-DS needs our PTK, raw TX can't add).
+  - `is` rate tuned 200ms→20ms (~50fps) so a poison can hold on an L2 AP. Menu labels/dispatch = switch.
+  - **RA DNS poison DELIBERATELY NOT built** — checksum/ND-sensitive IPv6 (RA+RDNSS+UDP-53 logger) is far
+    better built HW-in-the-loop at the lab (untested it'd need line-by-line debugging there anyway), and it
+    faces the same isolation return-path wall. Groundwork confirmed present: `CONFIG_LWIP_IPV6=1`,
+    `WiFi.enableIpV6()`, `esp_netif_get_ip6_linklocal`, WiFiUDP. This is THE main lab task.
 
 ## Session 2026-07-04 (undercover PANIC BUTTON — instant-hide key) — ✅ HW-VERIFIED
 - **The "panic-chord" from the plan, shipped via a simpler re-entrant model — no `UndercoverManager`

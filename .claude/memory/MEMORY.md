@@ -2,6 +2,7 @@
 
 ## Rules (always apply)
 - [Collaboration + Coding Rules](feedback_rules.md) — no AskUserQuestion, reuse code, verify APIs, GDMA critical rule, user profile
+- [User compiles manually](feedback_user_compiles_manually.md) — do NOT run pio builds; static-review then hand off; CI is the gate
 - [UI Rules](ui_rules.md) — `[CYAN::YELLOW] 01/02` header style + cursor corruption fix pattern
 - [NimBLE v2.x Rules](nimble_v2_rules.md) — scan response name, cleanup no re-init, scan non-blocking, auto-bond-delete
 

