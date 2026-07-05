@@ -100,6 +100,39 @@ type: project
     command, opt-in, transmits; uses the Stage-0 GTK at `gWpaSm+0x174`). See below.
 - **NEXT (after 1b commit):** Stage 2 — GTK inject
   (software CCMP-encrypt a broadcast data frame + AP-MAC spoof + high PN) = the AirSnitch active attack.
+
+## Stage 2 — `isoscan`/`is` VICTIM TARGETING design (2026-07-05, NOT built — design only)
+**Why a separate command:** `isoscan` TRANSMITS (forges/injects frames); `netspy` is 100% passive.
+Keeping them split means passive recon can never accidentally put a frame on the air — user must opt in.
+
+**Pick-by-index model — reuse netspy's list, do NOT build a new scanner.** `ns` already has the `#`
+index column + persistent `s_dev[]` (survives `ns` exit) + `ns#` CLI prefix in `resolveTarget()`
+(`network_scanner.cpp`) that `ps ns3`/`pg ns0` already use. `isoscan` sits on top of that same table.
+
+**GAP to close first:** `netspy.h` currently exports only `netspyDeviceCount()` + `netspyDeviceIp(idx)`
+— enough for `ps`/`pg` (IP only). `isoscan` needs MORE per victim:
+- `inject`/ARP/DNS-poison → victim **MAC + IP**
+- `portdown`/`portup` → victim **MAC** (to spoof)
+- `bounce` → victim IP + **gateway MAC** (gateway MAC is NOT in `NsDev` today → new discovery bit)
+→ ADD `netspyDeviceMac(idx)` (+ `netspyDeviceName(idx)` for the confirm prompt). MAC already lives in
+`NsDev`, just not exported.
+
+**Two targeting entry points (mirror the two patterns already in the repo):**
+1. **CLI** — extend the `ns#` prefix: `is ns3 inject` / `is ns3 auto` / `is ns3 portdown` (consistent
+   with `ps ns3`; user already knows the `#` from the netspy table).
+2. **In-app picker** — `is` with no index → show a selectable list of netspy devices (same trackball-
+   select + `#` + highlight-bar UI as `ns`), Enter locks the victim, then choose the attack. Handles
+   the "don't remember the index" case + is safer (you SEE who you're about to hit).
+
+**SAFETY — confirm before fire:** because `is` transmits AT a victim, the selection step must echo the
+target (MAC + IP + name/vendor) and require a confirm before the first injected frame. A fat-fingered
+index must not DNS-poison the wrong device.
+
+**Stage-2 remaining work (in order):** (1) export MAC+name from netspy; (2) add `is ns#` CLI path +
+in-app victim picker + confirm-before-fire; (3) resolve gateway MAC (new, for `bounce`); THEN the
+actual attack cores (GTK software-CCMP-encrypt inject, port-steal MAC spoof w/ originalMac restore on
+every exit path per mac_util.h idiom, ICMPv6 RA DNS-poison + SD UDP-53 logger). Cmd count 60/64 →
+`is` makes 61.
 - **Name: keep `netspy`/`ns`.** Module `wifi/intel/netspy.cpp/.h`, registered Network, `-I wifi/intel`,
   `SD_DIR_NETSPY=/apps/netspy` + ensureTree. Cmd count 60/64.
 - **Feasibility resolved:** full AirSnitch GTK *inject* core is blocked on ESP32 by the CLOSED WiFi

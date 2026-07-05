@@ -101,6 +101,25 @@ static uint8_t           s_bssid[6];
 int      netspyDeviceCount()      { return s_devN; }
 uint32_t netspyDeviceIp(int idx)  { return (idx >= 0 && idx < s_devN) ? s_dev[idx].ip : 0; }
 
+// isoscan targeting: victim MAC + display name from the same persistent table.
+bool netspyDeviceMac(int idx, uint8_t out[6]) {
+    if (idx < 0 || idx >= s_devN) return false;
+    memcpy(out, s_dev[idx].mac, 6);
+    return true;
+}
+const char* netspyDeviceName(int idx) {
+    if (idx < 0 || idx >= s_devN) return nullptr;
+    if (s_dev[idx].name[0]) return s_dev[idx].name;
+    return s_dev[idx].vendor ? s_dev[idx].vendor : "?";
+}
+bool netspyGetGtk(uint8_t out[32], int* lenOut) {
+    uint32_t len = *(const uint32_t*)(gWpaSm + NETSPY_GTKLEN_OFF);
+    if (lenOut) *lenOut = (int)len;
+    if (len != 16 && len != 32) return false;         // offset drift / not assoc'd
+    memcpy(out, gWpaSm + NETSPY_GTK_OFF, len);
+    return true;
+}
+
 // ── header ─────────────────────────────────────────────────────────────────────
 static void netspyHeader(const char* tag) {
     auto& dm = displayManager;

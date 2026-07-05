@@ -4,6 +4,88 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-07-05 (isoscan/is Stage 2 — targeting + CCMP inject crypto) — IN PROGRESS
+- **isoscan/is command created** (`wifi/attacks/isoscan/`, Network, [EXP], registered #63/64 — cap now
+  FULL). Active counterpart to netspy; TRANSMITS, so it's a separate opt-in command. Free-function
+  `runIsoscan(char*)`. Include path + `SD_DIR_ISOSCAN` + ensureTree added.
+- **Targeting layer built (compiles, not yet HW-tested):** victim picked from the netspy device list —
+  CLI `is ns3 <attack>` (reuses the `ns#` idea) OR in-app picker (trackball select) + attack menu +
+  **confirm-before-fire** (echoes MAC/IP/name, requires `y`). netspy.h gained exports the picker needs:
+  `netspyDeviceMac(idx,out)` / `netspyDeviceName(idx)` (only IP was exported before). Attacks:
+  inject/bounce/bcast/portdown/portup/auto — all STUBS ("attack core not built yet") except crypto below.
+- **✅ CCMP inject crypto — HW-VERIFIED 2026-07-05 (`is cctest` → PASS + live GTK shown).** `iso_ccmp.h/.cpp`:
+  software AES-CCMP encrypt (IEEE 802.11-2016 §12.5.3) via **mbedTLS `mbedtls_ccm_*`** (HW AES). Builds
+  CCMP header (PN0 PN1 rsvd keyid|0x20 PN2-5), 13B nonce (`0x00‖A2‖PN-big-endian`), 22B AAD (`FC&0x8f ‖
+  (FC1&0xc7)|0x40 ‖ A1‖A2‖A3 ‖ SeqCtrl&0x0f‖0`), MIC=8, iv_len=13 (L=2). `isoCcmpSelfTest()` = encrypt→
+  auth_decrypt round-trip (no TX) → user confirmed PASS on HW. GTK exported from netspy via
+  `netspyGetGtk(out,&len)` (reads gWpaSm+0x174, same as `ns gtk`); confirmed readable + 16B on HW.
+- **✅ Inject TX primitive — HW-VERIFIED 2026-07-05 (`is` → inject → TX ok climbing, rc=0, err=0).**
+  `isoInjectArp()`: broadcast FromDS Dot11 hdr (A1=ff.., **A2=BSSID spoofed**, A3=our MAC) + LLC/SNAP +
+  ARP who-has(victimIP, tell ourIP) → `isoCcmpEncrypt` (PN starts 0x800000000000, incrementing; keyid 1,
+  `[k]` toggles 1/2 live) → `esp_wifi_80211_tx(WIFI_IF_STA, frame, len, false)` ~5fps. **KEY UNKNOWN
+  RESOLVED:** the ESP32 ACCEPTS a raw 80211_tx frame whose A2 ≠ our STA MAC (the spoofed BSSID) while
+  associated — rc=ESP_OK. So GTK-inject TX is feasible on ESP32 (the last feasibility worry beyond the
+  closed-blob CCMP, which we do in SW). **CAVEAT: TX ok = API queued the frame; NOT yet confirmed the AP
+  forwards it / the victim accepts+reacts** (that needs external Wireshark OR an on-device RX response
+  detector — NEXT). keyid 1 vs 2 + PN high-water still unswept for real victim acceptance.
+- **✅✅ FULL GTK-INJECT PIPELINE HW-VERIFIED END-TO-END 2026-07-05 — the make-or-break result.** Injected
+  a GTK-encrypted broadcast ARP from the T-Deck; confirmed on the VICTIM (laptop, tcpdump on its wlan):
+  `<tdeck-LAmac f6:20:3c..> > ff:ff:ff:ff:ff:ff Request who-has <victimIP> tell <tdeckIP>` ARRIVED
+  **decrypted**, and the laptop **replied** `<victimMAC> is-at ..` to the T-Deck. Victim-side decrypt success
+  proves CCMP framing + keyid + PN + spoofed-A2 TX + AP-forwarding are ALL correct. AirSnitch active GTK
+  inject is REAL on ESP32-S3. (Test net had NO client isolation — correct network to validate the primitive
+  itself; isolation-bypass value proven separately later.)
+- **On-device RESP detector — promiscuous was WRONG and REMOVED.** v1 used a promiscuous RX cb to catch the
+  victim's ARP reply → stayed "none" even with tcpdump proof, because the reply is UNICAST to the T-Deck and
+  the promiscuous cb only gets GROUP frames decrypted (netspy's mechanism). WORSE: enabling promiscuous
+  likely DIVERTS the unicast reply away from the lwip data path too. **FIX (built, not yet HW-confirmed):
+  dropped promiscuous entirely; detect via our own lwip ARP cache** — `etharp_find_addr(netif_default,
+  &victimIP,...)` under LOCK_TCPIP_CORE (mirrors network_scanner), polled 500ms in the inject loop. The
+  unicast reply lands in the IP stack → cache hit = "VICTIM REPLIED (ARP cache)". lwip inc: etharp.h/netif.h/
+  tcpip.h. **Attribution caveat:** on a NON-isolated net the entry may pre-exist (green instantly, not
+  attributable) — on an ISOLATED net the stack normally can't resolve the victim so a hit IS proof. If the
+  ARP-cache read still shows nothing post-fix, lwip isn't caching the unsolicited reply → fall back to
+  tcpdump-as-proof (the attack is already proven) and rely on RA-DNS-poison's own UDP-53 socket signal.
+- **Delivery RATE low (follow-up, not a bug):** victim tcpdump saw only ~1 injected req / ~23s though TX ok
+  climbs fast; framing is fine (they decrypt), so medium loss / AP buffering of client-originated group
+  frames. Fine for RA DNS poison (RAs periodic). Investigate if higher rate needed.
+- **NETWORK REALITY (2026-07-05, changes the plan):** the test net is a **mobile hotspot = CLIENT ISOLATION
+  ON** (user thought it wasn't). `nd` on the T-Deck sees ONLY the gateway (10.184.171.55), NOT the victim
+  laptop (.232) — isolation confirmed. So this IS the real isoscan use case, and the inject bypassing it
+  (victim tcpdump got our frame) = the feature working. **Why the ARP RESP can NEVER fire here (not a bug):
+  the victim's reply is client→client UNICAST, which the hotspot blocks on the RETURN path** — it leaves the
+  laptop (tcpdump sees it) but never reaches the T-Deck. Reply-based on-device detection is the wrong tool
+  under isolation; VICTIM-SIDE tcpdump is the proof. (Also: T-Deck's IP was transiently .55 = the gateway IP
+  during those runs → injected `tell .55` accidentally poisoned the laptop's GATEWAY arp entry to the T-Deck
+  MAC; now T-Deck is .159. The accidental poison = a free demo of gateway-impersonation.)
+- **THE LINCHPIN (unproven, gates ALL interception attacks incl. RA DNS poison + MITM):** can the victim
+  send data TO the T-Deck under this isolation? Injection TO victim = proven; victim→T-Deck = unknown (the
+  ARP reply is blocked coming back). If NO, RA DNS poison's queries won't reach us either → IPv6 effort
+  wasted. **IPv6 + UDP server are BOTH absent from the firmware** (grep: IPv6 only in netspy comments, zero
+  UDP-server code) → RA DNS poison is a big untested lift (v6 enable + link-local + ICMPv6 RA + UDP-53
+  server), NOT a payload swap.
+- **Gateway ARP-poison BUILT + HW-tested** (`is` → "Gateway poison (uplink)" = ISO_PORTUP → `isoGwPoison`,
+  reuses ARP builder with srcIp=WiFi.gatewayIP()). **RESULT — poison LANDS but does NOT intercept on a
+  mobile hotspot:** `ip neigh` on the laptop showed `gateway.55 -> T-Deck MAC REACHABLE` (poison installed),
+  yet `ping 8.8.8.8` = **295/295, 0% loss over ~5 min** with the poison held. **CONCLUSION: a phone hotspot
+  routes uplink by L3 (all client TX goes to the phone anyway; it NATs by dest IP, ignoring the poisoned L2
+  gateway MAC) → L2 ARP-MITM is architecturally defeated there.** Same wall blocks RA DNS poison (victim→
+  T-Deck query = client↔client, isolation-blocked).
+- **Delivery RATE cap (fundamental):** injected broadcasts reach the victim only ~1 per 15-28s regardless of
+  `iw set power_save off` on the victim → **DTIM-aligned broadcast RX** (GTK inject MUST be broadcast; managed
+  clients gate broadcast to DTIM windows; mobile-hotspot DTIM ~255×beacon ≈ 25s). Not a code bug, hard to fix
+  our side. Enough for RA-poison-style persistent config, too slow to out-race a real gateway for sustained
+  ARP-MITM.
+- **MAC note:** `mc off` sets the base MAC (e.g. xx:xx:xx:xx:xx:xx) but the LIVE association keeps the old
+  random MAC (f6:20:3c..) until a `cw` RECONNECT — `esp_wifi_get_mac(WIFI_IF_STA)` (what inject uses) returns
+  the live one. Pin MAC = `mc off` THEN `cw`. Within a session it's stable, so not a blocker.
+- **VERDICT: GTK inject primitive = DONE + HW-proven (one-way inject bypassing isolation). Traffic
+  INTERCEPTION (MITM/DNS) is network-dependent and a mobile hotspot is architecturally the WRONG test bed
+  (L3-routes past L2 attacks). NEXT to validate interception = a REAL Wi-Fi router with "AP/client isolation"
+  enabled (does L2 bridging → ARP-poison redirection behaves predictably). Until then, `is` ships with:
+  inject (reachability probe, proven) + gateway-poison (lands, proven) + cctest; RA DNS poison deferred
+  pending a proper isolated-router test bed + the IPv6/UDP lift.** See [[netspy + isoscan plan]].
+
 ## Session 2026-07-04 (undercover PANIC BUTTON — instant-hide key) — ✅ HW-VERIFIED
 - **The "panic-chord" from the plan, shipped via a simpler re-entrant model — no `UndercoverManager`
   refactor.** A single keyboard byte (default `@`=0x40, Sym+P) drops the device into the Notes cover
