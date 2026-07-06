@@ -4,6 +4,33 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-07-06b (isoscan interactive-UI flicker/clarity rework + dns dual-stack listener) — code done, UNCOMMITTED
+- **User complaint: isoscan interactive mode "flickers so much" + "tools not understandable".** Root cause of
+  the strobe: in inject/gwpoison/radns a `lastDraw = 0;` sat INSIDE the ~20 ms TX tick, defeating the redraw
+  throttle → full-screen `clearScreen()` (via `isoHeader`) at ~50 fps. Fixed across the board:
+  - **Menu** = chrome-once + body-on-selection-change (no timer redraw); each row now shows the attack's
+    one-line **description** AND its CLI **`[keyword]`** on the right (fixes "auto says portdown but menu says
+    'Capture victim->SD'" — they now match, and map to `is ns# <keyword>`). `isoMenuChrome`/`isoMenuBody`.
+  - **Picker** = same chrome/body split (`isoPickChrome`/`isoPickBody`) — no flash on scroll.
+  - **inject + gwpoison** = VALUE-IN-PLACE: header+labels drawn once, only the changed numbers repaint
+    (`fillRect` the value cell + reprint), like portdown already did. Genuinely flicker-free.
+  - **Plain-language "what it's doing" line** added to every running screen (inject: "send encrypted ARP;
+    wait for a reply"; gwpoison: "tell victim WE are its gateway"; portdown: "save victim's frames to SD…";
+    mitm: "poison + capture; is it holding? see verdict"; dns: "make victim use us as DNS; log its lookups").
+  - **dns live query list**: shows a rolling **last-5 DNS lookups** on screen (`victim is reaching:`), repainted
+    only when a new query arrives (event-driven). Full record still → `/apps/isoscan/dns_NNN.csv`.
+- **dns DUAL-STACK listener fix (the "RA sent up, DNS rcvd 0" bug):** `WiFiUDP.begin(53)` is IPv4-ONLY but the
+  RA points the victim at us over IPv6 → queries never arrived. Replaced with a raw lwip pcb
+  `udp_new_ip_type(IPADDR_TYPE_ANY)` + `udp_bind(IP_ANY_TYPE,53)` + `udp_recv(isoDnsRecv)` (v4+v6); cb parses +
+  rings (tcpip thread), main loop drains → list + SD log (`ipaddr_ntoa_r` src). `udp_remove` on exit.
+  Includes `<lwip/udp.h>`; dropped `<WiFiUdp.h>`.
+- **dns is IPv6-ONLY (RA/RDNSS has no IPv4 form) — CONFIRMED DEAD on the mobile hotspot (HW):** victim's
+  `ip -6 addr` = only `fe80::` link-local, `ip -6 route` = no v6 default, `resolvectl` = IPv4 DNS (`.55`). So
+  nothing to poison. `dns` needs a home router with real client IPv6 (global `2xxx:` + v6 route). IPv4 DNS
+  redirect would need DHCP-spoof/DNS-MITM (not feasible). Docs (CLAUDE/README/man/docs-isoscan) all updated.
+- **NEXT:** user is HW-testing the UI + verifying menu/inject are steady. Commit the UI pass once confirmed
+  (his name, NO Co-Authored trailer — [[feedback_rules]]).
+
 ## Session 2026-07-06 (isoscan/is — L1 smart-auto + L2 MITM + HONESTY pass + AirSnitch research + docs) — ✅ HW-TESTED, DONE
 - **Built L1+L2 then made the whole tool HONEST after HW testing showed the MITM was over-claiming.** All in
   `wifi/attacks/isoscan/isoscan.cpp`. UNPUSHED (user compiles/flashes + pushes manually).

@@ -507,6 +507,8 @@ static const ManEntry PAGES[] = {
         "         (single radio); mitm/portup/dns are",
         "         [exp] + report honestly whether a",
         "         poison holds (it usually won't).",
+        "         dns is IPv6-only: needs real client",
+        "         IPv6 (dead on v4-only nets/hotspots).",
         "         Best use: audit isolation + recon +",
         "         inject. Connect (cw). Own nets only.",
         nullptr

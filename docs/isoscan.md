@@ -33,7 +33,7 @@ Victims are chosen from the `netspy` device list — either on the CLI (`is ns3 
 | **`portdown`** | Capture every frame involving the victim → `/apps/isoscan/NNN.pcap` (Wireshark) | works |
 | `mitm` | ARP poison + capture at once; shows a **sustained-rate** verdict (MITM live vs leak-not-held) | `[exp]` |
 | `portup` | ARP-poison the victim's gateway toward us | `[exp]` |
-| `dns` | ICMPv6 RA → point the victim's DNS at us + log queries (UDP-53) → `/apps/isoscan/dns_NNN.csv` | `[exp]` |
+| `dns` | ICMPv6 RA → point the victim's DNS at us; live query list on screen + dual-stack UDP-53 log → `/apps/isoscan/dns_NNN.csv`. **IPv6-only** | `[exp]` |
 | `cctest` | AES-CCMP encrypt→decrypt self-test (no transmit) | works |
 
 ### `auto` — the recommended front door
@@ -64,6 +64,7 @@ It ends with a recommendation, e.g. *"poison seen, not holding → portdown"* or
 
 - **Real traffic MITM is not achievable on the single-radio T-Deck.** AirSnitch's actual interception uses **port stealing** — spoofing the victim's MAC on a *second BSSID* so the AP's switch redirects the victim's traffic to the attacker. That needs a second radio; the T-Deck has one. The `mitm`/`portup`/`dns` attacks therefore run and report *honestly* whether a poison holds (they measure a sustained data-redirect rate) — on most networks the answer is "not held."
 - **ARP poisoning does not survive a modern gateway.** Windows largely ignores unsolicited ARP, and without traffic forwarding a victim just drops. This is a technique limit, not a bug — the tool tells you the truth instead of faking success.
+- **`dns` (RA DNS poison) is IPv6-only.** Router Advertisements + RDNSS are an IPv6 mechanism — there is no IPv4 equivalent. It only works on a network that gives *clients* real IPv6 (a global `2xxx:` address + an IPv6 default route). On IPv4-only networks — which includes essentially every **phone hotspot** — the victim has only a `fe80::` link-local and IPv4 DNS, so there is nothing to poison and `DNS rcvd` stays 0 (not a bug). The on-device UDP-53 listener is dual-stack (raw lwip, IPv4+IPv6) so it catches the v6 queries a plain `WiFiUDP` (IPv4-only) would miss — verify with a home router that has IPv6/dual-stack enabled.
 - **The reliable, useful capabilities** are: proving a network's client isolation is **bypassable** (`inject`), **reachability** testing (`bounce`), and **device capture / fingerprinting** (`portdown`). That's the tool's real job — an isolation *audit* and recon aid, not a traffic interceptor.
 
 Files: captures → `/apps/isoscan/NNN.pcap`, DNS query log → `/apps/isoscan/dns_NNN.csv`.
