@@ -12,6 +12,8 @@
 #include "lockscreen_manager.h"
 #include "constants.h"
 #include "fast_pair_keys.h"
+#include "utils.h"
+#include "mac_util.h"
 
 #include <NimBLEDevice.h>
 #include <SD.h>
@@ -205,10 +207,15 @@ void BleSpam::spamAndroid() {
     int i = 0; uint32_t count = 0;
     while (true) {
         if (s_bsUnlocked) { s_bsUnlocked = false; bsDrawHeader("ANDROID"); }
-        // New random MAC every cycle — Android deduplicates by MAC+modelId pair
-        NimBLEDevice::deinit(true);
-        vTaskDelay(pdMS_TO_TICKS(20));
-        NimBLEDevice::init("");
+        // New random MAC every cycle — Android deduplicates by MAC+modelId pair.
+        // Rotate via a NimBLE-native random static address rather than
+        // deinit(true)+init(): the per-cycle full stack teardown was crashing /
+        // rebooting the device (exactly the broken pattern bsRestoreStack warns
+        // about). Mirrors the HW-proven mac_changer BLE-native fix; the stack is
+        // init'd once before the loop and left up.
+        uint8_t bleMac[6]; macutil::randomBleMac(bleMac);
+        NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);
+        NimBLEDevice::setOwnAddr(bleMac);
 
         int idx = i % FP_KNOWN_COUNT;
         androidFpAdvert(FP_KNOWN_DEVICES[idx].modelId);
@@ -409,7 +416,5 @@ void BleSpam::command(const char* args) {
     if (strcmp(args, "all") == 0)
         { spamAll();      return; }
 
-    displayManager.setTextColor(TFT_YELLOW);
-    displayManager.println("Usage: bs [apple|android|ms|samsung|all]");
-    displayManager.printCommandScreen();
+    Utils::printUsage("bs");
 }
