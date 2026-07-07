@@ -317,6 +317,10 @@ void LockScreenManager::tryUnlock() {
 // ── Main keyboard intercept (called from getKeyboardInput) ────────────────────
 
 char LockScreenManager::intercept(char k, uint32_t now) {
+    // Under cover the padlock screen would blow the Notes disguise.
+    // Power-save handles the dim/sleep; the undercover passphrase is the auth.
+    if (g_covert) return k;
+
     // ── Trackpad hold 3 s → lock (only while unlocked) ───────────────────
     if (!_locked) {
         bool tpadDown = (digitalRead(BOARD_BOOT_PIN) == LOW);
