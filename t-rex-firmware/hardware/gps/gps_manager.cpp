@@ -361,12 +361,12 @@ void GpsManager::applyUbloxHotStart() {
 }
 
 void runGps(char* a) {
-    if (!a) { displayManager.println("Usage: gps on|off|test"); displayManager.printCommandScreen(); return; }
+    if (!a) { Utils::printUsage("gps"); return; }
     while (*a == ' ') a++;
     if      (Utils::matchesCmd(a, "on"))   runGpsOn();
     else if (Utils::matchesCmd(a, "off"))  runGpsOff();
     else if (Utils::matchesCmd(a, "test")) runGpsTest();
-    else    { displayManager.println("Usage: gps on|off|test"); displayManager.printCommandScreen(); }
+    else    Utils::printUsage("gps");
 }
 
 #else  // non-Plus stub

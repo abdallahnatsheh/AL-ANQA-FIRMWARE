@@ -15,6 +15,7 @@
 
 #include "karma.h"
 #include "display_manager.h"
+#include "utils.h"
 #include "input_handling.h"
 #include "lockscreen_manager.h"
 #include "oui_lookup.h"
@@ -1376,7 +1377,10 @@ void runKarma(char* args) {
             karmaPortal(ss, false);
             return;
         }
-        // any other arg → fall through to harvest
+        // Any other non-empty arg is a typo, not a mode → show the command's help
+        // instead of silently starting a harvest run.
+        Utils::printUsage("km");
+        return;
     }
 
     if (!ensureBuffers()) {

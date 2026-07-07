@@ -44,6 +44,7 @@
 #include "esp_wifi.h"
 #include <math.h>
 #include "display_manager.h"
+#include "utils.h"
 #include "input_handling.h"
 #include "lockscreen_manager.h"
 #include "sdcard_manager.h"
@@ -600,7 +601,10 @@ void runCsiDetect(char* args) {
 
     // `csi auto` → passive mode: sense off the strongest nearby AP's beacons with
     // NO association. Plain `csi` → use the current connected link (cleaner signal).
-    bool autoMode = (args && (args[0] == 'a' || args[0] == 'A'));
+    bool autoMode = (args && *args && (strcmp(args, "auto") == 0 || strcmp(args, "a") == 0));
+
+    // Any other argument is a typo → show the command's help rather than run.
+    if (args && *args && !autoMode) { Utils::printUsage("csi"); return; }
 
     if (!autoMode && WiFi.status() != WL_CONNECTED) {
         dm.clearScreen();

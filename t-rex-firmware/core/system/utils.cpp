@@ -20,6 +20,35 @@ bool Utils::matchesCmd(const char* str, const char* prefix) {
     return strncmp(str, prefix, n) == 0 && (str[n] == '\0' || str[n] == ' ');
 }
 
+// Print a command's registered one-line help as its usage. The syntax lives in
+// exactly ONE place — the command table's `description` — so a handler rejects a
+// bad argument with printUsage("cmd") instead of repeating the usage text.
+void Utils::printUsage(const char* cmd) {
+    for (int i = 0; i < commandManager.commandCount; i++) {
+        if (strcmp(cmd, commandManager.commands[i].name) == 0 ||
+            strcmp(cmd, commandManager.commands[i].shortName) == 0) {
+            displayManager.setTextColor(TFT_RED);
+            displayManager.newLinePrint("bad arg — ");
+            displayManager.setTextColor(0x7BEF);
+            displayManager.println(commandManager.commands[i].description);
+            displayManager.printCommandScreen();
+            return;
+        }
+    }
+    displayManager.printCommandScreen();
+}
+
+bool Utils::checkChannelArg(const char* a, const char* cmd) {
+    if (!a || !*a) return true;                       // no arg = default (hop/all)
+    int v = 0;
+    for (const char* p = a; *p; p++) {
+        if (*p < '0' || *p > '9') { printUsage(cmd); return false; }   // "ff", "abc"
+        v = v * 10 + (*p - '0');
+    }
+    if (v > 13) { printUsage(cmd); return false; }    // out of the 1-13 band
+    return true;
+}
+
 void Utils::printHelp(char* args) {
     // ── specific command lookup ───────────────────────────────────────────────
     if (args && args[0] != '\0') {

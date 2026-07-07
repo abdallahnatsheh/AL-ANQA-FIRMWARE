@@ -9,6 +9,7 @@
 #include <NimBLEDevice.h>
 #include "sdcard_manager.h"
 #include "mac_util.h"
+#include "utils.h"
 
 extern DisplayManager displayManager;
 extern SDCardManager  sdCardManager;
@@ -373,5 +374,7 @@ void MacChanger::handleCommand(char* args) {
         return;
     }
 
-    printStatus();
+    if (a == "status") { printStatus(); return; }
+
+    Utils::printUsage("mc");   // unknown arg → command's help line, not a silent status dump
 }

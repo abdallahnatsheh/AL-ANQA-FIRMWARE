@@ -278,8 +278,8 @@ static const ArgHintEntry kArgHints[] = {
     { "netspy",      "",              "gtk dump" },
     { "ns",          "",              "gtk dump" },
     // isoscan / is
-    { "isoscan",     "",              "inject bounce portup portdown dns bcast auto cctest" },
-    { "is",          "",              "inject bounce portup portdown dns bcast auto cctest" },
+    { "isoscan",     "",              "auto inject bounce portdown mitm portup dns bcast cctest" },
+    { "is",          "",              "auto inject bounce portdown mitm portup dns bcast cctest" },
     // tz
     { "tz",          "",              "status" },
     // macchanger / mc  ("status" isn't a distinct code path — handleCommand() falls through
@@ -318,9 +318,9 @@ static const ArgHintEntry kArgHints[] = {
     // portscan / ps  (merged: was topscan)
     { "portscan",    "",              "top" },
     { "ps",          "",              "top" },
-    // test / tst  (merged: was spktest + mictest + loratest)
-    { "test",        "",              "spk mic lora" },
-    { "tst",         "",              "spk mic lora" },
+    // test / tst  (merged: was spktest + mictest + loratest + touchtest)
+    { "test",        "",              "spk mic lora touch" },
+    { "tst",         "",              "spk mic lora touch" },
     // show / sh
     { "show",        "",              "wifi ble hosts" },
     { "sh",          "",              "wifi ble hosts" },
@@ -630,11 +630,11 @@ void CommandManager::doAutocomplete() {
 }
 
 static void handleShowCmd(char* a) {
-    if      (!a || !*a)              { displayManager.println("Usage: show <wifi|ble|hosts>"); displayManager.printCommandScreen(); }
+    if      (!a || !*a)               Utils::printUsage("show");
     else if (strcmp(a, "wifi")  == 0) wifiFunctions.showWiFiResults();
     else if (strcmp(a, "ble")   == 0) bluetoothFunctions.showBleResults();
     else if (strcmp(a, "hosts") == 0) networkScanner.showHostResults();
-    else                             { displayManager.println("Usage: show <wifi|ble|hosts>"); displayManager.printCommandScreen(); }
+    else                              Utils::printUsage("show");
 }
 
 static void handleUsbExecCmd(char* a) {
@@ -684,7 +684,8 @@ static void handleWGuardCmd(char* a) {
 static void handleWifiPassCmd(char* a) {
     if (a && Utils::matchesCmd(a, "export"))     wifiExportCommand();
     else if (a && Utils::matchesCmd(a, "clear")) wifiFunctions.clearAllWiFiCredentials();
-    else                                         wifiPassCommand();
+    else if (a && *a)                            Utils::printUsage("wp");   // unknown arg → help, not a silent creds dump
+    else                                         wifiPassCommand();         // bare = show saved creds
 }
 
 // Port scan: `top <ip|#>` = common ports, else full range (merged topscan)
@@ -723,11 +724,11 @@ void CommandManager::setupCommands() {
     // ── WiFi ──────────────────────────────────────────────────────────────────
     registerCommand("scanwifi",    "sw",     [](char* a) { wifiFunctions.scanWiFiNetworks(); },                              "Scan WiFi networks",                      false, "WiFi");
     registerCommand("connectwifi", "cw",     [](char* a) { wifiFunctions.connectToWiFiCommand(a); },                        "Connect to WiFi: cw <index>",             true,  "WiFi");
-    registerCommand("wifimon",     "wm",     [](char* a) { stopEspchatBg(); wifiMonitor.start(a && *a ? atoi(a) : 0); },  "WiFi monitor [ch 1-13, 0=hop]",           true,  "WiFi");
+    registerCommand("wifimon",     "wm",     [](char* a) { if (!Utils::checkChannelArg(a, "wm")) return; stopEspchatBg(); wifiMonitor.start(a && *a ? atoi(a) : 0); },  "WiFi monitor [ch 1-13, 0=hop]",           true,  "WiFi");
     registerCommand("deauth",      "da",     [](char* a) { stopEspchatBg(); deauthAttack.start(a); },                       "Deauth: da <bssid> [ch] [client]",        true,  "WiFi");
     registerCommand("eviltwin",    "et",     [](char* a) { stopEspchatBg(); evilTwin.start(a); },                           "Evil Twin AP + captive portal",           true,  "WiFi");
     registerCommand("hiddenssid",  "hs",     [](char* a) { stopEspchatBg(); hiddenSSID.start(a); },                         "Uncover hidden SSID: hs <idx|bssid> [ch] [silent]", true,  "WiFi");
-    registerCommand("macchanger",  "mc",     [](char* a) { stopEspchatBg(); MacChanger::getInstance().handleCommand(a); },  "MAC spoof: mc on/off/random/set <mac>",              true,  "WiFi");
+    registerCommand("macchanger",  "mc",     [](char* a) { stopEspchatBg(); MacChanger::getInstance().handleCommand(a); },  "MAC spoof: mc [on|off|random|set <mac>|restore on|off|target wifi|bt|both|status]", true,  "WiFi");
     registerCommand("wpasniff",    "ws",     [](char* a) { stopEspchatBg(); handshakeCapture.start(a); },                   "WPA2 handshake: ws <idx|bssid> [ch]",                true,  "WiFi");
     registerCommand("pmkid",       "pm",     [](char* a) { stopEspchatBg(); pmkidAttack.start(a); },                        "PMKID capture+crack: pm <idx|bssid> [ch]",           true,  "WiFi");
     registerCommand("wguard",      "wg",     [](char* a) { stopEspchatBg(); handleWGuardCmd(a); },                          "WiFi IDS: wg <idx> [bg|stop]",                       true,  "WiFi");
@@ -735,25 +736,25 @@ void CommandManager::setupCommands() {
     registerCommand("karma",       "km",     [](char* a) { stopEspchatBg(); runKarma(a); },                                "Karma: km (harvest) | km auto | km hs/portal <ssid> | [h]/[p]/[s] in list", true,  "WiFi");
     registerCommand("wardrive",    "wd",     [](char* a) { stopEspchatBg(); runWardrive(a); },                             "Wardrive: WiFi+GPS -> WiGLE CSV (Plus only)",        false, "WiFi");
     registerCommand("crack",       "cc",     [](char* a) { stopEspchatBg(); runCapCrack(a); },                             "Crack .cap: cc [cap] [wordlist|dir]",                true,  "WiFi", COMP_ANY);
-    registerCommand("espsniff",    "es",     [](char* a) { runEspSniff(a); },                                                  "ESP-NOW sniffer: es [ch 1-13]",                      true,  "WiFi");
-    registerCommand("esptest",     "est",    [](char* a) { runEspTest(a); },                                                   "ESP-NOW test TX/RX: est [ch 1-13]",                  true,  "WiFi");
+    registerCommand("espsniff",    "es",     [](char* a) { if (!Utils::checkChannelArg(a, "es")) return; runEspSniff(a); },     "ESP-NOW sniffer: es [ch 1-13]",                      true,  "WiFi");
+    registerCommand("esptest",     "est",    [](char* a) { if (!Utils::checkChannelArg(a, "est")) return; runEspTest(a); },     "ESP-NOW test TX/RX: est [ch 1-13]",                  true,  "WiFi");
     registerCommand("espchat",     "ec",     [](char* a) { runEspchat(a); },                                                   "ESP-NOW chat: ec [pub [set <ch>]|prv <M>|bg|stop]",  true,  "WiFi");
-    registerCommand("espvoice",    "ev",     [](char* a) { stopEspchatBg(); runEspVoice(a); },                                 "ESP-NOW walkie-talkie: ev [ch 1-13]",                true,  "WiFi");
+    registerCommand("espvoice",    "ev",     [](char* a) { if (!Utils::checkChannelArg(a, "ev")) return; stopEspchatBg(); runEspVoice(a); }, "ESP-NOW walkie-talkie: ev [ch 1-13]",  true,  "WiFi");
     registerCommand("wifipass",    "wp",     [](char* a) { handleWifiPassCmd(a); },                                         "Saved WiFi creds: wp [export|clear]",     true,  "WiFi");
     // ── Network ───────────────────────────────────────────────────────────────
     registerCommand("netdiscover", "nd",     [](char* a) { networkScanner.networkDiscovery(); },                             "ARP scan local subnet",                   false, "Network");
     registerCommand("portscan",    "ps",     [](char* a) { handlePortScanCmd(a); },                                         "Port scan: ps <ip|#|ns#> <s> <e> | ps top <ip|#|ns#>", true, "Network");
-    registerCommand("netspy",      "ns",     [](char* a) { runNetspy(a); },                                                  "[EXP] Client-isolation device recon (AirSnitch)", true,  "Network");
+    registerCommand("netspy",      "ns",     [](char* a) { runNetspy(a); },                                                  "[EXP] Client-isolation recon (AirSnitch): ns [gtk|dump]", true,  "Network");
     registerCommand("isoscan",     "is",     [](char* a) { runIsoscan(a); },                                                 "[EXP] Active isolation-bypass attacks: is [ns#] [attack]", true, "Network");
     registerCommand("ping",        "pg",     [](char* a) { networkScanner.pingHost(a); },                                   "Ping: pg <ip|host|#|ns#>",                 true,  "Network");
     registerCommand("ssh",         "sc",     [](char* a) { runSshCon(a); },                                                 "SSH client: ssh <ip|name> [user] | save/list/rm", true,  "Network");
     // ── Bluetooth ─────────────────────────────────────────────────────────────
     registerCommand("scanblue",    "sbl",    [](char* a) { stopMacwatchBg(); bluetoothFunctions.scanBluetoothDevices(); },   "BLE device scan",                         false, "Bluetooth");
     registerCommand("bleinfo",     "bi",     [](char* a) { stopMacwatchBg(); runBleInfo(a); },                                       "GATT enumeration: bi <index|mac>",        true,  "Bluetooth");
-    registerCommand("trackme",     "tm",     [](char* a) { stopMacwatchBg(); trackMe.start(a && (strncmp(a,"s",1)==0||strncmp(a,"silent",6)==0)); }, "[EXP] Anti-tracking: tm [silent]",   true, "Bluetooth");
+    registerCommand("trackme",     "tm",     [](char* a) { bool silent = a && (strcmp(a,"s")==0||strcmp(a,"silent")==0); if (a && *a && !silent) { Utils::printUsage("tm"); return; } stopMacwatchBg(); trackMe.start(silent); }, "[EXP] Anti-tracking: tm [silent]",   true, "Bluetooth");
     registerCommand("macwatch",    "mw",     [](char* a) { runMacwatch(a); },                                                      "Watch MACs: mw [add|bg|stop]",            true,  "Bluetooth");
     registerCommand("bmon",        "bm",     [](char* a) { stopMacwatchBg(); runBmon(a); },                                        "BLE adv sniffer: bm",                     false, "Bluetooth");
-    registerCommand("fastpair",    "fp",     [](char* a) { stopMacwatchBg(); fastPair.command(a); },                              "Fast Pair attack: fp [scan|spam|h <idx>]", true, "Bluetooth");
+    registerCommand("fastpair",    "fp",     [](char* a) { stopMacwatchBg(); fastPair.command(a); },                              "Fast Pair attack: fp [scan|spam|h <idx>|h all]", true, "Bluetooth");
     registerCommand("blespam",    "bs",     [](char* a) { stopMacwatchBg(); bleSpam.command(a); },                               "BLE spam: bs [apple|android|ms|samsung|all]", true, "Bluetooth");
     registerCommand("buddy",      "bd",     [](char* a) { stopMacwatchBg(); buddyCommand(a); },                                      "Claude Desktop remote: bd [name]",            true,  "Bluetooth");
     // ── SD Card ───────────────────────────────────────────────────────────────
@@ -769,7 +770,7 @@ void CommandManager::setupCommands() {
     registerCommand("usbkbd",      "uk",     [](char* a) { usbKeyboard.start(); },                                                               "T-DECK as USB keyboard+mouse",            false, "USB");
     registerCommand("btkbd",       "bk",     [](char* a) { stopMacwatchBg(); bleKeyboard.start(); },                                              "T-DECK as BLE keyboard+mouse",            false, "Bluetooth");
     registerCommand("usbexec",     "ux",     [](char* a) { handleUsbExecCmd(a); },                                              "BadUSB/DuckyScript executor",             true,  "USB",  COMP_FILE);
-    registerCommand("jiggle",      "jg",     [](char* a) { if (a && (a[0]=='b'||a[0]=='B')) bleKeyboard.jiggle(); else usbKeyboard.jiggle(); }, "Jiggler: jg [ble] — prevent screen lock", true,  "USB");
+    registerCommand("jiggle",      "jg",     [](char* a) { if (a && *a && !Utils::matchesCmd(a,"usb") && !Utils::matchesCmd(a,"ble")) { Utils::printUsage("jg"); return; } if (a && (a[0]=='b'||a[0]=='B')) bleKeyboard.jiggle(); else usbKeyboard.jiggle(); }, "Jiggler: jg [usb|ble] — prevent screen lock", true,  "USB");
     // ── Diagnostics ───────────────────────────────────────────────────────────
     registerCommand("gps",         "gps",    [](char* a) { runGps(a); },                                                "GPS: gps on|off|test",                    true,  "Diagnostics");
     registerCommand("test",        "tst",    [](char* a) { handleHwTestCmd(a); },                                           "HW test: test <spk|mic|lora|touch>",      true,  "Diagnostics");
