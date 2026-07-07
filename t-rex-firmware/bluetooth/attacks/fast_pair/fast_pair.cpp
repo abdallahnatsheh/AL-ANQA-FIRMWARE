@@ -13,6 +13,7 @@
 #include "lockscreen_manager.h"
 #include "sdcard_manager.h"
 #include "constants.h"
+#include "utils.h"
 
 #include <NimBLEDevice.h>
 #include <SD.h>
@@ -196,9 +197,7 @@ void FastPair::command(const char* args) {
     while (*p == ' ') p++;
     if (strcmp(p, "all") == 0)  { hijackAll(); return; }
     if (*p >= '0' && *p <= '9') { hijack(atoi(p)); return; }
-    displayManager.setTextColor(TFT_YELLOW);
-    displayManager.println("Usage: fp [scan|spam|h <idx>|h all]");
-    displayManager.printCommandScreen();
+    Utils::printUsage("fp");
 }
 
 // ── FastPair::scan() ──────────────────────────────────────────────────────────

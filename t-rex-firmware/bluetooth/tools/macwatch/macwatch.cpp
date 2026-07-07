@@ -14,6 +14,7 @@
 #include <WiFi.h>
 #include <SD.h>
 #include "display_manager.h"
+#include "utils.h"
 #include "sdcard_manager.h"
 #include "input_handling.h"
 #include "notification_manager.h"
@@ -1088,6 +1089,8 @@ void runMacwatch(char* args) {
         displayManager.printCommandScreen();
         return;
     }
+    // Unrecognized argument — show the command's help instead of silently starting.
+    if (args && *args && strncmp(args, "add", 3) != 0) { Utils::printUsage("mw"); return; }
     bool addFirst = args && (strncmp(args, "add", 3) == 0);
     mwRunInteractive(addFirst);
 }

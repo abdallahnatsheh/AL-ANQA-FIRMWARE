@@ -32,6 +32,7 @@
 #include <string.h>
 #include "esp_wifi.h"
 #include "display_manager.h"
+#include "utils.h"
 #include "input_handling.h"
 #include "sdcard_manager.h"
 #include "clock_manager.h"
@@ -714,7 +715,11 @@ void runNetspy(char* args) {
         dm.printCommandScreen();
         return;
     }
-    if (args && (args[0] == 'g' || args[0] == 'G')) { netspyShowGtk(); return; }
-    if (args && (args[0] == 'd' || args[0] == 'D')) { netspyDump();    return; }
+    if (args && *args) {
+        if (args[0] == 'g' || args[0] == 'G') { netspyShowGtk(); return; }
+        if (args[0] == 'd' || args[0] == 'D') { netspyDump();    return; }
+        Utils::printUsage("ns");   // unknown arg → help, not a silent discovery run
+        return;
+    }
     netspyDiscover();
 }
