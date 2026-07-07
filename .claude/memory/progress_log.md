@@ -4,6 +4,52 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-07-07 (isoscan back-stack nav + CLI bad-arg DRY rejection + bs-android reboot fix) — ✅ HW-TESTED, COMMITTED + PUSHED
+- **All work HW-tested, committed, and pushed manually by the user.** 4 file-aligned commits on
+  `feature/pentest-enhancements` (his name, NO Co-Authored trailer — [[feedback_rules]]):
+  `fcdedaa` blespam · `0f44fca` cli bad-arg · `49b3a6e` isoscan · `d8fe577` lockscreen.
+- **isoscan usability (`wifi/attacks/isoscan/isoscan.cpp`):**
+  - **Navigable back-stack** — was: `[q]` in any tool dropped out of the whole `is` command. Now a two-level
+    loop: *running attack* --[q]--> *attack menu* --[q]--> *victim picker* --[q]--> CLI. Chain attacks on one
+    victim without relaunching. Every attack fn changed `void`→`bool` (`isoInjectArp/GwPoison/Bounce/PortDown/
+    Mitm/SmartAuto/RaDns/RunAttack`; `isoCcmpTest` stays void): **`true`=clean exit** (caller re-shows menu),
+    **`false`=hard error** (msg+`printCommandScreen` already drawn → exit `is`). Normal exits went from
+    `clearScreen();printCommandScreen();` to `clearScreen();return true;`. A CLI-supplied victim (`is ns3 …`)
+    has no picker so `[q]` at its menu exits (`victimFromCli` flag).
+  - **Result-only screens** (`bounce`, `auto`, `bcast` note) now wait for a keypress before returning so they're
+    readable.
+  - **Every SD-writing attack shows the exact file it's writing** — `mitm`/`dns` previously didn't. mitm pcap
+    **renamed `mitm_%03u.pcap`** (distinct prefix from portdown's `NNN.pcap` → the two capture types are
+    identifiable, no shared namespace). Each picks next-free `NNN` via `SD.exists` (verified: NO overwrite on
+    any attack). File-path display pixels checked non-colliding (mitm y178 below stats fillRect; dns log y108).
+- **CLI bad-arg rejection — DRY via the command table (`core/system/utils.{h,cpp}` + ~10 handlers):**
+  - **Root idea (user's, for design-pattern's sake):** a handler that gets an unrecognized arg should print
+    **what's in `hlp`**, not a hand-copied usage string. New `Utils::printUsage(const char* cmd)` looks the
+    cmd up in `commandManager.commands[]` and prints its registered `description` (red "bad arg —" + grey desc)
+    — **single source of truth = the command table**. So fixing a usage string = editing the `description` only.
+  - **`Utils::checkChannelArg(a, cmd)`** — the numeric-channel commands (`wm/es/est/ev`) accept `""`(default) or
+    an int 0..13, else `printUsage`. This is the `wm ff` fix (user: "wm ff did not have any problem with ff wtf"
+    — `atoi("ff")→0` was silently running channel 0). `cw` deliberately stays free-form (`cw <ssid>`).
+  - **Per-handler, NOT a central validator** — proved a kArgHints-based central check would break working
+    commands: `bs` accepts synonyms (`ios/windows/microsoft/galaxy`) not in kArgHints. Each handler rejects only
+    args that are present AND unrecognized; bare/interactive invocation always preserved.
+  - Migrated handlers to `printUsage`: `wp`, `show`, `tm`(silent only), `jg`(usb/ble), `mc`, `mw`(add), `km`,
+    `ns`(gtk/dump), `csi`(auto), `gps`, `bs`, `fp`. Some needed `#include "utils.h"` added. A few `description`
+    strings tightened to read as real usage (mc/ns/jg/fp). kArgHints fixed: test→"spk mic lora touch",
+    is→"auto inject bounce portdown mitm portup dns bcast cctest".
+- **`bs android` reboot fix (`bluetooth/attacks/ble_spam/ble_spam.cpp`):** user hit a reboot on `bs android`.
+  Root cause was **pre-existing** (proved via diff it wasn't my change): `spamAndroid()` did per-cycle
+  `NimBLEDevice::deinit(true); vTaskDelay(20); init("")` to rotate the MAC — tearing down/reinit the whole
+  NimBLE stack mid-advertise crashed. Fix = **NimBLE-native address rotation** (same pattern as `mc` /
+  [[nimble_v2_rules]]): `macutil::randomBleMac(mac); setOwnAddrType(BLE_OWN_ADDR_RANDOM); setOwnAddr(mac);` —
+  no stack teardown. Stack init'd once at top; only remaining `deinit(true)` is the exit path
+  (`bsRestoreStack`). Added `#include "utils.h"` + `#include "mac_util.h"`.
+- **lockscreen (`ui/lockscreen/lockscreen_manager.cpp`) — NOT authored this session** but committed with the
+  batch: `intercept()` gained `if (g_covert) return k;` so the padlock doesn't blow the Notes undercover
+  disguise. Flagged to user as pre-existing before committing.
+- **Docs updated:** CLAUDE.md + docs/isoscan.md for the back-stack nav, `mitm_NNN.pcap` naming, save-path
+  display, no-overwrite behavior.
+
 ## Session 2026-07-06b (isoscan interactive-UI flicker/clarity rework + dns dual-stack listener) — code done, UNCOMMITTED
 - **User complaint: isoscan interactive mode "flickers so much" + "tools not understandable".** Root cause of
   the strobe: in inject/gwpoison/radns a `lastDraw = 0;` sat INSIDE the ~20 ms TX tick, defeating the redraw
