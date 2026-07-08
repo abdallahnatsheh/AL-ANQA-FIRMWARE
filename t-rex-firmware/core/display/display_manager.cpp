@@ -219,12 +219,17 @@ void DisplayManager::setBtActive(bool active) {
 void DisplayManager::setWGuardState(bool active, uint8_t maxSev) {
     _wgActive = active;
     _wgMaxSev = maxSev;
-    // Redraw just the shield without a full status bar repaint
+    // Keep the flag current, but NEVER draw straight to the panel while a cover /
+    // lock screen owns it (undercover home/notes set _blocked) — otherwise a
+    // background wguard event paints its shield over the disguise, exposing it.
+    // The real status bar redraws the shield honestly once the cover exits.
+    if (_blocked) return;
     drawWGuardIcon(tft, 215, promptY + 15, _wgActive, _wgMaxSev);
 }
 
 void DisplayManager::setEcActive(bool active) {
     _ecActive = active;
+    if (_blocked) return;   // don't leak the EC badge over a cover/lock screen
     // Partial redraw — just the EC badge area
     tft.fillRect(82, promptY + 20, 18, 8, 0x000F);
     if (_ecActive) {
@@ -236,6 +241,7 @@ void DisplayManager::setEcActive(bool active) {
 
 void DisplayManager::setMwActive(bool active) {
     _mwActive = active;
+    if (_blocked) return;   // don't leak the MW badge over a cover/lock screen
     // Partial redraw — just the MW badge area
     tft.fillRect(104, promptY + 20, 18, 8, 0x000F);
     if (_mwActive) {

@@ -24,6 +24,7 @@
 #include "wguard.h"
 #include "lockscreen_manager.h"
 #include "clock_manager.h"
+#include "weather_manager.h"
 #include "touch_manager.h"
 #include "undercover.h"
 
@@ -67,6 +68,7 @@ void setup() {
     }
 
     ClockManager::instance().init();
+    WeatherManager::instance().init();
     MacChanger::getInstance().begin();
     PowerSaveManager::getInstance().init(&batteryManager);
     usbManager.begin();

@@ -12,8 +12,10 @@ has_children: true
 | [Device Info](info) | `info` / `inf` |
 | [Power Save](pwrsave) | `pwrsave` / `psv` · `sleep` / `slp` |
 | [Lock Screen](lock) | `lock` / `lk` |
-| Undercover Mode | `notes` / `nt` · `undercover` / `uc` |
+| Undercover Mode | `undercover` / `uc` (home-screen disguise + silent mode) |
+| [Home Launcher](home) | `home` / `hm` — the disguise `undercover` uses |
 | [Timezone](tz) | `tz` |
+| [Weather](weather) | `weather` / `wx` |
 | [Audio & Notifications](audio) | `volume` / `vol` · `notif` / `nf` · `test spk` |
 | [SD Commands](sd-commands) | `sdinfo` · `sdls` · `cd` · `cat` · `edit` · `rm` · `sdformat` |
 | [Diagnostics](diagnostics) | `gps on` · `gps off` · `gps test` · `test spk` · `test mic` · `test lora` |

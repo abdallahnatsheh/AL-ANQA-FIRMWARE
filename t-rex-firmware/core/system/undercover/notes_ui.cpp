@@ -22,7 +22,8 @@
 #include "lockscreen_manager.h"
 #include "powersave_manager.h"
 #include "sdcard_manager.h"
-#include "notes_fonts.h"      // baked Noto Sans VLW smooth fonts (convert_font.py)
+#include "cover_statusbar.h"  // shared phone status bar (also used by home_ui)
+#include "cover_kit.h"        // shared cover shell: sprite, fonts, passphrase, touch-wake
 #include <Arduino.h>
 #include <SD.h>
 #include <vector>
@@ -33,49 +34,16 @@ extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
 extern SDCardManager  sdCardManager;
 
-// ── Double buffering ────────────────────────────────────────────────────────
-// Every touch/drag event repaints the whole view; drawing that straight to the
-// panel shows the clear→redraw as flicker. So all draw calls go through `G`,
-// which points at a full-screen PSRAM sprite; each frame is composed off-screen
-// then blitted in one pushSprite (same pattern as csidetect's radar). If the
-// PSRAM sprite can't be allocated, G falls back to the panel (flickers, but
-// still works).
-static LGFX_Sprite      s_canvas(&tft);
-static lgfx::LovyanGFX* G = &tft;
-static bool             s_haveCanvas = false;
-
-static void flushCanvas() {
-    if (s_haveCanvas) s_canvas.pushSprite(&tft, 0, 0);
-}
-
-// ── Anti-aliased smooth fonts (Noto Sans, baked to VLW) ─────────────────────
-// Held as persistent VLWfont objects loaded once per session — switching with
-// setFont() then costs nothing (no re-parse). PointerWrapper reads the glyph
-// data straight from the flash array via memcpy_P. F_BIG=app title, F_TITLE=
-// card/detail titles, F_BODY=preview/body, F_META=meta/section labels.
-static lgfx::VLWfont        s_fBig, s_fTitle, s_fBody, s_fMeta;
-static lgfx::PointerWrapper s_wBig, s_wTitle, s_wBody, s_wMeta;
-static bool                 s_fontsLoaded = false;
-
-static void loadFonts() {
-    if (s_fontsLoaded) return;
-    s_wBig.set(NOTES_FONT_BIG,     sizeof(NOTES_FONT_BIG));
-    s_wTitle.set(NOTES_FONT_TITLE, sizeof(NOTES_FONT_TITLE));
-    s_wBody.set(NOTES_FONT_BODY,   sizeof(NOTES_FONT_BODY));
-    s_wMeta.set(NOTES_FONT_META,   sizeof(NOTES_FONT_META));
-    s_fBig.loadFont(&s_wBig);
-    s_fTitle.loadFont(&s_wTitle);
-    s_fBody.loadFont(&s_wBody);
-    s_fMeta.loadFont(&s_wMeta);
-    s_fontsLoaded = true;
-}
-
-static void unloadFonts() {
-    if (!s_fontsLoaded) return;
-    s_fBig.unloadFont(); s_fTitle.unloadFont();
-    s_fBody.unloadFont(); s_fMeta.unloadFont();
-    s_fontsLoaded = false;
-}
+// ── Draw context — shared cover shell (sprite/fonts owned by cover_kit) ──────
+// All draws go through `G` (a full-screen PSRAM sprite composed off-screen then
+// blitted in one pushSprite — no flicker). The sprite, the baked Noto VLW fonts,
+// the passphrase buffer and the touch-wake now live in cover_kit (shared with the
+// home launcher). Aliases keep the existing `G->...` / `&s_fBig` call sites intact.
+static lgfx::LovyanGFX*& G       = cover::G;
+static lgfx::VLWfont&    s_fBig   = cover::fBig;
+static lgfx::VLWfont&    s_fTitle = cover::fTitle;
+static lgfx::VLWfont&    s_fBody  = cover::fBody;
+static lgfx::VLWfont&    s_fMeta  = cover::fMeta;
 
 // ── Palette (RGB565, set once in runNotesUi from the mockup hex) ─────────────
 static uint16_t C_PAPER, C_CARD, C_INK, C_MUTED, C_HAIR, C_ACCENT;
@@ -105,6 +73,18 @@ struct NoteRec {
     bool                dirty = false;
 };
 static std::vector<NoteRec> s_notes;   // loaded on entry, freed on exit (rule 5c)
+
+// ── Functional search state ──────────────────────────────────────────────────
+// s_query = the live search text; s_filtered = indices into s_notes that match it
+// (all notes when the query is empty). The list view iterates s_filtered, not
+// s_notes, so filtering is "just" choosing which indices to show — same as a
+// regular phone notes app. s_searchFocused = the pill is the trackball highlight;
+// s_searchActive = keystrokes are being typed into the query.
+static String           s_query;
+static std::vector<int> s_filtered;
+static bool             s_searchActive  = false;
+static bool             s_searchFocused = false;
+static bool             s_backFocused   = false;   // back-to-Home chevron highlighted (only when s_fromHome)
 
 static bool parseIndex(const String& fname, int& idxOut) {
     int dot = fname.lastIndexOf('.');
@@ -229,10 +209,28 @@ static String notePreview(const NoteRec& n) {
     return String("(empty)");
 }
 
+// Case-insensitive substring match on title OR any body line. `ql` is expected
+// already-lowercased by the caller (rebuildFilter) so we don't re-lower per note.
+static bool noteMatches(const NoteRec& n, const String& ql) {
+    if (ql.length() == 0) return true;
+    String t = n.title; t.toLowerCase();
+    if (t.indexOf(ql) >= 0) return true;
+    for (auto& line : n.body) { String l = line; l.toLowerCase(); if (l.indexOf(ql) >= 0) return true; }
+    return false;
+}
+
+// Rebuild s_filtered from s_query. Call after any query or notes-set change.
+static void rebuildFilter() {
+    String ql = s_query; ql.toLowerCase();
+    s_filtered.clear();
+    for (int i = 0; i < (int)s_notes.size(); i++)
+        if (noteMatches(s_notes[i], ql)) s_filtered.push_back(i);
+}
+
 // ── Layout (real px @ 320x240) ───────────────────────────────────────────────
-#define SB_H        18                 // fake status bar height
+#define SB_H        COVER_SB_H         // shared status bar height (22)
 #define APPBAR_Y    (SB_H + 8)          // Notes title — clearance under the status-bar clock
-#define SEARCH_Y    54                  // gap below the 20px title so it isn't crowded
+#define SEARCH_Y    60                  // gap below the 20px title so it isn't crowded (clears the taller status bar)
 #define SEARCH_H    26
 #define LIST_TOP    (SEARCH_Y + SEARCH_H + 8)   // scroll region top (= 86)
 #define CARD_X      10
@@ -246,11 +244,16 @@ static String notePreview(const NoteRec& n) {
 
 enum { VIEW_LIST, VIEW_DETAIL };
 
+// true when the Notes UI was launched from the Home launcher (standalone=false):
+// draws a back-to-Home chevron in the list appbar and makes [q]/the chevron return
+// to Home instead of the CLI. Set at the top of runNotesUi().
+static bool s_fromHome = false;
+
 // unscrolled top offset (from LIST_TOP) of card i, and total content height —
 // flat single-section list (no pinned/tint — that was demo-only decoration).
 static int cardTop(int i) { return LABEL_H + i * (CARD_H + CARD_GAP); }
 static int contentHeight() {
-    int n = (int)s_notes.size();
+    int n = (int)s_filtered.size();
     return n > 0 ? cardTop(n - 1) + CARD_H + CARD_GAP : LABEL_H;
 }
 static int maxScroll() {
@@ -267,26 +270,11 @@ static void drawClipped(const char* s, int x, int y, int maxW, uint16_t color) {
     G->drawString((str + "..").c_str(), x, y);
 }
 
-// ── Status chrome (fake clock + signal + battery) ────────────────────────────
+// ── Status chrome — the SHARED phone status bar (identical to the home cover) ──
+// Real clock, carrier, signal, and battery + charging bolt; live via ClockManager
+// / BatteryManager. Same bar the home launcher draws (cover_statusbar.cpp).
 static void drawStatusBar() {
-    G->fillRect(0, 0, SCREEN_WIDTH, SB_H, C_PAPER);
-    G->setTextDatum(textdatum_t::middle_left);
-    G->setFont(&s_fMeta);                 // small status clock (mockup ~10px), not the 15px title font
-    G->setTextColor(C_INK);
-    G->drawString("14:32", 12, SB_H / 2);
-    G->setTextDatum(textdatum_t::top_left);
-
-    // signal bars (right)
-    int bx = SCREEN_WIDTH - 58, by = SB_H - 4;
-    for (int i = 0; i < 4; i++) {
-        int h = 3 + i * 3;
-        G->fillRect(bx + i * 5, by - h, 3, h, C_INK);
-    }
-    // battery
-    int btx = SCREEN_WIDTH - 30, bty = 3, btw = 22, bth = 11;
-    G->drawRoundRect(btx, bty, btw, bth, 2, C_INK);
-    G->fillRect(btx + btw, bty + 3, 2, bth - 6, C_INK);           // nub
-    G->fillRect(btx + 2, bty + 2, (btw - 4) * 72 / 100, bth - 4, C_INK);  // 72% fill
+    drawCoverStatusBar(G, &s_fMeta);
 }
 
 // ── LIST view ────────────────────────────────────────────────────────────────
@@ -313,14 +301,24 @@ static void drawSectionLabel(const char* s, int screenY) {
     G->drawString(s, CARD_X + 4, screenY + 2);
 }
 
-static void drawList(int scroll, int sel) {
+static void drawList(int scroll, int sel, bool caretOn) {
     G->fillRect(0, SB_H, SCREEN_WIDTH, SCREEN_HEIGHT - SB_H, C_PAPER);
 
-    // appbar
+    // appbar — back-to-Home chevron when launched from the Home launcher,
+    // then the title shifts right to make room ("‹ Notes").
+    int titleX = 14;
+    if (s_fromHome) {
+        int chx = 16, chy = APPBAR_Y + 11;
+        if (s_backFocused) G->drawRoundRect(6, APPBAR_Y - 2, 30, 26, 8, C_ACCENT);   // focus ring
+        uint16_t chColor = s_backFocused ? C_ACCENT : C_INK;
+        G->drawWideLine(chx + 7, chy - 7, chx, chy, 2, chColor);
+        G->drawWideLine(chx, chy, chx + 7, chy + 7, 2, chColor);
+        titleX = 34;
+    }
     G->setTextDatum(textdatum_t::top_left);
     G->setFont(&s_fBig);
     G->setTextColor(C_INK);
-    G->drawString("Notes", 14, APPBAR_Y);
+    G->drawString("Notes", titleX, APPBAR_Y);
     // avatar
     int avr = 12, avx = SCREEN_WIDTH - 14 - avr, avy = APPBAR_Y + 6;
     G->fillSmoothCircle(avx, avy, avr, C_ACCENT);
@@ -330,30 +328,53 @@ static void drawList(int scroll, int sel) {
     G->drawString("A", avx, avy - 1);
     G->setTextDatum(textdatum_t::top_left);
 
-    // search pill (decorative)
-    G->fillSmoothRoundRect(10, SEARCH_Y, SCREEN_WIDTH - 20, SEARCH_H, 9, C_SEARCH);
+    // search pill — FUNCTIONAL: shows the live query (or a placeholder), gets an
+    // accent ring when focused (trackball) or active (editing), a blinking caret
+    // while editing, and a clear (x) button once there's a query.
+    bool sfocus = s_searchFocused || s_searchActive;
+    G->fillSmoothRoundRect(10, SEARCH_Y, SCREEN_WIDTH - 20, SEARCH_H, 9, sfocus ? C_CARD : C_SEARCH);
+    if (sfocus) G->drawRoundRect(10, SEARCH_Y, SCREEN_WIDTH - 20, SEARCH_H, 9, C_ACCENT);
     int mcx = 26, mcy = SEARCH_Y + SEARCH_H / 2;   // magnifier
     G->drawCircle(mcx, mcy - 1, 4, C_MUTED);
     G->drawWideLine(mcx + 3, mcy + 2, mcx + 6, mcy + 5, 2, C_MUTED);
     G->setFont(&s_fBody);
-    G->setTextColor(C_MUTED);
-    G->drawString("Search", 40, SEARCH_Y + 5);
+    int qMaxW = SCREEN_WIDTH - 40 - 34;            // leave room for the clear-x
+    if (s_query.length()) {
+        drawClipped(s_query.c_str(), 40, SEARCH_Y + 5, qMaxW, C_INK);
+        int xcx = SCREEN_WIDTH - 24, xcy = mcy;    // clear (x)
+        G->drawWideLine(xcx - 4, xcy - 4, xcx + 4, xcy + 4, 2, C_MUTED);
+        G->drawWideLine(xcx - 4, xcy + 4, xcx + 4, xcy - 4, 2, C_MUTED);
+    } else {
+        G->setTextColor(C_MUTED);
+        G->drawString("Search", 40, SEARCH_Y + 5);
+    }
+    if (s_searchActive && caretOn) {
+        int cxq = 41 + (s_query.length() ? G->textWidth(s_query.c_str()) : 0);
+        if (cxq > 40 + qMaxW) cxq = 40 + qMaxW;
+        G->fillRect(cxq, SEARCH_Y + 5, 2, 16, C_INK);
+    }
 
     // scroll region: section label + cards, clipped so partial cards don't
-    // spill over the fixed header/status bar
+    // spill over the fixed header/status bar. Iterates s_filtered (search result
+    // set), so an active query narrows the list live.
     G->setClipRect(0, LIST_TOP, SCREEN_WIDTH, SCREEN_HEIGHT - LIST_TOP);
     int base = LIST_TOP - scroll;
-    drawSectionLabel("Notes", base);
-    int n = (int)s_notes.size();
+    int n = (int)s_filtered.size();
+    char lbl[24];
+    if (s_query.length()) snprintf(lbl, sizeof(lbl), "%d result%s", n, n == 1 ? "" : "s");
+    else                  strcpy(lbl, "Notes");
+    drawSectionLabel(lbl, base);
     if (n == 0) {
         G->setFont(&s_fBody);
         G->setTextColor(C_MUTED);
-        G->drawString("No notes yet - tap + to add one", CARD_X + 4, base + LABEL_H + 12);
+        G->drawString(s_query.length() ? "No matching notes" : "No notes yet - tap + to add one",
+                      CARD_X + 4, base + LABEL_H + 12);
     } else {
-        for (int i = 0; i < n; i++) {
-            int y = base + cardTop(i);
+        bool anySel = !s_searchFocused && !s_searchActive && !s_backFocused;   // no card highlight while the pill/back has focus
+        for (int pos = 0; pos < n; pos++) {
+            int y = base + cardTop(pos);
             if (y > SCREEN_HEIGHT || y + CARD_H < LIST_TOP) continue;   // fully offscreen
-            drawCard(i, y, i == sel);
+            drawCard(s_filtered[pos], y, anySel && pos == sel);
         }
     }
     G->clearClipRect();
@@ -376,16 +397,26 @@ static int scrollToSel(int sel, int scroll) {
     return scroll;
 }
 
-// which card is under a tap at screen-y (list view); -1 if none
+// which filtered card position is under a tap at screen-y (list view); -1 if none.
+// Returns a position into s_filtered — caller maps to the real note via s_filtered[pos].
 static int cardAtY(int tapY, int scroll) {
     if (tapY < LIST_TOP) return -1;
     int base = LIST_TOP - scroll;
-    int n = (int)s_notes.size();
-    for (int i = 0; i < n; i++) {
-        int y = base + cardTop(i);
-        if (tapY >= y && tapY <= y + CARD_H) return i;
+    int n = (int)s_filtered.size();
+    for (int pos = 0; pos < n; pos++) {
+        int y = base + cardTop(pos);
+        if (tapY >= y && tapY <= y + CARD_H) return pos;
     }
     return -1;
+}
+
+// tap inside the search pill? (and its clear-x sub-region on the right)
+static bool tapSearch(int x, int y) {
+    return y >= SEARCH_Y && y <= SEARCH_Y + SEARCH_H && x >= 10 && x <= SCREEN_WIDTH - 10;
+}
+static bool tapSearchClear(int x, int y) {
+    int xcx = SCREEN_WIDTH - 24, xcy = SEARCH_Y + SEARCH_H / 2;
+    return x >= xcx - 8 && x <= xcx + 8 && y >= xcy - 8 && y <= xcy + 8;
 }
 
 // ── DETAIL view — a real cursor-addressable editor ───────────────────────────
@@ -596,45 +627,42 @@ static bool tapSave(int x, int y) {
 }
 
 // Compose a full frame into the canvas, then blit once (no flicker).
-static void paintList(int scroll, int sel) { drawStatusBar(); drawList(scroll, sel); flushCanvas(); }
+static void paintList(int scroll, int sel, bool caretOn = true) { drawStatusBar(); drawList(scroll, sel, caretOn); cover::flush(); }
 static void paintDetail(const NoteRec& n, int ds, int curLine, int curCol, bool cursorOn) {
-    drawStatusBar(); drawDetail(n, ds, curLine, curCol, cursorOn); flushCanvas();
+    drawStatusBar(); drawDetail(n, ds, curLine, curCol, cursorOn); cover::flush();
 }
 
-// ── Secret-passphrase rolling buffer ─────────────────────────────────────────
-// Accumulates the last ucPhraseLen() printable keystrokes typed anywhere in the
-// Notes UI and compares the tail against the stored hash after every keypress.
-// No visual feedback — from the outside it looks like tapping random keys while
-// reading a note. Reset at the top of runNotesUi() so each cover session starts
-// clean (avoids leftovers from a previous partial entry).
-static char     s_kbuf[33]    = {};
-static int      s_kpos        = 0;
-static uint32_t s_lastTapMs   = 0;   // double-tap state for screen-off wake
+// The secret-passphrase rolling buffer lives in cover_kit (shared with home_ui):
+// it accumulates the last ucPhraseLen() printable keystrokes typed anywhere in the
+// cover and matches the tail against the stored hash — no visual feedback.
+static uint32_t s_lastTapMs = 0;   // double-tap state for screen-off wake
 
 // ── Entry point ──────────────────────────────────────────────────────────────
-void runNotesUi() {
-    // Full-screen PSRAM back-buffer (150KB). Set G before any drawing so every
-    // draw lands in the sprite; fall back to the panel if allocation fails.
-    s_canvas.setPsram(true);
-    s_canvas.setColorDepth(16);
-    s_haveCanvas = s_canvas.createSprite(SCREEN_WIDTH, SCREEN_HEIGHT);
-    G = s_haveCanvas ? (lgfx::LovyanGFX*)&s_canvas : (lgfx::LovyanGFX*)&tft;
-
+bool runNotesUi(bool standalone) {
+    // Full-screen PSRAM back-buffer + baked fonts (shared cover shell). Sets cover::G
+    // (aliased as G) so every draw lands in the sprite; falls back to the panel if the
+    // PSRAM sprite can't be allocated.
+    cover::setupCanvas();
     initColors();
-    loadFonts();
     // Suppress the real T-REX status bar (ClockManager/battery redraws at y<30):
     // setBlocked no-ops DisplayManager output; we draw the whole screen ourselves,
     // exactly like the lock screen does while blocked. This is what the cover does.
     displayManager.setBlocked(true);
 
     // Fresh state each session.
-    s_kbuf[0] = '\0'; s_kpos = 0; s_lastTapMs = 0; s_saveNoticeMs = 0; s_saveNoticeOk = true;
+    cover::resetPassphrase(); s_lastTapMs = 0; s_saveNoticeMs = 0; s_saveNoticeOk = true;
+    s_fromHome = !standalone;   // launched from Home → show the back-to-Home chevron
+
+    // Fresh search state each session, then build the (initially unfiltered) set.
+    s_query = ""; s_searchActive = false; s_searchFocused = false; s_backFocused = false;
 
     loadNotesFromSD();
+    rebuildFilter();
 
     int  view = VIEW_LIST, sel = 0, scroll = 0, cur = -1, docScroll = 0;
     int  curLine = 0, curCol = 0;   // cursor: 0=title, 1..N=body[line-1]
     bool cursorOn = true;
+    bool secretExit = false;   // set iff we leave via the secret passphrase
     uint32_t lastBlinkMs = millis();
 
     // Saves the open note if it has real content; otherwise drops a never-typed
@@ -645,6 +673,12 @@ void runNotesUi() {
             if (n.dirty)                    saveNote(n);
             else if (n.path.length() == 0)  s_notes.erase(s_notes.begin() + cur);
         }
+        // The note may have been edited (title now (mis)matches the query) or a
+        // placeholder erased — rebuild the result set and re-clamp sel/scroll.
+        rebuildFilter();
+        if (sel >= (int)s_filtered.size()) sel = (int)s_filtered.size() - 1;
+        if (sel < 0) sel = 0;
+        if (scroll > maxScroll()) scroll = maxScroll();
         view = VIEW_LIST; cur = -1;
         paintList(scroll, sel);
     };
@@ -653,7 +687,8 @@ void runNotesUi() {
 
     TouchManager& tm = TouchManager::instance();
 
-    bool s_wasDimmed = false;
+    bool     s_wasDimmed = false;
+    uint32_t lastStatusMs = millis();
 
     while (true) {
         if (LockScreenManager::getInstance().consumeJustUnlocked()) {
@@ -690,8 +725,17 @@ void runNotesUi() {
             s_wasDimmed = dimmed;
         }
 
+        // Live status bar: repaint the current view every 20s so the clock ticks and
+        // the battery/charging state stay current while idle (matches the home cover).
+        if (millis() - lastStatusMs >= 20000) {
+            lastStatusMs = millis();
+            if (view == VIEW_LIST) paintList(scroll, sel);
+            else if (cur >= 0)     paintDetail(s_notes[cur], docScroll, curLine, curCol, cursorOn);
+        }
+
         // Cursor blink while a note is open for editing — repaints every 500ms so
-        // the caret visibly blinks even with no new input.
+        // the caret visibly blinks even with no new input. Same blink drives the
+        // search-box caret while the query is being typed in the list view.
         if (view == VIEW_DETAIL && cur >= 0 && cur < (int)s_notes.size()) {
             uint32_t now = millis();
             if (now - lastBlinkMs >= 500) {
@@ -699,49 +743,61 @@ void runNotesUi() {
                 cursorOn = !cursorOn;
                 paintDetail(s_notes[cur], docScroll, curLine, curCol, cursorOn);
             }
-        }
-
-        // ── touch ──
-        TouchEvent te = tm.poll();
-        if (te.type != TouchEvent::NONE) {
-            inputHandler.updateActivity();
-            // Power-save wake lives HERE — main.ino's loop is blocked while we run.
-            PowerSaveManager& psm = PowerSaveManager::getInstance();
-            if (!psm.isManualOff()) {
-                if (psm.isScreenOff()) {
-                    // Fully off: double-tap (two TAPs within 500 ms) to wake.
-                    if (te.type == TouchEvent::TAP) {
-                        uint32_t now = millis();
-                        if (s_lastTapMs && (now - s_lastTapMs) < 500) {
-                            psm.updateActivity(); s_lastTapMs = 0;
-                        } else {
-                            s_lastTapMs = now;
-                        }
-                    }
-                } else {
-                    // Half-dimmed: single touch wakes.
-                    psm.updateActivity(); s_lastTapMs = 0;
-                }
+        } else if (view == VIEW_LIST && s_searchActive) {
+            uint32_t now = millis();
+            if (now - lastBlinkMs >= 500) {
+                lastBlinkMs = now;
+                cursorOn = !cursorOn;
+                paintList(scroll, sel, cursorOn);
             }
         }
 
+        // ── touch ──
+        // Power-save wake lives HERE — main.ino's loop is blocked while we run.
+        TouchEvent te = tm.poll();
+        cover::handleTouchWake(te, s_lastTapMs);   // screen-off double-tap / half-dim wake
+
         if (view == VIEW_LIST) {
             if (te.type == TouchEvent::TAP) {
-                int dx = te.x - FAB_CX, dy = te.y - FAB_CY;
-                if (dx * dx + dy * dy <= (FAB_R + 4) * (FAB_R + 4)) {
-                    s_notes.insert(s_notes.begin(), NoteRec());
-                    cur = 0; sel = 0; docScroll = 0; curLine = 0; curCol = 0; cursorOn = true;
-                    view = VIEW_DETAIL; paintDetail(s_notes[cur], 0, curLine, curCol, cursorOn);
+                // Back-to-Home chevron (left of the appbar) — only when launched
+                // from the Home launcher. Returns to Home (not the CLI).
+                if (s_fromHome && te.y >= SB_H && te.y < SEARCH_Y && te.x <= 44) {
+                    secretExit = false;
+                    break;
+                }
+                // Search pill — tap to focus + start editing; tap the x to clear.
+                if (tapSearch(te.x, te.y)) {
+                    if (s_query.length() && tapSearchClear(te.x, te.y)) {
+                        s_query = ""; rebuildFilter(); sel = 0; scroll = 0;
+                    }
+                    s_searchActive = true; s_searchFocused = true; s_backFocused = false;
+                    cursorOn = true; lastBlinkMs = millis();
+                    paintList(scroll, sel, cursorOn);
                 } else {
-                    int hit = cardAtY(te.y, scroll);
-                    if (hit >= 0) {
-                        cur = hit; sel = hit; cursorOn = true;
-                        NoteRec& nn = s_notes[cur];
-                        curLine = vlineCount(nn) - 1;
-                        String* ls = vline(nn, curLine);
-                        curCol = ls ? (int)ls->length() : 0;
-                        docScroll = docMaxScroll(nn);   // open at the end — continue typing
-                        view = VIEW_DETAIL; paintDetail(nn, docScroll, curLine, curCol, cursorOn);
+                    // Tapping anywhere else drops search-edit / back focus.
+                    bool wasFocused = s_searchActive || s_searchFocused || s_backFocused;
+                    s_searchActive = false; s_searchFocused = false; s_backFocused = false;
+                    int dx = te.x - FAB_CX, dy = te.y - FAB_CY;
+                    if (dx * dx + dy * dy <= (FAB_R + 4) * (FAB_R + 4)) {
+                        // New note — clear any active query so the fresh note is visible.
+                        s_query = "";
+                        s_notes.insert(s_notes.begin(), NoteRec());
+                        rebuildFilter();
+                        cur = 0; sel = 0; docScroll = 0; curLine = 0; curCol = 0; cursorOn = true;
+                        view = VIEW_DETAIL; paintDetail(s_notes[cur], 0, curLine, curCol, cursorOn);
+                    } else {
+                        int hit = cardAtY(te.y, scroll);
+                        if (hit >= 0) {
+                            cur = s_filtered[hit]; sel = hit; cursorOn = true;
+                            NoteRec& nn = s_notes[cur];
+                            curLine = vlineCount(nn) - 1;
+                            String* ls = vline(nn, curLine);
+                            curCol = ls ? (int)ls->length() : 0;
+                            docScroll = docMaxScroll(nn);   // open at the end — continue typing
+                            view = VIEW_DETAIL; paintDetail(nn, docScroll, curLine, curCol, cursorOn);
+                        } else if (wasFocused) {
+                            paintList(scroll, sel);   // repaint to drop the pill's accent ring
+                        }
                     }
                 }
             } else if (te.type == TouchEvent::DRAG_MOVE) {
@@ -791,15 +847,47 @@ void runNotesUi() {
             if (now - s_lastTbMs >= 300) {
                 s_lastTbMs = now;
                 if (view == VIEW_LIST) {
-                    int n = (int)s_notes.size();
-                    if (tb == TBALL_DOWN && sel < n - 1) {
+                    int n = (int)s_filtered.size();
+                    if (s_searchActive) {
+                        // Editing the query: CLICK confirms (keeps filter+focus),
+                        // DOWN drops into the result list.
+                        if (tb == TBALL_CLICK) { s_searchActive = false; paintList(scroll, sel); }
+                        else if (tb == TBALL_DOWN) {
+                            s_searchActive = false; s_searchFocused = false;
+                            sel = 0; scroll = 0; paintList(scroll, sel);
+                        }
+                    } else if (s_backFocused) {
+                        // Back-to-Home chevron highlighted: CLICK returns to Home
+                        // (same as tapping it); DOWN drops back to the search pill.
+                        if (tb == TBALL_CLICK) { secretExit = false; break; }
+                        else if (tb == TBALL_DOWN) {
+                            s_backFocused = false; s_searchFocused = true; paintList(scroll, sel);
+                        }
+                    } else if (s_searchFocused) {
+                        // Pill highlighted (not yet editing): CLICK to edit, DOWN to list,
+                        // UP to the back chevron (only when launched from Home).
+                        if (tb == TBALL_CLICK) {
+                            s_searchActive = true; cursorOn = true; lastBlinkMs = millis();
+                            paintList(scroll, sel, cursorOn);
+                        } else if (tb == TBALL_UP && s_fromHome) {
+                            s_searchFocused = false; s_backFocused = true; paintList(scroll, sel);
+                        } else if (tb == TBALL_DOWN) {
+                            s_searchFocused = false; sel = 0;
+                            scroll = scrollToSel(sel, scroll); paintList(scroll, sel);
+                        }
+                    } else if (tb == TBALL_DOWN && sel < n - 1) {
                         sel++; scroll = scrollToSel(sel, scroll);
                         paintList(scroll, sel);
-                    } else if (tb == TBALL_UP && sel > 0) {
-                        sel--; scroll = scrollToSel(sel, scroll);
-                        paintList(scroll, sel);
+                    } else if (tb == TBALL_UP) {
+                        if (sel > 0) {
+                            sel--; scroll = scrollToSel(sel, scroll);
+                            paintList(scroll, sel);
+                        } else {
+                            // at the top card — one more UP moves focus to the search pill
+                            s_searchFocused = true; paintList(scroll, sel);
+                        }
                     } else if (tb == TBALL_CLICK && n > 0) {
-                        cur = sel; cursorOn = true;
+                        cur = s_filtered[sel]; cursorOn = true;
                         NoteRec& nn = s_notes[cur];
                         curLine = vlineCount(nn) - 1;
                         String* ls = vline(nn, curLine);
@@ -861,17 +949,46 @@ void runNotesUi() {
         // loop iterations (before we could know a match was imminent), so saving
         // now would write the passphrase itself into a plaintext .txt on the SD
         // card. Skipping the save keeps the hash the ONLY place it ever exists.
-        if (k >= 0x20 && k < 0x7F && ucHasPassphrase()) {
-            int plen = ucPhraseLen();
-            if (plen > 0 && plen <= 32) {
-                if (s_kpos < plen) { s_kbuf[s_kpos++] = k; }
-                else { memmove(s_kbuf, s_kbuf + 1, plen - 1); s_kbuf[plen - 1] = k; }
-                s_kbuf[s_kpos < plen ? s_kpos : plen] = '\0';
-                if (s_kpos >= plen && ucCheckPhrase(s_kbuf)) break;
+        if (cover::feedPassphrase(k)) { secretExit = true; break; }
+
+        // Search box editing — capture keystrokes into the query and live-filter
+        // the list. Trackball-focusing the pill and then typing a printable key
+        // auto-activates edit mode (Android-like). Runs AFTER the passphrase check
+        // (so a phrase typed here still exits the cover) but BEFORE the q-exits, and
+        // `continue`s on any real key so 'q' is a normal search character while
+        // editing, never a back/exit.
+        if (view == VIEW_LIST &&
+            (s_searchActive || (s_searchFocused && (k == '\x08' || k == '\x7F' || (k >= 0x20 && k < 0x7F))))) {
+            s_searchActive = true;
+            bool changed = false;
+            if (k == '\x08' || k == '\x7F') {
+                if (s_query.length()) { s_query.remove(s_query.length() - 1); changed = true; }
+            } else if (k == '\r' || k == '\n') {
+                s_searchActive = false;          // confirm — keep the filter + pill focus
+                paintList(scroll, sel);
+            } else if (k >= 0x20 && k < 0x7F) {
+                if (s_query.length() < 32) { s_query += k; changed = true; }
             }
+            if (changed) {
+                rebuildFilter();
+                sel = 0; scroll = 0;
+                cursorOn = true; lastBlinkMs = millis();
+                paintList(scroll, sel, cursorOn);
+            }
+            if (k != 0) { vTaskDelay(pdMS_TO_TICKS(5)); continue; }
         }
 
-        if ((k == 'q' || k == 'Q') && !ucHasPassphrase()) {
+        // Launched from the Home launcher: [q] in the LIST view steps back to Home
+        // (returns false = not a covert exit), regardless of passphrase — returning
+        // to the disguise launcher is not a CLI reveal. Runs AFTER the passphrase
+        // check so a phrase containing 'q' still completes first. In DETAIL view 'q'
+        // stays a typeable character — back out to the list (back chevron) first.
+        if (!standalone && view == VIEW_LIST && !s_searchActive && (k == 'q' || k == 'Q')) {
+            secretExit = false;
+            break;
+        }
+
+        if ((k == 'q' || k == 'Q') && !s_searchActive && !ucHasPassphrase()) {
             // Fallback exit (only reachable with no passphrase configured — no
             // secret to protect here, so saving the open note is safe.
             if (cur >= 0 && cur < (int)s_notes.size() && s_notes[cur].dirty) saveNote(s_notes[cur]);
@@ -937,19 +1054,24 @@ void runNotesUi() {
         }
     }
 
-    // restore CLI
+    // Tear down our own resources either way.
     s_notes.clear(); s_notes.shrink_to_fit();
-    unloadFonts();
-    if (s_haveCanvas) { s_canvas.deleteSprite(); s_haveCanvas = false; }
-    G = &tft;
-    tft.setFont(&fonts::Font0);
-    tft.setTextDatum(textdatum_t::top_left);
-    displayManager.setBlocked(false);
-    displayManager.clearScreen();
-    displayManager.setCursor(10, outputY);
-    displayManager.printCommandScreen();
-    // If we were panic-hidden mid-command, the command's static UI was blanked by
-    // the cover. Raise the unlock-style repaint signal so it fully redraws on its
-    // next loop (every consumeJustUnlocked-aware command: ws, sw, wguard, ...).
-    LockScreenManager::getInstance().signalRedraw();
+    cover::teardownCanvas();   // free sprite + fonts, restore panel/Font0
+
+    // When launched from the Home launcher (standalone=false) the caller still owns
+    // the screen: leave setBlocked(true) and do NOT touch the CLI, so Home can
+    // recreate its sprite and repaint without a terminal flash. Home inspects the
+    // return value and, on a secret-passphrase exit, propagates the covert exit to
+    // the CLI itself.
+    if (standalone) {
+        displayManager.setBlocked(false);
+        displayManager.clearScreen();
+        displayManager.setCursor(10, outputY);
+        displayManager.printCommandScreen();
+        // If we were panic-hidden mid-command, the command's static UI was blanked by
+        // the cover. Raise the unlock-style repaint signal so it fully redraws on its
+        // next loop (every consumeJustUnlocked-aware command: ws, sw, wguard, ...).
+        LockScreenManager::getInstance().signalRedraw();
+    }
+    return secretExit;
 }

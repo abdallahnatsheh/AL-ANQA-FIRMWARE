@@ -180,8 +180,8 @@ bool NotificationManager::playWav(const char* path) {
 
 // ── Public notify ─────────────────────────────────────────────────────────────
 
-void NotificationManager::notify(NotifLevel level, bool force) {
-    if (g_covert) return;   // undercover: total silence, and no screen-wake tell
+void NotificationManager::notify(NotifLevel level, bool force, bool allowCovert) {
+    if (g_covert && !allowCovert) return;   // undercover: total silence (alarms opt out)
     if (!force && !_enabled[level]) return;
     if (_wakeCallback) _wakeCallback();
 

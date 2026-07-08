@@ -69,7 +69,9 @@
 - `jwt` — JWT decode (show header/payload without verify)
 - `pwgen` — Password generator (random, pattern, pronounceable)
 - `hexview` — Hex dump viewer for SD files
-- `notes` — Simple SD text notepad
+- ~~`notes`~~ ✅ — Done: `notes`/`nt` SD-backed notes + cursor editor (also the undercover cover)
+- ~~`home`~~ ✅ — Done: `home`/`hm` phone-style home-launcher cover (real clock/battery/weather)
+- ~~`weather`~~ ✅ — Done: `weather`/`wx` OpenWeather, shown in the home hero
 - `calc` — Expression calculator
 - `macro` — Batch T-REX command runner from SD script file (separate from BadUSB DuckyScript)
 

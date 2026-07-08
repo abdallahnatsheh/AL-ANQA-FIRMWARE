@@ -19,7 +19,11 @@ public:
 
     void begin();
     void setWakeCallback(std::function<void()> cb) { _wakeCallback = cb; }
-    void notify(NotifLevel level, bool force = false);  // force=true ignores per-level enable (for testing)
+    // force=true ignores per-level enable (for testing). allowCovert=true lets a
+    // sound ring even under the undercover g_covert silence gate — used ONLY by the
+    // home-launcher timer/reminder alarms (a real phone's alarm rings); every other
+    // caller leaves it false and stays silent under cover.
+    void notify(NotifLevel level, bool force = false, bool allowCovert = false);
     void setNotifVol(uint8_t vol);
     void enable(NotifLevel level, bool on);
     void enableAll(bool on);
