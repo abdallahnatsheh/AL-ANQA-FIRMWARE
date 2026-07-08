@@ -85,10 +85,70 @@ ESP32-S3 WiFi only, no extra sensors. Full plan: `TREX_CSI_CAMDETECT_PLAN.md` ·
 
 18. **VNC Client** — connect to VNC server; 320×240 scaled. Library: `moononournation/ArduinoVNC`. Command: `vnc/vn <ip> [port] [pw]`
 19. **QR Code** — render QR from text/URL/WiFi cred. Command: `qrcode/qr <text>`
-20. **LoRa scanner** — SX1262 receive; 433/868/915 MHz; log RSSI/SNR/payload to `/apps/lorascan/lora.csv`. Command: `lorascan/ls` (note: `lt` has live RX display but no SD logging yet)
+20. **LoRa scanner** — SX1262 receive; 433/868/915 MHz; log RSSI/SNR/payload to `/apps/lorascan/lora.csv`. Command: `lorascan/ls`. (NOTE 2026-07-07: the LoRa radio is currently UNUSED by the firmware — the only LoRa code is the `test lora` HW ping. There is NO `lt` command; the old "`lt` has live RX display" note was stale/wrong. This is greenfield — needs a RadioLib SX1262 driver. See #25 for the bigger Meshtastic/comms idea.)
 21. **Chromecast Control** — Cast API port 8009; `cast rickroll` for all Chromecasts on LAN. Command: `cast/ca`
 
 ## Low Priority
 
 22. **Mic Record (WAV→SD)** — PARTIALLY DONE via `mictest/mt` (record 3s + replay, RAM-only). ES7210 mic, both boards. Remaining: WAV-to-SD save (`/apps/micrec/rec_<ts>.wav`).
 23. **NES Emulator** *(Easter egg)* — Nofrendo; ROMs from `/roms/*.nes`
+
+## Brainstorm — verified NOT implemented (added 2026-07-07)
+Checked against the live `registerCommand` table AND grepped the source — all confirmed unbuilt as
+of 2026-07-07 (63/64 commands registered). Ordered roughly by value-on-this-hardware. NOT yet
+prioritized into the main queue above; pick as desired. **Command cap is `Command commands[64]` in
+command_manager.h — arbitrary static array; raise to 128 (~2KB RAM) if working through this list.**
+
+### RF / LoRa (SX1262 radio is completely unused — biggest capability gap)
+25. **Meshtastic client / LoRa comms** ⭐ — full send/receive on the LoRa mesh (the T-Deck is a
+    *flagship* Meshtastic device). Superset of #20 (which is RX-log only). Needs a RadioLib SX1262
+    driver + Meshtastic protobuf/LoRa PHY params. Could also be an own-protocol encrypted long-range
+    T-Deck↔T-Deck chat if full Meshtastic compat is too heavy. Command idea: `mesh/msh` or `lorachat/lc`.
+26. **LoRa APRS / position beacon** — beacon GPS position (Plus) over LoRa; pairs with #14 tracker.
+27. **LoRa jammer / spectrum** — offensive; RSSI sweep + carrier flood on a band.
+
+### WiFi (offensive/recon — none of these exist)
+28. **Pwnagotchi mode** ⭐ — unattended channel-roam + auto-harvest handshakes/PMKIDs → SD, with a
+    stats/"face" screen. High reuse of `ws`/`pm`. Command: `pwn`.
+29. **WPS Pixie-Dust / PIN attack** — real gap, no WPS attack anywhere. Command: `wps`.
+30. **WiFi hot/cold locator** — RSSI meter + rising tone to physically FIND a hidden AP / spy camera
+    by MAC or SSID. Practical field tool. Command: `locate/loc <bssid|ssid>`.
+31. **Rogue-AP / evil-twin DETECTOR** (defensive) — dedicated alarm; deeper than `wg`'s pass.
+32. **Channel/airtime utilization graph** — find the clearest channel.
+33. **BSSID geolocation** — offline lookup of scanned BSSIDs vs a WiGLE dump on SD (ties to `wardrive`).
+
+### BLE
+34. **iBeacon / Eddystone broadcaster** — *advertise* as a beacon (today we only receive via `bmon`).
+35. **GATT fuzzer** — offensive malformed reads/writes vs a target's services (extends `bleinfo`).
+36. **BLE proximity finder** — ⚠ PARTIAL: `macwatch` already has an RSSI proximity gate + "hunt"
+    meter (get-warmer/colder for a target MAC). A standalone app would just surface/polish `mw`'s
+    hunt mode, not net-new. Consider promoting the hunt UI instead of a new command.
+
+### Audio (mic + speaker — both boards)
+37. **Audio spectrum analyzer / waterfall** ⭐ — FFT of the mic to the display; showcases the screen.
+38. **Instrument tuner** (pitch detect) · **tone/function generator** · **dB SPL meter** ·
+    **metronome** · **morse beacon/decoder/trainer** · **white/pink-noise generator**. (Small, could
+    share one `audio`/`snd` command with subcommands to save slots.)
+
+### Utility / cover apps (double as undercover disguise — fit the Notes/undercover theme)
+- **✅ DONE 2026-07-07b: `home`/`hm` home-launcher cover** (phone-style home screen) + **`weather`/`wx`**
+  (OpenWeather, GPS/config location, self-seeding `/config/weather.conf`) shown in the home hero. Real
+  clock/battery/weather in the hero. See [[project_undercover_home_launcher]] + [[progress_log]] 07b.
+39. **TOTP 2FA authenticator** ⭐ — reuse existing mbedTLS HMAC-SHA1 + ClockManager time; genuinely
+    useful AND a believable cover app. Secrets encrypted on SD. Command: `totp/2fa`.
+40. **Encrypted password vault** (AES-on-SD) · **calculator** (sci/programmer) · **unit/currency
+    converter** · **stopwatch/timer/alarm** · **ebook/txt reader** (paged, bookmarks) · **todo** ·
+    **contacts** · ~~weather~~ (✅ done above) · **WiFi-cred QR share** (ties to #19).
+
+### Games (excellent undercover cover — buddy is a pet, NOT a game; none exist)
+41. **Snake · 2048 · Tetris · Minesweeper · Conway's Life · Sudoku · Wordle · Pong · Dino-runner.**
+    Could live under one `game/gm <name>` launcher to spend a single command slot.
+
+### Dev / network tools
+42. **Wake-on-LAN sender** · **HTTP request tool** (curl-lite) · **MQTT client** · **network speed
+    test** (iperf-like) · **mDNS/Bonjour browser** (netspy already parses mDNS) · **serial/UART
+    bridge** (Grove) · **ADC voltmeter/scope** (Grove) · **SD benchmark**.
+
+### Add-on-dependent (only with extra hardware)
+43. **IR remote / TV-B-Gone** (IR LED) · **NFC/RFID clone** (PN532) · **433 MHz replay** (CC1101) ·
+    **BME280 environmental logger**.

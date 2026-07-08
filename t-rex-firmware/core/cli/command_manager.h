@@ -37,7 +37,7 @@ public:
     void setupCommands();
     static const uint16_t bufferSize = 128;
     char command[bufferSize];
-    Command commands[64];
+    Command commands[128];   // static table; registerCommand guards via sizeof (commandCount is uint8_t, holds up to 255)
     uint8_t commandCount;
 private:
     uint8_t commandIndex;

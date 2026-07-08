@@ -4,6 +4,102 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-07-08 (home launcher → working apps + AA polish + OOP refactor) — ✅ HW-VERIFIED, UNCOMMITTED
+- **✅ HW-VERIFIED end of session:** whole launcher works on glass (7 apps, alarms, AA, covert guarantees, OOP refactor). Last fix: app background not cleared on open (home-grid bled through) → `Ui::appBar()` now `fillScreen(bg)` first (the old `paint()` cleared up front; the new `render()` didn't — faithful-port miss). READY TO COMMIT (his name, no Co-Authored trailer).
+- **Notes UI search made functional + moved down** (was clipping the title): live filter (title/body substring), trackball-focusable pill → back-chevron chain, `x` clear, result count. Also **back button trackball-navigable** (cards→pill→back chevron→Home).
+- **Home launcher turned into real apps** (`home_ui.cpp` screen-state machine, tiles remapped, Music→Flashlight): **Calculator, Clock (stopwatch+timer), Reminders (SD-persisted `/apps/home/reminders.csv`), Weather (loading spinner), Calendar (proper bordered-grid icon), Flashlight, Settings→Wi-Fi (two-page: menu → Wi-Fi page; scan/connect reuse `wifi_creds`+NVS "wifi", NOT WiFiFunctions' blocked UI)**. Icons redrawn (calendar/flashlight/reminders) + all anti-aliased (`fillSmooth*`/`drawWideLine`) + tile drop-shadows.
+- **Alarms via NotificationManager** with a new `notify(level,force,allowCovert)` param — timer=`NOTIF_SUCCESS`, reminder=`NOTIF_INFO` (friendly chimes, NOT the ALERT klaxon — user corrected). Rings **5× until any input dismisses**; banner 12s, touch-dismissable. `allowCovert=true` is the ONLY sound that bypasses `g_covert` (user's "always beep" choice); every other notify stays covert-silent.
+- **Bugs fixed:** wguard shield / EC / MW badges were drawn straight to `tft` with no `isBlocked()` guard → **exposed the cover**; now guarded in `display_manager.cpp` (`setWGuardState`/`setEcActive`/`setMwActive`). Cover status-bar signal icon now reflects real `WiFi.RSSI()`. **`WiFi.mode(WIFI_OFF)` GDMA-rule violation** in Settings toggle → now `WiFi.disconnect(false)` STA-idle.
+- **Refactor #1 DONE — shared cover shell `cover_kit.{h,cpp}`** (`namespace cover`): owns the PSRAM sprite+`G`, the 4 baked fonts, the passphrase rolling buffer (`feedPassphrase`), and touch-wake (`handleTouchWake`). home_ui + notes_ui both use it via `static lgfx::LovyanGFX*& G = cover::G;` aliases (call sites unchanged). ~120 lines of mirrored plumbing collapsed to one module (rule 5b).
+- **OOP refactor DONE (3 staged, each compiled):** `home_app.h` (`HomeApp` abstract base — State/Strategy + `Nav` enum), `home_widgets.{h,cpp}` (`Ui` widget manager: palette + statusBar/appBar/twoButtons/toggle/signalBars/lockGlyph/wifiGlyph/tileIcon/weatherIcon + shared alarm banner/ring), `home_apps.{h,cpp}` (7 app classes: Calculator/Clock/Reminders/Weather/Calendar/Flashlight/Settings, each `HomeApp`, Ui injected via ctor), and **home_ui.cpp rewritten ~1580→325 lines as `HomeLauncher`** (owns Ui + app instances, runs loop + covert plumbing via cover_kit, `tick()`s ALL apps every loop so timers/reminders fire from any screen, dispatches input to `_active` or the home grid, Notes hand-off, alarm-banner overlay). Patterns: State/Strategy, dependency injection, Facade (Ui). Behavior ported faithfully; launcher file-static (state persists) w/ per-session resets. **Then split further: one class per file** — `home_apps.{h,cpp}` (782 lines) → `app_calculator/app_clock/app_reminders/app_weather/app_calendar/app_flashlight/app_settings.{h,cpp}` (14 files); `home_apps.h` is now an umbrella `#include`, `home_apps.cpp` emptied to a placeholder (defs moved out, no dup symbols). **WHOLE REFACTOR COMPILES CLEAN (2026-07-08).** Bonus: flash DROPPED ~44KB (2400593→2356029) + RAM −448B from the dedup (cover_kit collapsed the sprite/font/passphrase code mirrored in home_ui+notes_ui; Ui removed repeated draw helpers) — less code despite cleaner structure. File map: cover_kit(shell) · home_app.h(base) · home_widgets(Ui manager) · app_*.{h,cpp}(7 apps, one class/file) · home_ui.cpp(HomeLauncher, ~325 lines). home_apps.cpp deleted (umbrella home_apps.h only). **NEXT: HW test the whole launcher, then commit (his name, no Co-Authored trailer).**
+- **User feedback captured** ([[feedback_rules]] 8b): never use "god" casually (god-object/file) — Abdallah is religious. Also honoring: no AskUserQuestion, no redundant post-edit verification.
+- **NEXT:** compile Stage 1 → Stage 2 (app classes) → Stage 3 (orchestrator). Then HW test the whole launcher.
+
+## Session 2026-07-07b (home-launcher undercover UI — BUILT) — code-complete, UNCOMMITTED, pending HW test
+- **HOME is now the undercover BASE + `notes` command removed (user decision, end of 07b):** `runUndercover()`
+  and boot-cover `ucInit()` now call **`runHomeUi()`** (was `runNotesUi()`); undercover.cpp includes home_ui.h.
+  The **standalone `notes`/`nt` command was REMOVED** from command_manager (Notes reachable only via the home
+  launcher's Notes tile; `runNotesUi()`/notes_ui.cpp stay). Boot-cover boots straight into the home launcher.
+  All "Notes disguise" wording → "home-screen disguise" across uc status/boot messages, man (uc/home),
+  CLAUDE.md, README, docs/system.md. `man notes` still resolves (PAGES[] entry kept). Command count 65→**64/128**.
+- **Charging indicator (home UI):** the status-bar battery now shows a **green body + dark lightning-bolt
+  overlay while `isCharging()`** (classic charging cue the user noticed was missing); non-charging = proportional
+  fill, red ≤15%.
+- **SHARED status bar across both covers (2026-07-07b):** extracted the phone status bar into
+  `core/system/undercover/cover_statusbar.{cpp,h}` — `drawCoverStatusBar(G, metaFont)` (caller passes its own
+  VLW meta font) with an internal 10s battery cache. **BOTH home_ui AND notes_ui now call it**, so they're
+  identical and can't drift. Fixes the notes bar which had a **HARDCODED "14:32"** and no charging bolt — it now
+  shows real ClockManager time + real battery + charging bolt (dark theme, "CRIMSON MOBILE"). Notes `#define SB_H`
+  changed 18→`COVER_SB_H`(22) so the taller shared bar fits (content shifts down 4px; SB_H-relative offsets
+  APPBAR_Y/DOC_TOP/back-bar/tap-regions all scale). Removed the per-file battery caches + `battery_manager.h`
+  includes from home/notes (now only in cover_statusbar.cpp). **Added a 20s live-refresh tick to the notes loop**
+  (repaints current view) so time/battery update while idle — matches the home cover's clock tick. Verified both
+  paintList/paintDetail draw the bar first + content fills from SB_H down (no overlap).
+- **Battery "looks fake" clarification:** it IS the real `batteryManager` reading — but while on USB it reads as
+  charging (green/full, static), which looks fake but is correct; unplug to see it track. No bug found.
+- **New `home`/`hm` [EXP] command** — a BlackBerry/modern-phone home-launcher disguise, alternative to
+  the Notes-only cover. Files `core/system/undercover/home_ui.{cpp,h}`, `bool runHomeUi(bool standalone=true)`.
+  Long-standing spec in [[project_undercover_home_launcher]] (was LOW-PRIORITY; user asked to build it).
+- **Look:** dark theme; fake status bar (real HH:MM via ClockManager · "CRIMSON MOBILE" · signal+battery)
+  + clock/weather hero (live time+date, static sun/"24°") + **4×2 grid** Phone/Messages(3)/Email(12)/
+  Browser/Music/**Notes**/Calendar/Settings. Icons = **vector primitives** (no icon-font — baked Noto VLW
+  is text-only). Only the **Notes tile is real** (→ `runNotesUi(false)`); other tiles show a "No service"
+  toast and open nothing.
+- **Reuses the Notes cover plumbing** (mirrored per-TU, not shared): PSRAM `LGFX_Sprite` + `flushCanvas`,
+  the 4 baked fonts, `setBlocked(true)`, dim→wake repaint, LockScreen `isLocked()` stand-down, touch
+  double-tap screen-off wake, and the **secret-passphrase rolling buffer** → typing the phrase from home
+  drops to CLI; `q` fallback only when no passphrase.
+- **Load-bearing refactor:** `runNotesUi()` → **`bool runNotesUi(bool standalone=true)`** (backward-compat
+  default arg; `notes`/`undercover` callers unchanged). `standalone=false` skips the CLI restore + keeps
+  `setBlocked(true)` so Home retakes the screen flash-free; the bool = "exited via passphrase". Home frees
+  its OWN sprite/fonts before handing off (avoids 2×150KB PSRAM peak), rebuilds+repaints on a normal Notes
+  back, or propagates a passphrase exit straight to the CLI. Same contract on `runHomeUi`.
+- **COMMAND CAP HIT:** this is command **64/64** — `Command commands[64]` in command_manager.h is now FULL
+  (`registerCommand` silently drops a 65th). Bump to `[128]` (~2KB RAM, `commandCount` is uint8_t so fine)
+  before any further new command.
+- **Real WEATHER in the home hero (2026-07-07b) — Open-Meteo, KEYLESS:** new `WeatherManager`
+  (`core/system/weather_manager.{cpp,h}`, singleton mirroring ClockManager) + `weather`/`wx` command.
+  **Weather CANNOT be offline** — live server data; GPS only supplies the query LOCATION. **Switched
+  OpenWeather → Open-Meteo** (user's call, and the right one): **no API key** = zero setup + nothing secret on
+  the SD card (OPSEC win for a pentest device). Cost: Open-Meteo is HTTPS-only → `WiFiClientSecure` +
+  `setInsecure()` (trivial, mbedTLS already linked). ArduinoJson 7 (`JsonDocument`, buddy.cpp idiom) parses
+  `current.temperature_2m`/`current.weather_code` (**WMO codes**, not OWM). Location = **GPS fix (Plus,
+  `#ifdef BOARD_TDECK_PLUS`) → configured lat/lon**; on the Plus with a fix it works with ZERO config. Reading
+  cached in RAM (shown offline til reboot). Config `/config/weather.conf` (`lat`/`lon`/`units`, no apikey),
+  **self-seeds** a commented template on first boot; loadConfig strips `#` inline comments + trims values.
+  `wx` subcmds: `loc <lat> <lon>` · `units metric|imperial` · `now` · `status` (no `key` anymore). **GDMA-SAFE
+  trigger:** fetch runs ONLY from `wx now` + Home-launcher ENTRY (benign cover, WiFi idle STA) — NOT the global
+  input hook (netspy/isoscan run associated-with-promiscuous → an HTTP(S) GET there corrupts FatFS). Home hero
+  draws a real vector weather icon (sun/cloud/rain/snow/thunder by WMO code) + temp + condition; muted "--"
+  placeholder when no reading. `WeatherManager::instance().init()` wired in main.ino after clock init. 65/128 cmds.
+  - **Automatic best-source location (2026-07-07b):** `locate()` = **GPS fix (Plus, most accurate) > manual
+    `wx loc` > WiFi IP geolocation** (`locateByIp` → ip-api.com free/keyless/HTTP `?fields=status,lat,lon`,
+    cached in `_haveIpLoc`). So `wx now` "just works" everywhere and **`wx loc` is only an optional override,
+    never required** (GPS was always preferred; IP geoloc is the new automatic WiFi fallback). `configured()`
+    now always true (a source always exists when online; fetch still gated on WL_CONNECTED). Privacy: IP geoloc
+    reveals the public IP to ip-api.com — a GPS fix or manual `wx loc` avoids that call. printStatus shows the
+    active source (GPS/manual/IP/auto).
+- **Notes → Home exit (2026-07-07b):** when the notes UI is launched from the Home launcher
+  (`runNotesUi(false)`), there's now a **visible back-to-Home chevron** in the notes LIST appbar (top-left,
+  "‹ Notes"; title shifts right to make room) PLUS **`[q]`** as the keyboard shortcut — both return to Home
+  regardless of passphrase (returning to the disguise launcher is not a covert CLI reveal; the passphrase check
+  still runs first so a phrase containing 'q' completes). Gated by a `s_fromHome` flag (= `!standalone`), so the
+  standalone `notes`/`uc` covers are unchanged (no chevron, `q` = old fallback behavior). Chevron hit-box =
+  appbar band, x≤44; tap/`q` `break` with secretExit=false → Home retakes the screen. In DETAIL view `q` stays
+  typeable — the detail back-chevron goes to the list first. Fixes the gap where a configured passphrase left NO
+  discoverable way back to Home from Notes.
+- **Real battery in both covers (2026-07-07b):** the fake status-bar battery in BOTH `notes_ui` and `home_ui`
+  now shows the real level via the existing global `batteryManager.getPct()`/`isCharging()` (same source as the
+  real status bar). Cached 10s (`getPct()` = READS=20 ADC samples; status bar repaints on every cursor
+  blink/tick). Fill colour: charging=green, ≤15%=red, else theme ink. Was a hardcoded 72%.
+- **Command cap raised 64→128** (`Command commands[128]` in command_manager.h + `idx[128]` in utils.cpp help +
+  CLAUDE.md note). ~2KB RAM; `registerCommand` guards via `sizeof`, `commandCount` uint8_t. Now 64/128 used.
+- **Known quirks (HW-test targets):** panic-key hook still fires inside *standalone* `home` (g_covert=false
+  there) → lands at CLI not home; harmless, non-issue once wired as a covert cover. NOT yet offered as an
+  `undercover` cover-style choice (notes vs home) — obvious next step. Icons upgradeable later.
+- **NEXT:** user compiles/flashes + eyeballs on glass. Then optionally: wire into `undercover`, bump the
+  command cap, commit (his name, NO Co-Authored trailer — [[feedback_rules]]).
+
 ## Session 2026-07-07 (isoscan back-stack nav + CLI bad-arg DRY rejection + bs-android reboot fix) — ✅ HW-TESTED, COMMITTED + PUSHED
 - **All work HW-tested, committed, and pushed manually by the user.** 4 file-aligned commits on
   `feature/pentest-enhancements` (his name, NO Co-Authored trailer — [[feedback_rules]]):

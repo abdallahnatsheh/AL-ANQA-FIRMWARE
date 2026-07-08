@@ -88,9 +88,9 @@ void Utils::printHelp(char* args) {
 
     while (true) {
         // collect command indices for current category
-        int idx[64]; int cnt = 0;
+        int idx[128]; int cnt = 0;
         for (int i = 0; i < commandManager.commandCount; i++)
-            if (strcmp(commandManager.commands[i].category, cats[catIdx]) == 0 && cnt < 64)
+            if (strcmp(commandManager.commands[i].category, cats[catIdx]) == 0 && cnt < 128)
                 idx[cnt++] = i;
         int subPages = (cnt + CMDS_PP - 1) / CMDS_PP;
         if (subPages < 1) subPages = 1;

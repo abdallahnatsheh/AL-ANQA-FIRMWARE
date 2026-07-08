@@ -39,8 +39,9 @@
 #include "ssh_client.h"
 #include "lockscreen_manager.h"
 #include "clock_manager.h"
+#include "weather_manager.h"
 #include "touch_test.h"
-#include "notes_ui.h"
+#include "home_ui.h"
 #include "undercover.h"
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
@@ -716,9 +717,10 @@ void CommandManager::setupCommands() {
     registerCommand("pwrsave",     "psv",    [](char* a) { PowerSaveManager::handleCommand(a); },                         "Power save: on/off/set/status",  true,  "System");
     registerCommand("sleep",       "slp",    [](char* a) { PowerSaveManager::getInstance().deepSleep(); },                "Deep sleep (~240uA); click trackball to wake", false, "System");
     registerCommand("lock",        "lk",     [](char* a) { LockScreenManager::getInstance().cmd(a); },                       "Screen lock  [new|update|clean|wipe|boot on|off|timeout <s>|status]", true,  "System");
-    registerCommand("notes",       "nt",     [](char* a) { runNotesUi(); },                                                 "[EXP] Notes cover UI: SD-backed notes, cursor editor", false, "System");
+    registerCommand("home",        "hm",     [](char* a) { runHomeUi(); },                                                  "[EXP] Home launcher cover UI: phone-style home; Notes tile opens notes", false, "System");
     registerCommand("undercover",  "uc",     [](char* a) { runUndercover(a); },                                            "[EXP] Undercover: Notes disguise [set|clear|status|boot on|off|panic set|off]", true,  "System");
     registerCommand("tz",          "tz",     [](char* a) { runTzCmd(a); },                                                    "Timezone  [+3 | -5:30 | <posix> | status]",          true,  "System");
+    registerCommand("weather",     "wx",     [](char* a) { runWeatherCmd(a); },                                               "Weather (Open-Meteo, no key): wx [loc <lat> <lon>|units metric|imperial|now]", true, "System");
     registerCommand("volume",      "vol",    [](char* a) { handleVolumeCmd(a); },                                             "General volume: vol [0-100|up|down|off]",   true,  "System");
     registerCommand("notif",       "nf",     [](char* a) { NotificationManager::handleNotifCmd(a); },                        "Notifications: nf [on|off|vol <n>|test|<lvl> on|off|file <f>]", true, "System");
     // ── WiFi ──────────────────────────────────────────────────────────────────

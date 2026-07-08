@@ -4,7 +4,7 @@
 
 #include "undercover.h"
 #include "undercover_config.h"
-#include "notes_ui.h"
+#include "home_ui.h"
 #include "display_manager.h"
 #include "input_handling.h"
 #include <Arduino.h>
@@ -179,7 +179,7 @@ static void cmdUcStatus() {
     }
     dm.setTextColor(TFT_WHITE); dm.printText("Boot cover : ");
     if (ucBootCoverEnabled()) {
-        dm.setTextColor(TFT_GREEN); dm.println("ON  — boots into Notes disguise");
+        dm.setTextColor(TFT_GREEN); dm.println("ON  — boots into home-screen disguise");
     } else {
         dm.setTextColor(TFT_YELLOW); dm.println("off (use 'uc boot on')");
     }
@@ -208,7 +208,7 @@ static void cmdUcBoot(const char* arg) {
     bool saved = ucSetBootCover(on);
     dm.setTextColor(TFT_GREEN);
     if (on)
-        dm.println(saved ? "Boot cover ON — device boots into Notes disguise."
+        dm.println(saved ? "Boot cover ON — device boots into the home-screen disguise."
                          : "Boot cover ON (no SD — active this session only).");
     else
         dm.println(saved ? "Boot cover OFF."
@@ -242,16 +242,18 @@ void runUndercover(char* args) {
     // No args → enter cover. Reload passphrase from SD so it's always current.
     ucLoadConfig();
     g_covert = true;
-    runNotesUi();        // blocks until secret-passphrase match OR q (q kept for now)
+    runHomeUi();         // blocks until secret-passphrase match OR q; the Notes app is
+                         // reachable from the launcher's Notes tile
     g_covert = false;
 }
 
 // Called from setup() after setupCommands(). If boot_cover is enabled, enters the
-// cover immediately so the device boots into the Notes disguise instead of the CLI.
+// cover immediately so the device boots into the home-screen disguise instead of
+// the CLI.
 void ucInit() {
     ucLoadConfig();
     if (!ucBootCoverEnabled()) return;
     g_covert = true;
-    runNotesUi();   // blocks; runNotesUi() restores display + calls printCommandScreen on exit
+    runHomeUi();    // blocks; runHomeUi() restores display + calls printCommandScreen on exit
     g_covert = false;
 }
