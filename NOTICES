@@ -155,3 +155,16 @@ This project incorporates code from the following open-source projects:
              fonts by convert_font.py and embedded for the undercover Notes cover
              UI (notes_ui.cpp). The OFL permits embedding; the font is bundled as
              bitmap glyph data, not redistributed as a TTF.
+
+19. WPA3 transition-mode downgrade — Dragonblood (technique reference — no code used)
+    Files:   t-rex-firmware/wifi/attacks/wpa3down/wpa3down.cpp
+    Source:  Dragonblood — CVE-2019-9494 through CVE-2019-9499 (Mathy Vanhoef,
+             Eyal Ronen), https://wpa3.mathyvanhoef.com/
+             TrustedSec, "Auditing WPA3" (Jul 2024) writeup.
+             RedLegg eaphammer WPA3-downgrade demonstration (Jun 2025).
+    License: Published research / advisories — no source copied.
+    Notes:   The transition-mode downgrade technique (deauth off the real AP, then
+             offer a WPA2-PSK-only rogue AP with the same SSID to force a WPA2
+             reconnect + crackable handshake) is implemented from the published
+             descriptions. The rogue-AP/EAPOL mechanics reuse T-Rex's own karma
+             `roguehs` engine; no third-party attack code was read or adapted.

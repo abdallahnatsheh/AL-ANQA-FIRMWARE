@@ -12,7 +12,7 @@
 
 extern InputHandling inputHandler;
 
-// Scan result cache — populated by scanWiFiNetworks(), used by connect + deauth
+// Scan result cache — populated by runWifiManager()/showWiFiResults(), used by connect + deauth
 static std::vector<NetworkEntry> scanCache;
 
 // ── Hidden SSID cache (loaded from SD after each scan) ────────────────────────
@@ -71,6 +71,21 @@ static void triggerAsyncScan() {
     WiFi.scanNetworks(true, true); // async=true, show_hidden=true — returns immediately
 }
 
+// Classify an AP's security from its authmode. WPA2_WPA3 = transition mode (a
+// WPA3-capable AP that still accepts WPA2 → downgradeable target for w3d).
+static uint8_t classifySec(wifi_auth_mode_t am, bool isOpen) {
+    switch (am) {
+        case WIFI_AUTH_OPEN:          return WSEC_OPEN;
+        case WIFI_AUTH_WEP:           return WSEC_WEP;
+        case WIFI_AUTH_WPA_PSK:       return WSEC_WPA;
+        case WIFI_AUTH_WPA2_PSK:
+        case WIFI_AUTH_WPA_WPA2_PSK:  return WSEC_WPA2;
+        case WIFI_AUTH_WPA3_PSK:      return WSEC_WPA3;
+        case WIFI_AUTH_WPA2_WPA3_PSK: return WSEC_TD;
+        default:                      return isOpen ? WSEC_OPEN : WSEC_WPA2;
+    }
+}
+
 static void populateScanCache(int& count, bool& done) {
     int n = WiFi.scanComplete();
     count = (n < 0) ? 0 : n;
@@ -87,9 +102,56 @@ static void populateScanCache(int& count, bool& done) {
         if (b) memcpy(e.bssid, b, 6);
         wifi_ap_record_t* rec = (wifi_ap_record_t*)WiFi.getScanInfoByIndex(i);
         e.wps = rec ? (bool)rec->wps : false;
+        e.sec = classifySec(rec ? rec->authmode : (e.isOpen ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK), e.isOpen);
         scanCache.push_back(e);
     }
     WiFi.scanDelete();
+}
+
+// Draw one network's cells starting at the current cursor: SSID, RSSI, security
+// tag (OPEN/WEP/WPA/WPA2/WPA3/TD — TD = WPA3 transition/downgradeable, yellow),
+// and WPS. Caller draws the leading index/marker + a trailing newline.
+static void drawNetRowCells(DisplayManager& dm, const NetworkEntry& e) {
+    if (e.ssid[0] == '\0') {
+        const char* known = lookupHidden(e.bssid);
+        if (known && known[0] != '\0') {
+            char trunc[14]; strncpy(trunc, known, 13); trunc[13] = '\0';
+            char padded[18]; snprintf(padded, sizeof(padded), " ~%-13s", trunc);
+            dm.setTextColor(TFT_CYAN);
+            dm.printText(padded);
+        } else {
+            dm.setTextColor(0x7BEF);
+            dm.printText(" <hidden>      ");
+        }
+    } else {
+        char ssid[16];
+        strncpy(ssid, e.ssid, 14);
+        ssid[14] = '\0';
+        if (strlen(e.ssid) > 14) { ssid[12] = '.'; ssid[13] = '.'; }
+        char padded[18]; snprintf(padded, sizeof(padded), " %-14s", ssid);
+        dm.setTextColor(TFT_WHITE);
+        dm.printText(padded);
+    }
+
+    dm.setTextColor(rssiColor(e.rssi));
+    char rssiStr[6]; snprintf(rssiStr, sizeof(rssiStr), "%4d", e.rssi);
+    dm.printText(rssiStr);
+
+    // Security tag — [TD] transition-mode (WPA3-capable, still WPA2 = downgradeable)
+    // is highlighted yellow as the w3d target.
+    const char* tag; uint16_t tcol;
+    switch (e.sec) {
+        case WSEC_OPEN: tag = " OPEN"; tcol = TFT_MAGENTA; break;
+        case WSEC_WEP:  tag = " WEP";  tcol = TFT_RED;     break;
+        case WSEC_WPA:  tag = " WPA";  tcol = 0x7BEF;      break;
+        case WSEC_WPA2: tag = " WPA2"; tcol = 0x7BEF;      break;
+        case WSEC_WPA3: tag = " WPA3";    tcol = TFT_GREEN;   break;
+        case WSEC_TD:   tag = " WPA3/TD"; tcol = TFT_YELLOW;  break;
+        default:        tag = " WPA";  tcol = 0x7BEF;      break;
+    }
+    dm.setTextColor(tcol);
+    dm.printText(tag);
+    if (e.wps) { dm.setTextColor(TFT_CYAN); dm.printText(" WPS"); }
 }
 
 static void renderScanPage(DisplayManager& dm, int page, int perPage, int total, int totalPages) {
@@ -111,41 +173,11 @@ static void renderScanPage(DisplayManager& dm, int page, int perPage, int total,
     int end   = min(start + perPage, total);
 
     for (int i = start; i < end; i++) {
-        const NetworkEntry& e = scanCache[i];
-
         dm.setCursor(10, dm.getCursorY());
         dm.setTextColor(TFT_YELLOW);
         char idx[5]; snprintf(idx, sizeof(idx), "[%d]", i);
         dm.printText(idx);
-
-        if (e.ssid[0] == '\0') {
-            const char* known = lookupHidden(e.bssid);
-            if (known && known[0] != '\0') {
-                char trunc[14]; strncpy(trunc, known, 13); trunc[13] = '\0';
-                char padded[18]; snprintf(padded, sizeof(padded), " ~%-13s", trunc);
-                dm.setTextColor(TFT_CYAN);
-                dm.printText(padded);
-            } else {
-                dm.setTextColor(0x7BEF);
-                dm.printText(" <hidden>      ");
-            }
-        } else {
-            char ssid[16];
-            strncpy(ssid, e.ssid, 14);
-            ssid[14] = '\0';
-            if (strlen(e.ssid) > 14) { ssid[12] = '.'; ssid[13] = '.'; }
-            char padded[18]; snprintf(padded, sizeof(padded), " %-14s", ssid);
-            dm.setTextColor(TFT_WHITE);
-            dm.printText(padded);
-        }
-
-        dm.setTextColor(rssiColor(e.rssi));
-        char rssiStr[6]; snprintf(rssiStr, sizeof(rssiStr), "%4d", e.rssi);
-        dm.printText(rssiStr);
-
-        dm.setTextColor(e.isOpen ? TFT_MAGENTA : 0x7BEF);
-        dm.printText(e.isOpen ? " OPEN" : " WPA");
-        if (e.wps) { dm.setTextColor(TFT_CYAN); dm.printText(" WPS"); }
+        drawNetRowCells(dm, scanCache[i]);
         dm.println();
     }
 
@@ -176,46 +208,203 @@ static bool runAsyncScan(DisplayManager& dm, int& count, bool& done) {
     return true;
 }
 
-void WiFiFunctions::scanWiFiNetworks() {
-    const int perPage = 10;
+// ── WiFi manager (sw) ───────────────────────────────────────────────────────────
 
+// Logical radio state for the manager: option-A "off" = disassociated + STA idle
+// (GDMA-safe, never WIFI_OFF), so the radio stays initialised for the next scan.
+static bool s_radioOff = false;
+
+static const int MGR_LIST_TOP = 74;   // first list row Y
+static const int MGR_VISIBLE  = 8;    // rows shown at once (leaves room for the footer)
+
+static void drawMgrStatus(DisplayManager& dm, int y) {
+    dm.fillRect(0, y, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+    dm.setCursor(10, y);
+    if (s_radioOff) {
+        dm.setTextColor(0x7BEF);  dm.printText("Radio: ");
+        dm.setTextColor(TFT_RED); dm.printText("OFF (idle)");
+        return;
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+        dm.setTextColor(TFT_GREEN); dm.printText("* ");
+        char ssid[15]; snprintf(ssid, sizeof(ssid), "%.14s", WiFi.SSID().c_str());
+        dm.setTextColor(TFT_WHITE); dm.printText(ssid);
+        dm.printText(" ");
+        dm.setTextColor(0x7BEF);    dm.printText(WiFi.localIP().toString().c_str());
+        int r = WiFi.RSSI();
+        char rs[7]; snprintf(rs, sizeof(rs), " %d", r);
+        dm.setTextColor(rssiColor(r)); dm.printText(rs);
+    } else {
+        dm.setTextColor(TFT_YELLOW); dm.printText("Not connected");
+    }
+}
+
+static void renderManager(DisplayManager& dm, int sel, int top, int total) {
+    dm.clearScreen();
+    dm.setCursor(10, outputY);
+    dm.setDefaultTextSize();
+
+    dm.setTextColor(0x7BEF);     dm.printText("[");
+    dm.setTextColor(TFT_CYAN);   dm.printText("WIFI");
+    dm.setTextColor(0x7BEF);     dm.printText("::");
+    dm.setTextColor(TFT_YELLOW); dm.printText("MGR");
+    dm.setTextColor(0x7BEF);     dm.printText("]  ");
+    char cnt[16]; snprintf(cnt, sizeof(cnt), "%d nets", total);
+    dm.setTextColor(0x7BEF);     dm.println(cnt);
+
+    drawMgrStatus(dm, outputY + LINE_HEIGHT);          // status line (y=52)
+    dm.setCursor(0, outputY + 2 * LINE_HEIGHT);        // separator (y=66)
+    dm.printSeparator();
+
+    if (total == 0) {
+        dm.setCursor(10, MGR_LIST_TOP);
+        dm.setTextColor(0x7BEF);
+        dm.println(s_radioOff ? "Radio off — press [o]" : "No networks. Press [u] to rescan.");
+    } else {
+        int end = min(top + MGR_VISIBLE, total);
+        for (int i = top; i < end; i++) {
+            int  y      = MGR_LIST_TOP + (i - top) * LINE_HEIGHT;
+            bool selrow = (i == sel);
+            if (selrow) dm.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, 0x0841);  // highlight bar
+            dm.setCursor(2, y);
+            dm.setTextColor(selrow ? TFT_YELLOW : 0x7BEF);
+            dm.printText(selrow ? ">" : " ");
+            char idx[5]; snprintf(idx, sizeof(idx), "%2d", i);
+            dm.setTextColor(TFT_YELLOW);
+            dm.printText(idx);
+            drawNetRowCells(dm, scanCache[i]);
+        }
+    }
+
+    // Footer — a separator rule with a clear gap above the tips
+    dm.setCursor(0, 192);
+    dm.printSeparator();
+    dm.setCursor(6, 200);
+    dm.setTextColor(0x7BEF);
+    dm.printText("trkbl=sel  click/ent=connect");
+    dm.setCursor(6, 214);
+    dm.printText("[d]isc [f]orget [o]n/off [u] [q]");
+    dm.setTextColor(TFT_WHITE);
+}
+
+void WiFiFunctions::connectSelected(int idx) {
+    if (idx < 0 || idx >= (int)scanCache.size()) return;
+    char idxStr[8]; snprintf(idxStr, sizeof(idxStr), "%d", idx);
+    connectToWiFiCommand(idxStr);   // reuses the full password/save/connect flow
+    s_radioOff = false;             // a connect attempt turns the radio on
+}
+
+void WiFiFunctions::forgetSelected(int idx) {
+    if (idx < 0 || idx >= (int)scanCache.size()) return;
+    String ss = String(scanCache[idx].ssid);
+    if (ss.isEmpty()) {
+        const char* r = lookupHidden(scanCache[idx].bssid);
+        if (r) ss = String(r);
+    }
+    displayManager.fillRect(0, 202, SCREEN_WIDTH, SCREEN_HEIGHT - 202, TFT_BLACK);
+    displayManager.setCursor(6, 210);
+    if (ss.isEmpty()) {
+        displayManager.setTextColor(TFT_YELLOW);
+        displayManager.printText("Hidden net — can't forget");
+    } else {
+        bool ok = forgetNetwork(ss);
+        char msg[40];
+        snprintf(msg, sizeof(msg), "%s %.20s", ok ? "Forgot" : "Not saved:", ss.c_str());
+        displayManager.setTextColor(ok ? TFT_GREEN : TFT_YELLOW);
+        displayManager.printText(msg);
+    }
+    displayManager.setTextColor(TFT_WHITE);
+    delay(1100);   // brief toast, then the caller repaints
+}
+
+void WiFiFunctions::runWifiManager(char* args) {
+    // ── subcommands: radio on/off (non-interactive) ───────────────────────────
+    if (args && *args) {
+        String a(args); a.trim(); a.toLowerCase();
+        if (a == "on") {
+            WiFi.mode(WIFI_STA); s_radioOff = false;
+            displayManager.clearScreen();
+            displayManager.setCursor(10, outputY);
+            displayManager.setTextColor(TFT_GREEN);
+            displayManager.println("WiFi radio ON");
+            displayManager.setTextColor(TFT_WHITE);
+            displayManager.printCommandScreen();
+            return;
+        }
+        if (a == "off") {
+            WiFi.disconnect(false); s_radioOff = true;   // option A: STA idle, GDMA-safe
+            displayManager.clearScreen();
+            displayManager.setCursor(10, outputY);
+            displayManager.setTextColor(TFT_YELLOW);
+            displayManager.println("WiFi radio OFF (idle)");
+            displayManager.setTextColor(TFT_WHITE);
+            displayManager.printCommandScreen();
+            return;
+        }
+        Utils::printUsage("scanwifi");   // unknown arg → the command's own help
+        displayManager.printCommandScreen();
+        return;
+    }
+
+    // ── interactive manager ───────────────────────────────────────────────────
     MacChanger::getInstance().applyIfEnabled();
+    s_radioOff = false;
 
     displayManager.clearScreen();
     displayManager.setCursor(10, outputY);
     displayManager.setTextColor(TFT_CYAN);
     displayManager.println("Scanning WiFi...");
-
     if (!runAsyncScan(displayManager, numberOfNetworks, networkScanExecuted)) {
         displayManager.printCommandScreen();
         return;
     }
 
-    int totalPages  = max(1, (numberOfNetworks + perPage - 1) / perPage);
-    int currentPage = 0;
-
+    int  sel = 0, top = 0;
+    bool redraw = true;
     while (true) {
-        renderScanPage(displayManager, currentPage, perPage, numberOfNetworks, totalPages);
+        if (redraw) {
+            int total = (int)scanCache.size();
+            if (sel >= total)               sel = max(0, total - 1);
+            if (sel < top)                  top = sel;
+            if (sel >= top + MGR_VISIBLE)   top = sel - MGR_VISIBLE + 1;
+            if (top < 0)                    top = 0;
+            renderManager(displayManager, sel, top, total);
+            redraw = false;
+        }
 
-        while (true) {
-            char k = inputHandler.getKeyboardInput();
-            if (k == 'l' || k == 'L') { if (currentPage < totalPages - 1) currentPage++; break; }
-            if (k == 'a' || k == 'A') { if (currentPage > 0)              currentPage--; break; }
-            if (k == 'q' || k == 'Q') { displayManager.printCommandScreen(); return; }
-            if (LockScreenManager::getInstance().consumeJustUnlocked()) break;
-            if (k == 'u' || k == 'U') {
-                displayManager.clearScreen();
-                displayManager.setCursor(10, outputY);
-                displayManager.setTextColor(TFT_CYAN);
-                displayManager.println("Scanning WiFi...");
-                if (!runAsyncScan(displayManager, numberOfNetworks, networkScanExecuted)) {
-                    displayManager.printCommandScreen();
-                    return;
-                }
-                totalPages  = max(1, (numberOfNetworks + perPage - 1) / perPage);
-                currentPage = 0;
-                break;
+        // Trackball: U/D select, CLICK connect (poll directly, like wm/netspy)
+        TrackballEvent tb = inputHandler.getTrackballEvent();
+        if (tb == TBALL_UP)    { if (sel > 0)                          { sel--; redraw = true; } continue; }
+        if (tb == TBALL_DOWN)  { if (sel < (int)scanCache.size() - 1)  { sel++; redraw = true; } continue; }
+        if (tb == TBALL_CLICK) { if (!scanCache.empty() && !s_radioOff){ connectSelected(sel); redraw = true; } continue; }
+
+        char k = inputHandler.getKeyboardInput();
+        if (!k) {
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) redraw = true;
+            continue;
+        }
+        if (k == 'q' || k == 'Q') { displayManager.printCommandScreen(); return; }
+        else if (k == '\r' || k == '\n') { if (!scanCache.empty() && !s_radioOff) { connectSelected(sel); redraw = true; } }
+        else if (k == 'l' || k == 'L')   { sel = min((int)scanCache.size() - 1, sel + MGR_VISIBLE); if (sel < 0) sel = 0; redraw = true; }
+        else if (k == 'a' || k == 'A')   { sel = max(0, sel - MGR_VISIBLE); redraw = true; }
+        else if (k == 'd' || k == 'D')   { WiFi.disconnect(false); redraw = true; }
+        else if (k == 'o' || k == 'O')   {
+            if (s_radioOff) { WiFi.mode(WIFI_STA);  s_radioOff = false; }
+            else            { WiFi.disconnect(false); s_radioOff = true; }
+            redraw = true;
+        }
+        else if (k == 'f' || k == 'F')   { if (!scanCache.empty()) { forgetSelected(sel); redraw = true; } }
+        else if (k == 'u' || k == 'U')   {
+            if (s_radioOff) { WiFi.mode(WIFI_STA); s_radioOff = false; }
+            displayManager.clearScreen();
+            displayManager.setCursor(10, outputY);
+            displayManager.setTextColor(TFT_CYAN);
+            displayManager.println("Scanning WiFi...");
+            if (!runAsyncScan(displayManager, numberOfNetworks, networkScanExecuted)) {
+                displayManager.printCommandScreen();
+                return;
             }
+            sel = 0; top = 0; redraw = true;
         }
     }
 }
@@ -258,6 +447,18 @@ String WiFiFunctions::getWiFiPassword(const String& ssid) {
     String pw = prefs.getString(ssid.c_str(), "");
     prefs.end();
     return pw;
+}
+
+// Forget one network: drop its saved password from NVS and its block from
+// wpa_supplicant.conf. Returns true if it existed in either store.
+bool WiFiFunctions::forgetNetwork(const String& ssid) {
+    if (ssid.isEmpty()) return false;
+    Preferences prefs;
+    prefs.begin("wifi", false);
+    bool hadNvs = prefs.remove(ssid.c_str());   // false if key absent
+    prefs.end();
+    int r = removeWpaNetwork(ssid);             // wifi_creds: 1=removed
+    return hadNvs || r == 1;
 }
 
 void WiFiFunctions::clearAllWiFiCredentials() {
@@ -498,6 +699,11 @@ bool WiFiFunctions::getNetworkSSID(int index, char* ssidOut) const {
 bool WiFiFunctions::getNetworkOpen(int index) const {
     if (!networkScanExecuted || index < 0 || index >= (int)scanCache.size()) return true;
     return scanCache[index].isOpen;
+}
+
+int WiFiFunctions::getNetworkSec(int index) const {
+    if (!networkScanExecuted || index < 0 || index >= (int)scanCache.size()) return -1;
+    return scanCache[index].sec;
 }
 
 void WiFiFunctions::refreshHiddenCache()              { loadHiddenCache(); }
