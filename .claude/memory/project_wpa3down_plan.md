@@ -4,7 +4,65 @@ description: NOT YET BUILT — wpa3down/w3d: detect WPA3 transition-mode APs + P
 type: project
 ---
 
-**Command: `wpa3down` / `w3d`** (WiFi). NOT YET BUILT. Full plan in repo:
+**Command: `wpa3down` / `w3d`** (WiFi). ✅ **PHASE 1 DONE (2026-07-08) + PHASE 2 BUILT & FIRST-HW-TESTED (2026-07-09) — attack works mechanically, CAPTURE blocked by client PMF on the test target. Phase 3/4 not built.**
+
+## HW-TEST FINDINGS (2026-07-09) — read before resuming
+**Result: `w3d` is mechanically functional (rogue WPA2 AP beacons, victim probes it once deauth lands), but did NOT capture on the test target because the victim client uses PMF. A WPA3-transition client with PMF active is NOT downgradeable by deauth — by design.** This is the honest documented limit, not a bug.
+
+**Test rig (for repeating):** target = an Android **phone hotspot** `LABs`, **WPA2/WPA3 transition, ch6 (2.4GHz)**; victim = the dev's **Linux laptop** (Intel `iwlwifi`, iface `wlp0s20f3`, MAC **`98:bd:80:b4:0d:52`**). The laptop is the machine Claude runs on → victim state is directly inspectable (`iw dev wlp0s20f3 link`, `nmcli`, `journalctl`).
+
+**Key facts learned:**
+- AP RSN = `PSK SAE` (transition), **`MFP-capable (0x008c)` → MFPC=1, MFPR=0 = PMF OPTIONAL (not required).** So a PMF-OFF client *can* join.
+- The laptop connects **WPA2-PSK, not SAE** (journal: `associating→4way_handshake`, no SAE step) — BUT with `pmf=default` against an MFP-capable AP, **modern wpa_supplicant negotiates PMF anyway** → forged deauths (broadcast AND directed) are rejected → client never drops. That's the wall.
+- **Phone-hotspot BSSID changes ONLY on hotspot off/on (stable while up).** Saw 4 different LA-MAC BSSIDs across toggles. → re-`sw` right before `w3d`, don't toggle after; live-BSSID tracking is NOT needed for this target.
+- Real AP was **−32…−39 dBm (phone on top of the laptop), un-movable** → even when the victim probes the rogue it re-picks the stronger real AP. One PMF-off-ish run = 63 probes/600s (background rate), 0 assoc.
+- Forcing client PMF off via `nmcli ... pmf 1` **broke the NM profile** (lost secrets → jumped to SSID `EasTech`); fragile, couldn't get a clean PMF-off capture. Restore LABs: `nmcli device wifi connect LABs password <pw>`.
+
+**Code changes made this session (UNCOMMITTED, capture NOT yet verified):**
+- **Directed deauth**: `w3d [idx] [victim-mac]` → `w3dDeauthDir` (AP→STA + STA→AP pair) + broadcast. Directed is the effective form (iwlwifi ignores broadcast deauth). Chrome shows the deauth target.
+- **Continuous deauth flood**: interval 500ms → **20ms (~50/s)** to beat a strong un-movable AP.
+- Compile fix: added `extern SDCardManager sdCardManager;`.
+
+**▶ RESUME PLAN (priority order):**
+1. **Validate the pipeline with a NON-PMF victim** — older phone / IoT / ESP32 / older Android join a transition hotspot over plain WPA2 without PMF. `w3d <idx> <its-MAC>` → continuous deauth drops it → downgrade → M2 → `.cap`. (A modern PMF laptop is the WRONG victim to prove capture.)
+2. Tune the **20ms flood** if a real test shows **Asc rising but no M2** (flood starving the rogue's responses) → add "pause deauth while victim is associating to OUR rogue"; else maybe ~50ms (20/s).
+3. **Phase 3 (PMF probe + pre-assoc flood)** — NOTE: pre-assoc flood does NOT rescue an already-connected PMF client (can't force re-assoc without a drop PMF blocks); only helps NEW associations. Lower value than #1.
+4. **Commit** the whole batch (sw manager + wpa3down + Phase-1 detection) once capture is HW-proven on a non-PMF client.
+
+---
+
+**Command: `wpa3down` / `w3d`** — original build note:
+
+**PHASE 2 (2026-07-09) — the core downgrade attack, code-complete + static-reviewed, UNCOMMITTED, NOT HW-tested.**
+New module `wifi/attacks/wpa3down/wpa3down.{cpp,h}`, free fn `runWpa3Down(char*)`, registered `wpa3down`/`w3d` [EXP]
+WiFi (`stopEspchatBg()` prefix). **Almost pure ORCHESTRATION (rule 5b) of karma's `roguehs` engine** — its beacon is
+ALREADY WPA2-PSK-only (RSN AKM `0x000FAC02`, no SAE = exactly the downgrade rogue AP), it injects its own M1 (known
+ANonce) + sniffs the victim's M2 → crackable half-handshake, and keeps beacon+M1+M2 raw frames. Flow: require prior
+`sw` scan → TD-filtered picker (`getNetworkSec==WSEC_TD`, trackball/Enter) or `w3d <idx>` → `roguehs::begin(ssid,ch)`
+(WPA2 rogue on the target's channel) → loop: `roguehs::poll()` + broadcast-deauth the REAL AP every ~800ms (26-byte
+frame, src=real BSSID, `WIFI_IF_STA`, same channel/no hop — copied from karma's `injectDeauth`) + live Prb/Ath/Asc/M2
+counters (flicker-free: chrome-once + stats-in-place) → on `gotM2`: `roguehs::end()` (idle STA, GDMA-safe) THEN save
+`/apps/wpa3down/<ssid>.cap` (beacon+M1+M2, `pcap::writeRecord` lt105, never-overwrite) → crack with `cc`. Wiring:
+`SD_DIR_WPA3DOWN` + ensureDir + apps-README; platformio `-I .../wpa3down`; man/README/CLAUDE/NOTICES(#19 Dragonblood).
+**HONEST SCOPE:** works on transition APs w/ PMF off/optional; **PMF-required blocks the deauth (victim won't drop)** —
+empirical PMF probe + pre-assoc flood = Phase 3, NOT built (in-UI "PMF? may not drop" note). Output = `.cap` (crackable
+via cc/hashcat), NOT a separate HCCAPX writer. `roguehs`'s own caveat applies: `esp_wifi_80211_tx` doesn't HW-ACK, so
+association depends on the client tolerating missing ACKs (HW-proven in karma). **NEXT = flash + HW-test on a real
+transition-mode AP; then Phase 3 (PMF probe + pre-assoc flood), Phase 4 (wguard downgrade-detect).**
+
+---
+**PHASE 1 (2026-07-08, HW-test pending) — detection:**
+Phase 1 = Part-1 detection, done the EASY way (no raw RSN-IE parse needed): the ESP32 scan record
+`wifi_ap_record_t.authmode` already gives transition mode directly. In `wifi/core/wifi_functions.{h,cpp}`:
+`NetworkEntry.sec` + `enum WifiSec{OPEN,WEP,WPA,WPA2,WPA3,TD}`, `classifySec(authmode,isOpen)`
+(`WIFI_AUTH_WPA2_WPA3_PSK`→`WSEC_TD`), set in `populateScanCache` (rec already read for wps), shown in
+`renderScanPage` as tags (TD=yellow target, WPA3=green, OPEN=magenta, WEP=red) — so `sw`/`show` now flag
+downgradeable APs. **`getNetworkSec(int)` getter exposed for Phase 2 to pick targets.** No transmit, one file.
+Docs: man `scanwifi` SEC block + docs/wifi-scan.md security table. **NEXT = Phase 2 (attack: PMF probe →
+WPA2-only rogue AP via eviltwin → capture via ws/pm → /apps/wpa3down/), Phase 3 pre-assoc flood, Phase 4
+wguard downgrade-detection (defensive).**
+
+Full plan in repo:
 `.claude/memory/TREX_WPA3_DOWNGRADE_PLAN.md`. Dragonblood CVE-2019-9494..9499 (Vanhoef/Ronen);
 refs: TrustedSec Jul-2024 writeup, RedLegg Jun-2025 eaphammer, VSMtripathi GitHub.
 
