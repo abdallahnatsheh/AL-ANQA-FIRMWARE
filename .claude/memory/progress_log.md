@@ -4,6 +4,87 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-07-09b (wpa3down Phase 2 — WPA3 transition-downgrade attack) — code-complete, UNCOMMITTED, NOT HW-tested
+- **Built Phase 2 of the wpa3down plan** (the core downgrade attack) right after the `sw` manager rework. New module
+  `wifi/attacks/wpa3down/wpa3down.{cpp,h}`, free fn `runWpa3Down(char*)`, registered `wpa3down`/`w3d` [EXP] WiFi.
+- **Almost pure ORCHESTRATION of karma's `roguehs` engine (rule 5b).** Key discovery: `roguehs`'s beacon is ALREADY
+  WPA2-PSK-only (RSN AKM `0x000FAC02`, no SAE) — i.e. it IS the "WPA2-only rogue AP" the downgrade needs; it injects
+  its own M1 (known ANonce) + sniffs the victim's M2 → crackable half-handshake, and keeps beacon+M1+M2 raw frames.
+  So Phase 2 ≈ karma `km hs` + a deauth of the REAL AP + the `sw` TD-target filter.
+- **Flow:** require prior `sw` scan → TD picker (`getNetworkSec==WSEC_TD`, trackball/Enter) or `w3d <idx>` →
+  `roguehs::begin(ssid,ch)` → loop `roguehs::poll()` + broadcast-deauth real AP every ~800ms (26-byte frame,
+  src=real BSSID, `WIFI_IF_STA`, same channel, no hop — copied from karma `injectDeauth`) + live Prb/Ath/Asc/M2
+  (chrome-once + stats-in-place, flicker-free per the isoscan lesson) → on `gotM2`: `roguehs::end()` (idle STA,
+  GDMA-safe) THEN save `/apps/wpa3down/<ssid>.cap` (beacon+M1+M2, shared `pcap::writeRecord` lt105, never-overwrite)
+  → crack with `cc`.
+- **Wiring:** `SD_DIR_WPA3DOWN` + ensureDir + apps-README map; platformio `-I .../wpa3down` (src_dir=t-rex-firmware,
+  no build filter → auto-compiled); command_manager fwd-decl + register; man `w3d` entry; README row; CLAUDE module
+  block + SD-layout line + cmd list; NOTICES #19 (Dragonblood CVE-2019-9494..9499 / TrustedSec / RedLegg — technique
+  reference, no code used, per [[feedback_rules]] #8).
+- **HONEST SCOPE (in-UI + docs):** works on transition APs with PMF off/optional; **PMF-required blocks the deauth**
+  (victim won't drop) → empirical PMF probe + pre-assoc flood = **Phase 3, NOT built**. Pure WPA3 (SAE-only) not
+  downgradeable. Output = `.cap` (crackable via cc/hashcat), NOT a separate HCCAPX writer. Inherits `roguehs`'s
+  no-HW-ACK caveat (association depends on the client tolerating missing ACKs — HW-proven in karma).
+- **Static-reviewed** (roguehs `begin` is self-contained WiFi setup; State persists after `end()` so save-after-end is
+  safe — karma's exact idiom; all APIs/getters/include-paths verified). **NOT compiled/flashed** (user builds manually).
+- **NEXT:** flash + HW-test on a REAL transition-mode router (PMF off/optional); then Phase 3 (PMF probe + pre-assoc
+  flood for PMF-required), Phase 4 (wguard downgrade-detection). See [[project_wpa3down_plan]].
+
+## Session 2026-07-09c (wpa3down Phase 2 — FIRST HW TEST vs a phone hotspot) — attack code works mechanically, capture BLOCKED by client PMF (documented limit)
+- **Compile fix:** wpa3down.cpp missing `extern SDCardManager sdCardManager;` — added (was the only build error; the rest compiled clean incl. the sw manager).
+- **Test rig:** target = an Android **phone hotspot** SSID `TESTNET`, **WPA2/WPA3-Personal transition**, **ch6 (2437, 2.4GHz)**. Victim = the dev's own **Linux laptop** (Intel `iwlwifi`, iface `wlp0s20f3`, **MAC `xx:xx:xx:xx:xx:xx`** — permanent, NM not randomizing it). The laptop IS the machine Claude runs on → could inspect victim state directly (`iw`, `nmcli`, journal).
+- **Symptom:** `w3d` broadcast-deauth counter climbed but **Prb/Ath/Asc/M2 all stayed 0** — victim never dropped, never came to the rogue.
+- **Diagnosis from the victim laptop (key facts):**
+  - AP RSN: `Authentication suites: PSK SAE` (transition), **`MFP-capable (0x008c)` = MFPC=1, MFPR=0 → PMF OPTIONAL, not required.**
+  - Client is on **WPA2-PSK, not SAE** (journal: `associating → 4way_handshake`, no SAE auth step; NM `key-mgmt=wpa-psk`, `pmf=0(default)`). BUT default pmf against an MFP-capable AP → **modern wpa_supplicant negotiates PMF anyway** → forged deauths cryptographically rejected → client won't drop. **This is the wall.**
+  - **Phone hotspot BSSID changes ONLY on hotspot off/on toggle — STABLE while it stays up** (saw `xx:xx:xx:xx:xx:xx`, `xx:xx:xx:xx:xx:xx/80`, `xx:xx:xx:xx:xx:xx`, `xx:xx:xx:xx:xx:xx` across toggles; all randomized LA MACs). So the scan→attack BSSID is fine IF you re-`sw` right before and DON'T toggle after.
+  - Real AP signal at the laptop ≈ **−32 to −39 dBm (phone sitting on top of the laptop) — can't be moved** per the dev.
+- **Code changes made this session (all in wpa3down.cpp, UNCOMMITTED, still NOT capture-verified):**
+  1. **Directed deauth** — `w3d [idx] [victim-mac]` (`w3dParseMac`, `w3dDeauthDir` = AP→STA + STA→AP pair). Broadcast deauth is widely ignored (esp. iwlwifi); directed is the effective form when PMF is off. Chrome shows the deauth target; arg-parse guards a MAC token from being read as the scan index. man/README/desc updated.
+  2. **Continuous deauth flood** — interval 500ms → **20ms (~50/s)** to make a strong un-movable real AP unusable so the victim is forced onto the rogue.
+- **Test results:** 50 directed deauths to the exact victim MAC → still no drop → **PMF confirmed as the blocker.** One run (PMF possibly off) gave **63 probes / 600s but 0 assoc** = background-scan rate, i.e. victim occasionally sees the rogue but re-picks the far-stronger real AP; not truly being kicked.
+- **Tried to disable client PMF to prove the pipeline:** `sudo nmcli connection modify TESTNET 802-11-wireless-security.pmf 1` + `up` → **broke the NM profile** ("Secrets were required, but not provided"), laptop auto-jumped to another SSID (`TESTNET2`). Fragile; couldn't get a clean PMF-off run. (To restore TESTNET: `nmcli device wifi connect TESTNET password <pw>`.)
+- **HONEST CONCLUSION:** `w3d` is **mechanically working** (rogue WPA2 AP beacons, victim probes it once deauth lands). It CANNOT capture on this target because **a WPA3-transition client that uses PMF is not downgradeable by deauth — by design** (matches the in-UI "PMF? may not drop" note + the plan's honest scope). Blockers = (1) client PMF rejects deauth, (2) unmovable stronger AP, (3) phone rotates BSSID on toggle.
+- **▶ RESUME PLAN (next session, when there's usage budget):**
+  1. **Prove the pipeline with a NON-PMF victim** — older phone / IoT / ESP32 / older Android usually join a transition hotspot over plain WPA2 **without PMF**. Point `w3d <idx> <that-device-MAC>` at it; continuous deauth should drop it → downgrade → M2 → `/apps/wpa3down/<ssid>.cap`. This is the real end-to-end validation (a modern PMF laptop is the wrong victim).
+  2. Decide on the **20ms deauth flood** — may be too aggressive / could starve the rogue's own probe/auth/assoc responses. If a real test shows **Asc rising but M2 not**, add a "pause deauth while the victim is associating to OUR rogue" guard. Otherwise consider ~20/s (50ms).
+  3. **Live-BSSID tracking** = LOW priority for this phone (BSSID is stable while up; re-scan suffices). Only needed for APs that rotate BSSID mid-session.
+  4. **Phase 3 (PMF probe + pre-assoc flood)** — note pre-assoc flooding does NOT rescue an already-connected PMF client (can't force re-assoc without a drop, which PMF prevents); it only helps NEW associations. So it won't fix this exact laptop scenario. Lower value than first proving capture on a non-PMF client.
+  5. **Commit** the whole batch (sw manager + wpa3down + Phase-1 detection) once capture is HW-proven on a non-PMF client (his name, no Co-Authored trailer).
+- Full detail + test-rig notes also in [[project_wpa3down_plan]].
+
+## Session 2026-07-09 (sw → WiFi Manager: on/off + interactive connect/disconnect/forget) — code-complete, UNCOMMITTED, NOT HW-tested
+- **User asked to rework `sw` into a WiFi MANAGER before continuing the wpa3down plan.** Done (option A + forget +
+  security/TD/WPS column). `sw` is now `hasArgs=true`; routes `sw on` / `sw off` (non-interactive radio power) vs
+  bare `sw` = interactive manager. Files: `wifi/core/wifi_functions.{cpp,h}`, `wifi/core/wifi_creds.{cpp,h}`,
+  `command_manager.cpp`, `man_pages.cpp`, `docs/wifi-scan.md`, `README.md`.
+- **`scanWiFiNetworks()` REMOVED**, replaced by `runWifiManager(char*)`. The old paged scan view is gone; `show wifi`
+  (`showWiFiResults` → `renderScanPage`) is unchanged and still the passive last-results viewer.
+- **Interactive manager** (`renderManager`): top **status line** (`drawMgrStatus`) = current connection `* SSID IP RSSI`
+  green / `Not connected` yellow / `Radio: OFF (idle)` red; then a **trackball-cursor selectable list** (highlight bar
+  0x0841 + `>`, auto-scroll, MGR_VISIBLE=9 rows from y=74). Actions: **trkbl U/D=select · CLICK or Enter=connect ·
+  `[d]`isconnect · `[f]`orget · `[o]` radio on/off · `[l]/[a]` page · `[u]` rescan · `[q]`**. Polls trackball
+  (`getTrackballEvent`) AND keyboard each loop, like wm/netspy. Lock-aware via `consumeJustUnlocked` (all draws through
+  displayManager → no-op while blocked).
+- **CRITICAL preserved:** the manager still populates `scanCache` + `numberOfNetworks` exactly as before (via the same
+  static `runAsyncScan`/`populateScanCache`), so the shared **scan-index contract** used by `cw/da/et/hs/ws/pm/bf/wg`
+  (`getNetworkInfo`/`isScanDone`/`getNetworkCount`) is intact — no attack command breaks.
+- **Connect** reuses `connectToWiFiCommand(idxStr)` (rule 5 — full password prompt + NVS + wpa_supplicant save flow).
+- **Radio off = option A** (`s_radioOff` file-static): `WiFi.disconnect(false)` + stay STA idle, **never `WIFI_OFF`**
+  (GDMA-safe, matches the 2026-07-08 home-Settings fix). Entering the interactive manager forces radio on to scan.
+  Honest limit: `s_radioOff` is a manager-local convenience flag; other WiFi cmds ignore it (cw still connects).
+- **Forget** (`forgetNetwork(ssid)`): `Preferences.remove()` (NVS "wifi") + new `removeWpaNetwork(ssid)` in wifi_creds
+  (rewrites `/wpa_supplicant.conf` dropping the matching `network={...}` block; preserves globals/header; `ensureBackup`
+  first; FILE_WRITE truncate + retry). `[f]` shows a 1.1s toast (Forgot / Not saved / Hidden-can't-forget). Hidden nets
+  resolve their ssid via `lookupHidden` before forgetting. GDMA: SD write only from STA (same as appendWpaNetwork).
+- **DRY (rule 5b):** extracted `drawNetRowCells()` (SSID/RSSI/SEC-tag incl **TD** yellow/WPS) shared by BOTH
+  `renderScanPage` (show wifi) and `renderManager`.
+- Static-reviewed (APIs verified: `Preferences::remove` bool, `Utils::printUsage(const char*)`, `WiFi.SSID()/RSSI()`
+  no-arg, `TrackballEvent`/`getTrackballEvent`, man `lines[32]` cap OK). Fixed one ordering bug: forward-declared
+  `ensureBackup()` before `removeWpaNetwork`. **NOT compiled/flashed** (user builds manually — [[feedback_user_compiles_manually]]).
+- **NEXT:** user flashes + HW-tests the manager, then **continue the wpa3down plan Phase 2** (attack: PMF probe →
+  WPA2-only rogue AP → ws/pm capture). See [[project_wpa3down_plan]].
+
 ## Session 2026-07-08 (home launcher → working apps + AA polish + OOP refactor) — ✅ HW-VERIFIED, UNCOMMITTED
 - **✅ HW-VERIFIED end of session:** whole launcher works on glass (7 apps, alarms, AA, covert guarantees, OOP refactor). Last fix: app background not cleared on open (home-grid bled through) → `Ui::appBar()` now `fillScreen(bg)` first (the old `paint()` cleared up front; the new `render()` didn't — faithful-port miss). READY TO COMMIT (his name, no Co-Authored trailer).
 - **Notes UI search made functional + moved down** (was clipping the title): live filter (title/body substring), trackball-focusable pill → back-chevron chain, `x` clear, result count. Also **back button trackball-navigable** (cards→pill→back chevron→Home).
