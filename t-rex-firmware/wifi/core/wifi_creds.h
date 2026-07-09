@@ -24,5 +24,6 @@ void        wifiPassCommand();
 void        wifiExportCommand();
 WifiNetwork getWifiNetwork(const String& ssid);
 int         appendWpaNetwork(const WifiNetwork& net);  // 1=saved, 0=already exists, -1=no SD, -2=write failed
+int         removeWpaNetwork(const String& ssid);      // 1=removed, 0=not found, -1=no SD, -2=write failed
 
 #endif // WIFI_CREDS_H

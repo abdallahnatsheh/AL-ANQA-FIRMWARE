@@ -73,6 +73,7 @@ void runEditor(char* a);
 void runCsiDetect(char* a);
 void runNetspy(char* a);
 void runIsoscan(char* a);
+void runWpa3Down(char* a);
 
 CommandManager::CommandManager()
     : commandIndex(0), commandCount(0), _cursorPos(0),
@@ -313,6 +314,9 @@ static const ArgHintEntry kArgHints[] = {
     { "km",          "",              "auto hs portal" },
     { "karma",       "auto",          "deauth" },
     { "km",          "auto",          "deauth" },
+    // scanwifi / sw  (WiFi manager)
+    { "scanwifi",    "",              "on off" },
+    { "sw",          "",              "on off" },
     // wifipass / wp  (merged: was clearwifi + wifiexport)
     { "wifipass",    "",              "export clear" },
     { "wp",          "",              "export clear" },
@@ -724,7 +728,7 @@ void CommandManager::setupCommands() {
     registerCommand("volume",      "vol",    [](char* a) { handleVolumeCmd(a); },                                             "General volume: vol [0-100|up|down|off]",   true,  "System");
     registerCommand("notif",       "nf",     [](char* a) { NotificationManager::handleNotifCmd(a); },                        "Notifications: nf [on|off|vol <n>|test|<lvl> on|off|file <f>]", true, "System");
     // ── WiFi ──────────────────────────────────────────────────────────────────
-    registerCommand("scanwifi",    "sw",     [](char* a) { wifiFunctions.scanWiFiNetworks(); },                              "Scan WiFi networks",                      false, "WiFi");
+    registerCommand("scanwifi",    "sw",     [](char* a) { wifiFunctions.runWifiManager(a); },                              "WiFi manager: sw [on|off]",               true,  "WiFi");
     registerCommand("connectwifi", "cw",     [](char* a) { wifiFunctions.connectToWiFiCommand(a); },                        "Connect to WiFi: cw <index>",             true,  "WiFi");
     registerCommand("wifimon",     "wm",     [](char* a) { if (!Utils::checkChannelArg(a, "wm")) return; stopEspchatBg(); wifiMonitor.start(a && *a ? atoi(a) : 0); },  "WiFi monitor [ch 1-13, 0=hop]",           true,  "WiFi");
     registerCommand("deauth",      "da",     [](char* a) { stopEspchatBg(); deauthAttack.start(a); },                       "Deauth: da <bssid> [ch] [client]",        true,  "WiFi");
@@ -733,6 +737,7 @@ void CommandManager::setupCommands() {
     registerCommand("macchanger",  "mc",     [](char* a) { stopEspchatBg(); MacChanger::getInstance().handleCommand(a); },  "MAC spoof: mc [on|off|random|set <mac>|restore on|off|target wifi|bt|both|status]", true,  "WiFi");
     registerCommand("wpasniff",    "ws",     [](char* a) { stopEspchatBg(); handshakeCapture.start(a); },                   "WPA2 handshake: ws <idx|bssid> [ch]",                true,  "WiFi");
     registerCommand("pmkid",       "pm",     [](char* a) { stopEspchatBg(); pmkidAttack.start(a); },                        "PMKID capture+crack: pm <idx|bssid> [ch]",           true,  "WiFi");
+    registerCommand("wpa3down",    "w3d",    [](char* a) { stopEspchatBg(); runWpa3Down(a); },                             "[EXP] WPA3 transition downgrade: w3d [idx] [victim-mac]", true, "WiFi");
     registerCommand("wguard",      "wg",     [](char* a) { stopEspchatBg(); handleWGuardCmd(a); },                          "WiFi IDS: wg <idx> [bg|stop]",                       true,  "WiFi");
     registerCommand("beaconflood", "bf",     [](char* a) { stopEspchatBg(); runBeaconFlood(a); },                           "Beacon flood: bf [list|seq <base>|file [path]]",     true,  "WiFi");
     registerCommand("karma",       "km",     [](char* a) { stopEspchatBg(); runKarma(a); },                                "Karma: km (harvest) | km auto | km hs/portal <ssid> | [h]/[p]/[s] in list", true,  "WiFi");

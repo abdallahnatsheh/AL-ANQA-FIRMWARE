@@ -191,7 +191,7 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 
 ## Commands
 System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `sleep/slp` `lock/lk` `home/hm [EXP]` `undercover/uc [EXP]` `tz` `weather/wx`  (Notes has no standalone command — reachable via the `home` launcher's Notes tile)
-WiFi: `scanwifi/sw` `connectwifi/cw` `wifipass/wp` (`wp export`/`wp clear` — merged wifiexport+clearwifi) `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `karma/km` `crack/cc` `wguard/wg` `beaconflood/bf` `wardrive/wd` `espsniff/es` `esptest/est` `espchat/ec` `espvoice/ev`
+WiFi: `scanwifi/sw` (WiFi manager) `connectwifi/cw` `wifipass/wp` (`wp export`/`wp clear` — merged wifiexport+clearwifi) `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `wpa3down/w3d [EXP]` `karma/km` `crack/cc` `wguard/wg` `beaconflood/bf` `wardrive/wd` `espsniff/es` `esptest/est` `espchat/ec` `espvoice/ev`
 Network: `netdiscover/nd` `netspy/ns [EXP]` `isoscan/is [EXP]` `portscan/ps` (`ps top <ip|#>` — merged topscan) `ping/pg` `ssh/sc`
 Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
 SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `edit/ed` `rm/rm` (`rm -d <dir>` = recursive dir delete) `sdf/sdf`
@@ -267,6 +267,7 @@ orphaned, not migrated.
 `/apps/wpasniff/cracked.csv` — on-device crack results from `ws` (`SD_LOG_CRACKED_WS`)
 `/apps/pmkid/wordlist.txt` — custom WPA crack wordlist for `pm` (`SD_CFG_WORDLIST_PM`)
 `/apps/pmkid/<BSSID>.cap` — PMKID capture pcap (`SD_DIR_PMKID`)
+`/apps/wpa3down/<ssid>.cap` — WPA3 transition-downgrade handshake (`SD_DIR_WPA3DOWN`, beacon+M1+M2, lt105, never-overwrite: `<ssid>.cap`, `<ssid>-1.cap`…)
 `/apps/pmkid/cracked.csv` — on-device crack results from `pm` (`SD_LOG_CRACKED_PM`)
 `/apps/karma/<ssid>.cap` — karma rogue-AP half-handshake (beacon+M1+M2, linktype 105) + `cracked.csv`/`creds.csv`/`connects.csv` (auto-mode engagements)/`wordlist.txt`/`NNN.csv` (saved tables) + `portal/*.html` (`SD_DIR_KARMA`)
 `/apps/capcrack/cracked.csv` — offline cap-cracker results from `crack`/`cc` (`SD_DIR_CAPCRACK`)
@@ -316,6 +317,11 @@ orphaned, not migrated.
 - Wordlist: `/apps/pmkid/wordlist.txt` (SD, user choice) or built-in 100 passwords
 - Output: `/apps/pmkid/<BSSID>.cap` + `/apps/pmkid/cracked.csv` (tagged `,PMKID`)
 - Falls back gracefully: if no PMKID in M1 Key Data, shows `M1 seen — no PMKID in Key Data`
+
+**Wpa3Down** (`wifi/attacks/wpa3down/wpa3down.cpp/h`) — `wpa3down`/`w3d` [EXP], WiFi — **Phase 2 of the wpa3down plan** (`.claude/memory/TREX_WPA3_DOWNGRADE_PLAN.md` / [[project_wpa3down_plan]]). Free fn `runWpa3Down(char*)`. WPA3 **transition-mode downgrade** (Dragonblood CVE-2019-9494..9499): deauth a WPA3-capable victim off the real AP + stand up a **WPA2-PSK-only rogue AP** with the same SSID/channel so the victim reconnects over WPA2 → crackable 4-way handshake.
+- **Almost pure orchestration (rule 5b):** the rogue AP + EAPOL capture + crack material is **karma's `roguehs` engine** — its beacon is already WPA2-PSK-only (AKM `0x000FAC02`, no SAE), it injects its own M1 (known ANonce) and sniffs the victim's M2, and retains beacon+M1+M2 raw frames. Target list = the last `sw` scan filtered to `WSEC_TD` (Phase-1 detection, `getNetworkSec`). Deauth = the same 26-byte broadcast frame karma auto-mode injects (`WIFI_IF_STA`, src=real BSSID). Save = shared `pcap::writeRecord`.
+- **Flow:** requires a prior `sw` scan → TD-filtered picker (trackball/Enter) or `w3d <idx>` → `roguehs::begin(ssid,ch)` (WPA2 rogue on target channel) → loop: `roguehs::poll()` + broadcast-deauth the real AP every ~800ms (same channel, no hop) + live Prb/Ath/Asc/M2 counters → on `gotM2`: `roguehs::end()` (idle STA, GDMA-safe) THEN save `/apps/wpa3down/<ssid>.cap` (beacon+M1+M2, lt105, never-overwrite) → crack with `cc`. Flicker-free (chrome-once + stats-in-place).
+- **SCOPE / HONESTY:** Phase 2 = the core downgrade only. Works on transition-mode APs with PMF **off/optional**. **PMF-required blocks the deauth** (victim won't drop) — the empirical PMF probe + pre-association flood fallback are **Phase 3, NOT built** (in-UI "PMF? may not drop" note). Pure WPA3 (SAE-only) has no WPA2 fallback → not downgradeable. Output is `.cap` (crackable via `cc`/hashcat), not a separate HCCAPX writer. **NOT yet HW-tested.**
 
 **Karma** (`wifi/attacks/karma/karma.cpp` + `rogue_handshake.cpp/.h`) — `karma`/`km`:
 - `km` harvest+fingerprint · `km auto` hands-free sweep · `km hs <ssid> [ch]`/`[h]` WPA2 half-handshake · `km portal <ssid>`/`[p]` captive portal · `[s]` save harvest+devices → `/apps/karma/NNN.csv`

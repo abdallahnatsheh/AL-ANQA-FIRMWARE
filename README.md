@@ -142,7 +142,7 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `home` | `hm` | `[EXP]` — | Home-launcher cover UI (phone-style home screen); real clock/battery/weather; the Notes tile opens the notes app. Runs the same cover `undercover` uses, standalone (no silent mode) |
 | `undercover` | `uc` | `[EXP]` `[set\|clear\|status\|boot on\|off\|panic set\|off]` | Silent home-screen disguise — mutes notifications, hides status bar; secret passphrase exits to CLI; `boot on` boots directly into the home cover; `panic set` arms an instant-hide key (default `@`) |
 | **WiFi** | | | |
-| `scanwifi` | `sw` | — | Scan WiFi networks |
+| `scanwifi` | `sw` | `[on\|off]` | WiFi manager — scan/connect/disconnect/forget + radio on/off |
 | `connectwifi` | `cw` | `<index\|ssid>` | Connect by scan index or SSID name |
 | `wifipass` | `wp` | `[export\|clear]` | Saved WiFi creds — no arg: view all (SD + NVS); `export` → wpa_supplicant.conf; `clear` → erase all |
 | `wifimon` | `wm` | `[ch]` | Monitor mode — Nets view (BSSID/CH/RSSI/clients) + Clients view (vendor/type/AP, trackpad cursor, `[d]` targeted deauth); `[s]` raw PCAP → `/apps/wifimon/NNN_YYYYMMDD_HHMMSS.cap`; `[p]` probe logger → `/apps/wifimon/probes.csv` (MAC+SSID harvest, deduped) |
@@ -152,6 +152,7 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `macchanger` | `mc` | `on\|off\|random\|set <mac>` | Spoof STA MAC |
 | `wpasniff` | `ws` | `<idx\|bssid> [ch]` | Capture + crack WPA2 handshake (needs client + deauth) |
 | `pmkid` | `pm` | `<idx\|bssid> [ch]` | PMKID capture + crack — passive, no client or deauth needed |
+| `wpa3down` | `w3d` | `[idx]` | **[EXP]** WPA3 transition-mode downgrade — deauth victim + WPA2-only rogue AP (same SSID) → crackable handshake `.cap`. Targets `WPA3/TD` APs from the last `sw` scan |
 | `karma` | `km` | `[auto\|hs\|portal <ssid>]` | Rogue-AP suite — probe harvest + PNL device fingerprinting; `[h]` WPA2 half-handshake bait (manual EAPOL responder → crackable `.cap`), `[p]` captive portal, `[s]` save tables; `km auto` = hands-free harvest→bait sweep (`[v]` lists captured nets) logging engagements to `connects.csv` |
 | `crack` | `cc` | `[cap] [wordlist\|dir]` | Offline WPA/WPA2 crack of a `.cap` (handshake or PMKID) — SD wordlists, a dir of lists, or built-in; `cd`-relative paths |
 | `wguard` | `wg` | `<idx\|bssid> [ch] [bg]` | WiFi IDS — passive intrusion detection; `wg stop` / `wg view` |

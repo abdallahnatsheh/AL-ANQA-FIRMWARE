@@ -323,6 +323,55 @@ void wifiExportCommand() {
     displayManager.printCommandScreen();
 }
 
+// ── Remove one network block from wpa_supplicant.conf ─────────────────────────
+// Rewrites the file, dropping every network={...} block whose ssid matches.
+// Global (non-block) lines + the T-Rex header are preserved verbatim.
+static void ensureBackup();   // defined below, in Helpers
+int removeWpaNetwork(const String& ssid) {
+    if (ssid.isEmpty())            return 0;
+    if (!sdCardManager.isReady())  return -1;
+    if (!SD.exists(WIFIPASS_PATH)) return 0;
+
+    File f = SD.open(WIFIPASS_PATH, FILE_READ);
+    if (!f) return -2;
+
+    String output;      // rebuilt file contents
+    String block;       // buffer for the current network block
+    String blockSsid;
+    bool   inBlock  = false;
+    bool   removed  = false;
+
+    String line;
+    while (readSafeLine(f, line)) {
+        String trimmed = line; trimmed.trim();
+        if (!inBlock) {
+            if (trimmed == "network={") { inBlock = true; block = line + "\n"; blockSsid = ""; }
+            else                        { output += line; output += "\n"; }
+            continue;
+        }
+        // inside a network block — buffer until the closing brace
+        block += line; block += "\n";
+        if (trimmed.startsWith("ssid=\"") && trimmed.endsWith("\""))
+            blockSsid = trimmed.substring(6, trimmed.length() - 1);
+        if (trimmed == "}") {
+            if (blockSsid == ssid) removed = true;   // drop this block
+            else                   output += block;  // keep it
+            inBlock = false;
+        }
+    }
+    if (inBlock) output += block;  // unclosed block — keep as-is (never silently lose data)
+    f.close();
+
+    if (!removed) return 0;
+
+    ensureBackup();
+    File w = SD.open(WIFIPASS_PATH, FILE_WRITE);   // FILE_WRITE truncates
+    if (!w) { delay(80); w = SD.open(WIFIPASS_PATH, FILE_WRITE); if (!w) return -2; }
+    w.print(output);
+    w.close();
+    return 1;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 void wifiPassCommand() {
