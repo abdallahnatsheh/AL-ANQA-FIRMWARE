@@ -643,10 +643,79 @@ static void handleShowCmd(char* a) {
 }
 
 static void handleUsbExecCmd(char* a) {
+    // Optional `ble` prefix → run the DuckyScript over BLE HID instead of USB.
+    bool ble = false;
+    if (a && strncmp(a, "ble", 3) == 0 && (a[3] == ' ' || a[3] == '\0')) {
+        ble = true;
+        a += 3;
+        while (*a == ' ' || *a == '\t') a++;
+        if (!*a) a = nullptr;
+        stopMacwatchBg();   // free the BLE radio before bringing up HID (mirrors btkbd)
+    }
+
+    // Optional Phase-2 clone: `ux ble clone <mac|#> <script>` — spoof a bonded keyboard.
+    const char* cloneMac  = nullptr;
+    uint8_t     cloneType = 1;            // default random-static
+    const char* cloneName = nullptr;
+    static char macBuf[18];
+    if (ble && a && strncmp(a, "clone", 5) == 0 && (a[5] == ' ' || a[5] == '\0')) {
+        a += 5;
+        while (*a == ' ' || *a == '\t') a++;
+        char tok[24]; int ti = 0;         // pull the target token
+        while (*a && *a != ' ' && *a != '\t' && ti < (int)sizeof(tok) - 1) tok[ti++] = *a++;
+        tok[ti] = '\0';
+        while (*a == ' ' || *a == '\t') a++;
+        if (!*a) a = nullptr;
+
+        if (tok[0]) {
+            const char* idxTok = (tok[0] == '#') ? tok + 1 : tok;
+            bool isIdx = idxTok[0] && !strchr(idxTok, ':');
+            for (const char* p = idxTok; isIdx && *p; p++)
+                if (!isdigit((unsigned char)*p)) isIdx = false;
+            if (isIdx) {                  // index into the last `sbl` scan cache
+                int idx = atoi(idxTok);
+                if (idx >= 0 && idx < s_bleCount) {
+                    strncpy(macBuf, s_bleDevices[idx].addr, sizeof(macBuf) - 1);
+                    macBuf[sizeof(macBuf) - 1] = '\0';
+                    cloneMac  = macBuf;
+                    cloneType = s_bleDevices[idx].addrType;
+                    cloneName = s_bleDevices[idx].name;
+                }
+            } else {                      // raw MAC string, assume random-static
+                strncpy(macBuf, tok, sizeof(macBuf) - 1);
+                macBuf[sizeof(macBuf) - 1] = '\0';
+                cloneMac = macBuf;
+            }
+        }
+    }
+
+    // Optional advertised-name override: `name "<Custom Name>"` (quotes needed for spaces).
+    // Works in both modes (fresh + clone) — overrides the cloned/default name. Evil-twin style.
+    static char nameBuf[24];
+    if (ble && a && strncmp(a, "name", 4) == 0 && (a[4] == ' ' || a[4] == '\0')) {
+        a += 4;
+        while (*a == ' ' || *a == '\t') a++;
+        int ni = 0;
+        if (*a == '"') {                              // quoted → keep spaces
+            a++;
+            while (*a && *a != '"' && ni < (int)sizeof(nameBuf) - 1) nameBuf[ni++] = *a++;
+            if (*a == '"') a++;
+        } else {                                      // bare single token
+            while (*a && *a != ' ' && *a != '\t' && ni < (int)sizeof(nameBuf) - 1) nameBuf[ni++] = *a++;
+        }
+        nameBuf[ni] = '\0';
+        while (*a == ' ' || *a == '\t') a++;
+        if (!*a) a = nullptr;
+        if (nameBuf[0]) cloneName = nameBuf;          // reuse cloneName as the advertised name
+    }
+
+    // Bare `ux ble` (no clone/name/script) → guided interactive flow.
+    if (ble && !a && !cloneMac && !cloneName) { badUsb.startInteractive(); return; }
+
     if (a && *a && strcmp(a, "demo") != 0) {
         char path[128]; sdCardManager.resolvePath(a, path, sizeof(path));
-        badUsb.start(path);
-    } else { badUsb.start(a); }
+        badUsb.start(path, ble, cloneMac, cloneType, cloneName);
+    } else { badUsb.start(a, ble, cloneMac, cloneType, cloneName); }
 }
 
 static void handleVolumeCmd(char* a) {
@@ -776,7 +845,7 @@ void CommandManager::setupCommands() {
     registerCommand("usbmsc",      "um",     [](char* a) { usbManager.startMSC(); },                                                              "Expose SD card as USB drive",             false, "USB");
     registerCommand("usbkbd",      "uk",     [](char* a) { usbKeyboard.start(); },                                                               "T-DECK as USB keyboard+mouse",            false, "USB");
     registerCommand("btkbd",       "bk",     [](char* a) { stopMacwatchBg(); bleKeyboard.start(); },                                              "T-DECK as BLE keyboard+mouse",            false, "Bluetooth");
-    registerCommand("usbexec",     "ux",     [](char* a) { handleUsbExecCmd(a); },                                              "BadUSB/DuckyScript executor",             true,  "USB",  COMP_FILE);
+    registerCommand("usbexec",     "ux",     [](char* a) { handleUsbExecCmd(a); },                                              "BadUSB: ux [ble [clone <mac|#>]] <demo|script>", true,  "USB",  COMP_FILE);
     registerCommand("jiggle",      "jg",     [](char* a) { if (a && *a && !Utils::matchesCmd(a,"usb") && !Utils::matchesCmd(a,"ble")) { Utils::printUsage("jg"); return; } if (a && (a[0]=='b'||a[0]=='B')) bleKeyboard.jiggle(); else usbKeyboard.jiggle(); }, "Jiggler: jg [usb|ble] — prevent screen lock", true,  "USB");
     // ── Diagnostics ───────────────────────────────────────────────────────────
     registerCommand("gps",         "gps",    [](char* a) { runGps(a); },                                                "GPS: gps on|off|test",                    true,  "Diagnostics");

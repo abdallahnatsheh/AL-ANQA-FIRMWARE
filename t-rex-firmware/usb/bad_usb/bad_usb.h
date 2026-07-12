@@ -7,16 +7,35 @@
 
 #include <Arduino.h>
 #include "usb_keyboard.h"  // provides g_hid_keyboard shared instance
+#include "hid_sink.h"      // output abstraction (USB vs BLE HID)
 
 class BadUsb {
 public:
-    void begin();           // no-op — g_hid_keyboard already registered by usbKeyboard.begin()
-    void start(char* args); // usbexec/ux — run demo or SD script
+    void begin();                        // no-op — g_hid_keyboard registered by usbKeyboard.begin()
+    // usbexec/ux [ble [clone <mac|#>]] — run demo or SD script over USB or BLE HID.
+    // cloneMacStr!=nullptr → Phase-2 BLESA MAC-clone target.
+    void start(char* args, bool ble = false, const char* cloneMacStr = nullptr,
+               uint8_t cloneType = 1, const char* cloneName = nullptr);
+    void startInteractive();             // bare `ux ble` → guided menu (mode/target/name/script)
 
 private:
-    bool _aborted;
-    int  _defaultCharDelay; // ms between characters in STRING (DEFAULT_STRING_DELAY)
-    int  _nextCharDelay;    // one-shot override for next STRING (-1 = use default)
+    bool     _aborted;
+    int      _defaultCharDelay; // ms between characters in STRING (DEFAULT_STRING_DELAY)
+    int      _nextCharDelay;    // one-shot override for next STRING (-1 = use default)
+    bool     _ble = false;      // true = drive BLE HID, false = USB HID
+    HidSink* _sink = nullptr;   // active output sink (chosen in start())
+
+    // BLE: bring up HID (spoofing cloneMacStr if set) + block until a host connects
+    // (q/hold aborts). Returns false on abort.
+    bool     bleWaitForHost(const char* cloneMacStr, uint8_t cloneType, const char* cloneName);
+
+    // Interactive `ux ble` helpers (list pickers modelled on the wpa3down picker)
+    void     drawBleHeader(const char* label);
+    void     drawBleFooter(const char* hint);
+    int      blePickMode();                     // 0=connect, 1=spoof, -1=cancel
+    int      blePickTarget();                   // index into sbl cache, -1=cancel/back
+    bool     blePickScript(char* out, size_t n);// out="demo" or full path; false=cancel
+    void     blePromptName(char* buf, size_t n);// edit buf in place (Enter=keep)
 
     // Script runners
     void runDemo();

