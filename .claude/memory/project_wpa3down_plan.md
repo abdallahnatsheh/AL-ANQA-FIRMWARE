@@ -6,6 +6,10 @@ type: project
 
 **Command: `wpa3down` / `w3d`** (WiFi). ✅ **PHASE 1 DONE (2026-07-08) + PHASE 2 BUILT & FIRST-HW-TESTED (2026-07-09) — attack works mechanically, CAPTURE blocked by client PMF on the test target. Phase 3/4 not built.**
 
+## WEB-VERIFIED 2026-07-12 (no HW — research + static review)
+Method is CORRECT and matches current working tooling — DragonShift (jabbaw0nky), VSMtripathi's tool, TrustedSec Jul-2024 (captured across Aruba/Ubiquiti/MikroTik/Meraki), RedLegg Jun-2025 (eaphammer). Point-by-point match: TD target (`WIFI_AUTH_WPA2_WPA3_PSK`→`WSEC_TD`) · WPA2-PSK-only rogue same SSID/ch · deauth · forge M1 (unauth) → sniff victim M2 (auth) → crackable half-handshake → hashcat -m 22000. The M1+M2 crack is sound (all inputs known: SSID for PBKDF2, our rogue BSSID, our ANonce, victim SNonce+MIC) and roguehs is ALREADY HW-verified end-to-end in karma — so the capture engine is proven, w3d just adds TD-targeting+deauth. **Nothing in the code blocks a capture; success is target-gated.**
+**Two silent-failure causes (both client-side, undetectable by us):** (1) PMF-required → deauth rejected (the 2026-07-09 test wall). (2) **WPA3 Transition Disable** — Wi-Fi Alliance, mandatory in WPA3-certified clients since Dec-2020: real AP signals a protected KDE in its 4-way → client stores "WPA3-only" in its saved profile → refuses our WPA2 rogue for that SSID. BUT enforcement is inconsistent in practice (cyber-fi.net testing: iPhone/Android/Win11 all still downgraded) → POSSIBLE not certain blocker. **Added notes for it 2026-07-12**: file SCOPE comment, header warn ("PMF/transition-disable may block drop"), and the STOPPED screen now enumerates PMF / transition-disable / no-WPA2-client as likely causes. Sources in progress_log.
+
 ## HW-TEST FINDINGS (2026-07-09) — read before resuming
 **Result: `w3d` is mechanically functional (rogue WPA2 AP beacons, victim probes it once deauth lands), but did NOT capture on the test target because the victim client uses PMF. A WPA3-transition client with PMF active is NOT downgradeable by deauth — by design.** This is the honest documented limit, not a bug.
 

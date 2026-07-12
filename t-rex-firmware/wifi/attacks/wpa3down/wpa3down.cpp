@@ -27,6 +27,15 @@
 // transition-mode APs with PMF off/optional. PMF-REQUIRED targets block the deauth
 // (the victim won't drop); the empirical PMF probe + pre-association flood fallback
 // are Phase 3, not built. Output is a .cap crackable with `cc` (or hashcat/aircrack).
+//
+// Second silent-failure cause = WPA3 "Transition Disable" (Wi-Fi Alliance, mandatory
+// in WPA3-certified clients since Dec 2020): the real AP can signal a protected KDE in
+// its 4-way handshake telling the client to store "WPA3-only" in its saved network
+// profile → the client then refuses our WPA2 rogue for that SSID, no matter how good
+// the deauth. It's CLIENT-side state we can't see or detect. In practice enforcement
+// is inconsistent (iPhone/Android/Win11 have all been observed still downgrading), so
+// it's a POSSIBLE, not certain, blocker — worth suspecting when a modern client that
+// clearly reconnects to the real AP never falls to the rogue.
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -237,7 +246,7 @@ static void w3dDrawChrome(const char* ssid, const uint8_t* bssid, int ch, bool p
     if (pmfWarn) {
         displayManager.setCursor(6, outputY + 8 * LINE_HEIGHT);
         displayManager.setTextColor(TFT_YELLOW);
-        displayManager.println("PMF? if AP forces PMF it won't drop");
+        displayManager.println("PMF/transition-disable may block drop");
     }
 
     displayManager.setCursor(0, 210);
@@ -425,12 +434,17 @@ void runWpa3Down(char* args) {
         displayManager.setTextColor(0x7BEF);     displayManager.println("]");
         displayManager.setCursor(10, displayManager.getCursorY());
         displayManager.setTextColor(TFT_YELLOW);
-        displayManager.println("No downgrade handshake.");
+        displayManager.println("No downgrade handshake. Likely:");
         displayManager.setCursor(10, displayManager.getCursorY());
         displayManager.setTextColor(0x7BEF);
-        displayManager.println("Victim didn't fall to WPA2 (PMF?/");
+        displayManager.println(" - PMF required (deauth blocked)");
         displayManager.setCursor(10, displayManager.getCursorY());
-        displayManager.println("no client/out of range). Try again.");
+        displayManager.println(" - transition-disable on client");
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.println(" - no WPA2 client / out of range");
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.setTextColor(TFT_CYAN);
+        displayManager.println("Try a non-PMF / older client.");
     }
     displayManager.setTextColor(TFT_WHITE);
 
