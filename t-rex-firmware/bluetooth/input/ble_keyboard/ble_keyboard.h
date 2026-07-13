@@ -21,6 +21,7 @@ public:
                      const char* cloneName = nullptr);
     void badusbEnd();            // endHid()
     bool badusbConnected();      // true once a host has connected
+    bool badusbCloneMacOk();     // clone: false if the MAC spoof was rejected (RPA/public) → name-only
     void kbdHoldChar(char c);            // printable ASCII → add to live report + notify (hold)
     void kbdHoldUsage(uint8_t mod, uint8_t kc); // special/mod HID usage → add + notify (hold)
     void kbdType(char c);                // press+release one printable ASCII char (standalone)
