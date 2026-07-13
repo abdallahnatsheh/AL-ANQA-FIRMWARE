@@ -144,13 +144,21 @@ bool BadUsb::bleWaitForHost(const char* cloneMacStr, uint8_t cloneType, const ch
     bleKeyboard.badusbBegin(cloneMacStr, cloneType, cloneName);  // spoof target addr if cloning
 
     if (clone) {
+        bool macOk = bleKeyboard.badusbCloneMacOk();
         dm.setCursor(10, dm.getCursorY());
         dm.setTextColor(TFT_RED);   dm.printText("CLONE ");
         dm.setTextColor(TFT_WHITE); dm.println(cloneMacStr);
         dm.setCursor(10, dm.getCursorY());
-        dm.setTextColor(0x7BEF);    dm.println("Waiting host auto-reconnect...");
-        dm.setCursor(10, dm.getCursorY());
-        dm.setTextColor(0x7BEF);    dm.println("(real device must be off). q=x");
+        if (macOk) {
+            dm.setTextColor(TFT_GREEN); dm.println("MAC+name spoofed. Waiting for");
+            dm.setCursor(10, dm.getCursorY());
+            dm.setTextColor(0x7BEF);    dm.println("host reconnect (real dev off). q=x");
+        } else {
+            // ble_hs_id_set_rnd rejected the addr (RPA/public) — honest: name-only, no auto-reconnect
+            dm.setTextColor(TFT_YELLOW); dm.println("MAC spoof FAILED (RPA/public");
+            dm.setCursor(10, dm.getCursorY());
+            dm.setTextColor(TFT_YELLOW); dm.println("addr) - NAME ONLY, connect manually. q=x");
+        }
     } else {
         dm.setCursor(10, dm.getCursorY());
         dm.setTextColor(TFT_WHITE); dm.printText("Advertising: ");
@@ -347,35 +355,71 @@ int BadUsb::blePickTarget() {
             vTaskDelay(pdMS_TO_TICKS(20));
         }
     }
-    int sel = 0, top = 0; const int VIS = 8; bool redraw = true;
-    while (true) {
-        if (redraw) {
-            drawBleHeader("TARGET");
-            dm.setCursor(10, outputY + LINE_HEIGHT);
-            dm.setTextColor(0x7BEF); dm.println("Pick device to clone:");
-            if (sel < top)        top = sel;
-            if (sel >= top + VIS) top = sel - VIS + 1;
-            for (int r = 0; r < VIS && top + r < s_bleCount; r++) {
-                int i = top + r; int y = outputY + (3 + r) * LINE_HEIGHT; bool s = (i == sel);
-                if (s) dm.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, 0x0841);
-                dm.setCursor(2, y);
-                dm.setTextColor(s ? TFT_YELLOW : 0x7BEF); dm.printText(s ? ">" : " ");
-                const char* lbl = s_bleDevices[i].name[0] ? s_bleDevices[i].name : s_bleDevices[i].addr;
-                char line[34];
-                snprintf(line, sizeof(line), "%-18.18s %ddBm", lbl, s_bleDevices[i].rssi);
-                dm.setTextColor(s ? TFT_WHITE : 0x7BEF); dm.println(line);
+    // RSSI-sorted display order (like sbl); cache untouched. `*` = static-random addr =
+    // actually cloneable (RPA/public can't be spoofed — ble_hs_id_set_rnd rejects them).
+    static int order[64];
+    int total = s_bleCount; if (total > 64) total = 64;
+    for (int i = 0; i < total; i++) order[i] = i;
+    for (int i = 0; i < total - 1; i++)
+        for (int j = i + 1; j < total; j++)
+            if (s_bleDevices[order[j]].rssi > s_bleDevices[order[i]].rssi) {
+                int t = order[i]; order[i] = order[j]; order[j] = t;
             }
-            drawBleFooter("trkbl=sel  ent=pick  q=back");
+
+    const int PER = 9;
+    int totalPages = (total + PER - 1) / PER; if (totalPages < 1) totalPages = 1;
+    int page = 0, sel = 0; bool redraw = true;
+    while (true) {
+        int start = page * PER, pageCount = min(PER, total - start);
+        if (sel >= pageCount) sel = pageCount - 1; if (sel < 0) sel = 0;
+        if (redraw) {
+            dm.clearScreen(); dm.setDefaultTextSize();
+            dm.setCursor(2, outputY);                        // header (sbl-style)
+            dm.setTextColor(0x7BEF);     dm.printText("[");
+            dm.setTextColor(TFT_CYAN);   dm.printText("BLE");
+            dm.setTextColor(0x7BEF);     dm.printText("::");
+            dm.setTextColor(TFT_YELLOW); dm.printText("CLONE");
+            dm.setTextColor(0x7BEF);     dm.printText("]  ");
+            char hb[24]; snprintf(hb, sizeof(hb), "%d dev  %d/%d", total, page + 1, totalPages);
+            dm.setTextColor(TFT_WHITE);  dm.printText(hb);
+            dm.setTextColor(0x7BEF);                         // column headers
+            dm.setCursor(2,   outputY + LINE_HEIGHT); dm.printText("#");
+            dm.setCursor(24,  outputY + LINE_HEIGHT); dm.printText("NAME");
+            dm.setCursor(122, outputY + LINE_HEIGHT); dm.printText("RSSI");
+            dm.setCursor(150, outputY + LINE_HEIGHT); dm.printText("AT");
+            dm.setCursor(176, outputY + LINE_HEIGHT); dm.printText("MAC (*=clonable)");
+            dm.setCursor(2,   outputY + 2 * LINE_HEIGHT); dm.printSeparator();
+            for (int si = start; si < start + pageCount; si++) {
+                int oi = order[si]; BleEntry& d = s_bleDevices[oi];
+                int ry = outputY + (3 + (si - start)) * LINE_HEIGHT;
+                bool s = ((si - start) == sel);
+                if (s) dm.fillRect(0, ry - 1, SCREEN_WIDTH, LINE_HEIGHT, 0x0841);
+                unsigned msb = 0; sscanf(d.addr, "%2x", &msb);
+                bool clonable = ((msb & 0xC0) == 0xC0) && (d.addrType != 0);  // static-random only
+                dm.setCursor(2, ry);   dm.setTextColor(s ? TFT_YELLOW : TFT_CYAN);
+                char ib[5]; snprintf(ib, sizeof(ib), "%2d", oi); dm.printText(ib);
+                char nm[16]; snprintf(nm, sizeof(nm), "%-15.15s", d.name[0] ? d.name : "(unknown)");
+                dm.setCursor(24, ry);  dm.setTextColor(s ? TFT_WHITE : 0x7BEF); dm.printText(nm);
+                char rb[6]; snprintf(rb, sizeof(rb), "%d", d.rssi);
+                dm.setCursor(122, ry); dm.printText(rb);
+                dm.setCursor(150, ry); dm.printText(d.addrType == 0 ? "pub" : "rnd");
+                dm.setCursor(176, ry); dm.setTextColor(clonable ? TFT_GREEN : (s ? 0x7BEF : 0x4208));
+                char mb[12]; snprintf(mb, sizeof(mb), "%s%s", d.addr + 9, clonable ? " *" : "");
+                dm.printText(mb);
+            }
+            drawBleFooter("trkbl=sel  a/l=page  ent=pick  q=back");
             redraw = false;
         }
         TrackballEvent tb = inputHandler.getTrackballEvent();
-        if (tb == TBALL_UP)   { if (sel > 0)               { sel--; redraw = true; } continue; }
-        if (tb == TBALL_DOWN) { if (sel < s_bleCount - 1)  { sel++; redraw = true; } continue; }
-        if (tb == TBALL_CLICK) return sel;
+        if (tb == TBALL_UP)    { if (sel > 0)              { sel--; redraw = true; } continue; }
+        if (tb == TBALL_DOWN)  { if (sel < pageCount - 1)  { sel++; redraw = true; } continue; }
+        if (tb == TBALL_CLICK) return order[start + sel];
         char k = inputHandler.getKeyboardInput();
         if (!k) { if (LockScreenManager::getInstance().consumeJustUnlocked()) redraw = true; continue; }
         if (k == 'q' || k == 'Q')   return -1;
-        if (k == '\r' || k == '\n') return sel;
+        if ((k == 'l' || k == 'L') && page < totalPages - 1) { page++; sel = 0; redraw = true; }
+        if ((k == 'a' || k == 'A') && page > 0)              { page--; sel = 0; redraw = true; }
+        if (k == '\r' || k == '\n') return order[start + sel];
     }
 }
 

