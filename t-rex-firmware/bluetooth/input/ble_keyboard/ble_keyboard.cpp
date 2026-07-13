@@ -9,6 +9,7 @@
 #include "utilities.h"
 
 #include <SD.h>
+#include "esp_random.h"   // esp_random() for the per-session BadBLE random MAC
 #include <NimBLEDevice.h>
 #include <NimBLEHIDDevice.h>
 #include "freertos/FreeRTOS.h"
@@ -546,16 +547,25 @@ void BleKeyboard::beginHid(bool bond, const char* cloneMacStr, uint8_t cloneType
         }
     }
     if (!s_cloneMacOk) {
-        // Fresh/default OR failed-clone fallback. btkbd keeps its stable CB identity (so its
-        // bond persists); BadBLE fresh uses BA and a failed clone uses CC — DISTINCT static-
-        // random addrs so a no-bond session never lands on btkbd's address and corrupts its
-        // bond on the host (was the bk connect/disconnect loop after a clone).
-        uint8_t hwmac[6];
-        esp_read_mac(hwmac, ESP_MAC_BT);
-        uint8_t suffix = bond ? 0xCB : ((cloneMacStr && *cloneMacStr) ? 0xCC : 0xBA);
         char macStr[18];
-        snprintf(macStr, sizeof(macStr), "C2:%02X:%02X:%02X:%02X:%02X",
-                 hwmac[1], hwmac[2], hwmac[3], hwmac[4], suffix);
+        if (!bond) {
+            // BadBLE (`ux ble`) ONLY: fresh RANDOM static-random address each session —
+            // evil-twin style, leaves no stable identity on the host and never collides with
+            // btkbd's bonded address. bond=false is used exclusively by BadBLE, so this
+            // branch can't affect btkbd/buddy/jiggle (bond=true, stable CB below) or `mc`.
+            uint32_t a = esp_random(), b = esp_random();
+            uint8_t r[6] = { (uint8_t)a, (uint8_t)(a >> 8), (uint8_t)(a >> 16),
+                             (uint8_t)(a >> 24), (uint8_t)b, (uint8_t)(b >> 8) };
+            r[0] |= 0xC0;    // top 2 bits = 11 → valid static-random (ble_hs_id_set_rnd needs it)
+            snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+                     r[0], r[1], r[2], r[3], r[4], r[5]);
+        } else {
+            // btkbd: stable device-derived address so its bond persists across sessions.
+            uint8_t hwmac[6];
+            esp_read_mac(hwmac, ESP_MAC_BT);
+            snprintf(macStr, sizeof(macStr), "C2:%02X:%02X:%02X:%02X:CB",
+                     hwmac[1], hwmac[2], hwmac[3], hwmac[4]);
+        }
         NimBLEDevice::setOwnAddr(NimBLEAddress(macStr, BLE_ADDR_RANDOM));
         NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);
     }
