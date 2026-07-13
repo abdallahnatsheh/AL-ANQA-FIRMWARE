@@ -86,6 +86,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 - **Mass Storage** (`um`) — expose SD card as a USB drive; read and write files from any PC with no drivers
 - **USB Keyboard + Mouse** (`uk`) — T-Deck becomes a full USB input device; physical keyboard types into host, trackball moves the mouse cursor with hardware acceleration; tap = left click, hold = right click, hold 1.5s = exit
 - **BadUSB / DuckyScript** (`ux`) — execute keystroke injection payloads; Flipper Zero DuckyScript v1 compatible; built-in T-Rex demo; scripts in `/apps/badusb/scripts/` on SD
+- **BadBLE** (`ux ble`) — the same DuckyScript over **BLE HID** (no cable): fresh keyboard or **BLESA MAC-clone** of a bonded device, custom advertised name, fresh random MAC per session, interactive menu `[EXP]`
 
 **🖥️ System** — [full guide](docs/system.md)
 - Man pages on-device (`man <cmd>`), paginated help, power save, Matrix animation
@@ -189,7 +190,7 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `usbmsc` | `um` | — | Expose SD card as USB Mass Storage drive |
 | `usbkbd` | `uk` | — | T-Deck as USB keyboard + mouse (trackball = cursor, tap = left click, hold = right click) |
 | `jiggle` | `jg` | — | Mouse jiggler — nudges cursor ±2 px every 30 s to prevent host screen lock |
-| `usbexec` | `ux` | `demo\|<path>` | BadUSB — execute DuckyScript payload (Flipper Zero compatible) |
+| `usbexec` | `ux` | `[ble [clone <mac\|#>]] demo\|<path>` | BadUSB (USB) + BadBLE (`ux ble`: BLE HID, clone/name/interactive) |
 | **Diagnostics** | | | |
 | `gps` | `gps` | `on\|off\|test` | GPS task control + coordinate test (T-Deck Plus) |
 | `test` | `tst` | `<spk\|mic\|lora>` | Hardware self-tests — `spk` speaker tones, `mic` ES7210 (level meter, VAD, record+replay), `lora` SX1262 diagnostic |
@@ -286,6 +287,7 @@ All scan tables share the same keys:
 - [x] BLE Keyboard + Mouse (`bk`) — wireless BLE HID; MITM-bonded passkey pairing; same features as USB keyboard; auto-reconnects on drop
 - [x] Claude Desktop Buddy — BLE remote, permission prompts, ASCII pet, NVS stats; MITM-bonded passkey pairing
 - [x] BadUSB / DuckyScript — Flipper Zero DuckyScript v1 compatible, hyphenated combos, REPEAT, built-in demo
+- [x] BadBLE — same DuckyScript over BLE HID (`ux ble`); fresh keyboard or BLESA MAC-clone, custom/spoofed name, fresh random MAC per session, interactive picker
 - [x] `wguard` WiFi IDS — deauth flood, evil twin (two-tier RSSI-filtered detection), handshake harvest, PMKID grab, auth flood, probe storm, beacon flood, BSSID cloning, Karma attack; background mode with shield icon + popup bars; session CSV logs (session-relative timestamps, no duplicate events across save blocks)
 - [x] `wardrive` (Plus only) — continuous synchronous WiFi scan + GPS → WiGLE WiFi-1.4 CSV (`/apps/wardrive/NNN.csv`, never overwritten); waits for the first GPS fix (radio idle) before scanning, logs each BSSID once per session only while a fix is valid; real altitude + HDOP accuracy; file created lazily on the first AP (no empty files); method adapted from Bruce, verified against the official WiGLE 1.4 spec
 - [x] Notification manager — I2S WAV playback from SD, per-level volume, screen wake callback; wired into Buddy, TrackMe, wguard
