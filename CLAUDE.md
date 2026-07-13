@@ -189,6 +189,13 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 - Covers: Apple, Samsung, Huawei, Xiaomi, OnePlus, Oppo, Sony, Nintendo, Xbox, LG, Motorola, Intel, Dell, HP, Lenovo, ASUS, TP-Link, Netgear, D-Link, Ubiquiti, Cisco/Linksys, MikroTik, Amazon, Google, Roku, Philips Hue, Alfa, Hak5, RPi, Espressif
 - `wguard.cpp` uses `ouiVendor()` (backward-compat wrapper); replaces old private `lookupOui()`
 
+**BadUSB / BadBLE** (`usb/bad_usb/bad_usb.cpp` + `usb/hid/hid_sink.{h,cpp}`) — command **`usbexec`/`ux`**:
+- **`ux [demo|<script>]`** = DuckyScript over USB HID (`g_hid_keyboard`); **`ux ble …`** = the SAME engine over BLE HID. Backend abstracted by **`HidSink`** (`press`/`printChar`/`releaseAll`): `UsbHidSink` wraps `g_hid_keyboard`; `BleHidSink` drives `bleKeyboard` (the `btkbd` NimBLE HID stack) — zero DuckyScript logic duplicated. `BleKeyboard` gained `badusbBegin/End/Connected/CloneMacOk` + `kbd{HoldChar,HoldUsage,Type,ReleaseAll}` (live 8-byte report, reuses its `asciiToHid`).
+- **Modes:** `ux ble` (fresh keyboard, victim connects) · `ux ble clone <mac|#>` (BLESA MAC-clone: spoof a bonded device's addr+type+**GAP name 0x2A00**+adv name so a host auto-reconnects; target `#` from the `sbl` cache `s_bleDevices[]`) · `ux ble name "X"` (custom advertised name, both modes) · bare **`ux ble` = interactive menu** (mode→target→name→script; target picker is an `sbl`-style paged table marking `*`=clonable).
+- **Addressing (shared `beginHid(bool bond,…)`):** `btkbd`/buddy/jiggle (`bond=true`) keep the **stable** `C2:…:CB` bonded address; **BadBLE (`bond=false`) uses a FRESH RANDOM static-random MAC every session** (`esp_random()`, `r[0]|=0xC0`) — evil-twin style, gated on `!bond` so it's **`ux ble`-only** (never touches `bk`/`mc`); a **successful clone** uses the target's exact MAC. No bonding on BadBLE (Just Works, transient encryption — HID-over-GATT can't be plaintext).
+- **Clone limits (HONEST, `[EXP]`):** `setOwnAddr`→`ble_hs_id_set_rnd` ONLY accepts static-random (MSB bits `11`)/non-resolvable — **rejects public + RPA** → those are **name-only** (`s_cloneMacOk`=false → wait screen says so; picker `*` marks the viable ones). Also needs a BLESA-vulnerable host + the real device absent (no BLE jamming on ESP32).
+- **A host-side stale bond** (Trusted+Bonded at `…CB`) causes a `bk` connect/disconnect loop after mixed testing — recover with `bluetoothctl remove <mac>` then re-pair; the distinct-address scheme is the prevention. (Diagnosed on the dev laptop via `bluetoothctl`/`journalctl`.)
+
 ## Commands
 System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `sleep/slp` `lock/lk` `home/hm [EXP]` `undercover/uc [EXP]` `tz` `weather/wx`  (Notes has no standalone command — reachable via the `home` launcher's Notes tile)
 WiFi: `scanwifi/sw` (WiFi manager) `connectwifi/cw` `wifipass/wp` (`wp export`/`wp clear` — merged wifiexport+clearwifi) `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `wpa3down/w3d [EXP]` `karma/km` `crack/cc` `wguard/wg` `beaconflood/bf` `wardrive/wd` `espsniff/es` `esptest/est` `espchat/ec` `espvoice/ev`
@@ -196,6 +203,7 @@ Network: `netdiscover/nd` `netspy/ns [EXP]` `isoscan/is [EXP]` `portscan/ps` (`p
 Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
 SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `edit/ed` `rm/rm` (`rm -d <dir>` = recursive dir delete) `sdf/sdf`
 Diagnostics: `gps/gps` `test/tst` (`test spk|mic|lora|touch` — merged spktest+mictest+loratest+touchtest) `i2cscan/isc [EXP]` `csidetect/csi [EXP]`
+USB/HID: `usbkbd/uk` `usbexec/ux` (BadUSB; **`ux ble`** = BadBLE over BLE HID: fresh/clone/name/interactive) `usbmsc/um` `jiggle/jg [ble]` · Bluetooth-HID: `btkbd/bk` `buddy/bd` `blespam/bs` `fastpair/fp` `macwatch/mw`
 
 **ESPChat** (`espchat/ec`, `espsniff/es`, `esptest/est`) — `radio/espnow/espchat/`, `espsniff/`, `esptest/`:
 - Wire format: `EcMsg{type(1)+seq(1)+name[12]+text[100]}` = 114 bytes, type=0x01; broadcast ch compatible with any ESP32/ESP8266
