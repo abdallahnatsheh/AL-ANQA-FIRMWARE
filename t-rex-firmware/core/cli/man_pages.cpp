@@ -803,6 +803,8 @@ static const ManEntry PAGES[] = {
         "TARGET   default = USB HID (plug in cable).",
         "         bare 'ux ble' = interactive menu",
         "         (mode -> target -> name -> script).",
+        "         target picker: [i]=GATT info(bi)",
+        "         [u]=rescan; spoof uses real name.",
         "         'ble' = BLE HID keyboard: T-DECK",
         "         advertises as T-REX-KBD; connect",
         "         from target (no PIN/bond), it types.",

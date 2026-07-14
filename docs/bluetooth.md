@@ -9,7 +9,7 @@ has_children: true
 | Guide | Command | What it does |
 |-------|---------|-------------|
 | [Scan BLE](scanblue) | `scanblue` / `sbl` | Scan nearby BLE devices |
-| [BLE Info](bleinfo) | `bleinfo` / `bi` | GATT enumeration, sniff, fuzz, write-cap |
+| [BLE Info](bleinfo) | `bleinfo` / `bi` | GATT enumeration, sniff, fuzz, write-cap, security audit |
 | [Tracking Detection](trackme) | `trackme` / `tm` | Detect devices physically following you |
 | [Fast Pair](fastpair) | `fastpair` / `fp` | Google Fast Pair attack suite |
 | [BLE Spam](blespam) | `blespam` / `bs` | BLE advertisement spam |
@@ -78,7 +78,7 @@ CMD> bi <index|mac>    # connect to a device from last sbl scan
 CMD> bi all            # enumerate every device from last sbl scan
 ```
 
-Connects to a BLE device, reads its full GATT service/characteristic tree, decodes values, and provides interactive tools for sniffing, writing, fuzzing, and auth-leak auditing.
+Connects to a BLE device, reads its full GATT service/characteristic tree, decodes values, and provides interactive tools for sniffing, writing, fuzzing, and security auditing.
 
 | Key | Action |
 |-----|--------|
@@ -86,7 +86,7 @@ Connects to a BLE device, reads its full GATT service/characteristic tree, decod
 | `n` | Notify/indicate sniff (30 s) |
 | `w` | Write to a writable characteristic |
 | `f` | Fuzz a writable characteristic |
-| `b` | Auth leak audit — show only flagged characteristics |
+| `b` | Security audit — link posture (encryption / Just Works vs MITM / bonding, no-auth read/write counts) + value leak scan |
 | `s` | Save GATT tree to SD |
 | `q` | Quit |
 
