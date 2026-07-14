@@ -38,3 +38,16 @@ never its code.** Most of it does NOT apply here — captured so "port BlueToolk
 Entire usable yield from BlueToolkit = **`gattfuzz` (offensive) + `bleaudit` (defensive)**, both on `bleinfo`'s
 GATT client, plus optional BLE-DoS. Everything else blocked by no-Classic-radio or no-raw-LL. See [[next_steps]] #35
 (gattfuzz) and [[project_bleinfo]] (the GATT client to reuse).
+
+## STATUS UPDATE 2026-07-14 — both folded INTO `bleinfo` (no new commands, per user)
+- **`bleaudit` → DONE as `bi`'s `[b]` audit.** By user decision, NOT a separate command. Extended `runAudit()` in
+  `ble_info.cpp` with a **security-posture** block on top of the existing value-leak scan: link encrypted? (from
+  `client->getConnInfo()` → `isEncrypted/isAuthenticated/isBonded/getSecKeySize`), Just Works vs MITM, bonded, and
+  **counts of chars readable/writable WITHOUT encryption** (`s_openReads`/`s_openWrites`, tallied in `enumerate()`
+  since `bi` connects unpaired by default → any data returned over an OPEN link = broken access control). `[b]` is
+  now **always available** (was gated on `s_hasRisk`); posture also written to the `/apps/bleinfo/<mac>.txt` report.
+  UNCOMMITTED, not HW-tested. NimBLEConnInfo API verified present in pinned NimBLE-Arduino v2.x.
+- **`gattfuzz` → already existed** as `bi`'s `[f]` fuzz (seq/random/boundary writes to writable chars) + `[w]` write.
+  So the offensive GATT-abuse idea is largely covered by `bi` too; a dedicated `gattfuzz` command is redundant unless
+  the user wants unpaired-read-hammering / handle-scan beyond what `[f]` does.
+- Net: the usable BlueToolkit yield is now **inside `bi`**. Only BLE-DoS (connection-slot exhaustion) remains unbuilt.

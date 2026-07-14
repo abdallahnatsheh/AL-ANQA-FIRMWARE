@@ -33,6 +33,8 @@ Scripts live in `/apps/badusb/scripts/` on the SD card (auto-created on first bo
 | `STRING <text>` | Type text |
 | `STRINGLN <text>` | Type text + Enter |
 | `REPEAT <n>` | Repeat previous line |
+| `HOLD <key...>` | Press and hold key(s)/modifier(s) — not released |
+| `RELEASE` | Release everything held by `HOLD` |
 | `WAIT_FOR_BUTTON_PRESS` | Pause until trackball click |
 | `GUI` `CTRL` `ALT` `SHIFT` | Modifiers |
 | `ENTER` `BACKSPACE` `TAB` `ESC` `DEL` | Special keys |

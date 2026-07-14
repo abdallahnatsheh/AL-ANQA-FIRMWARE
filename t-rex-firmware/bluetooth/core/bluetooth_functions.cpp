@@ -55,6 +55,32 @@ static void bleScanTaskFn(void* param) {
     vTaskDelete(nullptr);
 }
 
+// Drain every queued advert into the shared cache (single copy of the parse the scan
+// loop used to inline twice). `time|rssi|name|addrType|companyId` pipe format.
+static void bleDrainResultsToCache() {
+    if (!TaskManager::resultQueue) return;
+    TaskResult r;
+    while (xQueueReceive(TaskManager::resultQueue, &r, 0) == pdTRUE) {
+        if (r.type != TaskResult::INFO || s_bleCount >= 64) continue;
+        char tmp[sizeof(r.data)];
+        strncpy(tmp, r.data, sizeof(tmp));
+        char* p1 = strchr(tmp, '|');
+        char* p2 = p1 ? strchr(p1 + 1, '|') : nullptr;
+        char* p3 = p2 ? strchr(p2 + 1, '|') : nullptr;
+        char* p4 = p3 ? strchr(p3 + 1, '|') : nullptr;
+        if (!p1 || !p2) continue;
+        *p1 = '\0'; *p2 = '\0';
+        if (p3) *p3 = '\0';
+        if (p4) *p4 = '\0';
+        int idx = s_bleCount++;
+        strncpy(s_bleDevices[idx].addr, tmp, 17);      s_bleDevices[idx].addr[17] = '\0';
+        s_bleDevices[idx].rssi      = atoi(p1 + 1);
+        strncpy(s_bleDevices[idx].name, p2 + 1, 19);    s_bleDevices[idx].name[19] = '\0';
+        s_bleDevices[idx].addrType  = p3 ? (uint8_t)atoi(p3 + 1) : 0;
+        s_bleDevices[idx].companyId = p4 ? (uint16_t)atoi(p4 + 1) : 0;
+    }
+}
+
 static uint16_t bleRssiColor(int rssi) {
     if (rssi >= -60) return TFT_GREEN;
     if (rssi >= -75) return TFT_YELLOW;
@@ -199,12 +225,9 @@ void BluetoothFunctions::showBleResults() {
     }
 }
 
-void BluetoothFunctions::scanBluetoothDevices() {
-    const int perPage = SB_PER;
-    int currentPage   = 0;
-    int sel           = 0;
-    bool needScan     = true;
-
+// One blocking BLE scan → shared cache. Returns count, or -1 on [q] abort.
+// (Extracted so `ux ble`'s clone picker gets the identical live list.)
+int BluetoothFunctions::scanBleIntoCache() {
     // init("") is idempotent:
     //   - Stack already up (e.g. btkbd left it alive): no-op, scan runs on
     //     the existing idle stack — this is intentional. btkbd deliberately
@@ -222,107 +245,75 @@ void BluetoothFunctions::scanBluetoothDevices() {
     pBLEScan->setInterval(100);
     pBLEScan->setWindow(99);
 
+    s_bleCount = 0;
+    delete pScanCallbacks;
+    pScanCallbacks = new BleQueueCallbacks();
+    pBLEScan->setScanCallbacks(pScanCallbacks);
+    pBLEScan->clearResults();
+
+    displayManager.clearScreen();
+    displayManager.setCursor(10, outputY);
+    displayManager.setTextColor(TFT_CYAN);
+    displayManager.println("Scanning BLE...  [q]=abort");
+
+    TaskManager::start(bleScanTaskFn, "blescan", pBLEScan, TASK_STACK_DEFAULT, 0);
+
+    uint32_t frame = 0;
+    const char spinner[] = "|/-\\";
+    bool aborted = false;
+
+    while (TaskManager::isRunning() ||
+           uxQueueMessagesWaiting(TaskManager::resultQueue) > 0) {
+        bleDrainResultsToCache();
+        char buf[28];
+        snprintf(buf, sizeof(buf), "Scanning BLE... %c  found:%d",
+                 spinner[frame++ % 4], (int)s_bleCount);
+        displayManager.fillRect(10, outputY, SCREEN_WIDTH - 10, LINE_HEIGHT, TFT_BLACK);
+        displayManager.setCursor(10, outputY);
+        displayManager.setTextColor(TFT_CYAN);
+        displayManager.printText(buf);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        if (inputHandler.getKeyboardInput() == 'q') {
+            pBLEScan->stop();
+            TaskManager::requestStop();
+            aborted = true;
+            break;
+        }
+    }
+
+    if (!aborted) bleDrainResultsToCache();   // final sweep of anything left queued
+
+    TaskManager::cleanup();
+    numberOfDevices       = s_bleCount;
+    bluetoothScanExecuted = true;
+
+    if (aborted) { stopBleScan(); return -1; }
+    return s_bleCount;
+}
+
+// Idle the scanner — safe no-op when nothing is scanning.
+void BluetoothFunctions::stopBleScan() {
+    if (pBLEScan) {
+        if (pBLEScan->isScanning()) pBLEScan->stop();
+        pBLEScan->setScanCallbacks(nullptr);
+        pBLEScan->clearResults();
+    }
+    if (pScanCallbacks) { delete pScanCallbacks; pScanCallbacks = nullptr; }
+    displayManager.setBtActive(false);
+}
+
+void BluetoothFunctions::scanBluetoothDevices() {
+    const int perPage = SB_PER;
+    int currentPage   = 0;
+    int sel           = 0;
+    bool needScan     = true;
+
     while (true) {
         if (needScan) {
-            s_bleCount  = 0;
             currentPage = 0;
             sel         = 0;
             needScan    = false;
-
-            delete pScanCallbacks;
-            pScanCallbacks = new BleQueueCallbacks();
-            pBLEScan->setScanCallbacks(pScanCallbacks);
-            pBLEScan->clearResults();
-
-            displayManager.clearScreen();
-            displayManager.setCursor(10, outputY);
-            displayManager.setTextColor(TFT_CYAN);
-            displayManager.println("Scanning BLE...  [q]=abort");
-
-            TaskManager::start(bleScanTaskFn, "blescan", pBLEScan, TASK_STACK_DEFAULT, 0);
-
-            uint32_t frame = 0;
-            const char spinner[] = "|/-\\";
-            bool aborted = false;
-
-            while (TaskManager::isRunning() ||
-                   uxQueueMessagesWaiting(TaskManager::resultQueue) > 0) {
-                TaskResult r;
-                while (xQueueReceive(TaskManager::resultQueue, &r, 0) == pdTRUE) {
-                    if (r.type == TaskResult::INFO && s_bleCount < 64) {
-                        char tmp[sizeof(r.data)];
-                        strncpy(tmp, r.data, sizeof(tmp));
-                        char* p1 = strchr(tmp, '|');
-                        char* p2 = p1 ? strchr(p1 + 1, '|') : nullptr;
-                        char* p3 = p2 ? strchr(p2 + 1, '|') : nullptr;
-                        char* p4 = p3 ? strchr(p3 + 1, '|') : nullptr;
-                        if (p1 && p2) {
-                            *p1 = '\0'; *p2 = '\0';
-                            if (p3) *p3 = '\0';
-                            if (p4) *p4 = '\0';
-                            int idx = s_bleCount++;
-                            strncpy(s_bleDevices[idx].addr, tmp, 17);
-                            s_bleDevices[idx].addr[17] = '\0';
-                            s_bleDevices[idx].rssi = atoi(p1 + 1);
-                            strncpy(s_bleDevices[idx].name, p2 + 1, 19);
-                            s_bleDevices[idx].name[19] = '\0';
-                            s_bleDevices[idx].addrType = p3 ? (uint8_t)atoi(p3 + 1) : 0;
-                            s_bleDevices[idx].companyId = p4 ? (uint16_t)atoi(p4 + 1) : 0;
-                        }
-                    }
-                }
-                char buf[28];
-                snprintf(buf, sizeof(buf), "Scanning BLE... %c  found:%d",
-                         spinner[frame++ % 4], (int)s_bleCount);
-                displayManager.fillRect(10, outputY, SCREEN_WIDTH - 10, LINE_HEIGHT, TFT_BLACK);
-                displayManager.setCursor(10, outputY);
-                displayManager.setTextColor(TFT_CYAN);
-                displayManager.printText(buf);
-                vTaskDelay(pdMS_TO_TICKS(100));
-                if (inputHandler.getKeyboardInput() == 'q') {
-                    pBLEScan->stop();
-                    TaskManager::requestStop();
-                    aborted = true;
-                    break;
-                }
-            }
-
-            if (!aborted && TaskManager::resultQueue) {
-                TaskResult r;
-                while (xQueueReceive(TaskManager::resultQueue, &r, 0) == pdTRUE) {
-                    if (r.type == TaskResult::INFO && s_bleCount < 64) {
-                        char tmp[sizeof(r.data)];
-                        strncpy(tmp, r.data, sizeof(tmp));
-                        char* p1 = strchr(tmp, '|');
-                        char* p2 = p1 ? strchr(p1 + 1, '|') : nullptr;
-                        char* p3 = p2 ? strchr(p2 + 1, '|') : nullptr;
-                        char* p4 = p3 ? strchr(p3 + 1, '|') : nullptr;
-                        if (p1 && p2) {
-                            *p1 = '\0'; *p2 = '\0';
-                            if (p3) *p3 = '\0';
-                            if (p4) *p4 = '\0';
-                            int idx = s_bleCount++;
-                            strncpy(s_bleDevices[idx].addr, tmp, 17);
-                            s_bleDevices[idx].addr[17] = '\0';
-                            s_bleDevices[idx].rssi = atoi(p1 + 1);
-                            strncpy(s_bleDevices[idx].name, p2 + 1, 19);
-                            s_bleDevices[idx].name[19] = '\0';
-                            s_bleDevices[idx].addrType = p3 ? (uint8_t)atoi(p3 + 1) : 0;
-                            s_bleDevices[idx].companyId = p4 ? (uint16_t)atoi(p4 + 1) : 0;
-                        }
-                    }
-                }
-            }
-
-            TaskManager::cleanup();
-            numberOfDevices       = s_bleCount;
-            bluetoothScanExecuted = true;
-
-            if (aborted) {
-                pBLEScan->clearResults();
-                pBLEScan->setScanCallbacks(nullptr);
-                delete pScanCallbacks; pScanCallbacks = nullptr;
-                displayManager.setBtActive(false);
+            if (scanBleIntoCache() < 0) {          // [q] during the scan
                 displayManager.printCommandScreen();
                 return;
             }
@@ -342,10 +333,7 @@ void BluetoothFunctions::scanBluetoothDevices() {
             if (tb == TBALL_UP   && sel > 0)             { sel--; renderBlePage(currentPage, perPage, numberOfDevices, sel); }
             if (LockScreenManager::getInstance().consumeJustUnlocked()) break;
             if (k == 'q' || k == 'Q') {
-                pBLEScan->clearResults();
-                pBLEScan->setScanCallbacks(nullptr);
-                delete pScanCallbacks; pScanCallbacks = nullptr;
-                displayManager.setBtActive(false);
+                stopBleScan();
                 displayManager.printCommandScreen();
                 return;
             }

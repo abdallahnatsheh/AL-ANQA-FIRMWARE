@@ -41,7 +41,7 @@ bi all            # enumerate every device from last sbl scan
 | `r` | Write-cap — replay a captured notification value back to the device |
 | `w` | Write to a writable characteristic (reconnects, then writes) |
 | `f` | Fuzz a writable characteristic |
-| `b` | Auth leak audit — show only flagged/suspicious characteristics |
+| `b` | Security audit — link posture (encryption/pairing/bonding, no-auth read/write counts) + value leak scan |
 | `p` | Toggle pairing / bonding mode |
 | `s` | Save GATT tree to SD card |
 | `q` | Quit |
@@ -53,7 +53,7 @@ bi all            # enumerate every device from last sbl scan
 | `w` | Write to a char **without disconnecting** — response appears in sniff stream |
 | `q` | Stop sniff, save log, return to GATT view |
 
-> Keys only appear in the footer when relevant: `[n]` if notify/indicate chars exist, `[r]` if a `.ble` capture file exists, `[b]` if any characteristic was flagged as suspicious.
+> Keys only appear in the footer when relevant: `[n]` if notify/indicate chars exist, `[r]` if a `.ble` capture file exists. `[b]audit` is always available.
 
 ---
 
@@ -213,20 +213,37 @@ Writes are sent every 80 ms. `[q]` stops early.
 
 ---
 
-## Auth Leak Audit (`[b]`)
+## Security Audit (`[b]`)
 
-Displays only characteristics that scored a risk flag — a filtered view for rapid triage without scrolling through all services.
+Two-part report, always available while connected. First the **access-control posture** of the link (captured live from the connection — `bi` connects without pairing, so anything readable proves broken access control), then the **value leak scan** (characteristics whose contents look like secrets).
 
 ```
-[AUDIT] aa:bb:cc:dd:ee:ff
+[AUDIT] BLE Security Posture
 ────────────────────────────────
+Link:    OPEN - not encrypted
+Pairing: none (no auth needed)
+Bonded:  no
+No-auth: R:7  W:2 chars
+────────────────────────────────
+Value leak scan:
 ! 0xfb005d~ [W  ] (UnlockKey)
   RISK: binary 16B (AES key size?)
 ~ 0xfb005e~ [RW ] 31 32 33 34 35 36
   RISK: 6-digit value (PIN?)
 ────────────────────────────────
-[q]back
+2 flagged  [q] back
 ```
+
+**Posture fields:**
+
+| Field | Meaning |
+|-------|---------|
+| `Link` | `ENCRYPTED (NB key)` (green) or `OPEN - not encrypted` (red) at enumerate time |
+| `Pairing` | `none` (no encryption), `Just Works (no MITM)` (yellow), or `authenticated (MITM)` (green) |
+| `Bonded` | Whether the connection is bonded |
+| `No-auth` | Count of characteristics **readable / writable without encryption** — the core access-control finding |
+
+The posture (and a `leaks=yes/no` flag) is also written to the saved `/apps/bleinfo/<mac>.txt` report on `[s]`.
 
 **Risk scoring logic:**
 
@@ -238,7 +255,7 @@ Displays only characteristics that scored a risk flag — a filtered view for ra
 | `~` MED | 4–8 digit numeric string | Looks like a PIN code |
 | LOW | Writable char with a sensitive-sounding User Description | Direct write access to a sensitive control |
 
-Risk is scored at enumeration time. If the footer shows `[b]audit` at least one char was flagged.
+Risk is scored at enumeration time. `[b]audit` is always shown in the footer — the posture report is meaningful even when no values are flagged.
 
 Press `q` to return to the main GATT view.
 
