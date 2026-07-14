@@ -64,7 +64,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 
 **🔵 Bluetooth** — [full guide](docs/bluetooth.md)
 - BLE device scanner (paginated, RSSI, name)
-- **BLE GATT enumeration** (`bi`) — connect to any BLE device and read its full service/characteristic tree; 0x2901 user descriptions, 0x2904 type auto-decode (uint8/16/32, int8/16, UTF-8); interactive write (trackpad cursor, write-without-response fallback), fuzz (seq/rand/boundary), notify/indicate sniff with 30 s live stream + write-while-connected, pairing/bonding; `bi all` sweeps every scanned device; full UUID + full hex saved to SD — [full guide](docs/bleinfo.md)
+- **BLE GATT enumeration** (`bi`) — connect to any BLE device and read its full service/characteristic tree; 0x2901 user descriptions, 0x2904 type auto-decode (uint8/16/32, int8/16, UTF-8); interactive write (trackpad cursor, write-without-response fallback), fuzz (seq/rand/boundary), notify/indicate sniff with 30 s live stream + write-while-connected, pairing/bonding; **`[b]` security audit** — link posture (encrypted? Just Works vs MITM? bonded? chars readable/writable without auth) + secret-value leak scan; `bi all` sweeps every scanned device; full UUID + full hex saved to SD — [full guide](docs/bleinfo.md)
   - **Auth leak detector** (`[b]` audit) — inline risk scoring flags AES-sized binary blobs, hex-encoded secrets, and PIN-shaped values; `[b]` key shows filtered triage view
   - **Write-cap** (`[r]wcap`) — replay any captured notification back to a writable char; sniff auto-saves `.ble` packet archives to SD; load captures from previous sessions
   - **Protocol reverse engineering** — sniff baseline → trigger action on device → identify new packet → replay or write back; works on proprietary protocols with no documentation
@@ -85,8 +85,8 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 **🔌 USB Gadget** — [full guide](docs/usb.md)
 - **Mass Storage** (`um`) — expose SD card as a USB drive; read and write files from any PC with no drivers
 - **USB Keyboard + Mouse** (`uk`) — T-Deck becomes a full USB input device; physical keyboard types into host, trackball moves the mouse cursor with hardware acceleration; tap = left click, hold = right click, hold 1.5s = exit
-- **BadUSB / DuckyScript** (`ux`) — execute keystroke injection payloads; Flipper Zero DuckyScript v1 compatible; built-in T-Rex demo; scripts in `/apps/badusb/scripts/` on SD
-- **BadBLE** (`ux ble`) — the same DuckyScript over **BLE HID** (no cable): fresh keyboard or **BLESA MAC-clone** of a bonded device, custom advertised name, fresh random MAC per session, interactive menu `[EXP]`
+- **BadUSB / DuckyScript** (`ux`) — execute keystroke injection payloads; Flipper Zero DuckyScript v1 compatible; hyphen combos, REPEAT, `HOLD`/`RELEASE` press-and-hold chords; built-in T-Rex demo; scripts in `/apps/badusb/scripts/` on SD
+- **BadBLE** (`ux ble`) — the same DuckyScript over **BLE HID** (no cable): fresh keyboard or **BLESA MAC-clone** of a bonded device, custom advertised name, fresh random MAC per session, interactive menu `[EXP]`. Live-scanning target picker (matches `sbl`, full MAC + clonable legend), `[i]` inspects a target's GATT to reveal its real name, auto-uses the target's real name for the spoof (never an exposing default), aborts cleanly if the host disconnects mid-run
 
 **🖥️ System** — [full guide](docs/system.md)
 - Man pages on-device (`man <cmd>`), paginated help, power save, Matrix animation
@@ -172,7 +172,7 @@ git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
 | `ssh` | `sc` | `<ip\|name> [user]` | Interactive SSH client (libssh) — password auth, PTY shell, 16-colour terminal + trackpad scrollback; saved host profiles (`ssh save/list/rm`); connect WiFi (`cw`) first |
 | **Bluetooth** | | | |
 | `scanblue` | `sbl` | — | BLE device scan |
-| `bleinfo` | `bi` | `<index\|mac\|all>` | GATT enum: services, chars, values, write, fuzz, sniff, pair |
+| `bleinfo` | `bi` | `<index\|mac\|all>` | GATT enum: services, chars, values, write, fuzz, sniff, pair, `[b]` security audit |
 | `trackme` | `tm` | `[silent]` | Anti-tracking detector |
 | `fastpair` | `fp` | `[scan\|spam\|h <idx>\|h all]` | Fast Pair: scan devices / flood ads / GATT hijack |
 | `blespam` | `bs` | `[apple\|android\|ms\|samsung\|all]` | BLE notification spam (popups on nearby devices) |
@@ -274,7 +274,7 @@ All scan tables share the same keys:
 - [x] `isoscan` **[EXP]** — active isolation audit (AirSnitch Stage 2, transmits): software AES-CCMP-encrypts a broadcast frame with the live GTK + spoofs the AP MAC to inject at clients past isolation. `auto` smart-probes and recommends an attack; `inject` GTK broadcast ARP (HW-proven) reaches a victim; `bounce` ARP reachability (works vs Windows firewall); `portdown` captures victim frames→SD pcap; `mitm`/`portup`/`dns` `[exp]` attempt poison/RA-DNS and honestly report whether it holds. **Real traffic MITM is not achievable on a single radio** (AirSnitch's interception needs port-stealing on a 2nd BSSID = 2 radios) — best use is proving a network's "client isolation" is bypassable + recon
 - [x] BLE scanner, anti-tracking detector
 - [x] BLE GATT enumeration (`bi`) — full service/char tree, 0x2904 auto-decode, write (trackpad cursor, write-without-response fallback), fuzz, notify/indicate sniff with write-while-connected, pairing/bonding, `bi all` sweep, full UUID + full hex saved to SD
-- [x] BLE auth leak detector (`[b]` audit view) — inline risk scoring for AES blobs / hex secrets / PINs
+- [x] BLE security audit (`[b]` audit view) — access-control posture (link encrypted? Just Works vs MITM? bonded? chars readable/writable without auth) + value leak scan (AES blobs / hex secrets / PINs)
 - [x] BLE write-cap (`[r]wcap`) — replay captured notification values back to writable chars; `.ble` SD archive; protocol reverse engineering workflow
 - [x] Fast Pair attack — advertisement flood + GATT probe (WhisperPair)
 - [x] BLE notification spam — Apple / Android / Microsoft / Samsung
@@ -286,8 +286,8 @@ All scan tables share the same keys:
 - [x] Mouse Jiggler — USB HID nudge every 30 s to prevent host screen lock
 - [x] BLE Keyboard + Mouse (`bk`) — wireless BLE HID; MITM-bonded passkey pairing; same features as USB keyboard; auto-reconnects on drop
 - [x] Claude Desktop Buddy — BLE remote, permission prompts, ASCII pet, NVS stats; MITM-bonded passkey pairing
-- [x] BadUSB / DuckyScript — Flipper Zero DuckyScript v1 compatible, hyphenated combos, REPEAT, built-in demo
-- [x] BadBLE — same DuckyScript over BLE HID (`ux ble`); fresh keyboard or BLESA MAC-clone, custom/spoofed name, fresh random MAC per session, interactive picker
+- [x] BadUSB / DuckyScript — Flipper Zero DuckyScript v1 compatible, hyphenated combos, REPEAT, HOLD/RELEASE, built-in demo
+- [x] BadBLE — same DuckyScript over BLE HID (`ux ble`); fresh keyboard or BLESA MAC-clone, custom/spoofed name, fresh random MAC per session, live-scanning interactive picker with `[i]` GATT inspect + auto spoof-name, mid-run disconnect abort
 - [x] `wguard` WiFi IDS — deauth flood, evil twin (two-tier RSSI-filtered detection), handshake harvest, PMKID grab, auth flood, probe storm, beacon flood, BSSID cloning, Karma attack; background mode with shield icon + popup bars; session CSV logs (session-relative timestamps, no duplicate events across save blocks)
 - [x] `wardrive` (Plus only) — continuous synchronous WiFi scan + GPS → WiGLE WiFi-1.4 CSV (`/apps/wardrive/NNN.csv`, never overwritten); waits for the first GPS fix (radio idle) before scanning, logs each BSSID once per session only while a fix is valid; real altitude + HDOP accuracy; file created lazily on the first AP (no empty files); method adapted from Bruce, verified against the official WiGLE 1.4 spec
 - [x] Notification manager — I2S WAV playback from SD, per-level volume, screen wake callback; wired into Buddy, TrackMe, wguard

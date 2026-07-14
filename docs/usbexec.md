@@ -75,13 +75,23 @@ ux ble clone <#> name "<Name>" ...  # clone MAC, override the name
 Bare `ux ble` opens a guided flow, no syntax to remember:
 
 1. **Mode** — Connect (fresh keyboard) or Spoof (clone a bonded device)
-2. **Target** (spoof only) — an `sbl`-style paged table of the last `sbl` scan
-   (`# NAME RSSI AT MAC`, RSSI-sorted, `a`/`l` paging). A **`*`** marks the devices that
-   are actually cloneable (see the limitation below)
-3. **Name** — keep the cloned/default name or type a custom one
+2. **Target** (spoof only) — an `sbl`-style paged table showing the **full MAC**
+   (`# NAME RSSI AT MAC`, RSSI-sorted, `a`/`l` paging). It shows the **same list as the last
+   `sbl` scan** (so devices cross-reference by MAC/index); `[u]` runs a fresh scan. Green
+   `*`/`rnd` rows are **actually cloneable** (static-random address); grey `pub`/RPA rows are
+   name-only (see the limitation below). Press **`[i]`** to inspect the selected device's GATT
+   with `bi` (reveals its real name, services, and security posture) without leaving the picker.
+3. **Name** — the spoof **automatically uses the target's real advertised name** (never a
+   generic default that would expose the clone). If the target is **nameless**, a short list of
+   believable names appears (Keyboard / Magic Keyboard / … / Custom); if you just inspected it
+   with `[i]` and it exposed a real name (GAP 0x2A00), that name is offered **pre-selected**
+   `(found)` — one keypress, no typing. `q` here goes **back** to the target picker.
 4. **Script** — pick a file from `/apps/badusb/scripts/` or the built-in demo
 
-Trackball or `1`/`2` to select, Enter/click to pick, `q` to go back.
+Trackball or `1`/`2` to select, Enter/click to pick, `q` to go back a screen.
+
+> If the BLE host disconnects mid-payload, the run **aborts** (`Host disconnected.`) instead of
+> silently typing into a dead link.
 
 ### Two modes
 

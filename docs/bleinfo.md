@@ -480,8 +480,8 @@ sbl                    # scan — find watch at index 2
 bi 2                   # connect and enumerate full GATT tree
                        # DeviceInfo: Manufacturer, Model, FirmwareRev
                        # proprietary services show [W][N] chars
-                       # footer shows [b]audit → suspicious values flagged
-[b]                    # audit view — see only risk-flagged chars at a glance
+                       # footer shows [b]audit → security posture + value scan
+[b]                    # audit — link posture (enc/JustWorks/MITM/bonded, no-auth R/W) + value leak scan
 [s]                    # save full GATT tree to SD
 [n]                    # sniff — all notify/indicate chars subscribed simultaneously
                        # live stream: heart rate, steps, battery, sensor data
