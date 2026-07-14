@@ -20,10 +20,15 @@ public:
 
 private:
     bool     _aborted;
+    bool     _bleLost = false;  // BLE run: host dropped mid-script (distinct from a q-abort)
     int      _defaultCharDelay; // ms between characters in STRING (DEFAULT_STRING_DELAY)
     int      _nextCharDelay;    // one-shot override for next STRING (-1 = use default)
     bool     _ble = false;      // true = drive BLE HID, false = USB HID
     HidSink* _sink = nullptr;   // active output sink (chosen in start())
+
+    // BLE run only: returns true (and latches _bleLost/_aborted) if the HID host has
+    // dropped. USB liveness is checked once up front in start(), so this no-ops on USB.
+    bool     bleHostLost();
 
     // BLE: bring up HID (spoofing cloneMacStr if set) + block until a host connects
     // (q/hold aborts). Returns false on abort.
@@ -35,7 +40,8 @@ private:
     int      blePickMode();                     // 0=connect, 1=spoof, -1=cancel
     int      blePickTarget();                   // index into sbl cache, -1=cancel/back
     bool     blePickScript(char* out, size_t n);// out="demo" or full path; false=cancel
-    void     blePromptName(char* buf, size_t n);// edit buf in place (Enter=keep)
+    void     blePromptName(char* buf, size_t n, const char* hint = nullptr); // edit buf in place (Enter=keep)
+    bool     blePickGenericName(char* buf, size_t n, const char* found = ""); // nameless spoof → pick a name; false = back
 
     // Script runners
     void runDemo();

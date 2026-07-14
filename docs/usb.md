@@ -128,6 +128,8 @@ Scripts live in `/apps/badusb/scripts/` on the SD card (auto-created on first bo
 | `REPEAT <n>` | Repeat previous line n times |
 | `STRING_DELAY <ms>` | Per-character delay for next STRING only |
 | `DEFAULT_STRING_DELAY <ms>` | Per-character delay for all STRINGs |
+| `HOLD <key...>` | Press and hold key(s)/modifier(s) — not released |
+| `RELEASE` | Release everything held by `HOLD` |
 | `WAIT_FOR_BUTTON_PRESS` | Pause until trackball click |
 | `ENTER` `BACKSPACE` `TAB` `ESC` `DELETE` | Special keys |
 | `SPACE` `HOME` `END` `INSERT` `PAGEUP` `PAGEDOWN` | Navigation keys |

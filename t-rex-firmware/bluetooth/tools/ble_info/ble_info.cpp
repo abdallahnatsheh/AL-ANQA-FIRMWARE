@@ -53,6 +53,23 @@ static bool    s_hasRisk    = false;    // any char scored risk >= 2
 static bool    s_hasReplay  = false;    // sniff buffer has captured packets
 static bool    s_pairEnabled = false;   // [p] toggles; persists for session
 
+// ── Security-posture audit (BlueToolkit "bleaudit" idea, folded into bi) ───────
+// Captured at enumerate() time from the live connection. Since bi connects WITHOUT
+// pairing by default, any char that returns data over an unencrypted link is
+// readable-without-auth = broken BLE access control.
+static bool    s_secEncrypted = false;  // link was encrypted while enumerating
+static bool    s_secAuth      = false;  // MITM-protected (authenticated) pairing
+static bool    s_secBonded    = false;  // bonded
+static uint8_t s_secKeySize   = 0;      // negotiated encryption key size (bytes)
+static uint8_t s_openReads    = 0;      // readable chars that returned data unencrypted
+static uint8_t s_openWrites   = 0;      // writable chars exposed under an unencrypted link
+
+// Last device's GAP Device Name (0x2A00) + MAC, for `ux ble` to reuse as a spoof name.
+static char    s_lastConnName[24] = {};
+static char    s_lastConnMac[18]  = {};
+const char* bleInfoLastName() { return s_lastConnName; }
+const char* bleInfoLastMac()  { return s_lastConnMac;  }
+
 // Writable char index table: (svc, chr) pairs, max 16
 struct BiWriteRef { uint8_t svc; uint8_t chr; };
 static BiWriteRef s_writable[16];
@@ -268,6 +285,17 @@ static void enumerate(NimBLEClient* client) {
     s_hasWrite      = false;
     s_hasRisk       = false;
     s_writableCount = 0;
+
+    // Snapshot the link's security posture for the audit report.
+    NimBLEConnInfo ci = client->getConnInfo();
+    s_secEncrypted = ci.isEncrypted();
+    s_secAuth      = ci.isAuthenticated();
+    s_secBonded    = ci.isBonded();
+    s_secKeySize   = ci.getSecKeySize();
+    s_openReads    = 0;
+    s_openWrites   = 0;
+    s_lastConnName[0] = '\0';   // (re)captured below if the device exposes 0x2A00
+
     const auto& services = client->getServices(true);
     if (services.empty()) return;
 
@@ -300,6 +328,7 @@ static void enumerate(NimBLEClient* client) {
             if (chr->canRead())     bc.props[pi++] = 'R';
             if (chr->canWrite())  {
                 bc.props[pi++] = 'W'; s_hasWrite = true;
+                if (!s_secEncrypted) s_openWrites++;   // writable over an unencrypted link
                 if (s_writableCount < 16) {
                     s_writable[s_writableCount++] = { (uint8_t)(s_svcCount - 1),
                                                        (uint8_t)(bs.nChars - 1) };
@@ -327,6 +356,13 @@ static void enumerate(NimBLEClient* client) {
             // Read value for readable chars
             if (chr->canRead() && client->isConnected()) {
                 std::string val = chr->readValue();
+                // Data returned over an unencrypted link = readable without auth
+                if (!s_secEncrypted && !val.empty()) s_openReads++;
+                // GAP Device Name (0x2A00) — the real name even if nameless in advertising
+                if (cu == 0x2A00 && !val.empty() && val.size() < sizeof(s_lastConnName)) {
+                    memcpy(s_lastConnName, val.data(), val.size());
+                    s_lastConnName[val.size()] = '\0';
+                }
                 // Store raw bytes for full hex dump in saved files
                 bc.rawLen = (uint8_t)(val.size() < sizeof(bc.rawVal) ? val.size() : sizeof(bc.rawVal));
                 memcpy(bc.rawVal, val.data(), bc.rawLen);
@@ -480,8 +516,39 @@ static void runAudit() {
     displayManager.setDefaultTextSize();
     displayManager.setCursor(4, outputY);
     displayManager.setTextColor(0x7BEF);
-    displayManager.println("[AUDIT] BLE Auth Leak Report");
+    displayManager.println("[AUDIT] BLE Security Posture");
     displayManager.printSeparator();
+
+    // ── Link / pairing posture (access-control audit) ─────────────────────────
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.setTextColor(0x7BEF); displayManager.printText("Link:    ");
+    if (s_secEncrypted) {
+        char kb[22]; snprintf(kb, sizeof(kb), "ENCRYPTED (%uB key)", s_secKeySize);
+        displayManager.setTextColor(TFT_GREEN); displayManager.println(kb);
+    } else {
+        displayManager.setTextColor(TFT_RED);   displayManager.println("OPEN - not encrypted");
+    }
+
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.setTextColor(0x7BEF); displayManager.printText("Pairing: ");
+    if (!s_secEncrypted)      { displayManager.setTextColor(TFT_RED);    displayManager.println("none (no auth needed)"); }
+    else if (s_secAuth)       { displayManager.setTextColor(TFT_GREEN);  displayManager.println("authenticated (MITM)"); }
+    else                      { displayManager.setTextColor(TFT_YELLOW); displayManager.println("Just Works (no MITM)"); }
+
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.setTextColor(0x7BEF); displayManager.printText("Bonded:  ");
+    displayManager.setTextColor(s_secBonded ? TFT_GREEN : 0xFD20);
+    displayManager.println(s_secBonded ? "yes" : "no");
+
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.setTextColor(0x7BEF); displayManager.printText("No-auth: ");
+    char ex[32]; snprintf(ex, sizeof(ex), "R:%u  W:%u chars", s_openReads, s_openWrites);
+    displayManager.setTextColor((s_openReads || s_openWrites) ? TFT_RED : TFT_GREEN);
+    displayManager.println(ex);
+
+    displayManager.printSeparator();
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.setTextColor(0x7BEF); displayManager.println("Value leak scan:");
 
     int found = 0;
     for (int i = 0; i < s_svcCount; i++) {
@@ -1177,6 +1244,17 @@ static bool saveGattToSd(const char* macStr) {
     if (!f) return false;
 
     f.print("MAC: "); f.println(macStr);
+    // Security-posture line (from the [b] audit) — part of the report.
+    f.print("SECURITY: ");
+    f.print(s_secEncrypted ? "encrypted" : "OPEN");
+    if (s_secEncrypted) {
+        f.print(" auth="); f.print(s_secAuth ? "MITM" : "JustWorks");
+        f.print(" key=");  f.print(s_secKeySize);
+    }
+    f.print(" bonded=");   f.print(s_secBonded ? "yes" : "no");
+    f.print(" noauth_R="); f.print(s_openReads);
+    f.print(" noauth_W="); f.print(s_openWrites);
+    f.print(" leaks=");    f.println(s_hasRisk ? "yes" : "no");
     for (int i = 0; i < s_svcCount; i++) {
         f.println();
         // Use full UUID in saved file (display uses short/truncated version)
@@ -1361,7 +1439,7 @@ static void renderPage(const char* mac, int page) {
     if (s_hasNotify)   strncat(foot, " [n]sniff",   sizeof(foot) - strlen(foot) - 1);
     if (s_hasReplay)   strncat(foot, " [r]wcap",    sizeof(foot) - strlen(foot) - 1);
     if (s_hasWrite)    strncat(foot, " [w]wr[f]fz", sizeof(foot) - strlen(foot) - 1);
-    if (s_hasRisk)     strncat(foot, " [b]audit",   sizeof(foot) - strlen(foot) - 1);
+    strncat(foot, " [b]audit", sizeof(foot) - strlen(foot) - 1);   // posture always available
     if (sdReady)       strncat(foot, " [s]save",    sizeof(foot) - strlen(foot) - 1);
     if (s_pairEnabled) strncat(foot, " [p]PAIR ON", sizeof(foot) - strlen(foot) - 1);
     else               strncat(foot, " [p]pair",    sizeof(foot) - strlen(foot) - 1);
@@ -1628,6 +1706,8 @@ void runBleInfo(char* arg) {
             bool ok = client->connect(NimBLEAddress(s_bleDevices[di].addr,
                                                      s_bleDevices[di].addrType));
             if (ok) {
+                strncpy(s_lastConnMac, s_bleDevices[di].addr, sizeof(s_lastConnMac) - 1);
+                s_lastConnMac[sizeof(s_lastConnMac) - 1] = '\0';   // keep name/MAC paired
                 enumerate(client);
                 client->disconnect();
                 if (s_svcCount > 0 && sdCardManager.canAccessSD())
@@ -1707,6 +1787,8 @@ void runBleInfo(char* arg) {
     displayManager.setTextColor(TFT_GREEN);
     displayManager.println("Connected. Enumerating GATT...");
 
+    strncpy(s_lastConnMac, macStr, sizeof(s_lastConnMac) - 1);   // for ux ble spoof-name reuse
+    s_lastConnMac[sizeof(s_lastConnMac) - 1] = '\0';
     enumerate(client);
 
     client->disconnect();
@@ -1740,7 +1822,7 @@ void runBleInfo(char* arg) {
                 runReplay(macStr, addrType);
                 break;
             }
-            if ((k == 'b' || k == 'B') && s_hasRisk) {
+            if (k == 'b' || k == 'B') {
                 runAudit();
                 break;
             }

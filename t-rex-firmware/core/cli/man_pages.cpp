@@ -638,7 +638,10 @@ static const ManEntry PAGES[] = {
         "KEYS     [n] sniff — notify+indicate, saves SD",
         "         [w] write — hex/ASCII to char",
         "         [f] fuzz — seq/random/boundary",
-        "         [b] audit — risk-flagged chars only",
+        "         [b] audit — security posture:",
+        "             link enc? JustWorks/MITM? bonded?",
+        "             chars readable/writable no-auth",
+        "             + value leak scan (keys/PINs)",
         "         [r] wcap — replay captured notif",
         "         [p] pair — bond + MITM + passkey",
         "         [s] save — GATT tree to /apps/bleinfo/",
@@ -814,7 +817,9 @@ static const ManEntry PAGES[] = {
         "CMDS     REM // DELAY DEFAULT_DELAY",
         "         STRING STRINGLN REPEAT F1-F24",
         "         CTRL-ALT GUI-SHIFT (hyphen ok)",
+        "         HOLD <k> / RELEASE (chords)",
         "         WAIT_FOR_BUTTON_PRESS",
+        "NOTE     ble run aborts if host drops.",
         nullptr
     }},
 
