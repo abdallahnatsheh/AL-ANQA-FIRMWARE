@@ -51,7 +51,10 @@ wardriving and audio tools). The project is under **active development**.
 - **Client-isolation recon** (`netspy`) and **active isolation audit** (`isoscan`) — implements the AirSnitch technique to reach and enumerate "isolated" clients on your own network
 
 ### 🔵 Bluetooth LE &nbsp;·&nbsp; [guide](docs/bluetooth.md)
-- Device scanner and **GATT enumeration** — read/write/fuzz characteristics, notify/indicate sniffing, and a **security audit** (encryption, Just Works vs MITM, bonding, no-auth read/write exposure, secret-value leaks)
+- Device scanner and **GATT enumeration** — read/write/fuzz characteristics, notify/indicate sniffing, and a full **security audit** of a target device:
+  - **`[b]` audit** — link posture: encrypted? Just Works vs MITM? bonded? counts of chars readable/writable without pairing, plus a secret-value leak scan (keys/PINs)
+  - **`[g]` abuse** — access-control read-hammer: reads *every* characteristic ignoring its Read flag; a char that leaks data it marked non-readable = broken server-side access control
+  - **`[f]` fuzz** — writable-char fuzzer: sequential / random / boundary bytes, plus **oversized** (past-MTU long writes → input-length validation) and **flood** (unthrottled writes → DoS / rate-limit resistance)
 - **Anti-tracking detector** — flags AirTag, Tile, Samsung SmartTag, Chipolo, Pebblebee and Google Find My tags by service-UUID (verified against AirGuard)
 - Fast Pair attack, notification spam (Apple / Android / Microsoft / Samsung), passive advertisement sniffer, MAC-watchlist proximity alerts
 - BLE HID **keyboard + mouse**, and a Claude Desktop **buddy** remote (approve prompts from the T-Deck)
@@ -151,7 +154,7 @@ Run `help` for the list on-device, or `man <cmd>` for a full manual page.
 | `ssh` | `sc` | `<ip\|name> [user]` | Interactive SSH client (libssh) + saved profiles |
 | **Bluetooth** | | | |
 | `scanblue` | `sbl` | — | BLE device scan |
-| `bleinfo` | `bi` | `<index\|mac\|all>` | GATT enum — read/write/fuzz/sniff/pair + `[b]` security audit |
+| `bleinfo` | `bi` | `<index\|mac\|all>` | GATT enum — read/write/`[f]`fuzz(seq/rand/boundary/oversized/flood)/sniff/pair + `[b]`audit + `[g]`abuse read-hammer |
 | `trackme` | `tm` | `[silent]` | Anti-tracking detector |
 | `fastpair` | `fp` | `[scan\|spam\|h <idx>\|h all]` | Fast Pair — scan / flood / GATT hijack |
 | `blespam` | `bs` | `[apple\|android\|ms\|samsung\|all]` | BLE notification spam |

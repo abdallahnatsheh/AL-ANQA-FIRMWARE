@@ -9,7 +9,7 @@ has_children: true
 | Guide | Command | What it does |
 |-------|---------|-------------|
 | [Scan BLE](scanblue) | `scanblue` / `sbl` | Scan nearby BLE devices |
-| [BLE Info](bleinfo) | `bleinfo` / `bi` | GATT enumeration, sniff, fuzz, write-cap, security audit |
+| [BLE Info](bleinfo) | `bleinfo` / `bi` | GATT enumeration, sniff, fuzz (incl. oversized/flood), abuse read-hammer, write-cap, security audit |
 | [Tracking Detection](trackme) | `trackme` / `tm` | Detect devices physically following you |
 | [Fast Pair](fastpair) | `fastpair` / `fp` | Google Fast Pair attack suite |
 | [BLE Spam](blespam) | `blespam` / `bs` | BLE advertisement spam |
@@ -85,10 +85,13 @@ Connects to a BLE device, reads its full GATT service/characteristic tree, decod
 | `a` / `l` | Previous / next page |
 | `n` | Notify/indicate sniff (30 s) |
 | `w` | Write to a writable characteristic |
-| `f` | Fuzz a writable characteristic |
+| `f` | Fuzz a writable char — seq / random / boundary / **oversized** (past-MTU, input-length test) / **flood** (unthrottled, DoS test) |
+| `g` | **Abuse** — read-hammer every char ignoring its Read flag; `LEAK` = data returned that the device marked non-readable (broken access control) |
 | `b` | Security audit — link posture (encryption / Just Works vs MITM / bonding, no-auth read/write counts) + value leak scan |
 | `s` | Save GATT tree to SD |
 | `q` | Quit |
+
+> `[f]` and `[g]` result screens **wait for `[q]`** and do not auto-close. `[g]` opens a *fresh* connection, so a device that permits only one BLE link will show "Reconnect failed." (also waits for `[q]`).
 
 → [Full guide: bleinfo](bleinfo.md)
 

@@ -70,12 +70,16 @@ units=metric   # or: imperial
 
 ## How it fetches (GDMA-safe)
 
-Open-Meteo is HTTPS-only, so the request uses `WiFiClientSecure` with
-`setInsecure()` (no cert pinning — a weather reading needs no confidentiality).
+The request uses **plain HTTP** (`WiFiClient`) — Open-Meteo serves the same
+keyless response over HTTP, and a weather reading needs no confidentiality. HTTPS
+was dropped because the TLS handshake's ~30–40 KB internal-DRAM allocation fails
+under the Home launcher, where a full-screen PSRAM sprite and the VLW fonts are
+already resident: weather fetched fine from the CLI (`wx now`) but failed inside
+the undercover Home app. Plain HTTP has no such memory cost, so it works in both.
 
 The request runs **only** from `wx now` and **Home-launcher entry** — never from
 the background input loop. This is deliberate: `netspy`/`isoscan` run
-associated-with-promiscuous, and an HTTPS fetch while promiscuous is live would
+associated-with-promiscuous, and any fetch while promiscuous is live would
 corrupt the filesystem/WiFi engine (the [GDMA rule](../troubleshooting)). The
 launcher is a benign cover screen with WiFi idle, so fetching there is safe.
 

@@ -1048,6 +1048,20 @@ static void runWrite(const char* macStr, uint8_t addrType) {
     vTaskDelay(pdMS_TO_TICKS(1200));
 }
 
+// Print a "[q] back" prompt and block until the user presses q. Used by result
+// and error screens that would otherwise flash past too fast to read.
+static void biWaitBack() {
+    displayManager.printSeparator();
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.setTextColor(0x7BEF);
+    displayManager.println("[q] back");
+    while (true) {
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') break;
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
+
 // ── Fuzz support ──────────────────────────────────────────────────────────────
 
 static void runFuzz(const char* macStr, uint8_t addrType) {
@@ -1094,12 +1108,14 @@ static void runFuzz(const char* macStr, uint8_t addrType) {
     displayManager.println("[1] seq  0x00-0xFF (1-byte)");
     displayManager.println("[2] rand  random 1-4 bytes");
     displayManager.println("[3] boundary  0,1,7F,80,FE,FF");
+    displayManager.println("[4] oversized 20..509B (MTU)");
+    displayManager.println("[5] flood  rapid write (DoS)");
     displayManager.println("[q] cancel");
 
     char modeKey = 0;
     while (!modeKey) {
         char k = inputHandler.getKeyboardInput();
-        if (k == '1' || k == '2' || k == '3') modeKey = k;
+        if (k >= '1' && k <= '5') modeKey = k;
         if (k == 'q' || k == 'Q') return;
         vTaskDelay(pdMS_TO_TICKS(20));
     }
@@ -1147,12 +1163,21 @@ static void runFuzz(const char* macStr, uint8_t addrType) {
         return;
     }
 
-    // Build payload list
-    const uint8_t boundary[] = { 0x00, 0x01, 0x7F, 0x80, 0xFE, 0xFF };
-    int     total   = (modeKey == '1') ? 256 : (modeKey == '3') ? 6 : 64;
-    int     sent    = 0;
-    int     errors  = 0;
-    uint32_t seed   = millis();
+    // Build payload list. Modes 1-3 are 1-byte probes; 4 escalates payload size
+    // to test MTU/long-write/buffer handling; 5 floods a fixed write as fast as
+    // the link allows to probe DoS / hang behaviour.
+    const uint8_t  boundary[]  = { 0x00, 0x01, 0x7F, 0x80, 0xFE, 0xFF };
+    const uint16_t overSizes[] = { 20, 64, 128, 255, 509 };
+    static uint8_t payload[512];       // static: keeps the oversized buffer off the stack
+    int      total   = (modeKey == '1') ? 256 : (modeKey == '3') ? 6 :
+                       (modeKey == '4') ? 5   : (modeKey == '5') ? 500 : 64;
+    uint32_t pace    = (modeKey == '4') ? 250 : (modeKey == '5') ? 0 : 80;  // ms between writes
+    int      sent    = 0;
+    int      errors  = 0;
+    int      plen    = 1;
+    uint32_t seed    = millis();
+    uint32_t t0      = millis();       // for flood rate
+    uint32_t lastDraw = 0;
 
     displayManager.clearScreen();
     displayManager.setDefaultTextSize();
@@ -1161,11 +1186,16 @@ static void runFuzz(const char* macStr, uint8_t addrType) {
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
 
-        uint8_t payload[4]; int plen = 1;
         if (modeKey == '1') {
-            payload[0] = (uint8_t)sent;
+            payload[0] = (uint8_t)sent; plen = 1;
         } else if (modeKey == '3') {
-            payload[0] = boundary[sent % 6];
+            payload[0] = boundary[sent % 6]; plen = 1;
+        } else if (modeKey == '4') {
+            uint16_t sz = overSizes[sent % 5];
+            for (uint16_t i = 0; i < sz; i++) payload[i] = (uint8_t)(i & 0xFF);
+            plen = sz;
+        } else if (modeKey == '5') {
+            payload[0] = payload[1] = payload[2] = payload[3] = 0xFF; plen = 4;
         } else {
             // LCG random
             seed = seed * 1664525 + 1013904223;
@@ -1176,35 +1206,50 @@ static void runFuzz(const char* macStr, uint8_t addrType) {
             }
         }
 
-        bool ok = target->writeValue(payload, plen, false);
+        // Oversized needs write-with-response so NimBLE runs a long (prepare/exec)
+        // write for payloads past the MTU; the fast modes stay write-no-response.
+        bool ok = target->writeValue(payload, plen, modeKey == '4');
         if (!ok) errors++;
         sent++;
 
-        // Redraw every 8 writes
-        if (sent % 8 == 1 || sent == total) {
+        // Time-based redraw so flood mode stays smooth and readable
+        if (millis() - lastDraw > 200 || sent == total) {
+            lastDraw = millis();
             displayManager.clearScreen();
             displayManager.setCursor(4, outputY);
             displayManager.setTextColor(0x7BEF); displayManager.printText("[FUZZ] ");
             displayManager.setTextColor(TFT_YELLOW); displayManager.println(bc.uuid);
             displayManager.printSeparator();
             displayManager.setCursor(4, displayManager.getCursorY());
-            char stat[48];
-            snprintf(stat, sizeof(stat), "sent:%d/%d  err:%d", sent, total, errors);
+            const char* mn = (modeKey == '1') ? "seq" : (modeKey == '2') ? "rand" :
+                             (modeKey == '3') ? "boundary" : (modeKey == '4') ? "oversized" : "flood";
+            char stat[52];
+            snprintf(stat, sizeof(stat), "%s  sent:%d/%d  err:%d", mn, sent, total, errors);
             displayManager.setTextColor(errors ? TFT_RED : TFT_GREEN);
             displayManager.println(stat);
-            // Show last payload
-            char hex[16] = {};
-            int show = plen < 4 ? plen : 4;
-            for (int i = 0; i < show; i++) snprintf(hex + i*3, 4, "%02X ", payload[i]);
+            // Mode-appropriate detail line
+            displayManager.setCursor(4, displayManager.getCursorY());
             displayManager.setTextColor(TFT_WHITE);
-            char last[32]; snprintf(last, sizeof(last), "last: %s", hex);
-            displayManager.println(last);
+            char detail[40];
+            if (modeKey == '4') {
+                snprintf(detail, sizeof(detail), "size: %dB", plen);
+            } else if (modeKey == '5') {
+                uint32_t dt = millis() - t0;
+                uint32_t rate = dt ? (uint32_t)((uint64_t)sent * 1000 / dt) : 0;
+                snprintf(detail, sizeof(detail), "rate: %lu/s", (unsigned long)rate);
+            } else {
+                char hex[16] = {};
+                int show = plen < 4 ? plen : 4;
+                for (int i = 0; i < show; i++) snprintf(hex + i*3, 4, "%02X ", payload[i]);
+                snprintf(detail, sizeof(detail), "last: %s", hex);
+            }
+            displayManager.println(detail);
             displayManager.printSeparator();
             displayManager.setCursor(4, displayManager.getCursorY());
             displayManager.setTextColor(0x7BEF);
             displayManager.println("[q] stop");
         }
-        vTaskDelay(pdMS_TO_TICKS(80));
+        vTaskDelay(pace ? pdMS_TO_TICKS(pace) : 1);
     }
 
     bool disconnected = !client->isConnected();
@@ -1219,7 +1264,138 @@ static void runFuzz(const char* macStr, uint8_t addrType) {
     char sum[40]; snprintf(sum, sizeof(sum), "sent:%d err:%d", sent, errors);
     displayManager.setTextColor(TFT_WHITE);
     displayManager.println(sum);
-    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    biWaitBack();   // hold the result on screen until [q]
+}
+
+// ── Access-control read-hammer ────────────────────────────────────────────────
+// Attempts a GATT read on EVERY characteristic regardless of its advertised Read
+// property. A char with no R property that still returns data = broken server-side
+// access control (LEAK). A readable char that returns data over an unencrypted link
+// = readable-without-auth (open). This goes beyond enumerate()/[b] audit, which only
+// read chars that advertise R.
+
+struct ProbeHit { char svc[10]; char uuid[12]; uint8_t kind; uint16_t len; };
+// kind: 2 = LEAK (no read prop, still leaked), 1 = open (readable, link unencrypted)
+
+static void runProbe(const char* macStr, uint8_t addrType) {
+    displayManager.clearScreen();
+    displayManager.setDefaultTextSize();
+    displayManager.setCursor(4, outputY);
+    displayManager.setTextColor(TFT_CYAN);
+    displayManager.println("[ABUSE] read-hammer probe...");
+    displayManager.setCursor(4, displayManager.getCursorY());
+    displayManager.setTextColor(0x7BEF);
+    displayManager.println("Reading every char (q=abort)");
+
+    NimBLEClient* client = NimBLEDevice::createClient();
+    client->setConnectTimeout(5000);   // v2.x: unit is ms
+    if (!client->connect(NimBLEAddress(macStr, addrType))) {
+        displayManager.setTextColor(TFT_RED);
+        displayManager.println("Reconnect failed.");
+        displayManager.setCursor(4, displayManager.getCursorY());
+        displayManager.setTextColor(0x7BEF);
+        displayManager.println("Device may allow one link only,");
+        displayManager.println("be out of range, or asleep.");
+        NimBLEDevice::deleteClient(client);
+        biWaitBack();   // let the user read why it failed
+        return;
+    }
+    applyPairing(client);
+
+    NimBLEConnInfo ci = client->getConnInfo();
+    bool enc = ci.isEncrypted();
+
+    ProbeHit hits[40];
+    int nHits = 0, tried = 0, leaks = 0, opens = 0;
+    bool aborted = false;
+
+    const auto& services = client->getServices(true);
+    for (auto* svc : services) {
+        if (aborted) break;
+        const auto& chars = svc->getCharacteristics(true);
+        for (auto* chr : chars) {
+            char kb = inputHandler.getKeyboardInput();
+            if (kb == 'q' || kb == 'Q') { aborted = true; break; }
+
+            bool        rdProp = chr->canRead();
+            std::string val    = chr->readValue();   // read regardless of property
+            tried++;
+
+            uint8_t kind = 0;
+            if (!val.empty()) {
+                if      (!rdProp) { kind = 2; leaks++; }
+                else if (!enc)    { kind = 1; opens++; }
+            }
+            if (kind && nHits < 40) {
+                ProbeHit& h = hits[nHits++];
+                shortUuid(svc->getUUID().toString(), h.svc,  sizeof(h.svc));
+                shortUuid(chr->getUUID().toString(), h.uuid, sizeof(h.uuid));
+                h.kind = kind;
+                h.len  = (uint16_t)val.size();
+            }
+        }
+    }
+
+    client->disconnect();
+    NimBLEDevice::deleteClient(client);
+
+    // ── Paged results ─────────────────────────────────────────────────────────
+    const int PP    = 9;
+    int       page  = 0;
+    int       pages = (nHits + PP - 1) / PP;
+    if (pages < 1) pages = 1;
+
+    while (true) {
+        displayManager.clearScreen();
+        displayManager.setDefaultTextSize();
+        displayManager.setCursor(4, outputY);
+        displayManager.setTextColor(0x7BEF);   displayManager.printText("[ABUSE] ");
+        displayManager.setTextColor(TFT_YELLOW); displayManager.printText(macStr);
+        char pg[8]; snprintf(pg, sizeof(pg), " %d/%d", page + 1, pages);
+        displayManager.setTextColor(0x7BEF);   displayManager.println(pg);
+        displayManager.printSeparator();
+
+        displayManager.setCursor(4, displayManager.getCursorY());
+        char sum[52];
+        // Mark a cut-short scan so a partial 'tried' count is never read as complete.
+        snprintf(sum, sizeof(sum), "tried:%d  leak:%d  open:%d%s",
+                 tried, leaks, opens, aborted ? " (abrt)" : "");
+        displayManager.setTextColor(leaks ? TFT_RED : opens ? TFT_YELLOW : TFT_GREEN);
+        displayManager.println(sum);
+
+        if (nHits == 0) {
+            displayManager.setCursor(4, displayManager.getCursorY());
+            displayManager.setTextColor(TFT_GREEN);
+            displayManager.println(aborted ? "Aborted." : "No no-auth reads found.");
+        } else {
+            int start = page * PP;
+            int end   = start + PP < nHits ? start + PP : nHits;
+            for (int i = start; i < end; i++) {
+                displayManager.setCursor(4, displayManager.getCursorY());
+                displayManager.setTextColor(hits[i].kind == 2 ? TFT_RED : TFT_YELLOW);
+                char row[52];
+                snprintf(row, sizeof(row), "%s %-9s %-9s %uB",
+                         hits[i].kind == 2 ? "LEAK" : "open",
+                         hits[i].svc, hits[i].uuid, hits[i].len);
+                displayManager.println(row);
+            }
+        }
+
+        displayManager.printSeparator();
+        displayManager.setCursor(4, displayManager.getCursorY());
+        displayManager.setTextColor(0x7BEF);
+        displayManager.println(pages > 1 ? "[a/l]pg  [q]back" : "[q]back");
+
+        // Wait for input on this page
+        while (true) {
+            char k = inputHandler.getKeyboardInput();
+            if (k == 'q' || k == 'Q') return;
+            if ((k == 'l' || k == 'L') && page < pages - 1) { page++; break; }
+            if ((k == 'a' || k == 'A') && page > 0)         { page--; break; }
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+    }
 }
 
 // ── SD save helpers ───────────────────────────────────────────────────────────
@@ -1435,11 +1611,12 @@ static void renderPage(const char* mac, int page) {
     displayManager.setTextColor(0x7BEF);
     bool sdReady = sdCardManager.canAccessSD();
     // Build footer from available capabilities
-    char foot[72] = "[q]qt [a/l]pg";
+    char foot[96] = "[q]qt [a/l]pg";
     if (s_hasNotify)   strncat(foot, " [n]sniff",   sizeof(foot) - strlen(foot) - 1);
     if (s_hasReplay)   strncat(foot, " [r]wcap",    sizeof(foot) - strlen(foot) - 1);
     if (s_hasWrite)    strncat(foot, " [w]wr[f]fz", sizeof(foot) - strlen(foot) - 1);
     strncat(foot, " [b]audit", sizeof(foot) - strlen(foot) - 1);   // posture always available
+    strncat(foot, " [g]abuse", sizeof(foot) - strlen(foot) - 1);   // read-hammer, always available
     if (sdReady)       strncat(foot, " [s]save",    sizeof(foot) - strlen(foot) - 1);
     if (s_pairEnabled) strncat(foot, " [p]PAIR ON", sizeof(foot) - strlen(foot) - 1);
     else               strncat(foot, " [p]pair",    sizeof(foot) - strlen(foot) - 1);
@@ -1824,6 +2001,10 @@ void runBleInfo(char* arg) {
             }
             if (k == 'b' || k == 'B') {
                 runAudit();
+                break;
+            }
+            if (k == 'g' || k == 'G') {
+                runProbe(macStr, addrType);
                 break;
             }
             if ((k == 'w' || k == 'W') && s_hasWrite) {
