@@ -40,7 +40,8 @@ bi all            # enumerate every device from last sbl scan
 | `n` | Start notify/indicate sniff (30 s) |
 | `r` | Write-cap — replay a captured notification value back to the device |
 | `w` | Write to a writable characteristic (reconnects, then writes) |
-| `f` | Fuzz a writable characteristic |
+| `f` | Fuzz a writable characteristic (seq / random / boundary / oversized / flood) |
+| `g` | Abuse scan — read-hammer every characteristic, flag no-auth read leaks |
 | `b` | Security audit — link posture (encryption/pairing/bonding, no-auth read/write counts) + value leak scan |
 | `p` | Toggle pairing / bonding mode |
 | `s` | Save GATT tree to SD card |
@@ -53,7 +54,7 @@ bi all            # enumerate every device from last sbl scan
 | `w` | Write to a char **without disconnecting** — response appears in sniff stream |
 | `q` | Stop sniff, save log, return to GATT view |
 
-> Keys only appear in the footer when relevant: `[n]` if notify/indicate chars exist, `[r]` if a `.ble` capture file exists. `[b]audit` is always available.
+> Keys only appear in the footer when relevant: `[n]` if notify/indicate chars exist, `[r]` if a `.ble` capture file exists, `[w]`/`[f]` if writable chars exist. `[b]audit` and `[g]abuse` are always available.
 
 ---
 
@@ -75,7 +76,7 @@ SVC 0xfb005c~ [RWN]
   0xfb005c~  [RWN] 12 00 ..
 !0xfb005d~  [W  ] (UnlockKey)
 ────────────────────────────────
-[q]qt [a/l]pg [n]sniff [w]wr[f]fz [b]audit [s]save [p]pair
+[q]qt [a/l]pg [n]sniff [w]wr[f]fz [b]audit [g]abuse [s]save [p]pair
 ```
 
 **Risk colour coding** (inline, on every line):
@@ -200,6 +201,8 @@ validation bugs, trigger unexpected state transitions, or crash the device.
 | `1` seq | `0x00` → `0xFF` (256 writes, 1 byte each) | Full single-byte space coverage |
 | `2` rand | 64 writes, 1–4 random bytes (LCG) | Multi-byte protocol fuzzing |
 | `3` boundary | `0x00 0x01 0x7F 0x80 0xFE 0xFF` | Off-by-one and overflow testing |
+| `4` oversized | 5 escalating writes: 20 → 64 → 128 → 255 → 509 B (incrementing pattern) | MTU / long-write / buffer-overflow handling |
+| `5` flood | 500 rapid 4-byte writes with no pacing, live writes/sec shown | DoS / hang / rate-limit behaviour |
 
 **What to look for:**
 
@@ -208,8 +211,43 @@ validation bugs, trigger unexpected state transitions, or crash the device.
 - **"Device disconnected!"** — crash or protection triggered; note the payload
 - **Watch screen reacts** — you hit an active control path
 - **Error jumps at specific byte** — boundary condition found
+- **Oversized accepted** — no length validation on writes (may overflow a fixed buffer)
+- **Flood rate stays high / device hangs** — no rate limiting; DoS surface
 
-Writes are sent every 80 ms. `[q]` stops early.
+Pacing is mode-dependent: 80 ms (seq/rand/boundary), 250 ms (oversized), unthrottled (flood). `[q]` stops early.
+
+> **The result screen waits for `[q]`** — after the run finishes (or the device disconnects) the `sent/err` summary stays on screen until you press `[q]`; it does **not** auto-close, so you can read the outcome.
+
+**Why it matters:** proves whether a device validates the input it accepts. Oversized-accepted = no length checking (possible buffer overflow); a disconnect/crash during the run = a firmware bug you triggered; flood that never slows = no rate-limiting (DoS surface).
+
+---
+
+## Abuse Scan (`[g]`)
+
+Read-hammer for **broken access control**. Reconnects and attempts a GATT read on
+**every** characteristic — *ignoring* the advertised Read property — then classifies
+what came back:
+
+| Tag | Meaning |
+|-----|---------|
+| `LEAK` (red) | Characteristic has **no** Read property but still returned data — the server should have rejected the read |
+| `open` (yellow) | Readable characteristic that returned data over an **unencrypted** link (no pairing required) |
+
+The summary line shows `tried / leak / open` counts (with `(abrt)` appended if you
+stopped it early). `LEAK` findings are the important ones: they mean the peripheral
+relies on the client honouring the property flags rather than enforcing access control
+server-side. `[a]`/`[l]` page through results, `[q]` returns. This goes beyond
+`[b]audit`, which only reads characteristics that advertise Read.
+
+**Why it matters:** answers "can I read data this device tried to hide, without
+pairing?" A `LEAK` on a lock/wearable/sensor can expose config, keys, or telemetry to
+anyone in range. An all-green result means the device enforces access control properly.
+
+> **Exit / result screen:** the results page waits for `[q]` and does **not**
+> auto-close. If instead you see **"Reconnect failed."**, the abuse scan drops the
+> initial connection and opens a *fresh* one — some devices allow only a single BLE
+> connection at a time and refuse it (that screen now also waits for `[q]` and explains
+> the likely cause). Retry on a device that accepts reconnects.
 
 ---
 

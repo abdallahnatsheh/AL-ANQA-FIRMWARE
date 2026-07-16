@@ -12,7 +12,6 @@
 #endif
 #include <Arduino.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <SD.h>
@@ -159,13 +158,17 @@ bool WeatherManager::fetch() {
 
     _fetching = true;
     char url[256];
+    // Plain HTTP, NOT HTTPS: weather needs no confidentiality, and under the
+    // undercover home launcher (large PSRAM sprite + VLW fonts resident) the TLS
+    // handshake's ~30-40KB internal-DRAM allocation fails, so WiFiClientSecure
+    // returned "fetch failed" there while `wx now` from the CLI worked. Open-Meteo
+    // serves the identical response over HTTP (keyless), so drop TLS entirely.
     snprintf(url, sizeof(url),
-             "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
+             "http://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
              "&current=temperature_2m,weather_code&temperature_unit=%s",
              lat, lon, _imperial ? "fahrenheit" : "celsius");
 
-    WiFiClientSecure client;
-    client.setInsecure();                            // no cert pinning — weather needs no confidentiality
+    WiFiClient client;                               // plain HTTP — no TLS memory cost
     HTTPClient http;
     bool ok = false;
     if (http.begin(client, url)) {
