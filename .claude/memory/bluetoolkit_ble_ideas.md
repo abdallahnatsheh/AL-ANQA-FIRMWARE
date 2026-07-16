@@ -47,7 +47,7 @@ GATT client, plus optional BLE-DoS. Everything else blocked by no-Classic-radio 
   since `bi` connects unpaired by default → any data returned over an OPEN link = broken access control). `[b]` is
   now **always available** (was gated on `s_hasRisk`); posture also written to the `/apps/bleinfo/<mac>.txt` report.
   ✅ HW-tested + COMMITTED + PUSHED (2026-07-14, commit 377d121). NimBLEConnInfo API verified present in pinned NimBLE-Arduino v2.x.
-- **`gattfuzz` → DONE inside `bi`, no new command** (extended 2026-07-16, UNCOMMITTED, NOT HW-tested). The base
+- **`gattfuzz` → DONE inside `bi`, no new command** (extended 2026-07-16, ✅ HW-TESTED + COMMITTED + PUSHED, commit `a518cc8`). The base
   `[f]` fuzz (seq/random/boundary) already existed; this session added the gaps it was missing:
   - `[f]` gained **`[4]oversized`** (escalating 20→509B, write-WITH-response so NimBLE does a long prepare/exec
     write past the MTU → buffer/length-validation test) + **`[5]flood`** (500 unthrottled 4B writes, live writes/sec
@@ -61,7 +61,8 @@ GATT client, plus optional BLE-DoS. Everything else blocked by no-Classic-radio 
     explains the cause). `[g]` summary appends `(abrt)` when stopped early (was a code-review finding).
   - Files: `ble_info.cpp` (`runFuzz` extended, new `runProbe`, `biWaitBack` helper). Docs updated EVERYWHERE:
     man_pages.cpp, README.md, docs/bleinfo.md, docs/bluetooth.md, CLAUDE.md — each explains purpose + `[q]`-exit.
-- Net: the usable BlueToolkit yield is now **fully inside `bi`** (`[f]`+`[g]`+`[b]`). Only BLE-DoS **connection-slot
-  exhaustion** (open many rapid connections vs one write-flood, which `[5]flood` already covers) remains unbuilt.
-  ▶ NEXT: HW-test the new `[f]4/5` + `[g]` against a real device, then commit. Possible follow-up if devices reject
-    the `[g]` reconnect: a no-reconnect fallback reusing enumerate()'s reads (loses the non-R LEAK test, though).
+- Net: the usable BlueToolkit yield is now **fully inside `bi`** (`[f]`+`[g]`+`[b]`) — DONE + shipped. Only BLE-DoS
+  **connection-slot exhaustion** (open many rapid connections vs one write-flood, which `[5]flood` already covers)
+  remains unbuilt. Possible follow-up if devices reject the `[g]` reconnect: a no-reconnect fallback reusing
+  enumerate()'s reads (loses the non-R LEAK test, though). **Flood-mode `err` count = local TX backpressure
+  (write-no-response can't enqueue), NOT device rejections — the real DoS signal is whether the target glitched.**
