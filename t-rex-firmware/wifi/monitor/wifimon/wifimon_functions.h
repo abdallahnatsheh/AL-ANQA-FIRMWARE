@@ -13,8 +13,8 @@
 #define WM_PKT_RING      32
 #define WM_CLIENT_TTL    90000   // drop unassoc client after 90 s of silence
 
-// PCAP ring — raw frames buffered in RAM, flushed to SD with promiscuous paused
-#define WM_PCAP_RING     64     // 64 × 262 bytes ≈ 17 KB — fits in DRAM
+// PCAP ring — raw frames buffered in PSRAM, flushed to SD with promiscuous paused
+#define WM_PCAP_RING     64     // 64 × 262 bytes ≈ 17 KB — allocated in PSRAM at start()
 #define WM_PCAP_SNAPLEN  256    // max raw bytes captured per frame
 #define WM_PROBE_DEDUP   64     // unique MAC+SSID pairs deduplicated in RAM
 #define WM_PROBE_BUF     16     // pending probe entries before SD flush
@@ -158,8 +158,8 @@ private:
     static volatile uint8_t  s_head;
     static volatile uint8_t  s_tail;
 
-    // raw-frame ring (for PCAP)
-    static volatile WmRawFrame s_pcapRing[WM_PCAP_RING];
+    // raw-frame ring (for PCAP) — PSRAM-allocated in start(), never freed
+    static volatile WmRawFrame* s_pcapRing;
     static volatile uint8_t    s_pcapHead;
     static volatile uint8_t    s_pcapTail;
     static volatile bool       s_pcapActive;  // gated false during SD flush

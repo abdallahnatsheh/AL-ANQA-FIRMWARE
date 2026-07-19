@@ -17,8 +17,11 @@ public:
     void begin();   // Register HID descriptors with TinyUSB — must be called before USB.begin()
     void start();   // usbkbd/uk — T-DECK keyboard+trackball as USB keyboard+mouse, blocks until exit
     void jiggle();  // jiggle/jg — mouse jiggler, nudges cursor every 30s to prevent screen lock
+    void moveMouse(int8_t dx, int8_t dy) { _mouse.move(dx, dy, 0); }
+    void clickMouse(uint8_t btn)         { _mouse.click(btn); }
 
 private:
+    friend class BadUsb;   // startLog() drives the mouse via _mouse directly
     USBHIDMouse _mouse;
 
     void    sendKey(char k);

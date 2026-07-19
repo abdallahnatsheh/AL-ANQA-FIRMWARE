@@ -49,8 +49,8 @@ struct EsEntry {
 static inline const uint8_t* esPayload(const EsEntry& e)    { return e.raw + 30; }
 static inline int             esPayloadLen(const EsEntry& e) { return e.rawLen > 30 ? e.rawLen - 30 : 0; }
 
-// ─── ISR-volatile sniffer state ───────────────────────────────────────────────
-static EsEntry           s_buf[ES_MAX_ENTRIES];
+// ─── sniffer state ────────────────────────────────────────────────────────────
+static EsEntry*          s_buf = nullptr;   // PSRAM-allocated in runEspSniff()
 static volatile uint8_t  s_head   = 0;
 static volatile uint8_t  s_count  = 0;
 static volatile bool     s_active = false;
@@ -559,6 +559,9 @@ static void showMsg(const char* msg, uint16_t color) {
 // ─── main entry point ─────────────────────────────────────────────────────────
 void runEspSniff(char* args) {
     int lockCh = (args && *args) ? atoi(args) : 0;
+
+    if (!s_buf) s_buf = (EsEntry*)ps_malloc(ES_MAX_ENTRIES * sizeof(EsEntry));
+    if (!s_buf) { displayManager.setTextColor(TFT_RED); displayManager.println("espsniff: no PSRAM"); return; }
 
     s_head     = 0;
     s_count    = 0;

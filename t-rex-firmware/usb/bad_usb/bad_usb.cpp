@@ -12,11 +12,19 @@
 #include "ble_keyboard.h"          // BLE HID target for `ux ble`
 #include "bluetooth_functions.h"   // s_bleDevices / s_bleCount (sbl scan cache) for clone picker
 #include "ble_info.h"              // runBleInfo — [i] inspect a target's GATT from the clone picker
+#include "espchat.h"               // stopEspchatBg() — must stop before WiFi mode change
+#include "macwatch.h"              // stopMacwatchBg() — must stop before BLE bring-up
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include <SD.h>
+#include <WiFi.h>
+#include <WebServer.h>
+
+// HID usage 0x53 (NumLock) encoded for USBHIDKeyboard::press()
+// press(k>=0x88) → pressRaw(k-0x88); 0x53+0x88=0xDB
+static constexpr uint8_t KEY_USB_NUMLOCK = 0xDB;
 
 extern DisplayManager displayManager;
 extern SDCardManager  sdCardManager;
@@ -626,42 +634,735 @@ bool BadUsb::blePickGenericName(char* buf, size_t n, const char* found) {
     }
 }
 
+// ── startInteractiveUsb() ─────────────────────────────────────────────────────
+// USB transport already chosen — just pick a script and run it.
+void BadUsb::startInteractiveUsb() {
+    static char scriptPath[128];
+    if (!blePickScript(scriptPath, sizeof(scriptPath))) {
+        displayManager.printCommandScreen(); return;
+    }
+    start(scriptPath, false, nullptr, 1, nullptr);
+}
+
+// ── startInteractive() — unified: pick transport, then delegate ───────────────
+// Replaces the old BLE-only version.  Bare `ux` lands here; bare `ux ble` skips
+// the transport step and calls the BLE picker directly from handleUsbExecCmd.
 void BadUsb::startInteractive() {
+    DisplayManager& dm = displayManager;
+    // Transport picker: USB vs BLE
+    const char* items[2] = { "USB  (inject via cable)", "BLE  (inject over Bluetooth)" };
+    int sel = 0; bool redraw = true;
+    while (true) {
+        if (redraw) {
+            drawBleHeader("BADUSB");
+            dm.setCursor(10, outputY + 2 * LINE_HEIGHT);
+            dm.setTextColor(0x7BEF); dm.println("Select transport:");
+            for (int i = 0; i < 2; i++) {
+                int y = outputY + (3 + i) * LINE_HEIGHT; bool s = (i == sel);
+                if (s) dm.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, 0x0841);
+                dm.setCursor(6, y);
+                dm.setTextColor(s ? TFT_YELLOW : 0x7BEF); dm.printText(s ? ">" : " ");
+                dm.setTextColor(s ? TFT_WHITE : 0x7BEF);  dm.println(items[i]);
+            }
+            drawBleFooter("trkbl=sel  ent=pick  q=cancel");
+            redraw = false;
+        }
+        TrackballEvent tb = inputHandler.getTrackballEvent();
+        if (tb == TBALL_UP)    { if (sel > 0) { sel--; redraw = true; } continue; }
+        if (tb == TBALL_DOWN)  { if (sel < 1) { sel++; redraw = true; } continue; }
+        if (tb == TBALL_CLICK) { if (sel == 0) { startInteractiveUsb(); return; } break; }
+        char k = inputHandler.getKeyboardInput();
+        if (!k) { if (LockScreenManager::getInstance().consumeJustUnlocked()) redraw = true; continue; }
+        if (k == 'q' || k == 'Q') { dm.printCommandScreen(); return; }
+        if (k == '\r' || k == '\n') { if (sel == 0) { startInteractiveUsb(); return; } break; }
+        if (k == '1') { startInteractiveUsb(); return; }
+        if (k == '2') break;   // fall through to BLE flow
+    }
+    // BLE path: stop macwatch before bringing up BLE HID (mirrors the ux-ble-arg path)
+    stopMacwatchBg();
     int mode = blePickMode();
-    if (mode < 0) { displayManager.printCommandScreen(); return; }
-
-    static char macBuf[18]; static char nameBuf[24];
-    const char* cloneMac = nullptr; uint8_t cloneType = 1; const char* cloneName = nullptr;
-    nameBuf[0] = '\0';
-
-    if (mode == 1) {                                   // spoof → pick a target to clone
-        // Loop so the name screen's [q]=back returns here to re-pick a target.
+    if (mode < 0) { dm.printCommandScreen(); return; }
+    static char macBuf2[18]; static char nameBuf2[24];
+    const char* cloneMac = nullptr; uint8_t cloneType = 1;
+    nameBuf2[0] = '\0';
+    if (mode == 1) {
         while (true) {
             int idx = blePickTarget();
-            if (idx < 0) { displayManager.printCommandScreen(); return; }
-            strncpy(macBuf, s_bleDevices[idx].addr, sizeof(macBuf) - 1); macBuf[sizeof(macBuf) - 1] = '\0';
-            cloneMac  = macBuf;
+            if (idx < 0) { dm.printCommandScreen(); return; }
+            strncpy(macBuf2, s_bleDevices[idx].addr, sizeof(macBuf2) - 1); macBuf2[sizeof(macBuf2) - 1] = '\0';
+            cloneMac  = macBuf2;
             cloneType = s_bleDevices[idx].addrType;
-            // Impersonate the target's advertised name — the whole point of a spoof, so we
-            // do NOT prompt and NEVER default to "T-REX-KBD" (that would expose the clone).
-            // Only ask when the target advertised no name, so the operator can supply one.
-            strncpy(nameBuf, s_bleDevices[idx].name, sizeof(nameBuf) - 1); nameBuf[sizeof(nameBuf) - 1] = '\0';
-            if (nameBuf[0] != '\0') break;                          // has a name → done
-            // If an [i] inspect just read this device's real name (0x2A00), offer it.
-            const char* found = (strcmp(bleInfoLastMac(), macBuf) == 0) ? bleInfoLastName() : "";
-            if (blePickGenericName(nameBuf, sizeof(nameBuf), found)) break;  // name chosen → done
-            // else [q]=back → loop re-shows the target picker
+            strncpy(nameBuf2, s_bleDevices[idx].name, sizeof(nameBuf2) - 1); nameBuf2[sizeof(nameBuf2) - 1] = '\0';
+            if (nameBuf2[0] != '\0') break;
+            const char* found = (strcmp(bleInfoLastMac(), macBuf2) == 0) ? bleInfoLastName() : "";
+            if (blePickGenericName(nameBuf2, sizeof(nameBuf2), found)) break;
         }
-    } else {                                           // connect → fresh keyboard, pick a display name
-        strncpy(nameBuf, "T-REX-KBD", sizeof(nameBuf) - 1); nameBuf[sizeof(nameBuf) - 1] = '\0';
-        blePromptName(nameBuf, sizeof(nameBuf));
+    } else {
+        strncpy(nameBuf2, "T-REX-KBD", sizeof(nameBuf2) - 1); nameBuf2[sizeof(nameBuf2) - 1] = '\0';
+        blePromptName(nameBuf2, sizeof(nameBuf2));
     }
-    cloneName = nameBuf[0] ? nameBuf : nullptr;
+    const char* cloneName = nameBuf2[0] ? nameBuf2 : nullptr;
+    static char scriptPath2[128];
+    if (!blePickScript(scriptPath2, sizeof(scriptPath2))) { dm.printCommandScreen(); return; }
+    start(scriptPath2, true, cloneMac, cloneType, cloneName);
+}
 
+// ── LED event handler (file-scope, registered once) ──────────────────────────
+// We use a plain function (not a lambda) so registering it multiple times is
+// idempotent — esp_event_handler_register_with deduplicates by (fn, arg) pair.
+static volatile uint8_t s_osLedByte     = 0xFF;
+static volatile bool    s_osLedReceived = false;
+
+static void osLedCb(void*, esp_event_base_t, int32_t, void* data) {
+    auto* ev = reinterpret_cast<arduino_usb_hid_keyboard_event_data_t*>(data);
+    s_osLedByte     = ev->leds;
+    s_osLedReceived = true;
+}
+
+// ── probeOs() — NumLock LED probe to fingerprint the host OS ──────────────────
+// Presses NumLock, waits ≤500ms for a HID LED SET_REPORT from the host, then
+// restores NumLock.  Windows always sends NumLock=1; macOS ignores NumLock keys
+// (no LED response); Linux varies.
+OsType BadUsb::probeOs() {
+    s_osLedByte     = 0xFF;
+    s_osLedReceived = false;
+
+    // Register a plain-function handler — ESP-IDF deduplicates (fn, arg) pairs,
+    // so repeated calls to probeOs() don't pile up handler instances.
+    g_hid_keyboard.onEvent(ARDUINO_USB_HID_KEYBOARD_LED_EVENT, osLedCb);
+
+    // Toggle NumLock: press + release
+    _sink->press(KEY_USB_NUMLOCK);
+    vTaskDelay(pdMS_TO_TICKS(50));
+    _sink->releaseAll();
+
+    uint32_t t0 = millis();
+    while (!s_osLedReceived && millis() - t0 < 500) vTaskDelay(pdMS_TO_TICKS(10));
+
+    OsType os = OS_UNKNOWN;
+    if (s_osLedReceived) {
+        // LED response received. The bit reflects NumLock state AFTER the toggle.
+        // Windows default = NumLock ON  → press toggles to OFF  → LED=0 → detect Windows
+        // Linux   default = NumLock OFF → press toggles to ON   → LED=1 → detect Linux
+        // macOS ignores NumLock keys entirely → no LED event → OS_UNKNOWN (timeout)
+        // This heuristic assumes the default NumLock state hasn't been manually changed.
+        os = ((s_osLedByte & LED_NUMLOCK) == 0) ? OS_WINDOWS : OS_LINUX;
+    }
+
+    // Restore NumLock state (toggle again so the OS ends up where it started)
+    _sink->press(KEY_USB_NUMLOCK);
+    vTaskDelay(pdMS_TO_TICKS(50));
+    _sink->releaseAll();
+    vTaskDelay(pdMS_TO_TICKS(200));   // let the host settle
+
+    _detectedOs = os;
+    return os;
+}
+
+// ── startAuto() — probe OS then auto-select script dir ────────────────────────
+void BadUsb::startAuto(const char* dir) {
+    DisplayManager& dm = displayManager;
+
+    if (!usbManager.isConnected()) {
+        dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+        dm.setTextColor(TFT_RED); dm.println("[USB::AUTO] Not connected.");
+        vTaskDelay(pdMS_TO_TICKS(2000)); dm.printCommandScreen(); return;
+    }
+    _ble  = false;
+    _sink = g_usbHidSink;
+    _sink->releaseAll();
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+    dm.setTextColor(0x7BEF);     dm.printText("[");
+    dm.setTextColor(TFT_CYAN);   dm.printText("USB");
+    dm.setTextColor(0x7BEF);     dm.printText("::");
+    dm.setTextColor(TFT_YELLOW); dm.println("AUTO]");
+    dm.printSeparator();
+    dm.setCursor(10, dm.getCursorY());
+    dm.setTextColor(0x7BEF); dm.println("Probing OS via NumLock LED...");
+
+    OsType os = probeOs();
+    const char* osName = (os == OS_WINDOWS) ? "WINDOWS" :
+                         (os == OS_LINUX)   ? "Linux"   :
+                         (os == OS_MACOS)   ? "macOS"   : "Unknown (no LED)";
+    uint16_t osCol = (os == OS_WINDOWS) ? TFT_GREEN :
+                     (os == OS_LINUX)   ? 0xFD20 :   // orange
+                     (os == OS_MACOS)   ? TFT_CYAN  : TFT_YELLOW;
+
+    dm.setCursor(10, dm.getCursorY());
+    dm.setTextColor(0x7BEF); dm.printText("OS: ");
+    dm.setTextColor(osCol);  dm.println(osName);
+
+    const char* osDir = (os == OS_WINDOWS) ? SD_DIR_BADUSB_OS_WIN :
+                        (os == OS_LINUX)   ? SD_DIR_BADUSB_OS_LIN :
+                        (os == OS_MACOS)   ? SD_DIR_BADUSB_OS_MAC : nullptr;
+
+    // If caller passed an explicit dir, use that regardless
+    static char resolvedDir[64];
+    if (dir && *dir) {
+        sdCardManager.resolvePath(dir, resolvedDir, sizeof(resolvedDir));
+        osDir = resolvedDir;
+    }
+
+    // Try to pick a script from the OS dir; fall back to the main scripts dir
     static char scriptPath[128];
-    if (!blePickScript(scriptPath, sizeof(scriptPath))) { displayManager.printCommandScreen(); return; }
+    const char* searchDir = (osDir && sdCardManager.isReady() && SD.exists(osDir)) ? osDir : SD_DIR_BADUSB_SCRIPTS;
+    // Inline: reuse the BLE script picker adapted for an explicit directory
+    static String files[24]; int fc = 0;
+    files[fc++] = "demo";
+    if (sdCardManager.isReady()) {
+        File d = SD.open(searchDir);
+        if (d) {
+            File f2 = d.openNextFile();
+            while (f2 && fc < 24) {
+                if (!f2.isDirectory()) files[fc++] = String(f2.name());
+                f2 = d.openNextFile();
+            }
+            d.close();
+        }
+    }
 
-    start(scriptPath, true, cloneMac, cloneType, cloneName);   // hand off to the existing runner
+    if (fc <= 1) {
+        // No scripts in the OS dir — fall back to full picker
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(TFT_YELLOW); dm.println("No scripts in OS dir.");
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(0x7BEF); dm.println("Opening picker...");
+        vTaskDelay(pdMS_TO_TICKS(1200));
+        if (!blePickScript(scriptPath, sizeof(scriptPath))) { dm.printCommandScreen(); return; }
+    } else if (fc == 2) {
+        // Exactly one script — use it directly (skip picker)
+        const char* nm = files[1].c_str();
+        if (nm[0] == '/') strncpy(scriptPath, nm, sizeof(scriptPath) - 1);
+        else snprintf(scriptPath, sizeof(scriptPath), "%s/%s", searchDir, nm);
+        scriptPath[sizeof(scriptPath) - 1] = '\0';
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(TFT_WHITE); dm.printText("Script: ");
+        const char* base = strrchr(scriptPath, '/'); dm.println(base ? base + 1 : scriptPath);
+        vTaskDelay(pdMS_TO_TICKS(800));
+    } else {
+        // Multiple scripts in the OS dir — show an inline picker over files[]
+        // (blePickScript() hardcodes SD_DIR_BADUSB_SCRIPTS; can't be used here)
+        vTaskDelay(pdMS_TO_TICKS(400));
+        int pick = 1; bool redraw2 = true;
+        while (true) {
+            if (redraw2) {
+                drawBleHeader("AUTO — pick script");
+                for (int j = 1; j < fc; j++) {  // files[0] == "demo", skip for display
+                    int py = outputY + (1 + j) * LINE_HEIGHT; bool sel = (j == pick);
+                    if (sel) dm.fillRect(0, py - 1, SCREEN_WIDTH, LINE_HEIGHT, 0x0841);
+                    dm.setCursor(6, py);
+                    dm.setTextColor(sel ? TFT_YELLOW : 0x7BEF); dm.printText(sel ? ">" : " ");
+                    const char* nm2 = files[j].c_str();
+                    const char* b2  = strrchr(nm2, '/');
+                    dm.setTextColor(sel ? TFT_WHITE : 0x7BEF); dm.println(b2 ? b2 + 1 : nm2);
+                }
+                drawBleFooter("trkbl=sel  ent=pick  q=cancel");
+                redraw2 = false;
+            }
+            TrackballEvent tb2 = inputHandler.getTrackballEvent();
+            if (tb2 == TBALL_UP)   { if (pick > 1) { pick--; redraw2 = true; } continue; }
+            if (tb2 == TBALL_DOWN) { if (pick < fc - 1) { pick++; redraw2 = true; } continue; }
+            if (tb2 == TBALL_CLICK) break;
+            char ck2 = inputHandler.getKeyboardInput();
+            if (!ck2) continue;
+            if (ck2 == 'q' || ck2 == 'Q') { dm.printCommandScreen(); return; }
+            if (ck2 == '\r' || ck2 == '\n') break;
+        }
+        const char* nm = files[pick].c_str();
+        if (nm[0] == '/') strncpy(scriptPath, nm, sizeof(scriptPath) - 1);
+        else snprintf(scriptPath, sizeof(scriptPath), "%s/%s", searchDir, nm);
+        scriptPath[sizeof(scriptPath) - 1] = '\0';
+    }
+
+    _aborted = false; _bleLost = false;
+    _defaultCharDelay = 8; _nextCharDelay = -1;
+    dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+    dm.setTextColor(0x7BEF);     dm.printText("[USB::AUTO] ");
+    dm.setTextColor(osCol);      dm.println(osName);
+    dm.printSeparator();
+    dm.setCursor(10, dm.getCursorY());
+    dm.setTextColor(TFT_WHITE); dm.printText("Script: ");
+    const char* base = strrchr(scriptPath, '/'); dm.println(base ? base + 1 : scriptPath);
+    dm.setCursor(10, dm.getCursorY());
+    dm.setTextColor(0x7BEF); dm.println("q to abort.");
+    vTaskDelay(pdMS_TO_TICKS(800));
+
+    if (strcmp(scriptPath, "demo") == 0) runDemo(); else runFile(scriptPath);
+
+    _sink->releaseAll();
+    dm.clearScreen(); dm.setCursor(10, outputY);
+    dm.setTextColor(_aborted ? TFT_YELLOW : TFT_GREEN);
+    dm.println(_aborted ? "Aborted." : "Done.");
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    dm.printCommandScreen();
+}
+
+// ── startRemote() — SoftAP web trigger ───────────────────────────────────────
+// Starts a SoftAP + WebServer so a phone can browse the script list and fire
+// scripts wirelessly while the T-Deck is plugged into the victim PC.
+// SD reads (script file content) are fine during SoftAP (GDMA rule = writes only).
+// Any session log is held in RAM and written to SD after WiFi teardown.
+void BadUsb::startRemote(const char* ssid) {
+    DisplayManager& dm = displayManager;
+
+    if (!usbManager.isConnected()) {
+        dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+        dm.setTextColor(TFT_RED); dm.println("[USB::REMOTE] Not connected to PC.");
+        vTaskDelay(pdMS_TO_TICKS(2000)); dm.printCommandScreen(); return;
+    }
+
+    _ble  = false;
+    _sink = g_usbHidSink;
+    _sink->releaseAll();
+    vTaskDelay(pdMS_TO_TICKS(300));
+    _aborted = false; _bleLost = false;
+    _defaultCharDelay = 8; _nextCharDelay = -1;
+
+    // ── Read script list from SD before starting WiFi ─────────────────────────
+    static String scripts[24]; int sc = 0;
+    scripts[sc++] = "demo";
+    if (sdCardManager.isReady()) {
+        File d = SD.open(SD_DIR_BADUSB_SCRIPTS);
+        if (d) {
+            File f2 = d.openNextFile();
+            while (f2 && sc < 24) {
+                if (!f2.isDirectory()) scripts[sc++] = String(f2.name());
+                f2 = d.openNextFile();
+            }
+            d.close();
+        }
+    }
+
+    // ── Start SoftAP ─────────────────────────────────────────────────────────
+    stopEspchatBg();   // must stop ESP-NOW before changing WiFi mode (mirrors all other WiFi cmds)
+    const char* apSsid = (ssid && *ssid) ? ssid : "T-REX-CMD";
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(apSsid, nullptr);   // open, no password
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    WebServer server(80);
+
+    // Build the script list once as an HTML page served from RAM.
+    // No SD reads during serving — page is pre-built into a static buffer.
+    static char pageHtml[6144];
+    {
+        char* p = pageHtml; int rem = sizeof(pageHtml);
+        int n = snprintf(p, rem,
+            "<!DOCTYPE html><html><head>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            "<title>T-REX Remote</title>"
+            "<style>"
+            "*{box-sizing:border-box;margin:0;padding:0}"
+            "body{background:#0a0a0a;color:#ddd;font-family:monospace;padding:12px;max-width:480px;margin:0 auto}"
+            "h2{color:#0ff;font-size:1.3em;margin-bottom:4px}"
+            ".info{color:#555;font-size:.8em;margin-bottom:14px}"
+            ".status{background:#111;border:1px solid #333;border-radius:6px;padding:10px 14px;"
+            "margin-bottom:14px;font-size:.95em;min-height:44px;display:flex;align-items:center}"
+            ".status.idle{color:#888}.status.queued{color:#ff0}.status.running{color:#0f0}.status.done{color:#0cf}.status.err{color:#f44}"
+            ".lbl{color:#555;font-size:.75em;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;margin-top:10px}"
+            "button{display:block;width:100%%;margin:6px 0;padding:14px 12px;border-radius:6px;"
+            "background:#151515;color:#0f0;border:1px solid #1a3a1a;font-family:monospace;"
+            "font-size:1em;text-align:left;cursor:pointer;transition:background .1s,border-color .1s}"
+            "button:hover{background:#0f2a0f;border-color:#0f0}"
+            "button:active{background:#0f0;color:#000}"
+            "button.running{opacity:.4;pointer-events:none}"
+            "button.demo{color:#0cf;border-color:#1a3040}"
+            "button.demo:hover{background:#0a1f2a}"
+            ".prog{width:100%%;height:3px;background:#111;border-radius:2px;overflow:hidden;margin-bottom:14px}"
+            ".prog-bar{height:100%%;background:#0f0;width:0%%;transition:width .3s}"
+            "</style></head>"
+            "<body><h2>&#9762; T-REX REMOTE</h2>"
+            "<div class='info'>SSID: %s &nbsp;|&nbsp; 192.168.4.1</div>"
+            "<div class='status idle' id='st'>&#x25CB; Ready — tap a script to fire</div>"
+            "<div class='prog'><div class='prog-bar' id='pb'></div></div>",
+            apSsid);
+        p += n; rem -= n;
+
+        // demo always first
+        n = snprintf(p, rem,
+            "<div class='lbl'>Built-in</div>"
+            "<button class='demo' id='b_demo' onclick=\"fire('demo')\">&#9658; demo</button>"
+            "<div class='lbl'>SD Scripts (%d)</div>", sc - 1);
+        p += n; rem -= n;
+
+        for (int i = 1; i < sc && rem > 128; i++) {
+            const char* nm = scripts[i].c_str();
+            const char* base = strrchr(nm, '/'); if (base) nm = base + 1;
+            // strip .txt extension for display
+            static char disp[48];
+            strncpy(disp, nm, sizeof(disp) - 1); disp[sizeof(disp) - 1] = '\0';
+            char* dot = strrchr(disp, '.'); if (dot) *dot = '\0';
+            n = snprintf(p, rem,
+                "<button id='b_%d' onclick=\"fire('%s')\">&#9658; %s</button>",
+                i, nm, disp);
+            p += n; rem -= n;
+        }
+
+        snprintf(p, rem,
+            "<script>"
+            "var busy=false,pollT=null;"
+            "function setStatus(cls,txt){"
+            "var el=document.getElementById('st');"
+            "el.className='status '+cls;el.innerHTML=txt;}"
+            "function setBusy(b){"
+            "busy=b;"
+            "document.querySelectorAll('button').forEach(function(btn){btn.classList.toggle('running',b);});"
+            "}"
+            "function poll(){"
+            "fetch('/status').then(function(r){return r.json();}).then(function(d){"
+            "if(d.running){"
+            "var pct=d.total>0?Math.round(d.line*100/d.total):0;"
+            "setStatus('running','&#9654; Running&hellip; '+d.line+'/'+d.total);"
+            "document.getElementById('pb').style.width=pct+'%%';"
+            "pollT=setTimeout(poll,400);"
+            "}else if(busy){"
+            "setBusy(false);"
+            "setStatus('done','&#10003; Done');"
+            "document.getElementById('pb').style.width='0%%';"
+            "}"
+            "}).catch(function(){pollT=setTimeout(poll,800);});}"
+            "function fire(s){"
+            "if(busy)return;"
+            "setBusy(true);"
+            "setStatus('queued','&#9200; Queued: '+s+' (3s delay&hellip;)');"
+            "fetch('/run?script='+encodeURIComponent(s),{method:'POST'})"
+            ".then(function(r){return r.json();})"
+            ".then(function(d){"
+            "if(d.ok){setTimeout(function(){pollT=setTimeout(poll,500);},3200);}"
+            "else{setBusy(false);setStatus('err','&#10007; Error');}"
+            "}).catch(function(){setBusy(false);setStatus('err','&#10007; Network error');});}"
+            "</script></body></html>");
+    }
+
+    // Pending script request from phone (empty = none)
+    // Explicit reset each call — static initializers run only once.
+    static char pendingScript[128];
+    static bool pendingReady = false;
+    pendingScript[0] = '\0';
+    pendingReady = false;
+
+    server.on("/", HTTP_GET, [&]() {
+        server.send(200, "text/html", pageHtml);
+    });
+    server.on("/run", HTTP_POST, [&]() {
+        String s = server.arg("script");
+        if (s.length() > 0 && s.length() < sizeof(pendingScript) - 1) {
+            strncpy(pendingScript, s.c_str(), sizeof(pendingScript) - 1);
+            pendingScript[sizeof(pendingScript) - 1] = '\0';
+            pendingReady = true;
+            server.send(200, "application/json", "{\"ok\":true}");
+        } else {
+            server.send(400, "application/json", "{\"ok\":false}");
+        }
+    });
+    server.on("/status", HTTP_GET, [&]() {
+        char buf[64];
+        snprintf(buf, sizeof(buf),
+            "{\"running\":%s,\"line\":%d,\"total\":%d}",
+            pendingReady ? "true" : "false", _scriptLine, _scriptTotal);
+        server.send(200, "application/json", buf);
+    });
+    server.begin();
+
+    // ── Draw UI ───────────────────────────────────────────────────────────────
+    dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+    dm.setTextColor(0x7BEF);     dm.printText("[");
+    dm.setTextColor(TFT_CYAN);   dm.printText("USB");
+    dm.setTextColor(0x7BEF);     dm.printText("::");
+    dm.setTextColor(TFT_YELLOW); dm.println("REMOTE]");
+    dm.printSeparator();
+    dm.setCursor(10, dm.getCursorY());
+    dm.setTextColor(TFT_WHITE);  dm.printText("SSID: "); dm.println(apSsid);
+    dm.setCursor(10, dm.getCursorY());
+    dm.setTextColor(0x7BEF);     dm.println("IP:   192.168.4.1");
+    dm.setCursor(10, dm.getCursorY());
+    dm.setTextColor(0x7BEF);     dm.println("Open browser on phone.");
+    dm.printSeparator();
+    int statusY = dm.getCursorY();
+
+    // Session log (RAM — flushed after WiFi teardown to respect GDMA rule)
+    static char sessionLog[2048]; int logOff = 0; sessionLog[0] = '\0';
+
+    while (true) {
+        server.handleClient();
+
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') break;
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+            dm.setTextColor(0x7BEF);     dm.printText("[USB::REMOTE] SSID: "); dm.println(apSsid);
+            dm.printSeparator();
+            statusY = dm.getCursorY();
+        }
+
+        if (pendingReady) {
+            // ── 3-second countdown + cancel ───────────────────────────────────
+            bool cancelled = false;
+            for (int cd = 3; cd > 0 && !cancelled; cd--) {
+                dm.fillRect(0, statusY, SCREEN_WIDTH, LINE_HEIGHT * 2, TFT_BLACK);
+                dm.setCursor(10, statusY);
+                dm.setTextColor(TFT_YELLOW); dm.printText("Firing in ");
+                char cdbuf[8]; snprintf(cdbuf, sizeof(cdbuf), "%d...", cd);
+                dm.println(cdbuf);
+                dm.setCursor(10, statusY + LINE_HEIGHT);
+                dm.setTextColor(0x7BEF); dm.println("q = cancel");
+                for (int t = 0; t < 10 && !cancelled; t++) {   // 10 × 100ms = 1s
+                    server.handleClient();
+                    char ck = inputHandler.getKeyboardInput();
+                    if (ck == 'q' || ck == 'Q') { cancelled = true; pendingReady = false; pendingScript[0] = '\0'; }
+                    vTaskDelay(pdMS_TO_TICKS(100));
+                }
+            }
+            if (!cancelled) {
+                // Resolve script path
+                static char runPath[128];
+                if (strcmp(pendingScript, "demo") == 0) {
+                    strncpy(runPath, "demo", sizeof(runPath));
+                } else {
+                    snprintf(runPath, sizeof(runPath), "%s/%s", SD_DIR_BADUSB_SCRIPTS, pendingScript);
+                }
+
+                // Log to RAM
+                if (logOff < (int)sizeof(sessionLog) - 64) {
+                    int n = snprintf(sessionLog + logOff, sizeof(sessionLog) - logOff,
+                                     "%lu %s\n", millis(), pendingScript);
+                    logOff += n;
+                }
+
+                // Execute
+                dm.fillRect(0, statusY, SCREEN_WIDTH, LINE_HEIGHT * 3, TFT_BLACK);
+                dm.setCursor(10, statusY);
+                dm.setTextColor(TFT_GREEN); dm.printText("Running: ");
+                dm.println(pendingScript);
+
+                _aborted = false; _bleLost = false;
+                _defaultCharDelay = 8; _nextCharDelay = -1;
+                if (strcmp(runPath, "demo") == 0) runDemo(); else runFile(runPath);
+                _sink->releaseAll();
+
+                pendingReady = false; pendingScript[0] = '\0';
+
+                dm.fillRect(0, statusY, SCREEN_WIDTH, LINE_HEIGHT * 3, TFT_BLACK);
+                dm.setCursor(10, statusY);
+                dm.setTextColor(_aborted ? TFT_YELLOW : TFT_GREEN);
+                dm.println(_aborted ? "Aborted." : "Done. Waiting...");
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+
+    // ── Tear down WiFi ────────────────────────────────────────────────────────
+    server.stop();
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_STA);   // idle, not OFF (GDMA rule)
+    vTaskDelay(pdMS_TO_TICKS(400));
+
+    // ── Flush session log to SD (WiFi is now idle — safe) ─────────────────────
+    if (logOff > 0 && sdCardManager.isReady()) {
+        char logPath[48];
+        int i;
+        for (i = 1; i <= 999; i++) {
+            snprintf(logPath, sizeof(logPath), "%s/%03d.txt", SD_DIR_BADUSB_KEYLOG, i);
+            if (!SD.exists(logPath)) break;
+        }
+        if (i <= 999) {
+            File lf = SD.open(logPath, FILE_WRITE);
+            if (lf) { lf.print(sessionLog); lf.close(); }
+        }
+    }
+
+    dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+    dm.setTextColor(TFT_GREEN); dm.println("Remote session ended.");
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    dm.printCommandScreen();
+}
+
+// ── logChar() — append keystroke to the keylogger RAM buffer ─────────────────
+// Printable chars go in verbatim; control chars stored as <HEX> tags.
+// Flushes to SD and resets when the buffer is almost full.
+void BadUsb::logChar(char c) {
+    if (!_logMode) return;
+    char tmp[8]; int n;
+    if ((uint8_t)c >= 0x20 && (uint8_t)c < 0x7F) {
+        tmp[0] = c; n = 1;
+    } else if (c == '\r' || c == '\n') {
+        tmp[0] = '\n'; n = 1;
+    } else {
+        n = snprintf(tmp, sizeof(tmp), "<%.2X>", (uint8_t)c);
+    }
+    for (int i = 0; i < n && _logLen < (int)sizeof(_logBuf) - 8; i++)
+        _logBuf[_logLen++] = tmp[i];
+    _logBuf[_logLen] = '\0';
+}
+
+// ── startLog() — USB session logger ──────────────────────────────────────────
+// T-Deck acts as USB keyboard (device mode) — it SENDS keystrokes TO the victim
+// PC; it cannot receive the victim's own keyboard input (that is a separate USB
+// device the T-Deck never sees).  startLog logs every keystroke the OPERATOR
+// types on the T-Deck keyboard that gets forwarded to the victim — useful for
+// recording a manual BadUSB session and replaying it later as a script.
+// verbose=false = stealth (screen identical to uk); verbose=true = live counter.
+void BadUsb::startLog(bool verbose) {
+    DisplayManager& dm = displayManager;
+
+    if (!usbManager.isConnected()) {
+        dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+        dm.setTextColor(TFT_RED); dm.println("[USB::SLOG] Not connected.");
+        vTaskDelay(pdMS_TO_TICKS(2000)); dm.printCommandScreen(); return;
+    }
+
+    _ble  = false;
+    _sink = g_usbHidSink;
+    _sink->releaseAll();
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    _logMode    = true;
+    _logVerbose = verbose;
+    _logLen     = 0;
+    _logBuf[0]  = '\0';
+
+    dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+    dm.setTextColor(0x7BEF);    dm.printText("[");
+    dm.setTextColor(TFT_CYAN);  dm.printText("USB");
+    dm.setTextColor(0x7BEF);    dm.printText("::");
+    // Stealth = identical label as uk; verbose = shows SLOG
+    if (verbose) {
+        dm.setTextColor(TFT_YELLOW); dm.println("SLOG]");
+    } else {
+        dm.setTextColor(TFT_YELLOW); dm.println("KBD]");
+    }
+    dm.printSeparator();
+    dm.setCursor(10, dm.getCursorY());
+    dm.setTextColor(TFT_WHITE); dm.println("Keyboard + Mouse active.");
+    dm.setCursor(10, dm.getCursorY());
+    if (verbose) {
+        dm.setTextColor(TFT_CYAN); dm.println("Logging YOUR keystrokes sent.");
+        dm.setCursor(10, dm.getCursorY());
+    }
+    dm.setTextColor(0x7BEF); dm.println("L=tap R=hold Exit=hold 1.5s");
+    dm.printSeparator();
+    int statusY = dm.getCursorY();
+    int logDisplayY = statusY + LINE_HEIGHT;   // verbose counter row
+
+    // Reuse the USBHIDMouse embedded in usbKeyboard for mouse passthrough
+    static const uint8_t DIR_PINS[4]   = { BOARD_TBOX_G02, BOARD_TBOX_G01, BOARD_TBOX_G04, BOARD_TBOX_G03 };
+    static const int8_t  DIR_SIGN_X[4] = {  1, 0, -1, 0 };
+    static const int8_t  DIR_SIGN_Y[4] = {  0, -1, 0,  1 };
+
+    bool dirLast[4]; for (int i = 0; i < 4; i++) dirLast[i] = (bool)digitalRead(DIR_PINS[i]);
+    uint32_t lastDirMs   = millis();
+    bool     clickHeld   = false;
+    uint32_t clickDownMs = 0;
+    uint32_t lastDisplayMs = 0;
+    char     lastKeyBuf[8] = "---    ";
+    bool     running = true;
+
+    while (running) {
+        uint32_t now = millis();
+
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+            dm.setTextColor(0x7BEF);    dm.printText("[");
+            dm.setTextColor(TFT_CYAN);  dm.printText("USB::");
+            dm.setTextColor(TFT_YELLOW);dm.println(verbose ? "LOG]" : "KBD]");
+            dm.printSeparator();
+            dm.setCursor(10, dm.getCursorY());
+            dm.setTextColor(TFT_WHITE); dm.println("Keyboard + Mouse active.");
+            dm.setCursor(10, dm.getCursorY());
+            dm.setTextColor(0x7BEF); dm.println("L=tap R=hold Exit=hold 1.5s");
+            dm.printSeparator();
+            statusY = dm.getCursorY();
+            logDisplayY = statusY + LINE_HEIGHT;
+            lastDisplayMs = 0;
+        }
+
+        char k = inputHandler.getKeyboardInput();
+        if (k != 0) {
+            // Forward the keystroke to the USB HID sink
+            usbKeyboard.sendKey(k);
+            // Log it
+            logChar(k);
+            if ((uint8_t)k >= 0x20 && (uint8_t)k < 0x7F)
+                snprintf(lastKeyBuf, sizeof(lastKeyBuf), "'%c'    ", k);
+            else
+                snprintf(lastKeyBuf, sizeof(lastKeyBuf), "0x%02X  ", (uint8_t)k);
+        }
+
+        // Mouse: trackball directions
+        for (int i = 0; i < 4; i++) {
+            bool cur = (bool)digitalRead(DIR_PINS[i]);
+            if (cur != dirLast[i]) {
+                dirLast[i] = cur;
+                uint32_t elapsed = now - lastDirMs; lastDirMs = now;
+                int8_t step = (elapsed < 25) ? 20 : (elapsed < 50) ? 13 : (elapsed < 100) ? 8 : (elapsed < 200) ? 5 : 3;
+                usbKeyboard.moveMouse(DIR_SIGN_X[i] * step, DIR_SIGN_Y[i] * step);
+            }
+        }
+
+        // Mouse: click / hold-to-exit
+        bool clickCur = (bool)digitalRead(BOARD_BOOT_PIN);
+        if (!clickCur && !clickHeld) { clickDownMs = now; clickHeld = true; }
+        else if (clickCur && clickHeld) {
+            uint32_t h = now - clickDownMs; clickHeld = false;
+            if      (h < 300)  usbKeyboard.clickMouse(MOUSE_LEFT);
+            else if (h < 1500) usbKeyboard.clickMouse(MOUSE_RIGHT);
+            else               running = false;
+        } else if (!clickCur && clickHeld && now - clickDownMs >= 1500) { running = false; }
+
+        if (now - lastDisplayMs >= 125) {
+            lastDisplayMs = now;
+            dm.fillRect(0, statusY, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+            dm.setCursor(10, statusY);
+            dm.setTextColor(TFT_CYAN);  dm.printText("KEY ");
+            dm.setTextColor(TFT_WHITE); dm.println(lastKeyBuf);
+            if (verbose) {
+                dm.fillRect(0, logDisplayY, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+                dm.setCursor(10, logDisplayY);
+                dm.setTextColor(TFT_GREEN); dm.printText("[LOG ");
+                char nb[12]; snprintf(nb, sizeof(nb), "%d", _logLen); dm.printText(nb);
+                dm.setTextColor(TFT_GREEN); dm.println(" chars]");
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(4));
+    }
+
+    g_hid_keyboard.releaseAll();
+
+    _logMode = false;
+
+    // ── Save log to SD (USB is still connected, WiFi not up — no GDMA concern) ─
+    if (_logLen > 0 && sdCardManager.isReady()) {
+        char logPath[48];
+        int i;
+        for (i = 1; i <= 999; i++) {
+            snprintf(logPath, sizeof(logPath), "%s/%03d.txt", SD_DIR_BADUSB_KEYLOG, i);
+            if (!SD.exists(logPath)) break;
+        }
+        if (i <= 999) {
+            File lf = SD.open(logPath, FILE_WRITE);
+            if (lf) { lf.print(_logBuf); lf.close(); }
+        }
+        dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+        if (i > 999) {
+            dm.setTextColor(TFT_RED); dm.println("Session log slots full (999).");
+        } else {
+            dm.setTextColor(TFT_GREEN); dm.printText("Session log saved: ");
+            const char* base = strrchr(logPath, '/'); dm.println(base ? base + 1 : logPath);
+            dm.setCursor(10, dm.getCursorY());
+            dm.setTextColor(0x7BEF);
+            char nb[24]; snprintf(nb, sizeof(nb), "%d chars sent.", _logLen); dm.println(nb);
+        }
+    } else {
+        dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
+        dm.setTextColor(_logLen == 0 ? TFT_YELLOW : TFT_RED);
+        dm.println(_logLen == 0 ? "Nothing sent." : "Log save failed — no SD.");
+    }
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    dm.printCommandScreen();
 }
 
 // ── bleHostLost() ─────────────────────────────────────────────────────────────
@@ -677,15 +1378,33 @@ void BadUsb::runDemo() {
     runLines(DEMO_LINES, DEMO_COUNT);
 }
 
+// ── drawScriptStatus() — update the "Line N/T" row without clearing the screen ──
+static void drawScriptStatus(int line, int total) {
+    DisplayManager& dm = displayManager;
+    // Status row is fixed at outputY + 4*LINE_HEIGHT (below the header/sep/script/q lines).
+    int sy = outputY + 4 * LINE_HEIGHT;
+    dm.fillRect(0, sy, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+    dm.setCursor(10, sy);
+    dm.setTextColor(0x7BEF); dm.printText("Line ");
+    char buf[24];
+    if (total > 0) snprintf(buf, sizeof(buf), "%d/%d", line, total);
+    else           snprintf(buf, sizeof(buf), "%d", line);
+    dm.setTextColor(TFT_WHITE); dm.println(buf);
+}
+
 // ── runLines() — shared executor for demo (array) ─────────────────────────────
 void BadUsb::runLines(const char* const* lines, int count) {
     int      defaultDelay = 0;
     String   lastLine     = "";
+    _scriptTotal = count;
+    _scriptLine  = 0;
 
     for (int i = 0; i < count && !_aborted; i++) {
         if (bleHostLost()) break;
         const char* raw = lines[i];
         if (!raw || *raw == '\0') continue;
+        _scriptLine = i + 1;
+        drawScriptStatus(_scriptLine, _scriptTotal);
 
         // REPEAT is handled at loop level so it can re-run lastLine
         if (strncmp(raw, "REPEAT", 6) == 0 && (raw[6] == ' ' || raw[6] == '\0')) {
@@ -724,6 +1443,15 @@ void BadUsb::runFile(const char* path) {
         return;
     }
 
+    // Count non-empty lines for the live counter (quick pass, rewind)
+    _scriptTotal = 0; _scriptLine = 0;
+    while (f.available()) {
+        String l = f.readStringUntil('\n');
+        l.trim();
+        if (l.length() > 0) _scriptTotal++;
+    }
+    f.seek(0);
+
     int    defaultDelay = 0;
     String lastLine     = "";
 
@@ -734,6 +1462,8 @@ void BadUsb::runFile(const char* path) {
         if (line.endsWith("\r")) line.remove(line.length() - 1);
         line.trim();
         if (line.length() == 0) continue;
+        _scriptLine++;
+        drawScriptStatus(_scriptLine, _scriptTotal);
 
         // REPEAT at loop level so we can re-run lastLine
         if (line.startsWith("REPEAT")) {
