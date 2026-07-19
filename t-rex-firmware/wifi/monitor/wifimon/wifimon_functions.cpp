@@ -14,7 +14,7 @@ volatile WmPkt      WiFiMonitor::s_ring[WM_PKT_RING];
 volatile uint8_t    WiFiMonitor::s_head = 0;
 volatile uint8_t    WiFiMonitor::s_tail = 0;
 
-volatile WmRawFrame WiFiMonitor::s_pcapRing[WM_PCAP_RING];
+volatile WmRawFrame* WiFiMonitor::s_pcapRing = nullptr;
 volatile uint8_t    WiFiMonitor::s_pcapHead    = 0;
 volatile uint8_t    WiFiMonitor::s_pcapTail    = 0;
 volatile bool       WiFiMonitor::s_pcapActive  = false;
@@ -844,6 +844,9 @@ void WiFiMonitor::logProbe(const uint8_t* mac, const char* ssid,
 // ── main loop ─────────────────────────────────────────────────────────────────
 void WiFiMonitor::start(int fixedChannel) {
     resetAll();
+
+    if (!s_pcapRing)
+        s_pcapRing = (volatile WmRawFrame*)ps_malloc(WM_PCAP_RING * sizeof(WmRawFrame));
 
     WiFi.disconnect(false);
     WiFi.mode(WIFI_STA);

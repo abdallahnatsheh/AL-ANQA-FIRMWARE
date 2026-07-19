@@ -43,6 +43,7 @@
 #include "touch_test.h"
 #include "home_ui.h"
 #include "undercover.h"
+#include "usb_keylog.h"
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
 extern WiFiFunctions      wifiFunctions;
@@ -643,9 +644,28 @@ static void handleShowCmd(char* a) {
 }
 
 static void handleUsbExecCmd(char* a) {
-    // Optional `ble` prefix → run the DuckyScript over BLE HID instead of USB.
+    // ── USB-only new subcommands (checked before the `ble` prefix) ────────────
+    if (!a || *a == '\0') { badUsb.startInteractive(); return; }   // bare `ux` → interactive
+
+    if (strncmp(a, "auto", 4) == 0 && (a[4] == ' ' || a[4] == '\0')) {
+        a += 4; while (*a == ' ' || *a == '\t') a++;
+        badUsb.startAuto(*a ? a : nullptr); return;
+    }
+    if (strncmp(a, "remote", 6) == 0 && (a[6] == ' ' || a[6] == '\0')) {
+        a += 6; while (*a == ' ' || *a == '\t') a++;
+        badUsb.startRemote(*a ? a : nullptr); return;
+    }
+    if (strncmp(a, "log", 3) == 0 && (a[3] == ' ' || a[3] == '\0')) {
+        a += 3; while (*a == ' ' || *a == '\t') a++;
+        // ux log ble → USB host keylog + BLE HID forward to victim PC
+        // ux log     → USB host keylog only
+        bool bleForward = (strncmp(a, "ble", 3) == 0 && (a[3] == ' ' || a[3] == '\0'));
+        runUsbKeylog(bleForward); return;
+    }
+
+    // ── Optional `ble` prefix → run the DuckyScript over BLE HID ─────────────
     bool ble = false;
-    if (a && strncmp(a, "ble", 3) == 0 && (a[3] == ' ' || a[3] == '\0')) {
+    if (strncmp(a, "ble", 3) == 0 && (a[3] == ' ' || a[3] == '\0')) {
         ble = true;
         a += 3;
         while (*a == ' ' || *a == '\t') a++;
@@ -845,7 +865,7 @@ void CommandManager::setupCommands() {
     registerCommand("usbmsc",      "um",     [](char* a) { usbManager.startMSC(); },                                                              "Expose SD card as USB drive",             false, "USB");
     registerCommand("usbkbd",      "uk",     [](char* a) { usbKeyboard.start(); },                                                               "T-DECK as USB keyboard+mouse",            false, "USB");
     registerCommand("btkbd",       "bk",     [](char* a) { stopMacwatchBg(); bleKeyboard.start(); },                                              "T-DECK as BLE keyboard+mouse",            false, "Bluetooth");
-    registerCommand("usbexec",     "ux",     [](char* a) { handleUsbExecCmd(a); },                                              "BadUSB: ux [ble [clone <mac|#>]] <demo|script>", true,  "USB",  COMP_FILE);
+    registerCommand("usbexec",     "ux",     [](char* a) { handleUsbExecCmd(a); },                                              "BadUSB/logger: ux auto|remote|log|ble|<script>", true,  "USB",  COMP_FILE);
     registerCommand("jiggle",      "jg",     [](char* a) { if (a && *a && !Utils::matchesCmd(a,"usb") && !Utils::matchesCmd(a,"ble")) { Utils::printUsage("jg"); return; } if (a && (a[0]=='b'||a[0]=='B')) bleKeyboard.jiggle(); else usbKeyboard.jiggle(); }, "Jiggler: jg [usb|ble] — prevent screen lock", true,  "USB");
     // ── Diagnostics ───────────────────────────────────────────────────────────
     registerCommand("gps",         "gps",    [](char* a) { runGps(a); },                                                "GPS: gps on|off|test",                    true,  "Diagnostics");

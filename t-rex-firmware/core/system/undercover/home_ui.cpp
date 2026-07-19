@@ -312,10 +312,7 @@ bool HomeLauncher::run(bool standalone) {
 
     if (standalone) {
         displayManager.setBlocked(false);
-        displayManager.clearScreen();
-        displayManager.setCursor(10, outputY);
-        displayManager.printCommandScreen();
-        LockScreenManager::getInstance().signalRedraw();
+        displayManager.tdeck_begin();   // full clean slate: black + real status bar + prompt
     }
     return _secretExit;
 }

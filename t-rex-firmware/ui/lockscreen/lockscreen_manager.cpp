@@ -213,6 +213,7 @@ void LockScreenManager::drawDormant() {
     DisplayManager& dm = displayManager;
     dm.clearScreen();
     dm.setDefaultTextSize();
+    displayManager.updateStatusBar();   // refresh real status bar immediately on lock
 
     drawLockHeader();
 
@@ -247,6 +248,7 @@ void LockScreenManager::drawPinScreen() {
     DisplayManager& dm = displayManager;
     dm.clearScreen();
     dm.setDefaultTextSize();
+    displayManager.updateStatusBar();   // refresh real status bar immediately on lock
 
     drawLockHeader();
 
