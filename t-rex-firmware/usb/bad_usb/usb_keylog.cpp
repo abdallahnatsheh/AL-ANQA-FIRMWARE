@@ -222,14 +222,22 @@ static void intrCb(usb_transfer_t* t) {
 // Resume it on exit so the rest of the firmware's USB device stack works again.
 static void usbHostTask(void* /*arg*/) {
     TaskHandle_t tusbTask = xTaskGetHandle("usbd");
-    if (tusbTask) vTaskSuspend(tusbTask);
+    if (tusbTask) {
+        vTaskSuspend(tusbTask);
+        vTaskDelay(pdMS_TO_TICKS(50));  // let any in-flight device-mode DMA drain
+    }
+    // Disconnect AFTER suspending the TinyUSB task so TinyUSB's ISR can't
+    // race with the PHY reconfiguration that usb_host_install() does below.
+    tud_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(300));     // PHY settle time before host-mode init
 
     usb_host_config_t cfg = {
         .skip_phy_setup = false,
         .intr_flags     = ESP_INTR_FLAG_LEVEL1
     };
     if (usb_host_install(&cfg) != ESP_OK) {
-        // PHY reconfiguration still failed — signal main task and bail out.
+        // PHY reconfiguration failed — restore device mode and bail out.
+        tud_connect();
         if (tusbTask) vTaskResume(tusbTask);
         s_devGone = true;
         vTaskDelete(nullptr);
@@ -315,7 +323,11 @@ static void usbHostTask(void* /*arg*/) {
     if (s_clientHdl) { usb_host_client_deregister(s_clientHdl); s_clientHdl = nullptr; }
     usb_host_uninstall();
 
-    // Restore TinyUSB device task — firmware's USB keyboard/MSC work again
+    // Re-assert D+ pullup BEFORE resuming the TinyUSB task so TinyUSB sees
+    // a clean device-mode start when it wakes up.
+    vTaskDelay(pdMS_TO_TICKS(100));
+    tud_connect();
+    vTaskDelay(pdMS_TO_TICKS(50));
     if (tusbTask) vTaskResume(tusbTask);
     vTaskDelete(nullptr);
 }
@@ -330,14 +342,11 @@ void runUsbKeylog(bool bleForward) {
     dm.printSeparator();
     dm.setCursor(10, dm.getCursorY());
 
-    // ── Stop USB device mode ──────────────────────────────────────────────────
-    // tud_disconnect() asserts the D+ pulldown (DP_PULLDOWN) so the host PC sees
-    // a USB disconnect.  This lets the USB HAL go idle before usb_host_install()
-    // reconfigures the OTG controller for host mode.
-    tud_disconnect();
-    vTaskDelay(pdMS_TO_TICKS(250));
-
     // ── Optional BLE HID forward setup ───────────────────────────────────────
+    // NOTE: tud_disconnect() is now called inside usbHostTask(), AFTER it
+    // suspends the TinyUSB "usbd" FreeRTOS task.  Calling it here (from the
+    // main task) while TinyUSB's ISR is still registered on ETS_USB_INTR_SOURCE
+    // races with usb_host_install()'s own ISR registration → crash.
     if (bleForward) {
         dm.setTextColor(0x7BEF); dm.println("Starting BLE HID...");
         bleKeyboard.badusbBegin(nullptr, 1, "T-REX-KBD");
@@ -391,7 +400,7 @@ void runUsbKeylog(bool bleForward) {
 
     // ── Launch USB host daemon on core 0 ──────────────────────────────────────
     TaskHandle_t hostTask = nullptr;
-    xTaskCreatePinnedToCore(usbHostTask, "usb_host_kl", 8192, nullptr, 5, &hostTask, 0);
+    xTaskCreatePinnedToCore(usbHostTask, "usb_host_kl", 16384, nullptr, 5, &hostTask, 0);
 
     // ── Log buffer (RAM, flushed to SD on exit) ───────────────────────────────
     static char logBuf[8192];
@@ -491,10 +500,8 @@ void runUsbKeylog(bool bleForward) {
     }
 
     if (bleForward) bleKeyboard.badusbEnd();
-
-    // Reconnect T-Deck as USB device (re-assert D+ pullup → host sees device again)
-    tud_connect();
-    vTaskDelay(pdMS_TO_TICKS(200));
+    // tud_connect() is called inside usbHostTask() before it resumes the TinyUSB
+    // task, so USB device mode is already restored by the time we reach here.
 
     // ── Save log to SD ─────────────────────────────────────────────────────────
     dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
