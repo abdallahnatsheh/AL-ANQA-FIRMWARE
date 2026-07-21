@@ -866,7 +866,7 @@ void BadUsb::startAuto(const char* dir) {
             if (tb2 == TBALL_DOWN) { if (pick < fc - 1) { pick++; redraw2 = true; } continue; }
             if (tb2 == TBALL_CLICK) break;
             char ck2 = inputHandler.getKeyboardInput();
-            if (!ck2) continue;
+            if (!ck2) { if (LockScreenManager::getInstance().consumeJustUnlocked()) redraw2 = true; continue; }
             if (ck2 == 'q' || ck2 == 'Q') { dm.printCommandScreen(); return; }
             if (ck2 == '\r' || ck2 == '\n') break;
         }
@@ -1092,7 +1092,17 @@ void BadUsb::startRemote(const char* ssid) {
         if (k == 'q' || k == 'Q') break;
         if (LockScreenManager::getInstance().consumeJustUnlocked()) {
             dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
-            dm.setTextColor(0x7BEF);     dm.printText("[USB::REMOTE] SSID: "); dm.println(apSsid);
+            dm.setTextColor(0x7BEF);     dm.printText("[");
+            dm.setTextColor(TFT_CYAN);   dm.printText("USB");
+            dm.setTextColor(0x7BEF);     dm.printText("::");
+            dm.setTextColor(TFT_YELLOW); dm.println("REMOTE]");
+            dm.printSeparator();
+            dm.setCursor(10, dm.getCursorY());
+            dm.setTextColor(TFT_WHITE);  dm.printText("SSID: "); dm.println(apSsid);
+            dm.setCursor(10, dm.getCursorY());
+            dm.setTextColor(0x7BEF);     dm.println("IP:   192.168.4.1");
+            dm.setCursor(10, dm.getCursorY());
+            dm.setTextColor(0x7BEF);     dm.println("Open browser on phone.");
             dm.printSeparator();
             statusY = dm.getCursorY();
         }
@@ -1162,10 +1172,10 @@ void BadUsb::startRemote(const char* ssid) {
 
     // ── Flush session log to SD (WiFi is now idle — safe) ─────────────────────
     if (logOff > 0 && sdCardManager.isReady()) {
-        char logPath[48];
+        char logPath[52];
         int i;
         for (i = 1; i <= 999; i++) {
-            snprintf(logPath, sizeof(logPath), "%s/%03d.txt", SD_DIR_BADUSB_KEYLOG, i);
+            snprintf(logPath, sizeof(logPath), "%s/remote_%03d.txt", SD_DIR_BADUSB, i);
             if (!SD.exists(logPath)) break;
         }
         if (i <= 999) {
@@ -1177,191 +1187,6 @@ void BadUsb::startRemote(const char* ssid) {
     dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
     dm.setTextColor(TFT_GREEN); dm.println("Remote session ended.");
     vTaskDelay(pdMS_TO_TICKS(1500));
-    dm.printCommandScreen();
-}
-
-// ── logChar() — append keystroke to the keylogger RAM buffer ─────────────────
-// Printable chars go in verbatim; control chars stored as <HEX> tags.
-// Flushes to SD and resets when the buffer is almost full.
-void BadUsb::logChar(char c) {
-    if (!_logMode) return;
-    char tmp[8]; int n;
-    if ((uint8_t)c >= 0x20 && (uint8_t)c < 0x7F) {
-        tmp[0] = c; n = 1;
-    } else if (c == '\r' || c == '\n') {
-        tmp[0] = '\n'; n = 1;
-    } else {
-        n = snprintf(tmp, sizeof(tmp), "<%.2X>", (uint8_t)c);
-    }
-    for (int i = 0; i < n && _logLen < (int)sizeof(_logBuf) - 8; i++)
-        _logBuf[_logLen++] = tmp[i];
-    _logBuf[_logLen] = '\0';
-}
-
-// ── startLog() — USB session logger ──────────────────────────────────────────
-// T-Deck acts as USB keyboard (device mode) — it SENDS keystrokes TO the victim
-// PC; it cannot receive the victim's own keyboard input (that is a separate USB
-// device the T-Deck never sees).  startLog logs every keystroke the OPERATOR
-// types on the T-Deck keyboard that gets forwarded to the victim — useful for
-// recording a manual BadUSB session and replaying it later as a script.
-// verbose=false = stealth (screen identical to uk); verbose=true = live counter.
-void BadUsb::startLog(bool verbose) {
-    DisplayManager& dm = displayManager;
-
-    if (!usbManager.isConnected()) {
-        dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
-        dm.setTextColor(TFT_RED); dm.println("[USB::SLOG] Not connected.");
-        vTaskDelay(pdMS_TO_TICKS(2000)); dm.printCommandScreen(); return;
-    }
-
-    _ble  = false;
-    _sink = g_usbHidSink;
-    _sink->releaseAll();
-    vTaskDelay(pdMS_TO_TICKS(500));
-
-    _logMode    = true;
-    _logVerbose = verbose;
-    _logLen     = 0;
-    _logBuf[0]  = '\0';
-
-    dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
-    dm.setTextColor(0x7BEF);    dm.printText("[");
-    dm.setTextColor(TFT_CYAN);  dm.printText("USB");
-    dm.setTextColor(0x7BEF);    dm.printText("::");
-    // Stealth = identical label as uk; verbose = shows SLOG
-    if (verbose) {
-        dm.setTextColor(TFT_YELLOW); dm.println("SLOG]");
-    } else {
-        dm.setTextColor(TFT_YELLOW); dm.println("KBD]");
-    }
-    dm.printSeparator();
-    dm.setCursor(10, dm.getCursorY());
-    dm.setTextColor(TFT_WHITE); dm.println("Keyboard + Mouse active.");
-    dm.setCursor(10, dm.getCursorY());
-    if (verbose) {
-        dm.setTextColor(TFT_CYAN); dm.println("Logging YOUR keystrokes sent.");
-        dm.setCursor(10, dm.getCursorY());
-    }
-    dm.setTextColor(0x7BEF); dm.println("L=tap R=hold Exit=hold 1.5s");
-    dm.printSeparator();
-    int statusY = dm.getCursorY();
-    int logDisplayY = statusY + LINE_HEIGHT;   // verbose counter row
-
-    // Reuse the USBHIDMouse embedded in usbKeyboard for mouse passthrough
-    static const uint8_t DIR_PINS[4]   = { BOARD_TBOX_G02, BOARD_TBOX_G01, BOARD_TBOX_G04, BOARD_TBOX_G03 };
-    static const int8_t  DIR_SIGN_X[4] = {  1, 0, -1, 0 };
-    static const int8_t  DIR_SIGN_Y[4] = {  0, -1, 0,  1 };
-
-    bool dirLast[4]; for (int i = 0; i < 4; i++) dirLast[i] = (bool)digitalRead(DIR_PINS[i]);
-    uint32_t lastDirMs   = millis();
-    bool     clickHeld   = false;
-    uint32_t clickDownMs = 0;
-    uint32_t lastDisplayMs = 0;
-    char     lastKeyBuf[8] = "---    ";
-    bool     running = true;
-
-    while (running) {
-        uint32_t now = millis();
-
-        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
-            dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
-            dm.setTextColor(0x7BEF);    dm.printText("[");
-            dm.setTextColor(TFT_CYAN);  dm.printText("USB::");
-            dm.setTextColor(TFT_YELLOW);dm.println(verbose ? "LOG]" : "KBD]");
-            dm.printSeparator();
-            dm.setCursor(10, dm.getCursorY());
-            dm.setTextColor(TFT_WHITE); dm.println("Keyboard + Mouse active.");
-            dm.setCursor(10, dm.getCursorY());
-            dm.setTextColor(0x7BEF); dm.println("L=tap R=hold Exit=hold 1.5s");
-            dm.printSeparator();
-            statusY = dm.getCursorY();
-            logDisplayY = statusY + LINE_HEIGHT;
-            lastDisplayMs = 0;
-        }
-
-        char k = inputHandler.getKeyboardInput();
-        if (k != 0) {
-            // Forward the keystroke to the USB HID sink
-            usbKeyboard.sendKey(k);
-            // Log it
-            logChar(k);
-            if ((uint8_t)k >= 0x20 && (uint8_t)k < 0x7F)
-                snprintf(lastKeyBuf, sizeof(lastKeyBuf), "'%c'    ", k);
-            else
-                snprintf(lastKeyBuf, sizeof(lastKeyBuf), "0x%02X  ", (uint8_t)k);
-        }
-
-        // Mouse: trackball directions
-        for (int i = 0; i < 4; i++) {
-            bool cur = (bool)digitalRead(DIR_PINS[i]);
-            if (cur != dirLast[i]) {
-                dirLast[i] = cur;
-                uint32_t elapsed = now - lastDirMs; lastDirMs = now;
-                int8_t step = (elapsed < 25) ? 20 : (elapsed < 50) ? 13 : (elapsed < 100) ? 8 : (elapsed < 200) ? 5 : 3;
-                usbKeyboard.moveMouse(DIR_SIGN_X[i] * step, DIR_SIGN_Y[i] * step);
-            }
-        }
-
-        // Mouse: click / hold-to-exit
-        bool clickCur = (bool)digitalRead(BOARD_BOOT_PIN);
-        if (!clickCur && !clickHeld) { clickDownMs = now; clickHeld = true; }
-        else if (clickCur && clickHeld) {
-            uint32_t h = now - clickDownMs; clickHeld = false;
-            if      (h < 300)  usbKeyboard.clickMouse(MOUSE_LEFT);
-            else if (h < 1500) usbKeyboard.clickMouse(MOUSE_RIGHT);
-            else               running = false;
-        } else if (!clickCur && clickHeld && now - clickDownMs >= 1500) { running = false; }
-
-        if (now - lastDisplayMs >= 125) {
-            lastDisplayMs = now;
-            dm.fillRect(0, statusY, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
-            dm.setCursor(10, statusY);
-            dm.setTextColor(TFT_CYAN);  dm.printText("KEY ");
-            dm.setTextColor(TFT_WHITE); dm.println(lastKeyBuf);
-            if (verbose) {
-                dm.fillRect(0, logDisplayY, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
-                dm.setCursor(10, logDisplayY);
-                dm.setTextColor(TFT_GREEN); dm.printText("[LOG ");
-                char nb[12]; snprintf(nb, sizeof(nb), "%d", _logLen); dm.printText(nb);
-                dm.setTextColor(TFT_GREEN); dm.println(" chars]");
-            }
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(4));
-    }
-
-    g_hid_keyboard.releaseAll();
-
-    _logMode = false;
-
-    // ── Save log to SD (USB is still connected, WiFi not up — no GDMA concern) ─
-    if (_logLen > 0 && sdCardManager.isReady()) {
-        char logPath[48];
-        int i;
-        for (i = 1; i <= 999; i++) {
-            snprintf(logPath, sizeof(logPath), "%s/%03d.txt", SD_DIR_BADUSB_KEYLOG, i);
-            if (!SD.exists(logPath)) break;
-        }
-        if (i <= 999) {
-            File lf = SD.open(logPath, FILE_WRITE);
-            if (lf) { lf.print(_logBuf); lf.close(); }
-        }
-        dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
-        if (i > 999) {
-            dm.setTextColor(TFT_RED); dm.println("Session log slots full (999).");
-        } else {
-            dm.setTextColor(TFT_GREEN); dm.printText("Session log saved: ");
-            const char* base = strrchr(logPath, '/'); dm.println(base ? base + 1 : logPath);
-            dm.setCursor(10, dm.getCursorY());
-            dm.setTextColor(0x7BEF);
-            char nb[24]; snprintf(nb, sizeof(nb), "%d chars sent.", _logLen); dm.println(nb);
-        }
-    } else {
-        dm.clearScreen(); dm.setCursor(10, outputY); dm.setDefaultTextSize();
-        dm.setTextColor(_logLen == 0 ? TFT_YELLOW : TFT_RED);
-        dm.println(_logLen == 0 ? "Nothing sent." : "Log save failed — no SD.");
-    }
-    vTaskDelay(pdMS_TO_TICKS(2000));
     dm.printCommandScreen();
 }
 
