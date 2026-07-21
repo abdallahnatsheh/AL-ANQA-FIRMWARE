@@ -130,7 +130,6 @@ void SDCardManager::ensureTreeStructure() {
     ensureDir(SD_DIR_BADUSB_OS_WIN);
     ensureDir(SD_DIR_BADUSB_OS_MAC);
     ensureDir(SD_DIR_BADUSB_OS_LIN);
-    ensureDir(SD_DIR_BADUSB_KEYLOG);
     ensureDir(SD_DIR_SSH);
 
     ensureAppsReadme();
@@ -785,8 +784,7 @@ bool SDCardManager::initializeTDeckStructure() {
         SD_DIR_WGUARD, SD_DIR_BEACONFLOOD, SD_DIR_KARMA, SD_DIR_KARMA_PORTAL, SD_DIR_CAPCRACK, SD_DIR_BMON, SD_DIR_MACWATCH, SD_DIR_I2CSCAN,
         SD_DIR_FASTPAIR, SD_DIR_ESPSNIFF, SD_DIR_BLEINFO, SD_DIR_ESPCHAT,
         SD_DIR_ESPCHAT_PUB, SD_DIR_ESPCHAT_PRV, SD_DIR_BADUSB, SD_DIR_BADUSB_SCRIPTS,
-        SD_DIR_BADUSB_OS, SD_DIR_BADUSB_OS_WIN, SD_DIR_BADUSB_OS_MAC, SD_DIR_BADUSB_OS_LIN,
-        SD_DIR_BADUSB_KEYLOG
+        SD_DIR_BADUSB_OS, SD_DIR_BADUSB_OS_WIN, SD_DIR_BADUSB_OS_MAC, SD_DIR_BADUSB_OS_LIN
     };
     bool ok = true;
     for (const char* d : dirs) {

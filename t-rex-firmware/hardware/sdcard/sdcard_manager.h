@@ -81,7 +81,6 @@
 #define SD_DIR_BADUSB_OS_WIN  "/apps/badusb/os/windows"
 #define SD_DIR_BADUSB_OS_MAC  "/apps/badusb/os/macos"
 #define SD_DIR_BADUSB_OS_LIN  "/apps/badusb/os/linux"
-#define SD_DIR_BADUSB_KEYLOG  "/apps/badusb/keylog"
 
 #define SD_DIR_SSH            "/apps/ssh"            // ssh client — reserved for
 #define SD_SSH_KNOWNHOSTS     "/apps/ssh/known_hosts" // host-key pinning (planned)

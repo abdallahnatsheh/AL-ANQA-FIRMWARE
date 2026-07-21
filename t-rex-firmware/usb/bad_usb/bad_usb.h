@@ -22,7 +22,6 @@ public:
     void startInteractiveUsb();          // USB-side: transport=USB already chosen → script picker
     void startAuto(const char* dir);     // `ux auto [dir]` — probe OS → auto-pick script dir
     void startRemote(const char* ssid);  // `ux remote [ssid]` — SoftAP web trigger
-    void startLog(bool verbose);         // `ux log [v]` — USB passthrough + keylogger
 
 private:
     bool     _aborted;
@@ -39,13 +38,6 @@ private:
     // OS detection (ux auto)
     OsType   _detectedOs  = OS_UNKNOWN;
     OsType   probeOs();         // toggle NumLock, read LED event → OS guess
-
-    // keylogger (ux log)
-    bool     _logMode    = false;
-    bool     _logVerbose = false;
-    char     _logBuf[4096];
-    int      _logLen     = 0;
-    void     logChar(char c);   // append to _logBuf, flush to SD on overflow
 
     // BLE run only: returns true (and latches _bleLost/_aborted) if the HID host has
     // dropped. USB liveness is checked once up front in start(), so this no-ops on USB.
