@@ -19,6 +19,7 @@ public:
     TrackballEvent interceptTrackball(TrackballEvent evt);
     TouchEvent     interceptTouch(TouchEvent evt);
     void           updateActivity();           // call on any user input to reset idle timer
+    void           suppressAutoLock(bool s) { _suppressAutoLock = s; if (!s) updateActivity(); } // disable idle/tpad-hold lock (e.g. during NES); resets idle timer + tpad hold on resume
     void           lock();
     bool           isLocked() const { return _locked; }
     bool           consumeJustUnlocked() { bool v = _justUnlocked; _justUnlocked = false; return v; }
@@ -48,6 +49,7 @@ private:
 
     uint32_t _tpadDownMs      = 0;
     bool     _tpadHeld        = false;
+    bool     _suppressAutoLock = false;  // set by foreground apps (NES) to disable idle/tpad-hold lock
 
     uint8_t  _spaceCount      = 0;       // consecutive Spaces pressed while locked (no-pwd)
 
