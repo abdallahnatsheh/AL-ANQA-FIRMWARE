@@ -15,6 +15,7 @@
 #include "handshake_capture.h"
 #include "pmkid_attack.h"
 #include "powersave_manager.h"
+#include "vol_manager.h"
 #include "mac_changer.h"
 #include "man_pages.h"
 #include "wifi_creds.h"
@@ -43,6 +44,7 @@
 #include "touch_test.h"
 #include "home_ui.h"
 #include "undercover.h"
+#include "nes_emulator.h"
 extern DisplayManager     displayManager;
 extern ESPInfoPrinter     espInfoPrinter;
 extern WiFiFunctions      wifiFunctions;
@@ -729,19 +731,6 @@ static void handleUsbExecCmd(char* a) {
     } else { badUsb.start(a, ble, cloneMac, cloneType, cloneName); }
 }
 
-static void handleVolumeCmd(char* a) {
-    static uint8_t s_vol = 70;
-    if (a && *a) {
-        if      (strcmp(a, "up")   == 0) s_vol = min(100, (int)s_vol + 10);
-        else if (strcmp(a, "down") == 0) s_vol = s_vol > 10 ? s_vol - 10 : 0;
-        else if (strcmp(a, "off")  == 0) s_vol = 0;
-        else { int v = atoi(a); if (v >= 0 && v <= 100) s_vol = (uint8_t)v; }
-    }
-    displayManager.setTextColor(0x7BEF); displayManager.printText("Volume  ");
-    displayManager.setTextColor(TFT_WHITE);
-    char b[16]; snprintf(b, sizeof(b), "%d%%", s_vol); displayManager.println(b);
-    displayManager.printCommandScreen();
-}
 
 static void handleWGuardCmd(char* a) {
     if (!a || !*a) {
@@ -802,10 +791,11 @@ void CommandManager::setupCommands() {
     registerCommand("sleep",       "slp",    [](char* a) { PowerSaveManager::getInstance().deepSleep(); },                "Deep sleep (~240uA); click trackball to wake", false, "System");
     registerCommand("lock",        "lk",     [](char* a) { LockScreenManager::getInstance().cmd(a); },                       "Screen lock  [new|update|clean|wipe|boot on|off|timeout <s>|status]", true,  "System");
     registerCommand("home",        "hm",     [](char* a) { runHomeUi(); },                                                  "[EXP] Home launcher cover UI: phone-style home; Notes tile opens notes", false, "System");
+    registerCommand("game",        "gm",     [](char* a) { runNesEmulator(a); },                                            "[EXP] NES emulator (mapper 0-4+069): gm [<rom.nes>] | k=B l=A e=save r=load",  true,  "System",  COMP_FILE);
     registerCommand("undercover",  "uc",     [](char* a) { runUndercover(a); },                                            "[EXP] Undercover: Notes disguise [set|clear|status|boot on|off|panic set|off]", true,  "System");
     registerCommand("tz",          "tz",     [](char* a) { runTzCmd(a); },                                                    "Timezone  [+3 | -5:30 | <posix> | status]",          true,  "System");
     registerCommand("weather",     "wx",     [](char* a) { runWeatherCmd(a); },                                               "Weather (Open-Meteo, no key): wx [loc <lat> <lon>|units metric|imperial|now]", true, "System");
-    registerCommand("volume",      "vol",    [](char* a) { handleVolumeCmd(a); },                                             "General volume: vol [0-100|up|down|off]",   true,  "System");
+    registerCommand("volume",      "vol",    [](char* a) { volCmd(a); },                                                    "General volume: vol [0-100|up|down|off]",   true,  "System");
     registerCommand("notif",       "nf",     [](char* a) { NotificationManager::handleNotifCmd(a); },                        "Notifications: nf [on|off|vol <n>|test|<lvl> on|off|file <f>]", true, "System");
     // ── WiFi ──────────────────────────────────────────────────────────────────
     registerCommand("scanwifi",    "sw",     [](char* a) { wifiFunctions.runWifiManager(a); },                              "WiFi manager: sw [on|off]",               true,  "WiFi");

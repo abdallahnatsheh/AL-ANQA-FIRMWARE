@@ -4,6 +4,7 @@
 #include "battery_manager.h"
 #include "input_handling.h"
 #include "powersave_manager.h"
+#include "vol_manager.h"
 #include "esp_info.h"
 #include "wifi_functions.h"
 #include "network_scanner.h"
@@ -78,6 +79,7 @@ void setup() {
     });
 
     commandManager.setupCommands();
+    loadVolConf();   // restore saved master volume from /config/vol.conf
     ucInit();   // if boot_cover=1: blocks in Notes until passphrase; no-op otherwise
 
     // LockScreenManager init is intentionally AFTER ucInit(): if boot_cover=1, ucInit()

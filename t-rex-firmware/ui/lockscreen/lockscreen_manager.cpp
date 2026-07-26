@@ -323,8 +323,8 @@ char LockScreenManager::intercept(char k, uint32_t now) {
     // Power-save handles the dim/sleep; the undercover passphrase is the auth.
     if (g_covert) return k;
 
-    // ── Trackpad hold 3 s → lock (only while unlocked) ───────────────────
-    if (!_locked) {
+    // ── Trackpad hold 3 s → lock (only while unlocked, not suppressed) ──────
+    if (!_locked && !_suppressAutoLock) {
         bool tpadDown = (digitalRead(BOARD_BOOT_PIN) == LOW);
         if (tpadDown) {
             if (!_tpadHeld) { _tpadHeld = true; _tpadDownMs = now; }
@@ -339,10 +339,10 @@ char LockScreenManager::intercept(char k, uint32_t now) {
         }
     }
 
-    // ── Idle-timeout check ────────────────────────────────────────────────
+    // ── Idle-timeout check (not suppressed) ──────────────────────────────
     if (!_locked) {
         if (k != 0) _lastActivityMs = now;
-        if (_timeout > 0 && _lastActivityMs > 0 &&
+        if (!_suppressAutoLock && _timeout > 0 && _lastActivityMs > 0 &&
             (now - _lastActivityMs) >= _timeout * 1000UL) {
             lock();
             return 0;
@@ -437,7 +437,10 @@ TouchEvent LockScreenManager::interceptTouch(TouchEvent evt) {
 }
 
 void LockScreenManager::updateActivity() {
-    if (!_locked) _lastActivityMs = millis();
+    if (!_locked) {
+        _lastActivityMs = millis();
+        _tpadHeld = false;   // prevent 3-s hold-lock from accumulating during active sessions
+    }
 }
 
 // ── Interactive PIN prompt (used by cmd functions) ────────────────────────────

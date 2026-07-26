@@ -174,7 +174,7 @@ Run `help` for the list on-device, or `man <cmd>` for a full manual page.
 | `usbmsc` | `um` | — | Expose the SD card as USB mass storage |
 | `usbkbd` | `uk` | — | T-Deck as a USB keyboard + mouse |
 | `jiggle` | `jg` | `[ble]` | Mouse jiggler (USB or BLE) |
-| `usbexec` | `ux` | `[ble [clone <mac\|#>]] demo\|<path>` | BadUSB (USB) + BadBLE (`ux ble`) DuckyScript |
+| `usbexec` | `ux` | `[auto\|remote\|ble [clone <mac\|#>]] demo\|<path>` | BadUSB DuckyScript over USB or BLE (`ux ble`); `ux auto` OS-detect, `ux remote` SoftAP web trigger |
 | **Diagnostics** | | | |
 | `gps` | `gps` | `on\|off\|test` | GPS control + coordinate test (Plus) |
 | `test` | `tst` | `<spk\|mic\|lora\|touch>` | Hardware self-tests |

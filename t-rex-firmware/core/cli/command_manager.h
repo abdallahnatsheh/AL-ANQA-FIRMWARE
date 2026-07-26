@@ -53,4 +53,5 @@ private:
     char  _histSaved[bufferSize];
 };
 
+
 #endif // COMMAND_MANAGER_H

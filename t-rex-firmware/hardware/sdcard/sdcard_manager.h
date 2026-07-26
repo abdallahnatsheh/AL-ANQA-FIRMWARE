@@ -82,6 +82,9 @@
 #define SD_DIR_BADUSB_OS_MAC  "/apps/badusb/os/macos"
 #define SD_DIR_BADUSB_OS_LIN  "/apps/badusb/os/linux"
 
+#define SD_DIR_NES            "/roms/NES"            // NES ROM files (gm nes command)
+#define SD_DIR_NES_STATES     "/states"              // NES save states (Anemoia hardcodes this path)
+
 #define SD_DIR_SSH            "/apps/ssh"            // ssh client — reserved for
 #define SD_SSH_KNOWNHOSTS     "/apps/ssh/known_hosts" // host-key pinning (planned)
 #define SD_SSH_HOSTS          "/apps/ssh/hosts.csv"   // saved host profiles (planned)

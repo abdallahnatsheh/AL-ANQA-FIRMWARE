@@ -137,12 +137,14 @@ static const ManEntry PAGES[] = {
     { "volume", "vol", {
         "SYNTAX   vol [0-100|up|down|off]",
         "",
-        "ABOUT    General audio volume for future",
-        "         music player / voice recorder.",
+        "ABOUT    Master audio volume (NES emulator,",
+        "         future music / voice recorder).",
         "         vol alone shows current level.",
         "",
         "OPTIONS  up  +10%   down  -10%",
         "         off mute   0-100 exact value",
+        "PERSIST  Saved to /config/vol.conf on SD.",
+        "         Restored on every boot.",
         "NOTE     Does not affect notification vol.",
         "         Use: nf vol <n> for that.",
         nullptr
@@ -612,6 +614,30 @@ static const ManEntry PAGES[] = {
         "         [spc] pet  [q] quit",
         "NOTE     Claude Desktop > Developer >",
         "         Hardware Buddy. Stats in NVS.",
+        nullptr
+    }},
+
+    { "game", "gm", {
+        "SYNTAX   gm [<rom.nes>]",
+        "",
+        "ABOUT    NES emulator (Anemoia core, mappers 0-4+069).",
+        "         ROMs: /roms/NES/<name>.nes on SD.",
+        "         No args: retro ROM picker.",
+        "         With filename: load directly.",
+        "",
+        "KEYS     WASD / trackball = D-pad",
+        "         [k]=B  [l]=A  [spc]=Select",
+        "         Enter / trackball-click = Start",
+        "         [e] save state  [r] load state",
+        "         [q] quit emulator",
+        "",
+        "STATES   One slot per ROM, keyed by CRC32.",
+        "         Saved to /states/<CRC32>.state",
+        "         Toast confirms save/load for 1.5s.",
+        "",
+        "AUDIO    Vol controlled by [vol] command.",
+        "         I2S (BCK=7/WS=5/DOUT=6).",
+        "         Silenced by lock screen + undercover.",
         nullptr
     }},
 
