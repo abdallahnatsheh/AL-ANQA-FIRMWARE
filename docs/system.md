@@ -9,6 +9,7 @@ has_children: true
 | Guide | Commands |
 |-------|---------|
 | [Help & Manual](help-man) | `help` / `hlp` · `man` / `mn` · `show` / `sh` · `clear` · `MATRIX` |
+| [NES Emulator](system#game--gm--nes-emulator) | `game` / `gm` |
 | [Device Info](info) | `info` / `inf` |
 | [Power Save](pwrsave) | `pwrsave` / `psv` · `sleep` / `slp` |
 | [Lock Screen](lock) | `lock` / `lk` |
@@ -173,6 +174,33 @@ CMD> MATRIX
 ```
 
 Launches the Matrix digital rain animation. Press `q` to exit.
+
+---
+
+## `game` / `gm` — NES Emulator
+
+```
+CMD> gm            # open the ROM library
+CMD> gm nova.nes   # boot a ROM directly from /roms/NES/
+```
+
+A NES emulator built on the vendored **[Anemoia-ESP32](https://github.com/Shim06/Anemoia-ESP32)**
+core (GPL-3.0, © Shim06; see `NOTICES` #20). Supports **mappers 0–4 + 069** — roughly 90% of
+the commercial library.
+
+- **ROMs** live at `/roms/NES/<name>.nes` on the SD card. Bare `gm` opens a retro **library
+  picker** (trackball / `W`·`S` to scroll, a scrollbar shows your position, `Enter` to load).
+- **Controls in-game:** `WASD` + trackball = D-pad · `k` = B · `l` = A · `Space` = Select ·
+  `Enter` / trackball-click = Start · `e` = save state · `r` = load state.
+- **`q` returns to the ROM library** (not the CLI) so you can pick another game; press `q` again
+  in the library to exit to the terminal.
+- **Save states:** one slot per ROM at `/states/<CRC32>.state` (`e` save / `r` load).
+- **Audio** uses the I2S speaker; `vol` adjusts it live. **Auto-lock is suppressed** for the whole
+  session (explicit `lock` / panic key still fire).
+
+> Use only ROMs you are legally entitled to run. Open-source/homebrew titles such as
+> [Nova the Squirrel](https://github.com/NovaSquirrel/NovaTheSquirrel) (GPL-3.0 code, MMC1) are a
+> good, fully-legal way to test the emulator.
 
 ---
 
