@@ -214,9 +214,9 @@ See the [keyboard reference](docs/keyboard.md) for the full mapping.
 /config/                   device-wide settings (pwrsave, lock, notif, weather, undercover…)
 /config/notification/      per-level alert WAVs (16-bit PCM, 22050 Hz, mono)
 /apps/<tool>/              one self-contained folder per command — logs, captures, wordlists, config
-/notes/                    undercover Notes cover files
-/nes/roms/                 NES ROMs (.nes) for the `gm` emulator
-/nes/states/               NES save states (one per ROM, keyed by CRC32)
+/apps/notes/               undercover Notes cover files
+/apps/nes/roms/            NES ROMs (.nes) for the `gm` emulator
+/apps/nes/states/          NES save states (one per ROM, keyed by CRC32)
 ```
 
 Each tool writes under its own `/apps/<tool>/` folder (e.g. `wpasniff/`, `eviltwin/`,

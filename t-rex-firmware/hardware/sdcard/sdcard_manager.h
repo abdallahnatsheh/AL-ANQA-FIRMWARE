@@ -14,7 +14,7 @@
 // Undercover Notes cover — real files at SD ROOT (NOT /apps/), so a PC-browsed
 // card shows an ordinary "notes" folder, not a T-REX tool folder. NNN.txt,
 // sequential, never reused. See core/system/undercover/notes_ui.cpp.
-#define SD_DIR_NOTES         "/notes"
+#define SD_DIR_NOTES         "/apps/notes"
 
 // Per-app /apps/<tool> subfolders + files shared across multiple source files.
 // (Tools that only reference their own folder define it locally instead.)
@@ -82,12 +82,12 @@
 #define SD_DIR_BADUSB_OS_MAC  "/apps/badusb/os/macos"
 #define SD_DIR_BADUSB_OS_LIN  "/apps/badusb/os/linux"
 
-// NES emulator (gm): one folder at SD root holding both ROMs and save states.
-// Deliberately outside /apps (user data, not tool output). The Anemoia core's
-// Bus::saveState/loadState is patched to write under SD_DIR_NES_STATES.
-#define SD_DIR_NES_ROOT       "/nes"                 // NES emulator folder (parent)
-#define SD_DIR_NES            "/nes/roms"            // NES ROM files (gm command)
-#define SD_DIR_NES_STATES     "/nes/states"          // NES save states (CRC32-keyed)
+// NES emulator (gm): one folder under /apps holding both ROMs and save states.
+// The Anemoia core's Bus::saveState/loadState is patched to write under
+// SD_DIR_NES_STATES.
+#define SD_DIR_NES_ROOT       "/apps/nes"            // NES emulator folder (parent)
+#define SD_DIR_NES            "/apps/nes/roms"       // NES ROM files (gm command)
+#define SD_DIR_NES_STATES     "/apps/nes/states"     // NES save states (CRC32-keyed)
 
 #define SD_DIR_SSH            "/apps/ssh"            // ssh client — reserved for
 #define SD_SSH_KNOWNHOSTS     "/apps/ssh/known_hosts" // host-key pinning (planned)

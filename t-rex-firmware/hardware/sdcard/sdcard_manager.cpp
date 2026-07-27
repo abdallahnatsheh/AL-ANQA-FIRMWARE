@@ -95,9 +95,9 @@ void SDCardManager::ensureTreeStructure() {
 
     ensureDir(SD_DIR_CONFIG);
     ensureDir(SD_DIR_CONFIG_NOTIF);
-    ensureDir(SD_DIR_NOTES);       // root-level, intentionally outside /apps (disguise)
 
-    ensureDir(SD_DIR_APPS);
+    ensureDir(SD_DIR_APPS);        // must exist before any /apps/* child (mkdir is single-level)
+    ensureDir(SD_DIR_NOTES);       // /apps/notes — undercover Notes cover files
     ensureDir(SD_DIR_TRACKME);
     ensureDir(SD_DIR_EVILTWIN);
     ensureDir(SD_DIR_EVILPORTAL);
@@ -131,7 +131,7 @@ void SDCardManager::ensureTreeStructure() {
     ensureDir(SD_DIR_BADUSB_OS_MAC);
     ensureDir(SD_DIR_BADUSB_OS_LIN);
     ensureDir(SD_DIR_SSH);
-    ensureDir(SD_DIR_NES_ROOT);   // parent must exist before its children (mkdir is single-level)
+    ensureDir(SD_DIR_NES_ROOT);   // /apps/nes parent must exist before its children (mkdir is single-level)
     ensureDir(SD_DIR_NES);
     ensureDir(SD_DIR_NES_STATES);
 
