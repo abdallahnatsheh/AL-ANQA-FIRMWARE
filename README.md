@@ -74,6 +74,7 @@ wardriving and audio tools). The project is under **active development**.
 - On-device man pages, autocomplete, command history, power save
 - **Lock screen** — SHA-256 PIN or no-PIN mode, idle auto-lock, hold-to-lock
 - **Undercover mode** — a silent phone home-screen disguise with a secret exit passphrase and a panic key; live weather via Open-Meteo (keyless)
+- **NES emulator** (`gm`) — play legal/homebrew `.nes` ROMs (mappers 0–4+069) with a retro library picker, save states, and trackball/keyboard controls
 
 ---
 
@@ -124,6 +125,7 @@ Run `help` for the list on-device, or `man <cmd>` for a full manual page.
 | `weather` | `wx` | `[loc <lat> <lon>\|units ...\|now]` | Live weather (Open-Meteo, **no API key**) |
 | `home` | `hm` | `[EXP]` | Home-launcher cover UI (standalone) |
 | `undercover` | `uc` | `[set\|clear\|status\|boot ...\|panic ...]` | **[EXP]** Silent disguise — passphrase exit, panic key |
+| `game` | `gm` | `[<rom.nes>]` | **[EXP]** NES emulator — Anemoia core (mappers 0–4+069), ROM library, save states |
 | **WiFi** | | | |
 | `scanwifi` | `sw` | `[on\|off]` | WiFi manager — scan / connect / forget / radio power |
 | `connectwifi` | `cw` | `<index\|ssid>` | Connect by scan index or SSID |
@@ -213,6 +215,8 @@ See the [keyboard reference](docs/keyboard.md) for the full mapping.
 /config/notification/      per-level alert WAVs (16-bit PCM, 22050 Hz, mono)
 /apps/<tool>/              one self-contained folder per command — logs, captures, wordlists, config
 /notes/                    undercover Notes cover files
+/roms/NES/                 NES ROMs (.nes) for the `gm` emulator
+/states/                   NES save states (one per ROM, keyed by CRC32)
 ```
 
 Each tool writes under its own `/apps/<tool>/` folder (e.g. `wpasniff/`, `eviltwin/`,
@@ -276,5 +280,6 @@ service, you must make your source available under the same license.
 - [LilyGo T-Deck](https://github.com/Xinyuan-LilyGO/T-Deck) — hardware and example code
 - [AirGuard](https://github.com/seemoo-lab/AirGuard) — anti-tracking research (TU Darmstadt)
 - AirSnitch (Vanhoef, NDSS 2026) — client-isolation bypass technique
+- [Anemoia-ESP32](https://github.com/Shim06/Anemoia-ESP32) — vendored NES emulator core (GPL-3.0, © Shim06)
 
 <p align="center"><sub>Built for the LilyGo T-Deck · ESP32-S3 · AGPL-3.0</sub></p>
