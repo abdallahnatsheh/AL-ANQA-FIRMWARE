@@ -146,14 +146,17 @@ IRAM_ATTR void Bus::NMI()
 
 void Bus::saveState()
 {
-    if (!SD.exists("/states")) SD.mkdir("/states");
+    // T-REX patch: save states live under /nes/states (was /states). mkdir is
+    // single-level, so create the /nes parent first.
+    if (!SD.exists("/nes")) SD.mkdir("/nes");
+    if (!SD.exists("/nes/states")) SD.mkdir("/nes/states");
     uint32_t CRC32 = cart->CRC32;
 
     static char CRC32_str[9];
     sprintf(CRC32_str, "%08lX", (unsigned long)CRC32);
 
     static char filename[32];
-    sprintf(filename, "/states/%s.state", CRC32_str);
+    sprintf(filename, "/nes/states/%s.state", CRC32_str);   // T-REX patch: was /states/
 
     File state = SD.open(filename, FILE_WRITE);
     if (!state) return;
@@ -179,7 +182,7 @@ void Bus::loadState()
     sprintf(CRC32_str, "%08lX", (unsigned long)CRC32);
 
     static char filename[32];
-    sprintf(filename, "/states/%s.state", CRC32_str);
+    sprintf(filename, "/nes/states/%s.state", CRC32_str);   // T-REX patch: was /states/
     if (!SD.exists(filename)) return;
 
     File state = SD.open(filename, FILE_READ);

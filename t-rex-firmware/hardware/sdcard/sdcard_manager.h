@@ -82,8 +82,12 @@
 #define SD_DIR_BADUSB_OS_MAC  "/apps/badusb/os/macos"
 #define SD_DIR_BADUSB_OS_LIN  "/apps/badusb/os/linux"
 
-#define SD_DIR_NES            "/roms/NES"            // NES ROM files (gm nes command)
-#define SD_DIR_NES_STATES     "/states"              // NES save states (Anemoia hardcodes this path)
+// NES emulator (gm): one folder at SD root holding both ROMs and save states.
+// Deliberately outside /apps (user data, not tool output). The Anemoia core's
+// Bus::saveState/loadState is patched to write under SD_DIR_NES_STATES.
+#define SD_DIR_NES_ROOT       "/nes"                 // NES emulator folder (parent)
+#define SD_DIR_NES            "/nes/roms"            // NES ROM files (gm command)
+#define SD_DIR_NES_STATES     "/nes/states"          // NES save states (CRC32-keyed)
 
 #define SD_DIR_SSH            "/apps/ssh"            // ssh client — reserved for
 #define SD_SSH_KNOWNHOSTS     "/apps/ssh/known_hosts" // host-key pinning (planned)

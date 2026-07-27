@@ -14,8 +14,10 @@ The code here is Shim06's work under GPL-3.0. T-REX's own integration layer
 
 Local patches applied for the T-Deck port are listed in the repository NOTICES
 file (entry #20): TFT_eSPI replaced with a display-flush callback, a debug.h
-build-flag #error removed, an include-path fix, and T-Deck I2S pin constants.
-All other core files (CPU, PPU, APU, mappers 0-4+069) are upstream verbatim.
+build-flag #error removed, an include-path fix, T-Deck I2S pin constants, and
+bus.cpp save/load-state path moved from /states to /nes/states (grouped under
+the emulator's SD folder). All other core files (CPU, PPU, APU, mappers
+0-4+069) are upstream verbatim.
 
 Because this core is GPL-3.0 and is distributed as part of T-REX, the combined
 work is distributed under the GNU AGPL-3.0-or-later (GPLv3 and AGPLv3 are

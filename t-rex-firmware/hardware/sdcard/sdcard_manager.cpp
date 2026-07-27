@@ -131,6 +131,7 @@ void SDCardManager::ensureTreeStructure() {
     ensureDir(SD_DIR_BADUSB_OS_MAC);
     ensureDir(SD_DIR_BADUSB_OS_LIN);
     ensureDir(SD_DIR_SSH);
+    ensureDir(SD_DIR_NES_ROOT);   // parent must exist before its children (mkdir is single-level)
     ensureDir(SD_DIR_NES);
     ensureDir(SD_DIR_NES_STATES);
 
