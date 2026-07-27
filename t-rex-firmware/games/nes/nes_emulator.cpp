@@ -12,9 +12,9 @@
 //   pins (BCK=7/WS=5/DOUT=6) before starting and uninstall on exit.
 // Input:   WASD + trackball = D-pad · k=B · l=A · Enter=Start · Space=Select.
 //          q = back to the ROM library (NOT the CLI); [q] in the library exits to CLI.
-//          [e]=save state  [r]=load state  (one slot/ROM, /states/<CRC32>.state)
+//          [e]=save state  [r]=load state  (one slot/ROM, /nes/states/<CRC32>.state)
 //   Decay-counter hold simulation keeps bits set for NES_HOLD_FRAMES frames.
-// ROMs:    /roms/NES/<name>.nes — trackball/WASD picker, Enter to load. After a
+// ROMs:    /nes/roms/<name>.nes — trackball/WASD picker, Enter to load. After a
 //          game exits, control returns to this picker so ROMs can be chained.
 //
 // Stack-safety: Bus (~6 KB) is heap-allocated (ps_malloc on ESP32-S3 with PSRAM).
