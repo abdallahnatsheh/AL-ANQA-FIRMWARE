@@ -1,7 +1,8 @@
 # Plan — Network MITM suite (`arpspoof` + `responder`), phased
 
-> Status: Phase 1 (`arpspoof`) DONE + builds. Phase 2 (`responder`) BUILT (LLMNR +
-> NBT-NS + HTTP-NTLM), NOT yet HW-tested. SMB(445) capture = future 2b.
+> Status: Phase 1 (`arpspoof`) + Phase 2 (`responder`, LLMNR + NBT-NS + HTTP-NTLM)
+> BUILT, reviewed/hardened + UI-polished, builds clean — AWAITING HW LAB TEST.
+> SMB(445) capture = future 2b. Verification steps below.
 
 ## Context
 T-REX has recon (`nd`, `ns`) and isolation-bypass (`is`) but no active LAN MITM tooling.

@@ -70,9 +70,9 @@ ESP32-S3 WiFi only, no extra sensors. Full plan: `TREX_CSI_CAMDETECT_PLAN.md` ·
 
 ## USB Attacks
 
-15. **Auto OS Detection** — detect Windows/macOS/Linux on USB connect; auto-select script folder for `ux`
-16. **Remote BadUSB via WiFi** — `rbadusb/rb`; HTTP AP to trigger scripts from phone
-17. **Keylogger Mode** — `keylog/kl`; USB HID host-direction capture to SD
+15. **Auto OS Detection** — ✅ DONE as `ux auto [dir]` (2026-07-19). Toggles NumLock, reads the LED event: Windows default ON→OFF (bit 0), Linux OFF→ON (bit 1), macOS no response=unknown→picker. Auto-picks from `/apps/badusb/os/<os>/`.
+16. **Remote BadUSB via WiFi** — ✅ DONE as `ux remote [ssid]` (2026-07-19). SoftAP (default `T-REX-CMD`) + WebServer; phone hits `192.168.4.1`, picks a script, 3s countdown → runFile. Session log → `/apps/badusb/remote_NNN.txt` (buffered in RAM, flushed after WiFi teardown — GDMA-safe).
+17. **Keylogger Mode** — ❌ WON'T DO. Built as `ux log` (USB DEVICE→HOST PHY switch, boot-keyboard capture, commit `bee9fa3`) but **REVERTED 2026-07-21 (`8bd0c0f`)**: the T-Deck's single USB-C port can't host a keylogger usefully (no pass-through to a victim PC) + the runtime `usb_host_install()` switch was crash-prone. Needs a 2nd USB port/dongle — do not re-add without one.
 24. **USB-LAN AdBlocker / DNS-MITM dongle** — T-Deck as a USB network gadget (TinyUSB
     **NCM/RNDIS**) bridging the host PC ↔ WiFi STA (lwIP NAPT + DHCP server on the USB side),
     with a DNS sinkhole in the middle. Adblock = benign mode; offensive mode = DNS **log +
