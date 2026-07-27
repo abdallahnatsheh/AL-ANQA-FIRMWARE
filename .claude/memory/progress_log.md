@@ -4,6 +4,33 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-07-27 (gm fixes + license/SD reorg + Network MITM suite + keyboard plan) — ALL COMMITTED + PUSHED to feature/pentest-enhancements
+- **`gm` post-exit lock loop FIXED (HW-verified by user).** Root cause: `nesI2sInit()` omitted `.mck_io_num`
+  → designated-initializer zero routed I2S MCLK onto **GPIO0 (= BOARD_BOOT_PIN, trackball click)** → pin read
+  LOW after a game → lockscreen 3-s trackpad-hold detector fired on a loop. Fix: `.mck_io_num = I2S_PIN_NO_CHANGE`
+  + `pinMode(BOARD_BOOT_PIN, INPUT_PULLUP)` after `i2s_driver_uninstall`. **RULE: always set `.mck_io_num`
+  explicitly in any `i2s_pin_config_t`.** Also: gm now returns to the ROM library (not CLI) after a game,
+  scrollbar + controls toast, session-wide auto-lock suppress.
+- **Anemoia NES core license CORRECTED: it's `Shim06/Anemoia-ESP32` under GPL-3.0** (the old NOTICES claimed a
+  nonexistent `TotalCaesar659` fork under MIT — that repo is a 404). Shipped verbatim GPLv3 LICENSE +
+  README.T-REX.txt in `games/nes/anemoia/`; fixed NOTICES #20, CLAUDE.md, source header.
+- **SD reorg: NES + Notes moved UNDER `/apps`** (owner decision): `/apps/nes/roms`, `/apps/nes/states`, `/apps/notes`
+  (were `/roms/NES` + `/states` + `/notes`). bus.cpp patched to `/apps/nes/states` (buffers 32→40). Dropped the old
+  "notes at root = disguise" rationale. User's SD card migrated in place.
+- **Network MITM suite BUILT + reviewed + UI-polished, AWAITING USER LAB TEST** (`docs/plans/network-mitm-suite.md`).
+  **`arpspoof`/`as <victim> [gw]`** = L2 ARP poisoning via raw ethernet+ARP pbuf → `netif linkoutput` (driver
+  encrypts w/ PTK; mirrors Bruce ARPoisoner). Victim = ip/nd#/ns# via new shared `resolveNetTarget()`; heals both
+  caches on exit; honest "redirect/DoS, no forwarding (1 radio)". **`responder`/`rsp`** = LLMNR(5355)+NBT-NS(137)
+  poisoner (raw lwip udp pcbs) + fake HTTP :80 NTLM catcher → NetNTLMv2 (hashcat -m 5600) → `/apps/responder/hashes.txt`.
+  Review fixes: dnsParseName OOB guard, LLMNR reply-buf clamp, Type-3 buffer 1024→2048. HTTP-NTLM only (SMB=2b).
+  lgandx/Responder credited (methodology). Commits 49f2546/b08532f/8b23a9e.
+- **Keyboard-firmware plan written + in-repo** (`docs/plans/keyboard-firmware.md`): fork `hreikin/tdeck-keyboard`
+  (MIT, has HELD state) → add long-press as a generic app event + real modifiers; **host auto-detects the T-REX
+  keyboard via a version-sentinel byte** and only enables extended features on it (else = today's legacy behavior).
+  NOT started. **Also paused: MITM plan Phase-2b SMB catcher.**
+- Behavioral: **keep commit messages general — no host paths / usernames / device serials** (user-requested,
+  see [[feedback_commit_message_style]]).
+
 ## Session 2026-07-09b (wpa3down Phase 2 — WPA3 transition-downgrade attack) — code-complete, UNCOMMITTED, NOT HW-tested
 - **Built Phase 2 of the wpa3down plan** (the core downgrade attack) right after the `sw` manager rework. New module
   `wifi/attacks/wpa3down/wpa3down.{cpp,h}`, free fn `runWpa3Down(char*)`, registered `wpa3down`/`w3d` [EXP] WiFi.
