@@ -170,11 +170,15 @@ This project incorporates code from the following open-source projects:
              `roguehs` engine; no third-party attack code was read or adapted.
 
 20. Anemoia NES emulator core
-    Files:   lib/anemoia/src/ (vendored, patched for T-REX)
-    Source:  https://github.com/TotalCaesar659/Anemoia-ESP32
-             (fork of https://github.com/TotalCaesar659/Anemoia, MIT)
-    License: MIT
-    Notes:   Vendored as lib/anemoia/. Patches: TFT_eSPI dependency replaced
+    Files:   t-rex-firmware/games/nes/anemoia/ (vendored in-tree, patched for T-REX)
+    Source:  https://github.com/Shim06/Anemoia-ESP32 (GPL-3.0), by Shim06
+    License: GPL-3.0 (GNU General Public License v3.0) — full text shipped at
+             t-rex-firmware/games/nes/anemoia/LICENSE; see that dir's
+             README.T-REX.txt for the local attribution + patch summary.
+    Notes:   Vendored in-tree at games/nes/anemoia/ (NOT under lib/ — PlatformIO's
+             LDF can't auto-discover the core's static constexpr odr-use from a
+             library in gnu++11 mode, so it compiles as project sources).
+             Patches: TFT_eSPI dependency replaced
              with a display-flush callback (NesDisplayFlushFn) in bus.h/bus.cpp;
              debug.h OPTIMIZATION_FLAGS #error removed (flag supplied via
              library.json); ppu2C02.h include path fixed from ../../config.h to

@@ -2,16 +2,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Abdallah Natsheh
 //
-// games/nes — NES emulator via vendored Anemoia core.
+// games/nes — NES emulator via the vendored Anemoia-ESP32 core (GPL-3.0), in-tree
+//   at games/nes/anemoia/. Upstream: https://github.com/Shim06/Anemoia-ESP32
+//   Credited in NOTICES #20; this file is T-REX's integration layer, not the core.
 //
 // Display: 256×240 NES output centred on the 320×240 landscape screen
 //   (32px black bar each side). LovyanGFX pushImage replaces TFT_eSPI.
 // Audio:   APU writes directly to I2S_NUM_0. We install the driver with T-Deck
 //   pins (BCK=7/WS=5/DOUT=6) before starting and uninstall on exit.
-// Input:   WASD + trackball = D-pad · k=B · l=A · Enter=Start · Space=Select · q=quit.
+// Input:   WASD + trackball = D-pad · k=B · l=A · Enter=Start · Space=Select.
+//          q = back to the ROM library (NOT the CLI); [q] in the library exits to CLI.
 //          [e]=save state  [r]=load state  (one slot/ROM, /states/<CRC32>.state)
 //   Decay-counter hold simulation keeps bits set for NES_HOLD_FRAMES frames.
-// ROMs:    /roms/NES/<name>.nes — trackball/WASD picker, Enter to load.
+// ROMs:    /roms/NES/<name>.nes — trackball/WASD picker, Enter to load. After a
+//          game exits, control returns to this picker so ROMs can be chained.
 //
 // Stack-safety: Bus (~6 KB) is heap-allocated (ps_malloc on ESP32-S3 with PSRAM).
 //   The main FreeRTOS task has only 8 KB stack; Bus on the stack crashes immediately.
@@ -33,6 +37,7 @@
 
 // T-REX platform
 #include "covert.h"
+#include "utilities.h"        // BOARD_BOOT_PIN
 #include "vol_manager.h"
 #include "display_manager.h"
 #include "input_handling.h"
@@ -99,6 +104,12 @@ static bool nesI2sInit()
     if (i2s_driver_install(I2S_NUM_0, &cfg, 0, NULL) != ESP_OK) return false;
 
     i2s_pin_config_t pins = {
+        // mck MUST be explicit: an omitted designated-initializer field is
+        // zero-initialized to 0 == GPIO0 == BOARD_BOOT_PIN (trackball click),
+        // so leaving it out makes i2s_set_pin() route MCLK onto the click pin.
+        // That leaves GPIO0 reading LOW after the game and the lockscreen's
+        // 3-s trackpad-hold detector then fires on a loop. Pin it to NO_CHANGE.
+        .mck_io_num   = I2S_PIN_NO_CHANGE,
         .bck_io_num   = I2S_BCLK_PIN,
         .ws_io_num    = I2S_LRC_PIN,
         .data_out_num = I2S_DOUT_PIN,
@@ -229,7 +240,7 @@ static String pickRom()
         uint16_t bg    = isSel ? C_SEL_BG
                                : ((listRow & 1) ? C_ALT_BG : C_BG);
 
-        tft.fillRect(0, y, 320, ROW_H, bg);
+        tft.fillRect(0, y, 316, ROW_H, bg);   // leave 4px column for the scrollbar
 
         if (romIdx >= total) return;   // empty row below last item
 
@@ -259,6 +270,24 @@ static String pickRom()
         for (int i = 0; i < ROWS; i++) drawRow(i, scroll + i);
     };
 
+    // Scrollbar in the reserved 4px right column — thumb size/position reflect
+    // how much of the library is visible. Drawn after the list each refresh.
+    auto drawScrollbar = [&]() {
+        const int SB_X   = 316;
+        const int SB_W   = 4;
+        const int trackH = ROWS * ROW_H;
+        tft.fillRect(SB_X, LIST_Y, SB_W, trackH, C_ALT_BG);   // track
+        if (total <= ROWS) {
+            tft.fillRect(SB_X, LIST_Y, SB_W, trackH, C_CNT);  // all visible → full bar
+            return;
+        }
+        int thumbH = (trackH * ROWS) / total;
+        if (thumbH < 10) thumbH = 10;
+        const int maxScroll = total - ROWS;
+        const int thumbY = LIST_Y + (maxScroll > 0 ? (trackH - thumbH) * scroll / maxScroll : 0);
+        tft.fillRect(SB_X, thumbY, SB_W, thumbH, C_ACCENT);   // thumb
+    };
+
     // ── no-ROM screen ─────────────────────────────────────────────────────────
     if (total == 0) {
         tft.fillRect(0, STATUS_H, 320, 240 - STATUS_H, C_BG);
@@ -277,10 +306,14 @@ static String pickRom()
     }
 
     // ── initial full render ───────────────────────────────────────────────────
+    // Refresh the status bar (y=0..29): returning from a game leaves it black,
+    // and main.ino's loop() — which normally repaints it — is not running here.
+    displayManager.updateStatusBar();
     tft.fillRect(0, STATUS_H, 320, 240 - STATUS_H, C_BG);
     drawHeader();
     drawFooter();
     drawList();
+    drawScrollbar();
 
     // ── input loop ────────────────────────────────────────────────────────────
     while (true) {
@@ -301,6 +334,7 @@ static String pickRom()
             if (sel < scroll)         scroll = sel;
             if (sel >= scroll + ROWS) scroll = sel - ROWS + 1;
             drawList();
+            drawScrollbar();
         }
         delay(20);
     }
@@ -335,22 +369,17 @@ static uint8_t ctrlUpdate(char k, TrackballEvent tb)
     return s_ctrl;
 }
 
-// ── main entry point ──────────────────────────────────────────────────────────
-void runNesEmulator(char* args)
+// ── run a single ROM ──────────────────────────────────────────────────────────
+// Loads the cartridge, runs the emulation loop until the user presses [q], then
+// tears everything down. Leaves the screen black on return — it does NOT restore
+// the CLI, because runNesEmulator() loops back to the ROM library after each game.
+// A load failure shows a 2 s error and returns (the caller drops back to the
+// library, so the user isn't dumped to the CLI on a bad ROM).
+static void runOneGame(const String& romPath)
 {
     s_nesQuit = false;
     s_ctrl    = 0;
     memset(s_hold, 0, sizeof(s_hold));
-
-    // Resolve ROM path
-    String romPath;
-    if (args && strlen(args) > 0) {
-        romPath = String(args);
-        if (!romPath.startsWith("/")) romPath = String(SD_DIR_NES) + "/" + romPath;
-    } else {
-        romPath = pickRom();
-    }
-    if (romPath.isEmpty()) return;
 
     if (!SD.exists(romPath.c_str())) {
         displayManager.clearScreen();
@@ -401,9 +430,13 @@ void runNesEmulator(char* args)
     displayManager.setBlocked(true);
     tft.fillScreen(TFT_BLACK);
 
-    // Disable idle-timeout and tpad-hold auto-lock for the duration of the game.
-    // Explicit lock() calls (panic key, `lock` command) still work.
-    LockScreenManager::getInstance().suppressAutoLock(true);
+    // Idle-timeout / tpad-hold auto-lock is suppressed for the whole gm session
+    // by runNesEmulator() (covers both the library and the game). Explicit lock()
+    // calls (panic key, `lock` command) still fire and are handled by the loop below.
+
+    // Brief controls reminder overlaid on the first ~1.5 s of play. [q] now
+    // returns to the library, not the CLI — the toast says "Q=menu" so it's clear.
+    showToast("Q=menu  K=B L=A  ENT=Start");
 
     // APU on core 0
     xTaskCreatePinnedToCore(apuTask, "NES_APU", NES_APU_STACK,
@@ -411,7 +444,6 @@ void runNesEmulator(char* args)
 
     // Emulation loop — core 1
     bool was_blocked = false;
-    s_toastEnd = 0;  // clear any leftover toast from a prior session
 
     while (!s_nesQuit) {
         // Poll keyboard FIRST so LockScreenManager::intercept() fires before
@@ -461,21 +493,61 @@ void runNesEmulator(char* args)
         vTaskDelay(1);
     }
 
-    // Cleanup — suppressAutoLock(false) goes last so _lastActivityMs is stamped
-    // after the screen is live again (vTaskDelete + delete + tdeck_begin can take ~1s).
+    // Cleanup.
     if (s_apuTask) {
         vTaskDelete(s_apuTask);
         s_apuTask = nullptr;
     }
     i2s_driver_uninstall(I2S_NUM_0);
+    // Belt-and-suspenders: re-assert the trackball-click pin as a clean input in
+    // case the I2S driver disturbed GPIO0 (see mck_io_num note in nesI2sInit()),
+    // so the lockscreen's trackpad-hold detector doesn't read a phantom LOW.
+    pinMode(BOARD_BOOT_PIN, INPUT_PULLUP);
     delete nes;
     delete cart;
 
     displayManager.setBlocked(false);
     tft.fillScreen(TFT_BLACK);
-    displayManager.tdeck_begin();
+}
 
-    // Re-enable auto-lock now that the CLI is ready. Also resets _tpadHeld so
-    // a stale pre-game trackball press doesn't immediately trigger the 3-s hold lock.
+// ── main entry point ──────────────────────────────────────────────────────────
+// gm [rom]. Bare `gm` opens the ROM library (pickRom); `gm <file>` boots straight
+// into that ROM. After a game exits it loops BACK to the library rather than the
+// CLI — [q] in the library is the only way out to the terminal.
+void runNesEmulator(char* args)
+{
+    // Suppress idle-timeout + tpad-hold auto-lock for the whole session (library
+    // browsing AND gameplay) so the screen can't lock us out mid-session or leave
+    // a stale ROM-library screen after an unlock. Explicit lock()/panic still fire.
+    // Restored once on final exit — which also resets _tpadHeld and stamps activity.
+    LockScreenManager::getInstance().suppressAutoLock(true);
+
+    // A CLI-supplied ROM is played first, then we fall through to the library.
+    String initial;
+    if (args && strlen(args) > 0) {
+        initial = String(args);
+        if (!initial.startsWith("/")) initial = String(SD_DIR_NES) + "/" + initial;
+    }
+
+    while (true) {
+        String romPath;
+        if (!initial.isEmpty()) {
+            romPath = initial;
+            initial = "";              // consume the CLI arg once
+        } else {
+            romPath = pickRom();       // the gm UI
+        }
+        if (romPath.isEmpty()) break;  // [q] in the library → back to the CLI
+
+        runOneGame(romPath);
+        // fall through: loop back into the ROM library
+    }
+
+    // Restore auto-lock + the CLI exactly once, on final exit. suppressAutoLock(false)
+    // stamps _lastActivityMs and clears _tpadHeld so a stale in-game/library trackball
+    // press can't immediately trigger the 3-s hold lock back at the terminal.
     LockScreenManager::getInstance().suppressAutoLock(false);
+    displayManager.setBlocked(false);
+    tft.fillScreen(TFT_BLACK);
+    displayManager.tdeck_begin();
 }
