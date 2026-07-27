@@ -191,3 +191,11 @@ This project incorporates code from the following open-source projects:
              I2S audio path (ESP32-S3 external DAC) was
              already present in the upstream fork; only the pin constants were
              changed to T-Deck values (BCK=7/WS=5/DOUT=6) via config.h.
+
+21. Responder (LLMNR/NBT-NS poisoning + NetNTLM capture — technique reference)
+    Source:  https://github.com/lgandx/Responder
+    License: Methodology reference only — no source code copied or ported.
+    Notes:   T-Rex's `responder`/`rsp` implements the well-known LLMNR/NBT-NS name
+             poisoning + fake-HTTP NTLM challenge/NetNTLMv2 capture technique from
+             published descriptions and the NTLMSSP spec (MS-NLMP). All lwip/HTTP
+             code is original; no Responder (Python) source was read or adapted.

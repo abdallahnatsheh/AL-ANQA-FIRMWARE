@@ -571,6 +571,27 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "responder", "rsp", {
+        "SYNTAX   rsp",
+        "",
+        "ABOUT    [EXP] LLMNR/NBT-NS poisoner +",
+        "         NetNTLMv2 capture. Answers name",
+        "         queries (incl. wpad) with our IP,",
+        "         then a fake HTTP NTLM login grabs",
+        "         the victim's hash. Needs cw first.",
+        "",
+        "OUTPUT   /apps/responder/hashes.txt  (one",
+        "         hashcat -m 5600 line per capture)",
+        "         /apps/responder/log.csv",
+        "",
+        "KEYS     [q] stop",
+        "NOTE     Captures for OFFLINE cracking (does",
+        "         not crack on-device). HTTP-NTLM only",
+        "         in v1; SMB catcher is a future 2b.",
+        "         Own networks only.",
+        nullptr
+    }},
+
     { "portscan", "ps", {
         "SYNTAX   ps <ip|#|ns#> <start> <end>",
         "         ps top <ip|#|ns#>",
