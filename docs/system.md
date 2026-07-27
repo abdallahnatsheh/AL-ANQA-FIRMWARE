@@ -181,20 +181,20 @@ Launches the Matrix digital rain animation. Press `q` to exit.
 
 ```
 CMD> gm            # open the ROM library
-CMD> gm nova.nes   # boot a ROM directly from /nes/roms/
+CMD> gm nova.nes   # boot a ROM directly from /apps/nes/roms/
 ```
 
 A NES emulator built on the vendored **[Anemoia-ESP32](https://github.com/Shim06/Anemoia-ESP32)**
 core (GPL-3.0, © Shim06; see `NOTICES` #20). Supports **mappers 0–4 + 069** — roughly 90% of
 the commercial library.
 
-- **ROMs** live at `/nes/roms/<name>.nes` on the SD card. Bare `gm` opens a retro **library
+- **ROMs** live at `/apps/nes/roms/<name>.nes` on the SD card. Bare `gm` opens a retro **library
   picker** (trackball / `W`·`S` to scroll, a scrollbar shows your position, `Enter` to load).
 - **Controls in-game:** `WASD` + trackball = D-pad · `k` = B · `l` = A · `Space` = Select ·
   `Enter` / trackball-click = Start · `e` = save state · `r` = load state.
 - **`q` returns to the ROM library** (not the CLI) so you can pick another game; press `q` again
   in the library to exit to the terminal.
-- **Save states:** one slot per ROM at `/nes/states/<CRC32>.state` (`e` save / `r` load).
+- **Save states:** one slot per ROM at `/apps/nes/states/<CRC32>.state` (`e` save / `r` load).
 - **Audio** uses the I2S speaker; `vol` adjusts it live. **Auto-lock is suppressed** for the whole
   session (explicit `lock` / panic key still fire).
 
@@ -218,7 +218,7 @@ CMD> uc panic set       # arm an instant-hide key (press the key to bind it)
 CMD> uc panic off       # disable the instant-hide key
 ```
 
-A real, SD-backed notes app (`/notes/NNN.txt`, at SD root — not `/apps/` — so it looks like an ordinary folder to anyone browsing the card on a PC) that doubles as a disguise. `notes` just runs the cover UI. `undercover` runs the same UI but also raises the covert flag: notification sounds and the hidden-SSID beep go silent, and the real T-Rex status bar stays hidden — passive tools (wguard, macwatch, espchat, etc.) keep running and logging to SD underneath, only the audible/visible tells go quiet.
+A real, SD-backed notes app (`/apps/notes/NNN.txt`) that doubles as a disguise. `notes` just runs the cover UI. `undercover` runs the same UI but also raises the covert flag: notification sounds and the hidden-SSID beep go silent, and the real T-Rex status bar stays hidden — passive tools (wguard, macwatch, espchat, etc.) keep running and logging to SD underneath, only the audible/visible tells go quiet.
 
 | Action | Result |
 |--------|--------|

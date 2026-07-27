@@ -65,9 +65,10 @@ created lazily.
 | `/apps/espchat/prv/` | private chat logs |
 | `/apps/badusb/` | (parent of scripts/) |
 | `/apps/badusb/scripts/` | DuckyScript payload files |
-| `/nes/` | NES emulator folder (parent of roms/ and states/) — not under `/apps/` |
-| `/nes/roms/` | NES ROMs (`.nes`) for the `gm` emulator — user-supplied |
-| `/nes/states/` | NES save states — one per ROM, keyed by CRC32 |
+| `/apps/notes/` | undercover Notes cover files (`NNN.txt`) |
+| `/apps/nes/` | NES emulator folder (parent of roms/ and states/) |
+| `/apps/nes/roms/` | NES ROMs (`.nes`) for the `gm` emulator — user-supplied |
+| `/apps/nes/states/` | NES save states — one per ROM, keyed by CRC32 |
 
 ---
 

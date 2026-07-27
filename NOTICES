@@ -183,7 +183,7 @@ This project incorporates code from the following open-source projects:
              debug.h OPTIMIZATION_FLAGS #error removed (flag supplied via
              library.json); ppu2C02.h include path fixed from ../../config.h to
              config.h; bus.cpp save/load-state path moved from /states to
-             /nes/states (grouped under the emulator's SD folder). All other
+             /apps/nes/states (grouped under the emulator's SD folder). All other
              core files (CPU, PPU, APU, mappers 0-4+069) are otherwise verbatim.
              I2S audio path (ESP32-S3 external DAC) was
              already present in the upstream fork; only the pin constants were
