@@ -63,6 +63,9 @@ static bool resolveTarget(const String& tok, IPAddress& out) {
     return out.fromString(tok);   // IP literal (use the original token)
 }
 
+// Public wrapper so other modules (arpspoof) can reuse the ns#/nd#/IP resolver.
+bool resolveNetTarget(const String& tok, IPAddress& out) { return resolveTarget(tok, out); }
+
 static const char* portService(int port) {
     switch (port) {
         case 20:    return "FTP-data";

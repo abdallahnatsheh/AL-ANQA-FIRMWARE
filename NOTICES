@@ -8,13 +8,16 @@ This project incorporates code from the following open-source projects:
             https://github.com/BruceDevices/firmware  (maintained fork)
    License: GNU Affero General Public License v3.0 (AGPL-3.0)
    Files:   t-deck-cli/eviltwin.cpp, t-deck-cli/deauth_functions.cpp,
-            t-rex-firmware/wifi/tools/wardrive/wardrive.cpp
+            t-rex-firmware/wifi/tools/wardrive/wardrive.cpp,
+            t-rex-firmware/wifi/attacks/arpspoof/arpspoof.cpp
    Notes:   Evil Twin captive portal HTML templates and raw 802.11 frame
             injection approach adapted from Bruce's evil_portal.cpp and
             related WiFi attack modules. Wardrive's synchronous WiFi-scan +
             GPS -> WiGLE CSV method (blocking scan, scanDelete settle delay,
             HDOP/altitude CSV fields) adapted from Bruce's
-            src/modules/gps/wardriving.cpp.
+            src/modules/gps/wardriving.cpp. The ARP-reply injection method
+            (raw ethernet+ARP pbuf -> netif linkoutput so the WiFi driver
+            encrypts it) mirrors Bruce's src/modules/ethernet/ARPoisoner.cpp.
 
 2. LovyanGFX
    Source:  https://github.com/lovyan03/LovyanGFX

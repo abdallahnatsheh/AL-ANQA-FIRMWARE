@@ -75,6 +75,7 @@ void runEditor(char* a);
 void runCsiDetect(char* a);
 void runNetspy(char* a);
 void runIsoscan(char* a);
+void runArpSpoof(char* a);
 void runWpa3Down(char* a);
 
 CommandManager::CommandManager()
@@ -826,6 +827,7 @@ void CommandManager::setupCommands() {
     registerCommand("portscan",    "ps",     [](char* a) { handlePortScanCmd(a); },                                         "Port scan: ps <ip|#|ns#> <s> <e> | ps top <ip|#|ns#>", true, "Network");
     registerCommand("netspy",      "ns",     [](char* a) { runNetspy(a); },                                                  "[EXP] Client-isolation recon (AirSnitch): ns [gtk|dump]", true,  "Network");
     registerCommand("isoscan",     "is",     [](char* a) { runIsoscan(a); },                                                 "[EXP] Active isolation-bypass attacks: is [ns#] [attack]", true, "Network");
+    registerCommand("arpspoof",    "as",     [](char* a) { runArpSpoof(a); },                                                "[EXP] ARP cache poisoning: as <victim> [gw]", true, "Network");
     registerCommand("ping",        "pg",     [](char* a) { networkScanner.pingHost(a); },                                   "Ping: pg <ip|host|#|ns#>",                 true,  "Network");
     registerCommand("ssh",         "sc",     [](char* a) { runSshCon(a); },                                                 "SSH client: ssh <ip|name> [user] | save/list/rm", true,  "Network");
     // ── Bluetooth ─────────────────────────────────────────────────────────────
