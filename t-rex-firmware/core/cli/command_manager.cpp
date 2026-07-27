@@ -465,8 +465,11 @@ void CommandManager::doAutocomplete() {
                     sdCardManager.resolvePath(pathPart, searchDir, sizeof(searchDir));
                     strncpy(filePrefix, lastSlash + 1, sizeof(filePrefix) - 1);
                 } else {
-                    strncpy(searchDir,  sdCardManager.getCwd(), sizeof(searchDir) - 1);
-                    strncpy(filePrefix, prefix,                 sizeof(filePrefix) - 1);
+                    // `gm`/`game` with a bare filename completes ROMs from the emulator
+                    // folder (not the cwd), matching runNesEmulator()'s path prepend.
+                    bool isGm = (strcmp(cmdWord, "game") == 0 || strcmp(cmdWord, "gm") == 0);
+                    strncpy(searchDir,  isGm ? SD_DIR_NES : sdCardManager.getCwd(), sizeof(searchDir) - 1);
+                    strncpy(filePrefix, prefix,                                     sizeof(filePrefix) - 1);
                 }
                 searchDir[sizeof(searchDir) - 1]  = '\0';
                 filePrefix[sizeof(filePrefix) - 1] = '\0';
