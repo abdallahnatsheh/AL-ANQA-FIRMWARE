@@ -142,6 +142,11 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 - **Heal on exit:** `[q]` re-broadcasts corrective replies with the REAL MACs to both ends ×5, then leaves WiFi STA-idle (GDMA rule; no SD writes so no promiscuous concern). Improvement over Bruce, which doesn't heal.
 - **HONESTY:** single radio = NO IP forwarding, so this is a redirect/blackhole (DoS), NOT a transparent interceptor (stated on-screen). Real capture comes from pairing with a listener (Phase 2 `responder`, not yet built).
 
+**Responder** (`wifi/attacks/responder/responder.cpp/h`) — `responder`/`rsp` (Network) [EXP] — free fn `runResponder(char*)`. **Phase 2 of the Network MITM suite** (`docs/plans/network-mitm-suite.md`), **built, NOT yet HW-tested**. LLMNR (UDP 5355, mcast 224.0.0.252) + NBT-NS (UDP 137) name-query poisoner + NetNTLMv2 capture. Methodology follows lgandx/Responder (NOTICES).
+- **Poisoners:** raw lwip `udp_pcb`s (isoscan pattern) — `llmnrRecv`/`nbtRecv` run on the tcpip thread, answer every name query (QR==0, incl. `wpad`) with an A-record = our STA IP, and ring the name → main-loop drain for the live list. LLMNR joins the mcast group via `igmp_joingroup`; NBT-NS decodes the first-level NetBIOS name.
+- **Capture:** a `WiFiServer` on :80 issues NTLM (`401 WWW-Authenticate: NTLM` → Type-2 challenge with the FIXED 8-byte `RSP_CHALLENGE` `1122334455667788` → parses the Type-3). `ntlmType3Capture()` base64-decodes, pulls user/domain (UTF-16LE) + NTProofStr(16B)+blob from the NtChallengeResponse, and writes a **hashcat -m 5600** line (`user::domain:challenge:proof:blob`) to `/apps/responder/hashes.txt` + a `log.csv`. Fixed challenge → captures are crackable offline (NOT cracked on-device).
+- **Plain STA sockets** (no promiscuous/AP) → SD writes are GDMA-safe. Lock-aware (`consumeJustUnlocked` redraw). Teardown removes the pcbs + leaves the mcast group under `LOCK_TCPIP_CORE`, `WiFiServer.stop()`, WiFi stays STA. **HONESTY:** HTTP-NTLM only in v1 (SMB 445 catcher = future 2b); needs `cw`; own networks only.
+
 **TextEditor** (`core/editor/text_editor.cpp/h`) — `edit`/`ed <path>`, nano-style SD editor:
 - Free function `runEditor(char*)` (wardrive pattern). Buffer = file-static `std::vector<String>`, freed on exit (`clear()`+`shrink_to_fit()` — rule 5c). Loads ≤`ED_LOAD_CAP`=500 lines; larger file → `g_readOnly` (edits no-op, can't save — data safety). Missing path → new empty buffer, created on first save.
 - **Control scheme forced by the I2C keyboard** (one resolved byte/key, no Ctrl/Esc/arrow codes): keyboard types/backspaces/Enter-splits (**auto-indent**: new line inherits leading whitespace); **trackball U/D/L/R = cursor** (wraps across line ends; **`accelStep()` acceleration** — same-dir moves <90ms apart double the step up to 16, so a fast roll pages big files); **CLICK = command menu** (Save/Save As/Find/Go to line/Top/Bottom/Undo/Cut line/Paste line/Exit). No `q` quit — exit only via menu (`q` is a typeable char). Exit-with-unsaved → `[s]`save/`[d]`discard/click-cancel prompt.
@@ -216,7 +221,7 @@ Pentesting firmware for LilyGo T-DECK / T-DECK Plus (ESP32-S3). PlatformIO + Ard
 ## Commands
 System: `help/hlp` `info/inf` `clear/clr` `MATRIX/matrix` `pwrsave/psv` `sleep/slp` `lock/lk` `home/hm [EXP]` `undercover/uc [EXP]` `tz` `weather/wx` `game/gm [EXP]`  (Notes has no standalone command — reachable via the `home` launcher's Notes tile)
 WiFi: `scanwifi/sw` (WiFi manager) `connectwifi/cw` `wifipass/wp` (`wp export`/`wp clear` — merged wifiexport+clearwifi) `wifimon/wm` `deauth/da` `eviltwin/et` `hiddenssid/hs` `macchanger/mc` `wpasniff/ws` `pmkid/pm` `wpa3down/w3d [EXP]` `karma/km` `crack/cc` `wguard/wg` `beaconflood/bf` `wardrive/wd` `espsniff/es` `esptest/est` `espchat/ec` `espvoice/ev`
-Network: `netdiscover/nd` `netspy/ns [EXP]` `isoscan/is [EXP]` `arpspoof/as [EXP]` `portscan/ps` (`ps top <ip|#>` — merged topscan) `ping/pg` `ssh/sc`
+Network: `netdiscover/nd` `netspy/ns [EXP]` `isoscan/is [EXP]` `arpspoof/as [EXP]` `responder/rsp [EXP]` `portscan/ps` (`ps top <ip|#>` — merged topscan) `ping/pg` `ssh/sc`
 Bluetooth: `scanblue/sbl` `bleinfo/bi` `trackme/tm [silent]`
 SD: `sdinfo/sdi` `sdls/ls` `cd/cd` `cat/cat` `edit/ed` `rm/rm` (`rm -d <dir>` = recursive dir delete) `sdf/sdf`
 Diagnostics: `gps/gps` `test/tst` (`test spk|mic|lora|touch` — merged spktest+mictest+loratest+touchtest) `i2cscan/isc [EXP]` `csidetect/csi [EXP]`
@@ -303,6 +308,7 @@ orphaned, not migrated.
 `/apps/csidetect/NNN.csv` — CSI motion presence-transition logs (`SD_DIR_CSIDETECT`, sequential, `[s]` in `csi`)
 `/apps/netspy/NNN.csv` — client-isolation device recon from `ns` (`SD_DIR_NETSPY`, sequential; `time,mac,ip,name,vendor,type,how,services`) + `gwpasm.txt` (`ns dump`)
 `/apps/isoscan/NNN.pcap` — `is portdown` victim frame capture (linktype 105, Wireshark); `mitm_NNN.pcap` — `is mitm` redirected-traffic capture (distinct prefix, identifiable vs portdown); `dns_NNN.csv` — `is dns` logged DNS queries (`time_ms,src_ip,query`). All pick the next free `NNN` (never overwrite); each attack screen shows the file it is writing. (`SD_DIR_ISOSCAN`)
+`/apps/responder/hashes.txt` — captured NetNTLMv2 hashes from `rsp` (append, hashcat -m 5600 format) + `log.csv` (`ms,proto,src,domain\user`) (`SD_DIR_RESPONDER`)
 `/apps/i2cscan/results.csv` — I2C scanner results (`timestamp,0xADDR,chip_name,type,ACK/DEAD`)
 `/apps/fastpair/keys.csv` — saved Fast Pair anti-spoofing keys
 `/apps/fastpair/paired.csv` — successful pairings log

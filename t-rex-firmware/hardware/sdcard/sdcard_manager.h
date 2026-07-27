@@ -58,6 +58,7 @@
 #define SD_DIR_CSIDETECT     "/apps/csidetect"        // CSI motion logs (NNN.csv)
 #define SD_DIR_NETSPY        "/apps/netspy"           // netspy device logs + RE dumps
 #define SD_DIR_ISOSCAN       "/apps/isoscan"          // isoscan active-attack logs/captures
+#define SD_DIR_RESPONDER     "/apps/responder"        // responder captured NetNTLM hashes + logs
 #define SD_DIR_WPA3DOWN      "/apps/wpa3down"          // WPA3 transition-downgrade handshakes (.cap)
 
 #define SD_DIR_MACWATCH      "/apps/macwatch"
