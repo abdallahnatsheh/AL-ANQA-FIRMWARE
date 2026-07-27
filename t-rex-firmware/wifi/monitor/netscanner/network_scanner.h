@@ -18,4 +18,7 @@ private:
     void performPortScan(const IPAddress& targetIP, int startPort, int endPort);
 };
 
+// Resolve a target token (ip | nd# | ns#) into an IP. Shared by ps/pg and arpspoof.
+bool resolveNetTarget(const String& tok, IPAddress& out);
+
 #endif

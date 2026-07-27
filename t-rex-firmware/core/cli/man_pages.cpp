@@ -549,6 +549,28 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "arpspoof", "as", {
+        "SYNTAX   as <victim> [gateway]",
+        "         victim = ip | nd# | ns#",
+        "",
+        "ABOUT    [EXP] L2 ARP cache poisoning. Tells",
+        "         the victim 'gateway is at me' and the",
+        "         gateway 'victim is at me', so their",
+        "         caches point to us. Needs cw first.",
+        "",
+        "HOW      Injects ARP replies as a raw ethernet",
+        "         frame via the STA netif (driver adds",
+        "         WPA2 encryption). Resolves + heals both",
+        "         caches with the real MACs on [q] exit.",
+        "",
+        "KEYS     [q] stop + heal",
+        "NOTE     Single radio = NO forwarding, so this",
+        "         is a redirect/blackhole (DoS), not a",
+        "         transparent interceptor. Pair with a",
+        "         listener to capture. Own nets only.",
+        nullptr
+    }},
+
     { "portscan", "ps", {
         "SYNTAX   ps <ip|#|ns#> <start> <end>",
         "         ps top <ip|#|ns#>",
