@@ -8,7 +8,11 @@
 // other's IP to OUR MAC. On a normal switched WiFi this redirects the victim's
 // traffic to us — but with no IP forwarding on a single radio it is a
 // redirect/blackhole (DoS), NOT a transparent interceptor (honest on-screen).
-// Heals both caches with the real MACs on exit.
+//
+// While poisoning it ALSO sniffs the redirected uplink (the AP relays those
+// frames to us decrypted) and logs what the victim is trying to reach — dst IP +
+// DNS domain / HTTP host — live on screen and to /apps/arpspoof/NNN.csv. So even
+// though traffic is blackholed, you see the victim's requests. Heals on exit.
 //
 // Own networks only. Free-function entry (wardrive/isoscan pattern).
 #pragma once

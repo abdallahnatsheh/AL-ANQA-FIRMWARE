@@ -73,6 +73,7 @@ void SDCardManager::ensureAppsReadme() {
     f.println("nes/        gm          NES ROMs (roms/) + save states (states/)");
     f.println("netspy/     ns          client-isolation device recon (NNN.csv)");
     f.println("responder/  rsp         captured NetNTLMv2 hashes + poison log");
+    f.println("arpspoof/   as          redirected-traffic log (dst IP/DNS/HTTP)");
     f.println("notes/      (home)      undercover Notes cover files (NNN.txt)");
     f.println("pmkid/      pm          PMKID captures (.cap), wordlist.txt, cracked.csv");
     f.println("ssh/        ssh         hosts.csv host profiles; known_hosts/keys (planned)");
@@ -119,6 +120,7 @@ void SDCardManager::ensureTreeStructure() {
     ensureDir(SD_DIR_NETSPY);
     ensureDir(SD_DIR_ISOSCAN);
     ensureDir(SD_DIR_RESPONDER);
+    ensureDir(SD_DIR_ARPSPOOF);
     ensureDir(SD_DIR_WPA3DOWN);
     ensureDir(SD_DIR_MACWATCH);
     ensureDir(SD_DIR_I2CSCAN);
