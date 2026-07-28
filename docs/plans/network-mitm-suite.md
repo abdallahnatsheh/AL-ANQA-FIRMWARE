@@ -1,8 +1,10 @@
 # Plan — Network MITM suite (`arpspoof` + `responder`), phased
 
-> Status: Phase 1 (`arpspoof`) + Phase 2 (`responder`, LLMNR + NBT-NS + HTTP-NTLM)
-> BUILT, reviewed/hardened + UI-polished, builds clean — AWAITING HW LAB TEST.
-> SMB(445) capture = future 2b. Verification steps below.
+> Status: Phase 1 (`arpspoof`, now also logs redirected dst IP/DNS/HTTP) +
+> Phase 2 (`responder`) BUILT, builds clean — AWAITING HW LAB TEST. Responder now
+> covers LLMNR + NBT-NS + **mDNS**, HTTP **+ SMB(445, best-effort 2b)**, NetNTLMv2
+> **+ NTLMv1 + HTTP-Basic**, **WPAD PAC**, and logs **every** poisoned query.
+> Remaining: HW-verify (esp. the SMB2/SPNEGO framing vs a real Windows victim).
 
 ## Context
 T-REX has recon (`nd`, `ns`) and isolation-bypass (`is`) but no active LAN MITM tooling.
