@@ -286,6 +286,9 @@ static const ArgHintEntry kArgHints[] = {
     // isoscan / is
     { "isoscan",     "",              "auto inject bounce portdown mitm portup dns bcast cctest" },
     { "is",          "",              "auto inject bounce portdown mitm portup dns bcast cctest" },
+    // responder / rsp
+    { "responder",   "",              "passive" },
+    { "rsp",         "",              "passive" },
     // tz
     { "tz",          "",              "status" },
     // macchanger / mc  ("status" isn't a distinct code path — handleCommand() falls through

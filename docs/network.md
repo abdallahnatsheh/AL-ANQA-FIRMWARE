@@ -80,6 +80,42 @@ Start with **`auto`** — it runs a 6-step probe (CCMP, GTK, ARP, GTK-inject rea
 
 ---
 
+## `arpspoof` / `as` — ARP Cache Poisoning  `[EXP]`
+
+Bidirectional **L2 ARP poisoning**: tells the victim "the gateway is at me" and the gateway "the victim is at me", so both caches point to the T-Deck. **Own networks only.**
+
+```
+CMD> cw MyWiFi        # must be connected
+CMD> nd               # (or ns) find the victim, note its index / IP
+CMD> as 192.168.1.42  # poison that host (gateway auto-detected)
+CMD> as ns3           # or target a netspy device by index
+```
+
+While poisoning, it **sniffs the victim's redirected uplink** (the AP relays those frames to us decrypted) and shows a live **"victim reaching:"** list — destination IP plus the **DNS domain / HTTP host** — and logs it to `/apps/arpspoof/NNN.csv`. Press **`[q]`** to stop; it then **heals both caches** with the real MACs and leaves WiFi idle.
+
+> **Honest limit:** a single radio has **no IP forwarding**, so this is a **redirect/blackhole (DoS)** — you *see* the victim's requests but can't relay them, so its traffic breaks while active. Pair with `responder` for credential capture. `as nd#` and `as ns#` use two independent lists — use the index shown in that tool's own table, or an IP.
+
+---
+
+## `responder` / `rsp` — Name Poisoner + NTLM Capture  `[EXP]`
+
+Answers **LLMNR (5355) / NBT-NS (137) / mDNS (5353)** name queries — including `wpad` — with the T-Deck's IP, then a fake **HTTP (:80)** and **SMB (:445)** login prompt captures the victim's **NetNTLMv2/v1** hash (and HTTP **Basic** cleartext) for offline cracking. **Own networks only.**
+
+```
+CMD> cw MyWiFi        # must be connected
+CMD> rsp              # active: poison + capture
+CMD> rsp passive      # listen-only recon: log queries, transmit nothing
+```
+
+- **Active (`rsp`)** — poisons queries and runs the HTTP/SMB catchers.
+- **Passive (`rsp passive`)** — binds the listeners and logs every observed name query, but **never answers and never opens the capture servers**. Pure, quiet recon.
+
+Output goes to a **per-session folder `/apps/responder/NNN/`**: `hashes.txt` (hashcat-ready — `-m 5600` for v2, `-m 5500` for v1), `creds.txt` (HTTP Basic), `captures.csv`, and `queries.csv` (every query). The screen shows live `LL / NB / MD` query counts, a `HASH` counter, the recent names, and the latest capture.
+
+> **Honest limit:** hashes are captured for **offline cracking** (not cracked on-device). The **SMB2 path is best-effort/[EXP]** — the SPNEGO framing is hand-built and may need iteration against a real Windows victim; LLMNR/NBT-NS + HTTP capture are the reliable paths.
+
+---
+
 ## `portscan` / `ps` — TCP Port Scan
 
 ```
