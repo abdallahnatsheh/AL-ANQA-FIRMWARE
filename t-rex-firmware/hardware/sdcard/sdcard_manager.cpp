@@ -72,7 +72,7 @@ void SDCardManager::ensureAppsReadme() {
     f.println("i2cscan/    isc         I2C bus scan results (results.csv)");
     f.println("nes/        gm          NES ROMs (roms/) + save states (states/)");
     f.println("netspy/     ns          client-isolation device recon (NNN.csv)");
-    f.println("responder/  rsp         captured NetNTLMv2 hashes + poison log");
+    f.println("responder/  rsp         per-session NNN/ (hashes/creds/captures/queries)");
     f.println("arpspoof/   as          redirected-traffic log (dst IP/DNS/HTTP)");
     f.println("notes/      (home)      undercover Notes cover files (NNN.txt)");
     f.println("pmkid/      pm          PMKID captures (.cap), wordlist.txt, cracked.csv");

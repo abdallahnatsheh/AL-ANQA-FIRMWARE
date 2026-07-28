@@ -152,7 +152,7 @@ Run `help` for the list on-device, or `man <cmd>` for a full manual page.
 | `netspy` | `ns` | `[gtk\|dump]` | **[EXP]** Passive client-isolation device recon (AirSnitch) |
 | `isoscan` | `is` | `[ns#] <attack>` · `cctest` | **[EXP]** Active isolation audit — **transmits**; `auto` recommends an attack |
 | `arpspoof` | `as` | `<victim> [gw]` | **[EXP]** ARP poisoning + logs what the victim reaches (dst IP/DNS/HTTP → SD); heals on exit |
-| `responder` | `rsp` | — | **[EXP]** LLMNR/NBT-NS/mDNS poisoner + NetNTLMv2/v1 + Basic capture (HTTP & SMB) → SD |
+| `responder` | `rsp` | `[passive]` | **[EXP]** LLMNR/NBT/mDNS poisoner + NetNTLMv2/v1 + Basic capture (HTTP & SMB); `passive` = listen-only → per-session SD folder |
 | `portscan` | `ps` | `<ip\|#\|ns#> <start> <end>` · `top ...` | TCP port scan (`top` = 26 common ports) |
 | `ping` | `pg` | `<ip\|host\|#\|ns#>` | Continuous ICMP ping with RTT stats |
 | `ssh` | `sc` | `<ip\|name> [user]` | Interactive SSH client (libssh) + saved profiles |
