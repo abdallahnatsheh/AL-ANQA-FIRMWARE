@@ -30,6 +30,16 @@ type: project
   NOT started. **Also paused: MITM plan Phase-2b SMB catcher.**
 - Behavioral: **keep commit messages general — no host paths / usernames / device serials** (user-requested,
   see [[feedback_commit_message_style]]).
+- **2026-07-28 follow-ups (COMMITTED+PUSHED, still awaiting lab test):** (a) `arpspoof` now **captures+logs
+  the redirected uplink** — promiscuous sniff of the AP-relayed victim frames → dst IP + DNS domain (UDP 53) /
+  HTTP Host (TCP 80) / HTTPS → live "victim reaching:" list + `/apps/arpspoof/NNN.csv` (`asCapCb`/`asParseFrame`,
+  isoscan offsets; ScopedPromiscPause for SD). So the blackholed victim's requests are visible. (b) `responder`
+  expanded to the user's full pick: **mDNS(5353)** poisoning added; **every** poisoned query logged to
+  `poison.csv`; **NTLMv1 (-m 5500)** + **HTTP Basic** capture besides NTLMv2; **WPAD PAC** served; **best-effort
+  SMB2(:445)** catcher (NEGOTIATE + SPNEGO-wrapped Type-2 challenge → Type-3 via shared `parseType3`) — **SMB is
+  UNTESTED, SMB2/SPNEGO framing may need iteration vs a real Windows victim.** Commits 36c4b22 / 3485776.
+- **`nd#` vs `ns#` note:** the two lists number devices independently — `nd3` ≠ `ns3`. Target by the index shown
+  in that tool's own table, or by IP. Under client isolation `nd` may only see the gateway (use `ns`).
 
 ## Session 2026-07-09b (wpa3down Phase 2 — WPA3 transition-downgrade attack) — code-complete, UNCOMMITTED, NOT HW-tested
 - **Built Phase 2 of the wpa3down plan** (the core downgrade attack) right after the `sw` manager rework. New module
