@@ -40,6 +40,15 @@ type: project
   UNTESTED, SMB2/SPNEGO framing may need iteration vs a real Windows victim.** Commits 36c4b22 / 3485776.
 - **`nd#` vs `ns#` note:** the two lists number devices independently — `nd3` ≠ `ns3`. Target by the index shown
   in that tool's own table, or by IP. Under client isolation `nd` may only see the gateway (use `ns`).
+- **2026-07-28b review fixes + features (COMMITTED+PUSHED):** (c) responder review: bound HTTP/SMB socket reads
+  (`setTimeout 250`) + poll `q` inside handlers so quitting stays responsive; **dedup captures** (last-8 NT-response
+  keys) so a re-auth doesn't re-log/re-count; `poison.csv`→held-open handle. (d) **`rsp passive`** listen-only mode
+  (`s_passive` gates every send; no HTTP/SMB servers) — pure recon, transmits nothing. (e) **SD reorg**: responder
+  now writes a **per-session folder `/apps/responder/NNN/`** = `hashes.txt` (hashcat NetNTLM only — Basic no longer
+  pollutes it) + `creds.txt` + `captures.csv` + `queries.csv`. (f) **BUG FIX — undercover passphrase exit** failed
+  after a typo+backspace: `cover::feedPassphrase` ignored backspace so the rolling window kept stale chars. Reworked
+  to apply backspace as undo in a 65B buffer + match the last `plen` chars (`cover_kit.cpp`). Commits 7519f38 /
+  97925c1 / 38f46f9. Docs/man/autocomplete(`rsp passive` kArgHints)/README/network.md all updated.
 
 ## Session 2026-07-09b (wpa3down Phase 2 — WPA3 transition-downgrade attack) — code-complete, UNCOMMITTED, NOT HW-tested
 - **Built Phase 2 of the wpa3down plan** (the core downgrade attack) right after the `sw` manager rework. New module

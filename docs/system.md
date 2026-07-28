@@ -231,7 +231,7 @@ A real, SD-backed notes app (`/apps/notes/NNN.txt`) that doubles as a disguise. 
 | Tap the + FAB | New note |
 | Tap the back chevron | Return to the list |
 | `[q]` | Exit — fallback only, disabled once a passphrase is set |
-| Type the secret passphrase (uc only) | Exit silently to the CLI, without saving the open note |
+| Type the secret passphrase (uc only) | Exit silently to the CLI, without saving the open note (typos you backspace-correct while typing it are handled — the match tracks your edited text) |
 | Press the panic key (default `@`) | From anywhere — even mid-command — instantly drops into the cover |
 
 No SD card → notes still work for the session (typing, editing, navigating) but nothing persists across a reboot — there is no crash or degraded mode, just no save. The passphrase is stored as `SHA-256(salt + phrase)` in `/config/undercover.conf`, never in plaintext; on a passphrase-match exit the currently-open note is deliberately **not** saved, so the phrase's own keystrokes (typed live into the note before the match is detected) never reach the SD card.
