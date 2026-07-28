@@ -4,6 +4,8 @@
 > Phase 2 (`responder`) BUILT, builds clean — AWAITING HW LAB TEST. Responder now
 > covers LLMNR + NBT-NS + **mDNS**, HTTP **+ SMB(445, best-effort 2b)**, NetNTLMv2
 > **+ NTLMv1 + HTTP-Basic**, **WPAD PAC**, and logs **every** poisoned query.
+> Also: `rsp passive` (listen-only recon, transmits nothing) + per-session SD
+> folders `/apps/responder/NNN/` (hashes/creds/captures/queries).
 > Remaining: HW-verify (esp. the SMB2/SPNEGO framing vs a real Windows victim).
 
 ## Context
