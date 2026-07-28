@@ -65,19 +65,34 @@ void teardownCanvas() {
 }
 
 // ── Secret-passphrase rolling buffer ─────────────────────────────────────────
-static char s_kbuf[33] = {};
+// Records the raw edited keystroke stream (backspaces applied) and checks whether
+// its last `plen` characters equal the passphrase. Handling backspace is the key
+// fix: previously a typo+correction while typing the phrase left stale characters
+// in the window, so the match silently failed even though the note showed the
+// right text. The buffer is larger than the phrase so a correction near the end
+// still lands on a matching suffix.
+static char s_kbuf[65] = {};
 static int  s_kpos     = 0;
 
 void resetPassphrase() { s_kbuf[0] = '\0'; s_kpos = 0; }
 
 bool feedPassphrase(char k) {
-    if (!(k >= 0x20 && k < 0x7F && ucHasPassphrase())) return false;
+    if (!ucHasPassphrase()) return false;
     int plen = ucPhraseLen();
     if (plen <= 0 || plen > 32) return false;
-    if (s_kpos < plen) { s_kbuf[s_kpos++] = k; }
-    else { memmove(s_kbuf, s_kbuf + 1, plen - 1); s_kbuf[plen - 1] = k; }
-    s_kbuf[s_kpos < plen ? s_kpos : plen] = '\0';
-    return (s_kpos >= plen && ucCheckPhrase(s_kbuf));
+    if (k == 0x08 || k == 0x7F) {                 // backspace/delete → undo last char
+        if (s_kpos > 0) s_kbuf[--s_kpos] = '\0';
+        return false;
+    }
+    if (k < 0x20 || k >= 0x7F) return false;       // ignore Enter / control keys
+    if (s_kpos >= (int)sizeof(s_kbuf) - 1) {       // full → roll one char
+        memmove(s_kbuf, s_kbuf + 1, sizeof(s_kbuf) - 2);
+        s_kpos = (int)sizeof(s_kbuf) - 2;
+    }
+    s_kbuf[s_kpos++] = k;
+    s_kbuf[s_kpos]   = '\0';
+    if (s_kpos < plen) return false;
+    return ucCheckPhrase(s_kbuf + s_kpos - plen);  // check the last plen chars
 }
 
 // ── Touch-wake (undercover only) ─────────────────────────────────────────────
