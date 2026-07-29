@@ -36,7 +36,7 @@ extern InputHandling  inputHandler;
 // We sniff those (from-DS, A1=us, A3=victim) and log what the victim is trying to
 // reach (dst IP + DNS query / HTTP host). Frame offsets mirror isoscan's isoCapCb.
 #define AS_CAP_RING 16
-#define AS_CAP_MAX  256
+#define AS_CAP_MAX  400   // large enough to reach the TLS SNI in a ClientHello
 struct AsCapFrame { uint8_t data[AS_CAP_MAX]; uint16_t len; };
 static volatile AsCapFrame s_cap[AS_CAP_RING];
 static volatile uint8_t    s_capHead = 0, s_capTail = 0;
@@ -59,6 +59,46 @@ static void IRAM_ATTR asCapCb(void* buf, wifi_promiscuous_pkt_type_t t) {
     memcpy((void*)s_cap[s_capHead].data, f, n);
     s_cap[s_capHead].len = (uint16_t)n;
     s_capHead = nx;
+}
+
+// Extract the SNI hostname from a TLS ClientHello (the domain in an HTTPS
+// handshake). `pl` = start of the TCP payload. Walks ClientHello → extensions →
+// server_name (type 0x0000). Returns false unless this frame is a ClientHello
+// with an SNI within the captured bytes.
+static bool tlsSni(const uint8_t* f, int len, int pl, char* out, int osz) {
+    int p = pl;
+    if (p + 5 > len || f[p] != 0x16) return false;      // TLS handshake record
+    int hp = p + 5;                                     // handshake message
+    if (hp + 4 > len || f[hp] != 0x01) return false;    // ClientHello
+    int q = hp + 4 + 2 + 32;                            // ver(2) + random(32)
+    if (q + 1 > len) return false;
+    q += 1 + f[q];                                      // session id
+    if (q + 2 > len) return false;
+    q += 2 + ((f[q] << 8) | f[q+1]);                    // cipher suites
+    if (q + 1 > len) return false;
+    q += 1 + f[q];                                      // compression methods
+    if (q + 2 > len) return false;
+    int extEnd = q + 2 + ((f[q] << 8) | f[q+1]); q += 2;
+    if (extEnd > len) extEnd = len;
+    while (q + 4 <= extEnd) {
+        int etype = (f[q] << 8) | f[q+1];
+        int elen  = (f[q+2] << 8) | f[q+3];
+        int ep = q + 4;
+        if (etype == 0x0000) {                          // server_name
+            if (ep + 5 > len) return false;
+            int nameLen = (f[ep+3] << 8) | f[ep+4];
+            int np = ep + 5;
+            if (f[ep+2] == 0 && np + nameLen <= len && nameLen > 0) {
+                int n = nameLen < osz - 1 ? nameLen : osz - 1;
+                for (int i = 0; i < n; i++) out[i] = (char)f[np+i];
+                out[n] = '\0';
+                return true;
+            }
+            return false;
+        }
+        q = ep + elen;
+    }
+    return false;
 }
 
 // Parse one captured frame → dst IP + a human "detail" (DNS domain / HTTP host /
@@ -105,7 +145,11 @@ static bool asParseFrame(const uint8_t* f, int len, IPAddress& dst, char* detail
                 }
             }
             snprintf(detail, dsz, host[0] ? "HTTP %s" : "HTTP :80", host);
-        } else if (dport == 443) snprintf(detail, dsz, "HTTPS");
+        } else if (dport == 443) {
+            char sni[64];
+            if (tlsSni(f, len, pl, sni, sizeof(sni))) snprintf(detail, dsz, "HTTPS %s", sni);
+            else snprintf(detail, dsz, "HTTPS");
+        }
         else snprintf(detail, dsz, "TCP :%u", dport);
     } else snprintf(detail, dsz, "proto %u", proto);
     return true;

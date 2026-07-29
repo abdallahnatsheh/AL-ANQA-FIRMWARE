@@ -11,7 +11,7 @@
 //
 // While poisoning it ALSO sniffs the redirected uplink (the AP relays those
 // frames to us decrypted) and logs what the victim is trying to reach — dst IP +
-// DNS domain / HTTP host — live on screen and to /apps/arpspoof/NNN.csv. So even
+// DNS domain / HTTP host / HTTPS domain (TLS SNI) — live + to /apps/arpspoof/NNN.csv. So even
 // though traffic is blackholed, you see the victim's requests. Heals on exit.
 //
 // Own networks only. Free-function entry (wardrive/isoscan pattern).
