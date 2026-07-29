@@ -553,7 +553,7 @@ static const ManEntry PAGES[] = {
         "SYNTAX   as <victim> [gateway]",
         "         victim = ip | nd# | ns#",
         "",
-        "ABOUT    [EXP] L2 ARP cache poisoning. Tells",
+        "ABOUT    L2 ARP cache poisoning. Tells",
         "         the victim 'gateway is at me' and the",
         "         gateway 'victim is at me', so their",
         "         caches point to us. Needs cw first.",

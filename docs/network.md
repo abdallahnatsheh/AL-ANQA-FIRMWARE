@@ -80,7 +80,7 @@ Start with **`auto`** — it runs a 6-step probe (CCMP, GTK, ARP, GTK-inject rea
 
 ---
 
-## `arpspoof` / `as` — ARP Cache Poisoning  `[EXP]`
+## `arpspoof` / `as` — ARP Cache Poisoning
 
 Bidirectional **L2 ARP poisoning**: tells the victim "the gateway is at me" and the gateway "the victim is at me", so both caches point to the T-Deck. **Own networks only.**
 
