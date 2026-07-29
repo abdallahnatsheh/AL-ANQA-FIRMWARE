@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Abdallah Natsheh
 //
-// arpspoof / as — L2 ARP cache poisoning (Network, [EXP]).
+// arpspoof / as — L2 ARP cache poisoning (Network).
 //
 // Poisons a victim's + the gateway's ARP caches (bidirectional) so both map the
 // other's IP to OUR MAC. On a normal switched WiFi this redirects the victim's

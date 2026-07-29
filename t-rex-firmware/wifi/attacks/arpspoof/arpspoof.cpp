@@ -260,7 +260,6 @@ void runArpSpoof(char* args) {
     auto drawStatic = [&]() {
         dm.clearScreen();
         dm.setTextColor(TFT_RED);   dm.setCursor(10, 40);  dm.printText("[ARP::SPOOF]");
-        dm.setTextColor(0xFD20);    dm.setCursor(118, 40); dm.printText("[EXP]");
         dm.setTextColor(0x7BEF);    dm.setCursor(10, 58);  dm.printText("redirect/DoS - no forwarding (1 radio)");
         dm.setTextColor(0xC618);    dm.setCursor(10, 78);  dm.printText("victim  " + victimIp.toString());
         dm.setCursor(112, 78); dm.printText(asMacStr(victimMac));

@@ -5,6 +5,9 @@ type: project
 ---
 
 ## Session 2026-07-27 (gm fixes + license/SD reorg + Network MITM suite + keyboard plan) — ALL COMMITTED + PUSHED to feature/pentest-enhancements
+- **2026-07-28c: `arpspoof`/`as` HW-VERIFIED by user ("works great") → PROMOTED OUT OF [EXP].** Removed the `[EXP]`
+  tag everywhere (cmd desc, man, README, CLAUDE.md, docs/network.md, on-screen UI, arpspoof.h). `responder`/`rsp`
+  STAYS `[EXP]` (SMB2 still unverified). Note: `as nd#` vs `ns#` was a targeting/index confusion, not a bug.
 - **`gm` post-exit lock loop FIXED (HW-verified by user).** Root cause: `nesI2sInit()` omitted `.mck_io_num`
   → designated-initializer zero routed I2S MCLK onto **GPIO0 (= BOARD_BOOT_PIN, trackball click)** → pin read
   LOW after a game → lockscreen 3-s trackpad-hold detector fired on a loop. Fix: `.mck_io_num = I2S_PIN_NO_CHANGE`

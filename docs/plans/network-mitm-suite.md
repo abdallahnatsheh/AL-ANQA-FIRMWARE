@@ -1,7 +1,8 @@
 # Plan — Network MITM suite (`arpspoof` + `responder`), phased
 
-> Status: Phase 1 (`arpspoof`, now also logs redirected dst IP/DNS/HTTP) +
-> Phase 2 (`responder`) BUILT, builds clean — AWAITING HW LAB TEST. Responder now
+> Status: Phase 1 (`arpspoof`, now also logs redirected dst IP/DNS/HTTP) —
+> **HW-VERIFIED WORKING, promoted out of [EXP].** Phase 2 (`responder`) BUILT,
+> builds clean — AWAITING HW LAB TEST (still [EXP]). Responder now
 > covers LLMNR + NBT-NS + **mDNS**, HTTP **+ SMB(445, best-effort 2b)**, NetNTLMv2
 > **+ NTLMv1 + HTTP-Basic**, **WPAD PAC**, and logs **every** poisoned query.
 > Also: `rsp passive` (listen-only recon, transmits nothing) + per-session SD

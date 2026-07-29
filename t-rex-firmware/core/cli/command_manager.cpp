@@ -831,7 +831,7 @@ void CommandManager::setupCommands() {
     registerCommand("portscan",    "ps",     [](char* a) { handlePortScanCmd(a); },                                         "Port scan: ps <ip|#|ns#> <s> <e> | ps top <ip|#|ns#>", true, "Network");
     registerCommand("netspy",      "ns",     [](char* a) { runNetspy(a); },                                                  "[EXP] Client-isolation recon (AirSnitch): ns [gtk|dump]", true,  "Network");
     registerCommand("isoscan",     "is",     [](char* a) { runIsoscan(a); },                                                 "[EXP] Active isolation-bypass attacks: is [ns#] [attack]", true, "Network");
-    registerCommand("arpspoof",    "as",     [](char* a) { runArpSpoof(a); },                                                "[EXP] ARP cache poisoning: as <victim> [gw]", true, "Network");
+    registerCommand("arpspoof",    "as",     [](char* a) { runArpSpoof(a); },                                                "ARP cache poisoning + traffic log: as <victim> [gw]", true, "Network");
     registerCommand("responder",   "rsp",    [](char* a) { runResponder(a); },                                               "[EXP] LLMNR/NBT/mDNS poison+capture; rsp passive = listen-only", true, "Network");
     registerCommand("ping",        "pg",     [](char* a) { networkScanner.pingHost(a); },                                   "Ping: pg <ip|host|#|ns#>",                 true,  "Network");
     registerCommand("ssh",         "sc",     [](char* a) { runSshCon(a); },                                                 "SSH client: ssh <ip|name> [user] | save/list/rm", true,  "Network");
