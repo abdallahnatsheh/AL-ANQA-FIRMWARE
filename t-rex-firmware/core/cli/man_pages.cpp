@@ -438,6 +438,30 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "wps", "wps", {
+        "SYNTAX   wps              list WPS APs (needs sw)",
+        "         wps <idx>        recon a WPS AP",
+        "         wps pbc <idx>    push-button connect",
+        "",
+        "RECON    Sniffs the AP's beacon + decodes the",
+        "         WPS IE: version, AP-SETUP-LOCKED state,",
+        "         config methods, and the leaked mfr /",
+        "         model / device name / serial. Computes",
+        "         candidate PINs from the BSSID.",
+        "",
+        "PBC      Attempts a WPS push-button connect -",
+        "         works only while the AP's WPS button is",
+        "         active; on success recovers SSID+PSK.",
+        "",
+        "OUT      /apps/wps/wps.csv (recon), creds.csv",
+        "NOTE     Automated WPS PIN / Pixie-Dust is NOT",
+        "         possible on ESP32 (closed stack can't",
+        "         supply a PIN / be a registrar). The PIN",
+        "         calc only computes candidates to try",
+        "         with Reaver. Own networks only.",
+        nullptr
+    }},
+
     { "wardrive", "wd", {
         "SYNTAX   wardrive   (T-Deck Plus only)",
         "",

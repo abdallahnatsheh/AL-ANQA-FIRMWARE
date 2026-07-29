@@ -701,6 +701,11 @@ bool WiFiFunctions::getNetworkOpen(int index) const {
     return scanCache[index].isOpen;
 }
 
+bool WiFiFunctions::getNetworkWps(int index) const {
+    if (!networkScanExecuted || index < 0 || index >= (int)scanCache.size()) return false;
+    return scanCache[index].wps;
+}
+
 int WiFiFunctions::getNetworkSec(int index) const {
     if (!networkScanExecuted || index < 0 || index >= (int)scanCache.size()) return -1;
     return scanCache[index].sec;
