@@ -91,7 +91,7 @@ CMD> as 192.168.1.42  # poison that host (gateway auto-detected)
 CMD> as ns3           # or target a netspy device by index
 ```
 
-While poisoning, it **sniffs the victim's redirected uplink** (the AP relays those frames to us decrypted) and shows a live **"victim reaching:"** list — destination IP plus the **DNS domain / HTTP host** — and logs it to `/apps/arpspoof/NNN.csv`. Press **`[q]`** to stop; it then **heals both caches** with the real MACs and leaves WiFi idle.
+While poisoning, it **sniffs the victim's redirected uplink** (the AP relays those frames to us decrypted) and shows a live **"victim reaching:"** list — destination IP plus the **DNS domain / HTTP host / HTTPS domain** (the latter read from the TLS SNI in the ClientHello) — and logs it to `/apps/arpspoof/NNN.csv`. Press **`[q]`** to stop; it then **heals both caches** with the real MACs and leaves WiFi idle.
 
 > **Honest limit:** a single radio has **no IP forwarding**, so this is a **redirect/blackhole (DoS)** — you *see* the victim's requests but can't relay them, so its traffic breaks while active. Pair with `responder` for credential capture. `as nd#` and `as ns#` use two independent lists — use the index shown in that tool's own table, or an IP.
 
