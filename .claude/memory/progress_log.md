@@ -5,6 +5,15 @@ type: project
 ---
 
 ## Session 2026-07-27 (gm fixes + license/SD reorg + Network MITM suite + keyboard plan) — ALL COMMITTED + PUSHED to feature/pentest-enhancements
+- **2026-07-29: `wps` command BUILT (WiFi) — recon + PIN-calc + PBC, builds clean, NOT HW-tested.**
+  Research settled (do NOT re-litigate): **automated WPS PIN brute-force / Pixie-Dust is IMPOSSIBLE on
+  ESP32** — `esp_wps_config_t` has NO pin field (WPS_TYPE_PIN self-generates the enrollee PIN), registrar
+  mode unsupported (`ESP_ERR_WIFI_REGISTRAR`), Pixie needs M1/M3 crypto the closed stack hides; no ESP
+  framework (Marauder/Bruce/esp32-wifi-penetration-tool) ships one. So `wps` does the honest max: (a)
+  `wps <idx>` beacon promiscuous-capture → WPS-IE decode (version/locked/methods + **device mfr/model/
+  name/serial leak**) → `/apps/wps/wps.csv`; (b) BSSID→PIN calculator (ComputePIN+checksum, DISPLAY-only,
+  test w/ Reaver); (c) `wps pbc <idx>` = the one real cred path (esp_wifi_wps PBC → SSID+PSK on button
+  press → creds.csv). Reuses `sw` scan (added `getNetworkWps`). `wifi/attacks/wps/`. Commit 743a212.
 - **2026-07-28c: `arpspoof`/`as` HW-VERIFIED by user ("works great") → PROMOTED OUT OF [EXP].** Removed the `[EXP]`
   tag everywhere (cmd desc, man, README, CLAUDE.md, docs/network.md, on-screen UI, arpspoof.h). `responder`/`rsp`
   STAYS `[EXP]` (SMB2 still unverified). Note: `as nd#` vs `ns#` was a targeting/index confusion, not a bug.
