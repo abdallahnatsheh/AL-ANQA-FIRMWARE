@@ -77,6 +77,7 @@ void runNetspy(char* a);
 void runIsoscan(char* a);
 void runArpSpoof(char* a);
 void runResponder(char* a);
+void runWps(char* a);
 void runWpa3Down(char* a);
 
 CommandManager::CommandManager()
@@ -819,6 +820,7 @@ void CommandManager::setupCommands() {
     registerCommand("wguard",      "wg",     [](char* a) { stopEspchatBg(); handleWGuardCmd(a); },                          "WiFi IDS: wg <idx> [bg|stop]",                       true,  "WiFi");
     registerCommand("beaconflood", "bf",     [](char* a) { stopEspchatBg(); runBeaconFlood(a); },                           "Beacon flood: bf [list|seq <base>|file [path]]",     true,  "WiFi");
     registerCommand("karma",       "km",     [](char* a) { stopEspchatBg(); runKarma(a); },                                "Karma: km (harvest) | km auto | km hs/portal <ssid> | [h]/[p]/[s] in list", true,  "WiFi");
+    registerCommand("wps",         "wps",    [](char* a) { stopEspchatBg(); runWps(a); },                                  "WPS recon (IE/device leak) + PIN calc + pbc: wps [<idx>|pbc <idx>]", true, "WiFi");
     registerCommand("wardrive",    "wd",     [](char* a) { stopEspchatBg(); runWardrive(a); },                             "Wardrive: WiFi+GPS -> WiGLE CSV (Plus only)",        false, "WiFi");
     registerCommand("crack",       "cc",     [](char* a) { stopEspchatBg(); runCapCrack(a); },                             "Crack .cap: cc [cap] [wordlist|dir]",                true,  "WiFi", COMP_ANY);
     registerCommand("espsniff",    "es",     [](char* a) { if (!Utils::checkChannelArg(a, "es")) return; runEspSniff(a); },     "ESP-NOW sniffer: es [ch 1-13]",                      true,  "WiFi");

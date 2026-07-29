@@ -28,6 +28,7 @@ public:
     bool getNetworkInfo(int index, uint8_t* bssidOut, int* channelOut);
     bool getNetworkSSID(int index, char* ssidOut) const;
     bool getNetworkOpen(int index) const;
+    bool getNetworkWps(int index) const;   // WPS advertised in the last scan (used by wps)
     int  getNetworkSec(int index) const;   // WifiSec, or -1 if invalid (used by w3d)
     int  getNetworkCount() const;
     bool isScanDone() const;
