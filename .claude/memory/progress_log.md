@@ -5,6 +5,16 @@ type: project
 ---
 
 ## Session 2026-07-27 (gm fixes + license/SD reorg + Network MITM suite + keyboard plan) — ALL COMMITTED + PUSHED to feature/pentest-enhancements
+- **2026-07-29b: `wps` grown into the ESP32-MAX WPS tool (one command `wps <idx>`).** Adds a **9-algorithm PIN
+  generator** (`genPins`: pin24/28/32, DLink, DLink+1, ASUS, Airocon + statics — OneShot/WPSpin algos) →
+  `/apps/wps/attack_NNN.txt` (candidate list + ready laptop `reaver`/`-K` pixie commands), a **live EAP-WSC
+  handshake sniffer** (`wpsSniffCb`/`parseWsc` → M1/M2/M3 → `pixie_NNN.txt`), plus recon + `[p]` PBC. **KEY
+  HONESTY (researched, settled): the ESP32 CANNOT trigger a crackable Pixie handshake** — Pixie needs the
+  attacker to be the WPS *registrar* (so the AP reveals its weak-RNG E-Hashes as enrollee), and ESP32 has NO
+  registrar mode; as enrollee it'd only expose its OWN random-PIN hashes. So on-device = recon + PIN-gen +
+  handshake-capture + PBC; the actual PIN/password crack is OFFLINE on a laptop (reaver/pixiewps, needs an
+  AR9271/RT3070 injection adapter — Intel cards fail injection, HW-confirmed by user). Commits 743a212/
+  d02ccaf/d6685a1/729efef.
 - **2026-07-29: `wps` command BUILT (WiFi) — recon + PIN-calc + PBC, builds clean, NOT HW-tested.**
   Research settled (do NOT re-litigate): **automated WPS PIN brute-force / Pixie-Dust is IMPOSSIBLE on
   ESP32** — `esp_wps_config_t` has NO pin field (WPS_TYPE_PIN self-generates the enrollee PIN), registrar
