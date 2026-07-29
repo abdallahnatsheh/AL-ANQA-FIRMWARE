@@ -18,22 +18,25 @@ CMD> wps 3         # the all-in-one screen for AP #3
 Captures the AP's beacon and decodes its **WPS Information Element**:
 - **Version**, **AP-Setup-Locked** state (red if locked), **config methods** (PBC/Display/Keypad/Label)
 - **Device-info leak** — the **Manufacturer / Model / Device Name** the router advertises (real fingerprinting)
-- A **candidate PIN** computed from the BSSID (ComputePIN)
 
-Logged to `/apps/wps/wps.csv`. The PIN is display-only — validate it with Reaver on a laptop.
+Logged to `/apps/wps/wps.csv`.
 
-## 2. Live WPS-handshake sniff (automatic)
-While the screen is open it **sniffs the WPS EAP-WSC handshake** — the M1/M2/M3 messages are sent **unencrypted**, so when a WPS connection happens on-air (a client enrolling, or you press the button) the T-Deck captures the crypto material and shows `M1 OK  M2 OK  M3 OK`.
-
-On a complete handshake it writes **`/apps/wps/pixie_NNN.txt`** — a **ready-to-run pixiewps command** with the PKE/PKR, E-Hash1/2 and nonces filled in:
+## 2. Candidate-PIN generator + attack sheet (automatic)
+Runs **9 WPS PIN algorithms** on the BSSID (the same ones OneShot/WPSpin use): `pin24`, `pin28`, `pin32`, `DLink`, `DLink+1`, `ASUS`, `Airocon`, plus the `12345670` / `00000000` statics. It shows the top candidates on screen and writes **`/apps/wps/attack_NNN.txt`** — the full PIN list **plus ready reaver/pixiewps commands** for a laptop:
 
 ```
-pixiewps -e <PKE> -r <PKR> -s <E-Hash1> -z <E-Hash2> -n <E-Nonce> -m <R-Nonce> -b <enrollee-mac>
+sudo reaver -i mon0 -b <bssid> -c <ch> -vv        # full PIN brute
+sudo reaver -i mon0 -b <bssid> -c <ch> -K 1 -vv   # pixie-dust
+44479879   # pin24
+...        # + the other algorithm candidates
 ```
 
-Run that on a laptop and, on a Pixie-Dust-vulnerable router, it recovers the PIN → password **in seconds, offline**. The T-Deck is the on-air capture half of the attack chain.
+The PINs are **display/export only** — the ESP32 can't test them on-device, so you run the sheet on a laptop with an injection-capable adapter (AR9271/RT3070). One of the algorithm PINs cracks many older/vendor routers instantly.
 
-> A WPS exchange has to actually occur for M1–M3 to be caught — trigger it (connect a phone to the router via WPS, or press the WPS button) while `wps <idx>` is running.
+## 3. Live WPS-handshake sniff (automatic)
+While the screen is open it also **sniffs the unencrypted WPS EAP-WSC handshake**; if a full M1/M2/M3 goes on-air it saves **`/apps/wps/pixie_NNN.txt`** (a pixiewps command with PKE/PKR/E-Hash1/2/nonces).
+
+> **Be honest about this one:** a *usefully crackable* Pixie-Dust exchange requires the attacker to be the WPS **registrar** (so the AP reveals its weak-RNG hashes), and the ESP32 **can't be a registrar** — so it can't *trigger* a crackable handshake. This sniff only pays off in the narrow case of passively catching someone *else's* external-registrar attack against a weak AP. The reliable wins are the recon, the PIN sheet, and PBC.
 
 ## 3. `[p]` — push-button connect
 Press `p` to attempt a WPS **push-button** connect. Press the router's physical WPS button; on success the T-Deck recovers the **SSID + PSK** → `/apps/wps/creds.csv`.

