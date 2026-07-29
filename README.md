@@ -142,7 +142,7 @@ Run `help` for the list on-device, or `man <cmd>` for a full manual page.
 | `crack` | `cc` | `[cap] [wordlist\|dir]` | Offline WPA/WPA2 crack (handshake or PMKID) |
 | `wguard` | `wg` | `<idx\|bssid> [ch] [bg]` | Passive WiFi IDS; `wg stop` / `wg view` |
 | `beaconflood` | `bf` | `[list\|rickroll\|seq <base>\|file\|clone]` | Beacon flood — fake AP injection |
-| `wps` | `wps` | `[<idx>\|pbc <idx>]` | WPS recon (IE decode + device-info leak + PIN calc) + push-button connect |
+| `wps` | `wps` | `[<idx>]` | All-in-one WPS: IE decode + device leak + PIN calc + live EAP-WSC handshake sniff (→ pixiewps) + `[p]` push-button |
 | `wardrive` | `wd` | — | Wardriving → WiGLE 1.4 CSV (**Plus only**) |
 | `espsniff` | `es` | `[ch]` | Passive ESP-NOW sniffer — CSV + PCAP |
 | `esptest` | `est` | `[ch]` | ESP-NOW TX/RX diagnostic |

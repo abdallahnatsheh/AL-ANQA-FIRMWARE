@@ -2,35 +2,43 @@
 title: WPS
 ---
 
-# WPS Recon + Assisted Attack — `wps`
+# WPS — one-command recon + handshake capture — `wps`
 
-WPS (WiFi Protected Setup) recon and the maximum honest attack surface the ESP32 allows. **Own networks only.**
+Everything WPS in a single screen. **Own networks only.**
 
 ```
-CMD> sw               # scan first (WPS APs are flagged)
-CMD> wps              # list WPS-enabled APs with their index
-CMD> wps 3            # recon AP #3 (IE decode + PIN calc)
-CMD> wps pbc 3        # attempt a push-button connect
+CMD> sw            # scan first (WPS APs are flagged)
+CMD> wps           # list WPS-enabled APs with their index
+CMD> wps 3         # the all-in-one screen for AP #3
 ```
 
-## Recon — `wps <idx>`
+`wps <idx>` gives you, in one place:
 
-Parks on the AP's channel, promiscuous-captures its beacon, and decodes the **WPS Information Element**:
+## 1. Recon (automatic)
+Captures the AP's beacon and decodes its **WPS Information Element**:
+- **Version**, **AP-Setup-Locked** state (red if locked), **config methods** (PBC/Display/Keypad/Label)
+- **Device-info leak** — the **Manufacturer / Model / Device Name** the router advertises (real fingerprinting)
+- A **candidate PIN** computed from the BSSID (ComputePIN)
 
-- **Version** (1.0 / 2.0) and **WPS state** (configured / open)
-- **AP-Setup-Locked** — if set, the AP has locked WPS and a PIN attempt would be refused (shown in red)
-- **Config methods** — PBC / Display / Keypad / Label
-- **Device-info leak** — the **Manufacturer, Model, Device Name and Serial** the AP advertises in its WPS IE (genuinely useful fingerprinting)
-- **Candidate PINs** — computed from the BSSID (ComputePIN) plus the `12345670` default
+Logged to `/apps/wps/wps.csv`. The PIN is display-only — validate it with Reaver on a laptop.
 
-Results are logged to `/apps/wps/wps.csv`.
+## 2. Live WPS-handshake sniff (automatic)
+While the screen is open it **sniffs the WPS EAP-WSC handshake** — the M1/M2/M3 messages are sent **unencrypted**, so when a WPS connection happens on-air (a client enrolling, or you press the button) the T-Deck captures the crypto material and shows `M1 OK  M2 OK  M3 OK`.
 
-## Push-button connect — `wps pbc <idx>`
+On a complete handshake it writes **`/apps/wps/pixie_NNN.txt`** — a **ready-to-run pixiewps command** with the PKE/PKR, E-Hash1/2 and nonces filled in:
 
-Attempts a WPS **push-button** connection. This works **only while the AP's WPS button is physically active** — press it on the router, then run the command. On success the ESP32 enrolls and recovers the **SSID + PSK** (saved to `/apps/wps/creds.csv`). It's the one credential-recovery path the WiFi stack allows.
+```
+pixiewps -e <PKE> -r <PKR> -s <E-Hash1> -z <E-Hash2> -n <E-Nonce> -m <R-Nonce> -b <enrollee-mac>
+```
 
-## The PIN calculator is display-only
+Run that on a laptop and, on a Pixie-Dust-vulnerable router, it recovers the PIN → password **in seconds, offline**. The T-Deck is the on-air capture half of the attack chain.
 
-The `wps` recon screen *computes* likely PINs, but **it cannot test them on-device** — copy them to a Reaver-capable radio.
+> A WPS exchange has to actually occur for M1–M3 to be caught — trigger it (connect a phone to the router via WPS, or press the WPS button) while `wps <idx>` is running.
 
-> **Honest limit:** an **automated WPS PIN brute-force or Pixie-Dust attack is not possible on the ESP32.** The closed WiFi stack's `esp_wps_config_t` has no PIN field (it only lets the ESP32 *generate* its own enrollee PIN, never supply the AP's), and registrar mode is explicitly unsupported; Pixie-Dust needs M1/M3 crypto the stack never exposes. No ESP32 firmware (Marauder, Bruce, esp32-wifi-penetration-tool) ships a working WPS PIN/Pixie attack for the same reason. `wps` therefore does the real recon + PIN math + PBC, and is honest that on-device PIN testing isn't achievable.
+## 3. `[p]` — push-button connect
+Press `p` to attempt a WPS **push-button** connect. Press the router's physical WPS button; on success the T-Deck recovers the **SSID + PSK** → `/apps/wps/creds.csv`.
+
+`[q]` stops.
+
+## Honest limit
+The **ESP32 cannot run the WPS authentication itself** — the closed WiFi stack won't let you supply a PIN, act as a WPS registrar, or associate outside its own connect flow (`esp_wps_config_t` has no PIN field; registrar mode is unsupported). No ESP32 firmware overcomes this. So `wps` does the real on-device work — **recon + handshake capture + PBC** — and hands the PIN/Pixie-Dust crack to `pixiewps`/`reaver` offline. Intel laptop Wi-Fi often can't inject for Reaver either; use an AR9271/RT3070 adapter for the offline attack.
