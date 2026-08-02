@@ -4,6 +4,25 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-08-02 (rebrand T-REX -> AL-ANQA + info QR) — COMMITTED + PUSHED (feature/pentest-enhancements)
+- **Full rebrand T-REX -> AL-ANQA** (العنقاء, phoenix): source tree `t-rex-firmware/` -> `al-anqa-firmware/`
+  (`git mv` + all `platformio.ini` `-I` paths + CI path filters); every string/comment/doc/plan; on-air names
+  `AL-ANQA-KBD`/`AL-ANQA-CMD`, BLE `init("AL-ANQA")`, MSC vendor `Al-Anqa`, wardrive `appRelease=AL-ANQA`;
+  file magic `ALANQA_BLE_REPLAY`; karma PSK `alanqakarma`; docs Jekyll scheme `alanqa`. Status bar shows the
+  short **`[ANQA]`/`[ANQA+]`** (full name won't fit the packed bar). **Dino buddy kept** (`TREX_SPECIES`,
+  `buddies/trex.cpp`) by user choice. GitHub repo renamed to `AL-ANQA-FIRMWARE`; remote updated; docs live at
+  https://abdallahnatsheh.github.io/AL-ANQA-FIRMWARE/ (pages.yml auto-deploys on docs/** push).
+- **New boot splash + docs banner** = AI phoenix art. Splash needed a **black-point crush (K=30)** because the
+  T-Deck ST7789 lifts dark-navy backgrounds into bright blue on the physical panel (HW-confirmed). Master at
+  `images/AL-ANQA-SPLASH-master.png`; `convert_splash.py` bakes `images/AL-ANQA-LOADING SCREEN.png` ->
+  `splash_image.h`. Docs site keeps its OWN copy `docs/assets/images/banner.png` (separate from root
+  `images/banner.png` — had to update both).
+- **`info`/`inf` gained a 4th page (ABOUT)** with a scannable **GitHub QR** via LovyanGFX built-in
+  `tft.qrcode()` (no new dep; auto-picks version, draws white quiet-zone square). `esp_info.cpp/.h`,
+  `command_manager.cpp` desc, man page, docs/info.md + system.md, README all updated. Fixed a build break:
+  `LGFX_T-Deck.h` has NO include guard, so re-including it in esp_info.cpp redefined `class LGFX` — dropped the
+  redundant include (type already in scope via display_manager.h). **Both envs compile clean.**
+
 ## Session 2026-07-27 (gm fixes + license/SD reorg + Network MITM suite + keyboard plan) — ALL COMMITTED + PUSHED to feature/pentest-enhancements
 - **2026-07-29b: `wps` grown into the ESP32-MAX WPS tool (one command `wps <idx>`).** Adds a **9-algorithm PIN
   generator** (`genPins`: pin24/28/32, DLink, DLink+1, ASUS, Airocon + statics — OneShot/WPSpin algos) →

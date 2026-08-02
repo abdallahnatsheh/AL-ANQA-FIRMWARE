@@ -113,7 +113,7 @@ Run `help` for the list on-device, or `man <cmd>` for a full manual page.
 |---------|-------|------|-------------|
 | `help` | `hlp` | `[cmd]` | List commands, or detail one |
 | `man` | `mn` | `<cmd>` | On-device manual page |
-| `info` | `inf` | — | Device info (chip, MACs, battery, SD) |
+| `info` | `inf` | — | Device info (chip, MACs, battery, SD) + project GitHub QR |
 | `show` | `sh` | `<wifi\|ble\|hosts>` | Re-display the last scan |
 | `clear` | `clr` | — | Clear screen |
 | `pwrsave` | `psv` | `[status\|on\|off\|set ...]` | Power-save config (dim / screen-off on idle) |
