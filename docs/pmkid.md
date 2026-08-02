@@ -38,7 +38,7 @@ CMD> sw          ← scan first to build index
 CMD> pm 2        ← target AP at index 2
 ```
 
-T-Rex monitors the target channel passively. The AP sends M1 whenever any client naturally associates. When a PMKID is found in the Key Data, the screen shows:
+Al-Anqa monitors the target channel passively. The AP sends M1 whenever any client naturally associates. When a PMKID is found in the Key Data, the screen shows:
 
 ```
 [PMKID CAPTURED!]
@@ -54,7 +54,7 @@ A1B2C3D4E5F6A7B8   ← first 8 bytes preview
 
 Press `c` after capture to start on-device cracking.
 
-T-Rex computes `PBKDF2-SHA1(passphrase, SSID, 4096) → PMK → HMAC-SHA1-128("PMK Name"||AP||STA)` and compares against the captured PMKID.
+Al-Anqa computes `PBKDF2-SHA1(passphrase, SSID, 4096) → PMK → HMAC-SHA1-128("PMK Name"||AP||STA)` and compares against the captured PMKID.
 
 | Wordlist source | Path | Behaviour |
 |-----------------|------|-----------|

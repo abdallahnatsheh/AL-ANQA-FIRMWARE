@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Bakes anti-aliased VLW smooth fonts for the undercover Notes UI (notes_ui.cpp).
-# Emits t-rex-firmware/core/system/undercover/notes_fonts.h — four Noto Sans
+# Emits al-anqa-firmware/core/system/undercover/notes_fonts.h — four Noto Sans
 # faces (Android's font family) as embedded byte arrays LovyanGFX loads via
 # VLWfont::loadFont / PointerWrapper.
 #
@@ -22,7 +22,7 @@ try:
 except NameError:
     _project_dir = os.path.dirname(os.path.abspath(__file__))
 
-HEADER_PATH = os.path.join(_project_dir, "t-rex-firmware", "core", "system",
+HEADER_PATH = os.path.join(_project_dir, "al-anqa-firmware", "core", "system",
                            "undercover", "notes_fonts.h")
 
 # Candidate locations for Noto Sans Regular/Bold (Debian/Ubuntu, Fedora, repo).

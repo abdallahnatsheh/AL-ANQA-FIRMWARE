@@ -15,7 +15,7 @@ nav_order: 6
 ```
 CMD> buddy
 CMD> bd
-CMD> bd MyT-Rex    # custom BLE advertising name
+CMD> bd MyAl-Anqa    # custom BLE advertising name
 ```
 
 Connects the T-Deck to [claude-desktop-buddy](https://github.com/anthropics/claude-desktop-buddy) over BLE Nordic UART Service (NUS). Once linked, Claude Desktop streams live session data and pending permission prompts to the device. You approve or deny from the keyboard — no phone, no desktop interaction needed.
@@ -206,8 +206,8 @@ The T-Deck advertises continuously. Claude Desktop reconnects automatically afte
 
 | File | Purpose |
 |------|---------|
-| `t-rex-firmware/buddy.cpp` | Command entry point, NimBLE NUS server, stats engine, display |
-| `t-rex-firmware/buddy.h` | Command declaration |
-| `t-rex-firmware/buddy_common.h` | Shared geometry, colors, Species struct for species files |
-| `t-rex-firmware/M5StickCPlus.h` | Compatibility shim (`typedef LGFX_Sprite TFT_eSprite`) |
-| `t-rex-firmware/buddies/*.cpp` | 19 species animation files (ported unchanged from official repo) |
+| `al-anqa-firmware/buddy.cpp` | Command entry point, NimBLE NUS server, stats engine, display |
+| `al-anqa-firmware/buddy.h` | Command declaration |
+| `al-anqa-firmware/buddy_common.h` | Shared geometry, colors, Species struct for species files |
+| `al-anqa-firmware/M5StickCPlus.h` | Compatibility shim (`typedef LGFX_Sprite TFT_eSprite`) |
+| `al-anqa-firmware/buddies/*.cpp` | 19 species animation files (ported unchanged from official repo) |

@@ -6,11 +6,11 @@ metadata:
 ---
 
 Researched **sgxgsx/BlueToolkit** 2026-07-12 (a Linux PC *orchestrator* framework, 43 public BT exploits,
-Python/YAML, CC BY-NC-SA 4.0). **License is CC BY-NC-SA → incompatible with T-Rex AGPL-3.0: use IDEAS ONLY,
+Python/YAML, CC BY-NC-SA 4.0). **License is CC BY-NC-SA → incompatible with Al-Anqa AGPL-3.0: use IDEAS ONLY,
 never its code.** Most of it does NOT apply here — captured so "port BlueToolkit" doesn't resurface.
 
 ## Hardware/stack reality that filters everything
-- **ESP32-S3 = BLE-only, NO Bluetooth Classic (BR/EDR).** The whole T-Rex BT stack is NimBLE/BLE (sbl, bmon,
+- **ESP32-S3 = BLE-only, NO Bluetooth Classic (BR/EDR).** The whole Al-Anqa BT stack is NimBLE/BLE (sbl, bmon,
   trackme, ble_keyboard, bs, fp) — no Classic anywhere.
 - **NimBLE exposes: GAP (adv/scan), GATT client (read/write/subscribe any characteristic), partial SMP.**
 - **NimBLE does NOT expose raw link-layer (LL) PDU crafting** (unlike raw 802.11 via esp_wifi_80211_tx).

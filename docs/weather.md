@@ -53,7 +53,7 @@ WiFi — **`wx loc` is only an optional override, never required**.
 there's nothing secret to store — only (optionally) a location:
 
 ```ini
-# weather.conf — T-Rex weather (Open-Meteo, no API key), shown in the `home` launcher
+# weather.conf — Al-Anqa weather (Open-Meteo, no API key), shown in the `home` launcher
 # On the T-Deck Plus with a GPS fix, location is automatic.
 # Otherwise set your coordinates below (or run: wx loc <lat> <lon>), then reboot.
 # lat=31.9539

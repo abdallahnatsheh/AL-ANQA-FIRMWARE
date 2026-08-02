@@ -5,7 +5,7 @@ nav_order: 3
 
 # Keyboard Reference
 
-The T-Deck has a physical **QWERTY keyboard** that communicates with the ESP32-S3 via I2C. It sends one ASCII byte per keypress — the keyboard firmware handles modifier keys and resolves the final character before T-Rex sees it.
+The T-Deck has a physical **QWERTY keyboard** that communicates with the ESP32-S3 via I2C. It sends one ASCII byte per keypress — the keyboard firmware handles modifier keys and resolves the final character before Al-Anqa sees it.
 
 ---
 

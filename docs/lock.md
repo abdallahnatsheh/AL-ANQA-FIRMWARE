@@ -121,7 +121,7 @@ CMD> lock boot on     # require the PIN every time the device powers on
 CMD> lock boot off    # boot straight to the CLI (default)
 ```
 
-When **on** (and a PIN is set), T-Rex shows the lock screen immediately at boot — nobody reaches the CLI without the PIN. The setting is stored in `/config/lockscreen.conf` (`lockonboot=1`). It has no effect until you set a PIN with `lock new`.
+When **on** (and a PIN is set), Al-Anqa shows the lock screen immediately at boot — nobody reaches the CLI without the PIN. The setting is stored in `/config/lockscreen.conf` (`lockonboot=1`). It has no effect until you set a PIN with `lock new`.
 
 ### Check status
 
@@ -172,7 +172,7 @@ If you'd rather not pull the card, recover from a PC:
    ```
 3. Save, re-insert the SD, **power on**.
 
-On that boot T-Rex clears the PIN, **rewrites the file without the flag** (one-shot — it can't keep wiping), and boots unlocked. Your `timeout` and `lockonboot` settings are preserved; just run `lock new` to set a fresh PIN.
+On that boot Al-Anqa clears the PIN, **rewrites the file without the flag** (one-shot — it can't keep wiping), and boots unlocked. Your `timeout` and `lockonboot` settings are preserved; just run `lock new` to set a fresh PIN.
 
 > Both recovery paths are owner convenience, not extra security — anyone with the card can do them. The lock deters someone who grabs the running device; it is not designed to resist an attacker who has the SD card.
 

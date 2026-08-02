@@ -79,7 +79,7 @@ Do nothing — firmware creates these when the relevant feature is first used.
 | File | Created by | Contains |
 |------|-----------|----------|
 | `/wpa_supplicant.conf` | `connectwifi` on successful connect | saved WiFi credentials (Linux-compatible) |
-| `/wpa_supplicant.bak` | first T-Rex write to conf | backup of original file before T-Rex modifies it |
+| `/wpa_supplicant.bak` | first Al-Anqa write to conf | backup of original file before Al-Anqa modifies it |
 | `/apps/README.txt` | SDCardManager on init/format | folder → owning command map (never overwritten) |
 | `/apps/eviltwin/creds.csv` | `eviltwin` on capture or `[s]` | `user,password` per line |
 | `/apps/trackme/session.csv` | `trackme` on alert / `[s]` save | tracking event log |
@@ -163,7 +163,7 @@ xfinitywifi
 ### `/apps/eviltwin/portal/<name>.html`
 
 Required for: `eviltwin` custom captive portal page  
-Without it: uses the built-in T-Rex portal (works fine out of the box)  
+Without it: uses the built-in Al-Anqa portal (works fine out of the box)  
 Place one or more `.html` files — `eviltwin` lets you pick at runtime
 
 Minimal example:

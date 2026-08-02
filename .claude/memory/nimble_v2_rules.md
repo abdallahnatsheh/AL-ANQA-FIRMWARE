@@ -14,7 +14,7 @@ pAdv->startAdvertising();
 Without this, the device is invisible to name-filtering scanners (e.g. Claude Desktop) **and does not appear in Linux/BlueZ (GNOME) Bluetooth Settings at all** — Windows is lenient and lists HID devices by appearance alone, so a peripheral can pair fine on Windows yet be totally absent on Ubuntu. (Hit on `jg ble`/btkbd 2026-06-21: `beginHid()` set appearance + service UUID but never `setName()` — fixed by adding the buddy-style scan-response name.)
 
 ## 2 — BLE cleanup: never re-init after deinit
-`deinit(true)` + then `init("T-REX")` in cleanup = stale named host task left alive → next BLE command's startup tears it down → Windows bond corrupted, btkbd reconnects fail.
+`deinit(true)` + then `init("AL-ANQA")` in cleanup = stale named host task left alive → next BLE command's startup tears it down → Windows bond corrupted, btkbd reconnects fail.
 
 **Correct cleanup for commands that own their init/deinit (buddy, btkbd, ble_spam, fast_pair):**
 ```cpp

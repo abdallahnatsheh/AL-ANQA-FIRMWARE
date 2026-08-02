@@ -64,7 +64,7 @@ Builds both `T-Deck` + `T-Deck-Plus` via `pio run` on every push/PR to
 `main`/`feature/pentest-enhancements` (paths-filtered to firmware/lib/
 platformio.ini). Matrix, fail-fast off, caches `~/.platformio`. No hardware /
 no runtime test — pure compile gate. Local equivalent: `pio run -e T-Deck -e T-Deck-Plus`.
-README has a build badge (repo: `abdallahnatsheh/T-REX-FIRMWARE`).
+README has a build badge (repo: `abdallahnatsheh/AL-ANQA-FIRMWARE`).
 `convert_splash.py` is stdlib-only (no Pillow) and `lib/` is vendored (no
 submodules) → CI needs only python + platformio.
 

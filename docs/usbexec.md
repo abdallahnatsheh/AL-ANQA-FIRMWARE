@@ -13,7 +13,7 @@ Executes keystroke injection scripts. Compatible with Flipper Zero DuckyScript v
 (the T-Deck acts as a Bluetooth keyboard) — see [BadBLE](#badble--ux-over-ble-hid).
 
 ```
-CMD> ux demo                      # USB, built-in demo (opens Notepad, draws T-Rex)
+CMD> ux demo                      # USB, built-in demo (opens Notepad, draws Al-Anqa)
 CMD> ux /apps/badusb/scripts/payload.txt       # USB, run from SD card
 CMD> ux ble                       # BLE, interactive menu (mode / target / name / script)
 CMD> ux ble demo                  # BLE, fresh keyboard

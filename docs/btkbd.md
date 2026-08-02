@@ -14,7 +14,7 @@ Turns the T-Deck into a Bluetooth HID keyboard and mouse. Pairs via Just Works (
 CMD> bk
 ```
 
-**Phase 1 — Pairing:** T-Rex advertises as `T-REX-KBD`. Pair from the host's Bluetooth settings. Hold trackball for 1.5s to cancel.
+**Phase 1 — Pairing:** Al-Anqa advertises as `AL-ANQA-KBD`. Pair from the host's Bluetooth settings. Hold trackball for 1.5s to cancel.
 
 **Phase 2 — Active:** Every T-Deck key is forwarded as a HID keystroke. The trackball controls the mouse cursor.
 

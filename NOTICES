@@ -1,4 +1,4 @@
-T-REX Third-Party Notices
+AL-ANQA Third-Party Notices
 =========================
 
 This project incorporates code from the following open-source projects:
@@ -8,8 +8,8 @@ This project incorporates code from the following open-source projects:
             https://github.com/BruceDevices/firmware  (maintained fork)
    License: GNU Affero General Public License v3.0 (AGPL-3.0)
    Files:   t-deck-cli/eviltwin.cpp, t-deck-cli/deauth_functions.cpp,
-            t-rex-firmware/wifi/tools/wardrive/wardrive.cpp,
-            t-rex-firmware/wifi/attacks/arpspoof/arpspoof.cpp
+            al-anqa-firmware/wifi/tools/wardrive/wardrive.cpp,
+            al-anqa-firmware/wifi/attacks/arpspoof/arpspoof.cpp
    Notes:   Evil Twin captive portal HTML templates and raw 802.11 frame
             injection approach adapted from Bruce's evil_portal.cpp and
             related WiFi attack modules. Wardrive's synchronous WiFi-scan +
@@ -68,7 +68,7 @@ This project incorporates code from the following open-source projects:
              Lab, TU Darmstadt. No source code was copied or adapted.
 
 11. BLE advertisement identifier data (specification reference — no code used)
-    Files:   t-rex-firmware/bluetooth/core/ble_ident.h
+    Files:   al-anqa-firmware/bluetooth/core/ble_ident.h
     Sources: Bluetooth SIG "Assigned Numbers" — Company Identifiers
              https://www.bluetooth.com/specifications/assigned-numbers/
              furiousMAC/continuity (Apple Continuity protocol RE + paper
@@ -84,7 +84,7 @@ This project incorporates code from the following open-source projects:
              engineering work. No source code was copied or adapted.
 
 12. Cardputer-CSI-Human-Detector (algorithm reference)
-    Files:   t-rex-firmware/wifi/sensing/csidetect.cpp
+    Files:   al-anqa-firmware/wifi/sensing/csidetect.cpp
     Source:  https://github.com/skizzophrenic/Cardputer-CSI-Human-Detector
     License: MIT License (Copyright (c) skizzophrenic / TalkingSasquach)
     Notes:   The CSI acquisition config (wifi_csi_config_t fields), the
@@ -92,7 +92,7 @@ This project incorporates code from the following open-source projects:
              self-calibration, and the hold/coast presence logic in csidetect
              are adapted from its single-device CSI path. No source was copied
              verbatim — the algorithm and constants were reimplemented for
-             T-REX. CSI is single-antenna: motion energy only, no bearing.
+             AL-ANQA. CSI is single-antenna: motion energy only, no bearing.
 
 13. esp-csi (official CSI reference — no code used)
     Source:  https://github.com/espressif/esp-csi
@@ -104,7 +104,7 @@ This project incorporates code from the following open-source projects:
              project's IDF 4.4 / Arduino-core 2.x toolchain.)
 
 14. ESPectre (methodology reference — no code used)
-    Files:   t-rex-firmware/wifi/sensing/csidetect.cpp
+    Files:   al-anqa-firmware/wifi/sensing/csidetect.cpp
     Source:  https://github.com/francescopace/espectre
     License: GPL-3.0
     Notes:   Methodology/specification reference only — no source copied. Three
@@ -113,12 +113,12 @@ This project incorporates code from the following open-source projects:
              subcarriers via normalized per-subcarrier variance instead of a
              plain average); (2) Hampel outlier rejection on the motion stream;
              (3) fully passive operation — sensing off any AP's beacons with no
-             association (T-REX `csi auto` + single-source MAC lock).
+             association (AL-ANQA `csi auto` + single-source MAC lock).
 
 15. AirSnitch (research technique reference — no code used)
-    Files:   t-rex-firmware/wifi/intel/netspy.cpp
-             t-rex-firmware/wifi/attacks/isoscan/isoscan.cpp
-             t-rex-firmware/wifi/attacks/isoscan/iso_ccmp.cpp
+    Files:   al-anqa-firmware/wifi/intel/netspy.cpp
+             al-anqa-firmware/wifi/attacks/isoscan/isoscan.cpp
+             al-anqa-firmware/wifi/attacks/isoscan/iso_ccmp.cpp
     Source:  https://github.com/vanhoefm/airsnitch
              https://papers.mathyvanhoef.com/ndss2026-airsnitch.pdf
     License: All rights reserved (no license file) — techniques only, from the
@@ -135,7 +135,7 @@ This project incorporates code from the following open-source projects:
 16. SensorLib
     Source:  https://github.com/lewisxhe/SensorLib  (PlatformIO: lewisxhe/SensorLib @ ^0.4.1)
     License: MIT License (Copyright (c) 2022 Lewis He)
-    Files:   t-rex-firmware/core/input/touch/touch_manager.cpp
+    Files:   al-anqa-firmware/core/input/touch/touch_manager.cpp
     Use:     TouchDrvGT911 — GT911 capacitive touch controller driver.
 
 17. LilyGo T-Deck official examples (configuration reference)
@@ -143,7 +143,7 @@ This project incorporates code from the following open-source projects:
              examples/Touchpad/Touchpad.ino
     License: MIT License (Copyright (c) 2023 Shenzhen Xin Yuan Electronic
              Technology Co., Ltd)
-    Files:   t-rex-firmware/core/input/touch/touch_manager.cpp
+    Files:   al-anqa-firmware/core/input/touch/touch_manager.cpp
     Notes:   The GT911 begin()/setPins/setMaxCoordinates/setSwapXY/setMirrorXY
              configuration (address, swap-XY, mirror-Y-only, 320x240) is taken
              verbatim from the vendor's own reference sketch for this exact
@@ -152,7 +152,7 @@ This project incorporates code from the following open-source projects:
 18. Noto Sans (embedded font)
     Source:  https://fonts.google.com/noto/specimen/Noto+Sans  (Google / Noto Project)
     License: SIL Open Font License 1.1
-    Files:   t-rex-firmware/core/system/undercover/notes_fonts.h (generated),
+    Files:   al-anqa-firmware/core/system/undercover/notes_fonts.h (generated),
              convert_font.py (generator)
     Notes:   Noto Sans Regular + Bold are rendered to anti-aliased VLW smooth
              fonts by convert_font.py and embedded for the undercover Notes cover
@@ -160,7 +160,7 @@ This project incorporates code from the following open-source projects:
              bitmap glyph data, not redistributed as a TTF.
 
 19. WPA3 transition-mode downgrade — Dragonblood (technique reference — no code used)
-    Files:   t-rex-firmware/wifi/attacks/wpa3down/wpa3down.cpp
+    Files:   al-anqa-firmware/wifi/attacks/wpa3down/wpa3down.cpp
     Source:  Dragonblood — CVE-2019-9494 through CVE-2019-9499 (Mathy Vanhoef,
              Eyal Ronen), https://wpa3.mathyvanhoef.com/
              TrustedSec, "Auditing WPA3" (Jul 2024) writeup.
@@ -169,15 +169,15 @@ This project incorporates code from the following open-source projects:
     Notes:   The transition-mode downgrade technique (deauth off the real AP, then
              offer a WPA2-PSK-only rogue AP with the same SSID to force a WPA2
              reconnect + crackable handshake) is implemented from the published
-             descriptions. The rogue-AP/EAPOL mechanics reuse T-Rex's own karma
+             descriptions. The rogue-AP/EAPOL mechanics reuse Al-Anqa's own karma
              `roguehs` engine; no third-party attack code was read or adapted.
 
 20. Anemoia NES emulator core
-    Files:   t-rex-firmware/games/nes/anemoia/ (vendored in-tree, patched for T-REX)
+    Files:   al-anqa-firmware/games/nes/anemoia/ (vendored in-tree, patched for AL-ANQA)
     Source:  https://github.com/Shim06/Anemoia-ESP32 (GPL-3.0), by Shim06
     License: GPL-3.0 (GNU General Public License v3.0) — full text shipped at
-             t-rex-firmware/games/nes/anemoia/LICENSE; see that dir's
-             README.T-REX.txt for the local attribution + patch summary.
+             al-anqa-firmware/games/nes/anemoia/LICENSE; see that dir's
+             README.AL-ANQA.txt for the local attribution + patch summary.
     Notes:   Vendored in-tree at games/nes/anemoia/ (NOT under lib/ — PlatformIO's
              LDF can't auto-discover the core's static constexpr odr-use from a
              library in gnu++11 mode, so it compiles as project sources).
@@ -195,7 +195,7 @@ This project incorporates code from the following open-source projects:
 21. Responder (LLMNR/NBT-NS poisoning + NetNTLM capture — technique reference)
     Source:  https://github.com/lgandx/Responder
     License: Methodology reference only — no source code copied or ported.
-    Notes:   T-Rex's `responder`/`rsp` implements the well-known LLMNR/NBT-NS name
+    Notes:   Al-Anqa's `responder`/`rsp` implements the well-known LLMNR/NBT-NS name
              poisoning + fake-HTTP NTLM challenge/NetNTLMv2 capture technique from
              published descriptions and the NTLMSSP spec (MS-NLMP). All lwip/HTTP
              code is original; no Responder (Python) source was read or adapted.

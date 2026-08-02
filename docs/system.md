@@ -218,7 +218,7 @@ CMD> uc panic set       # arm an instant-hide key (press the key to bind it)
 CMD> uc panic off       # disable the instant-hide key
 ```
 
-A real, SD-backed notes app (`/apps/notes/NNN.txt`) that doubles as a disguise. `notes` just runs the cover UI. `undercover` runs the same UI but also raises the covert flag: notification sounds and the hidden-SSID beep go silent, and the real T-Rex status bar stays hidden — passive tools (wguard, macwatch, espchat, etc.) keep running and logging to SD underneath, only the audible/visible tells go quiet.
+A real, SD-backed notes app (`/apps/notes/NNN.txt`) that doubles as a disguise. `notes` just runs the cover UI. `undercover` runs the same UI but also raises the covert flag: notification sounds and the hidden-SSID beep go silent, and the real Al-Anqa status bar stays hidden — passive tools (wguard, macwatch, espchat, etc.) keep running and logging to SD underneath, only the audible/visible tells go quiet.
 
 | Action | Result |
 |--------|--------|
@@ -238,7 +238,7 @@ No SD card → notes still work for the session (typing, editing, navigating) bu
 
 Touch wake — one tap wakes a half-dimmed screen, a double-tap (within 500 ms) wakes a fully screen-off device. This only works while undercover (`uc`) is active; the plain terminal and standalone `notes` never wake on touch.
 
-**Boot-cover** (`uc boot on`) — the device boots directly into the Notes disguise with no T-REX splash screen or CLI flash. SD is initialised first so the `boot_cover` flag is read before anything is drawn; the screen goes black then Notes takes over immediately. If a lock PIN is also configured (`lock new` + `lock boot on`), the lock screen fires *after* the passphrase exits Notes — not before — so an observer only ever sees Notes from cold boot through unlock.
+**Boot-cover** (`uc boot on`) — the device boots directly into the Notes disguise with no AL-ANQA splash screen or CLI flash. SD is initialised first so the `boot_cover` flag is read before anything is drawn; the screen goes black then Notes takes over immediately. If a lock PIN is also configured (`lock new` + `lock boot on`), the lock screen fires *after* the passphrase exits Notes — not before — so an observer only ever sees Notes from cold boot through unlock.
 
 **Panic button** (`uc panic set`) — arms a single keyboard key as an instant-hide trigger. Pressing it **anywhere, even in the middle of another command** (a scan, a monitor, an attack), drops straight into the Notes cover; type the passphrase to return. Run `uc panic set` and press the key you want — the default is `@` (Sym+P). It only fires once an exit passphrase is set (so there is always a way back), and reserved keys are rejected (`'` autocomplete, `q` cover-exit, space, Enter, Backspace). `uc panic off` disables it. Note: while armed, that key can no longer be typed in commands (it hides instead) — the default `@` is chosen to avoid clashing with index targeting like `ps #2`; inside the cover the key types normally again.
 

@@ -6,13 +6,13 @@ nav_order: 3
 
 # WiFi Credential Management
 
-T-Rex stores WiFi credentials in two places: **NVS** (on-device flash) and **SD card** (`/wpa_supplicant.conf`). Both are used automatically — you never have to think about which one.
+Al-Anqa stores WiFi credentials in two places: **NVS** (on-device flash) and **SD card** (`/wpa_supplicant.conf`). Both are used automatically — you never have to think about which one.
 
 ---
 
 ## How Credentials Work
 
-When you connect to a network, T-Rex resolves the password in this order:
+When you connect to a network, Al-Anqa resolves the password in this order:
 
 1. **NVS** — fastest, survives reboots, device-local
 2. **SD card** (`/wpa_supplicant.conf`) — shared across devices, Linux-compatible
@@ -38,7 +38,7 @@ Header shows the active source in colour: **SD** (green) or **NVS** (yellow).
 |---------|---------|
 | plain text | usable password |
 | `[open]` | open network, no password needed |
-| `[hex-psk]` | Linux-hashed entry — T-Rex cannot use the hash; run `cw <ssid>` to enter the password once and fix it |
+| `[hex-psk]` | Linux-hashed entry — Al-Anqa cannot use the hash; run `cw <ssid>` to enter the password once and fix it |
 | `~name` in cyan | hidden network (`scan_ssid=1`) |
 
 | Key | Action |
@@ -80,13 +80,13 @@ Connecting by SSID name is useful when:
 - You have the network on the SD card from a previous session or imported from Linux
 - You do not want to run a full scan
 
-T-Rex sends directed probe requests for hidden networks automatically — no extra configuration needed.
+Al-Anqa sends directed probe requests for hidden networks automatically — no extra configuration needed.
 
 ---
 
 ## SD Card File: `/wpa_supplicant.conf`
 
-T-Rex uses the exact same format as Linux `wpa_supplicant`. Every entry T-Rex writes looks like this:
+Al-Anqa uses the exact same format as Linux `wpa_supplicant`. Every entry Al-Anqa writes looks like this:
 
 ```
 network={
@@ -97,8 +97,8 @@ network={
 ```
 
 - `psk="plain"` — Linux connects with this immediately
-- `#psk="plain"` — comment that survives if Linux rehashes; T-Rex reads this to recover the plain password
-- `/wpa_supplicant.bak` — auto-created the first time T-Rex modifies the file; your original is always safe
+- `#psk="plain"` — comment that survives if Linux rehashes; Al-Anqa reads this to recover the plain password
+- `/wpa_supplicant.bak` — auto-created the first time Al-Anqa modifies the file; your original is always safe
 
 ---
 
@@ -163,19 +163,19 @@ If Linux has `update_config=1` set, it rewrites `wpa_supplicant.conf` after conn
 ```
 network={
     ssid="MyNetwork"
-    psk=a3f9bc12e4...    ← 64-char hash, T-Rex cannot use this
+    psk=a3f9bc12e4...    ← 64-char hash, Al-Anqa cannot use this
 }
 ```
 
 If you copy this file back to T-Deck, affected networks show `[hex-psk]`.
 
-**Fix:** run `cw <ssid>`, enter the password once. T-Rex connects, saves the plain password to NVS, and upgrades the SD entry. The network works permanently from that point on without re-entering.
+**Fix:** run `cw <ssid>`, enter the password once. Al-Anqa connects, saves the plain password to NVS, and upgrades the SD entry. The network works permanently from that point on without re-entering.
 
 ---
 
 ## Format Compatibility Table
 
-| Linux format | T-Rex behaviour |
+| Linux format | Al-Anqa behaviour |
 |---|---|
 | `psk="plaintext"` | ✅ connects directly |
 | `#psk="plain"` + `psk=hexhash` (`wpa_passphrase` output) | ✅ recovers plain from comment |

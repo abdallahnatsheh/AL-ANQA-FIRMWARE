@@ -1,4 +1,4 @@
-# Plan — Custom T-REX keyboard firmware (ESP32-C3) + host integration
+# Plan — Custom AL-ANQA keyboard firmware (ESP32-C3) + host integration
 
 > Status: approved, in progress. The paused Network MITM suite plan lives alongside
 > at `docs/plans/network-mitm-suite.md`.
@@ -6,10 +6,10 @@
 ## Context
 The T-Deck keyboard is a separate ESP32-C3 MCU that scans a 5×7 matrix and reports to
 the main ESP32-S3 over I2C `0x55`. The stock firmware sends **one byte on press** and
-nothing else — so T-REX has **no key-up/down, no hold/long-press, and no real modifier
+nothing else — so AL-ANQA has **no key-up/down, no hold/long-press, and no real modifier
 state** (it reverse-engineers Alt/Sym from single-byte codes, and fakes backspace-repeat
 with host-side timing). Goal: fork a better C3 firmware, add a **long-press event exposed
-generically to T-REX apps**, plus real key-up/down + Alt/Ctrl/Shift/Sym reporting, and
+generically to AL-ANQA apps**, plus real key-up/down + Alt/Ctrl/Shift/Sym reporting, and
 adapt the host input path — without breaking the hundreds of existing `getKeyboardInput()`
 call sites.
 
@@ -17,7 +17,7 @@ Decisions (confirmed): **full custom firmware**, **long-press = generic app even
 **base = fork `hreikin/tdeck-keyboard` (MIT)**, **user can flash the C3**.
 
 **Hard constraint (load-bearing):** the new firmware MUST reproduce the exact byte codes
-T-REX already depends on, or the whole UI breaks: Enter `0x0D`, Backspace `0x08`,
+AL-ANQA already depends on, or the whole UI breaks: Enter `0x0D`, Backspace `0x08`,
 autocomplete `0x27` (Sym+K, `KEY_AUTOCOMPLETE` in `core/input/input_handling.h`), panic
 `@`=`0x40` (Sym+P, `ucPanicKey()`), plain ASCII, Space `0x20`, and `q` for quit. Keymap
 fidelity is the make-or-break item and must be verified on hardware.
@@ -33,32 +33,32 @@ are already tracked. Cost: its keymap/protocol differ from stock → keymap re-a
 a host-side parser rewrite.
 
 ## Part A — C3 firmware (forked, in-repo)
-New top-level dir **`keyboard/`** in the T-REX repo holding the forked C3 firmware (its own
+New top-level dir **`keyboard/`** in the AL-ANQA repo holding the forked C3 firmware (its own
 Arduino/ESP32-C3 build, NOT part of the S3 PlatformIO build). Retain hreikin's MIT LICENSE +
 a MODIFICATIONS note; add a README with build + **flash procedure** (C3 USB/UART + boot pads)
 and how to **reflash stock as recovery**.
 
 Changes to the fork:
 1. **Keymap fidelity:** tune `defaultKeymap`/`symbolKeymap1..3` (`keyboard.hpp/keys.hpp`) so
-   emitted `key_value` bytes match T-REX's expectations above (esp. Sym+K→`0x27`, Sym+P→`0x40`,
-   Enter/Backspace/Space, a–z/0–9). Derive from the stock behaviour T-REX consumes today; verify per-key on HW.
+   emitted `key_value` bytes match AL-ANQA's expectations above (esp. Sym+K→`0x27`, Sym+P→`0x40`,
+   Enter/Backspace/Space, a–z/0–9). Derive from the stock behaviour AL-ANQA consumes today; verify per-key on HW.
 2. **Long-press:** add `LONGPRESS_DELAY` (~500 ms). When a key is `HELD` beyond it, emit a
    **one-shot** LONG event (once per hold). Existing REPEAT continues independently.
 3. **Versioned, self-describing I2C packet** (replaces the 7-byte ad-hoc struct). Fixed
    **4 bytes**: `[event, key_value, mods, version]`
    - `event`: 0 NONE · 1 DOWN · 2 REPEAT · 3 LONG_PRESS · 4 UP
-   - `key_value`: the T-REX-compatible code (0x00 = none)
+   - `key_value`: the AL-ANQA-compatible code (0x00 = none)
    - `mods`: bitmask (b0 alt, b1 ctrl, b2 shift, b3 sym, b4 caps, b5 altLock, b6 ctrlLock)
    - `version`: constant sentinel (e.g. `0x01`) so the host can detect new-vs-legacy protocol.
    Emit DOWN+REPEAT+LONG+UP as they occur (`onRequest()` returns the latest, `NONE` when idle).
 
-## Part B — T-REX host integration (`core/input/input_handling.{h,cpp}`)
+## Part B — AL-ANQA host integration (`core/input/input_handling.{h,cpp}`)
 
 ### Firmware identification (must-have)
 The host must **detect which keyboard firmware is present** and only enable the extended
-features on the T-REX keyboard; on any other firmware it stays **byte-for-byte identical to
+features on the AL-ANQA keyboard; on any other firmware it stays **byte-for-byte identical to
 today's behavior**. Mechanism:
-- The T-REX C3 firmware's 4-byte packet **always carries the `version` sentinel byte, even
+- The AL-ANQA C3 firmware's 4-byte packet **always carries the `version` sentinel byte, even
   when idle** (`[NONE,0,mods,VERSION]`) — so the version byte is a persistent fingerprint,
   not just present on a keypress. (Hardening option: also answer a dedicated I2C "identify"
   query with a fixed magic like `"TRX1"`; stock firmware won't.)
@@ -72,7 +72,7 @@ today's behavior**. Mechanism:
 ### Parsing
 1. **`getKeyboardInput()`**: when `_extendedKbd`, `Wire.requestFrom(0x55, 4)` + parse the packet;
    otherwise use the **unchanged legacy single-byte path** (`requestFrom(0x55, 1)`, today's code
-   verbatim, incl. the backspace-repeat hack). → T-REX works on BOTH stock and T-REX keyboards;
+   verbatim, incl. the backspace-repeat hack). → AL-ANQA works on BOTH stock and AL-ANQA keyboards;
    flash order doesn't matter and the host change can land first.
 2. **Preserve the `char getKeyboardInput()` contract:** on DOWN (and REPEAT) return the primary
    char exactly as today → every existing call site is unchanged. UP/LONG return `0` from this
@@ -97,7 +97,7 @@ today's behavior**. Mechanism:
 1. Flash the forked C3 firmware (keep a stock backup to revert).
 2. **Keymap fidelity (critical):** type the full layout — confirm a–z/0–9/Space/Enter/Backspace,
    Sym+K→autocomplete, Sym+P→panic `@`, and `q`-quit all still behave. Any mismatch = keymap fix.
-3. **Legacy fallback:** temporarily reflash stock → confirm T-REX still works via the 1-byte path.
+3. **Legacy fallback:** temporarily reflash stock → confirm AL-ANQA still works via the 1-byte path.
 4. **Long-press:** with a temporary debug consumer (or one demo hook), confirm `consumeLongPress()`
    fires ~500 ms into a hold, exactly once, and resets on UP.
 5. **Modifiers:** confirm Alt/Ctrl/Shift/Sym report correctly via `getModifiers()`.
@@ -108,4 +108,4 @@ today's behavior**. Mechanism:
 - v1 exposes the long-press **event + modifier API**; wiring specific apps to use long-press is a
   follow-on (the generic event is the deliverable).
 - Backlight/mic/speaker side keys: carry through as before (optional in `mods`/side-channel), not a v1 focus.
-- Keymap is derived to match today's T-REX codes; a redesigned layout is out of scope.
+- Keymap is derived to match today's AL-ANQA codes; a redesigned layout is out of scope.

@@ -37,7 +37,7 @@
 > title + paragraph/checklist body). Draws straight to global `tft` with anti-aliased
 > **Noto Sans VLW smooth fonts** (Abdallah wanted "modern like an Android app" — done: 4 sizes baked
 > by `convert_font.py`→`notes_fonts.h`, held as persistent `lgfx::VLWfont`; the plan's VLW smooth-font
-> step is now COMPLETE, not deferred). `displayManager.setBlocked(true)` suppresses the real T-REX status bar (lock-screen
+> step is now COMPLETE, not deferred). `displayManager.setBlocked(true)` suppresses the real AL-ANQA status bar (lock-screen
 > pattern). Nav: touch tap card→detail / tap back→list / tap +FAB→new / drag-scroll; trackball
 > up/down select + click open/back + scroll; `q` quits. 6 hardcoded sample notes. **Explicitly NOT
 > included** (deferred to full Phase 2/3): SD `/notes/*.txt`, secret-passphrase exit, duress/decoy,
@@ -252,7 +252,7 @@ Every audible/visible leak must check it:
 ### Phase 2 acceptance
 - [ ] Cover opens on a real note list from `/notes/`; scrolling/opening/creating works by touch
       AND by keyboard.
-- [ ] Typing the passphrase in any note + Enter reveals T-REX; any other text just saves.
+- [ ] Typing the passphrase in any note + Enter reveals AL-ANQA; any other text just saves.
 - [ ] Looks like the mockup: warm paper, single amber accent, rounded cards, no terminal cues.
 
 ---
@@ -264,7 +264,7 @@ Every audible/visible leak must check it:
 - **Boot cover**: `boot_cover=1` → device powers on directly into the Notes app. A seized/borrowed
   device looks like a notepad from cold boot. Pairs with the lockscreen.
 - **Dual passphrase** (VeraCrypt-style hidden volume):
-  - *real* phrase → reveal T-REX.
+  - *real* phrase → reveal AL-ANQA.
   - *decoy* phrase → "unlocks" to a clean, working notepad with believable content and **no
     firmware visible**. Forced-unlock yields a boring memo app, not a refusal.
 - **Running-ops policy on entry = "passive keeps running silent"** (your choice):
@@ -282,7 +282,7 @@ Every audible/visible leak must check it:
   document the tradeoff in the man page. Concealment (decoy passphrase) is the better default.
 
 ### Phase 3 acceptance
-- [ ] `boot_cover=1` → cold boot lands in Notes, no T-REX flash.
+- [ ] `boot_cover=1` → cold boot lands in Notes, no AL-ANQA flash.
 - [ ] Decoy phrase opens a clean notepad; real phrase reveals firmware; the two are indistinguishable
       to an observer.
 - [ ] Under cover: `wguard bg` keeps logging silently; a queued `deauth` is frozen, not transmitting.

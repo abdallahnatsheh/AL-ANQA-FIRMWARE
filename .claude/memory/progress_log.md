@@ -35,7 +35,7 @@ type: project
   scrollbar + controls toast, session-wide auto-lock suppress.
 - **Anemoia NES core license CORRECTED: it's `Shim06/Anemoia-ESP32` under GPL-3.0** (the old NOTICES claimed a
   nonexistent `TotalCaesar659` fork under MIT — that repo is a 404). Shipped verbatim GPLv3 LICENSE +
-  README.T-REX.txt in `games/nes/anemoia/`; fixed NOTICES #20, CLAUDE.md, source header.
+  README.AL-ANQA.txt in `games/nes/anemoia/`; fixed NOTICES #20, CLAUDE.md, source header.
 - **SD reorg: NES + Notes moved UNDER `/apps`** (owner decision): `/apps/nes/roms`, `/apps/nes/states`, `/apps/notes`
   (were `/roms/NES` + `/states` + `/notes`). bus.cpp patched to `/apps/nes/states` (buffers 32→40). Dropped the old
   "notes at root = disguise" rationale. User's SD card migrated in place.
@@ -47,7 +47,7 @@ type: project
   Review fixes: dnsParseName OOB guard, LLMNR reply-buf clamp, Type-3 buffer 1024→2048. HTTP-NTLM only (SMB=2b).
   lgandx/Responder credited (methodology). Commits 49f2546/b08532f/8b23a9e.
 - **Keyboard-firmware plan written + in-repo** (`docs/plans/keyboard-firmware.md`): fork `hreikin/tdeck-keyboard`
-  (MIT, has HELD state) → add long-press as a generic app event + real modifiers; **host auto-detects the T-REX
+  (MIT, has HELD state) → add long-press as a generic app event + real modifiers; **host auto-detects the AL-ANQA
   keyboard via a version-sentinel byte** and only enables extended features on it (else = today's legacy behavior).
   NOT started. **Also paused: MITM plan Phase-2b SMB catcher.**
 - Behavioral: **keep commit messages general — no host paths / usernames / device serials** (user-requested,
@@ -85,7 +85,7 @@ type: project
   (chrome-once + stats-in-place, flicker-free per the isoscan lesson) → on `gotM2`: `roguehs::end()` (idle STA,
   GDMA-safe) THEN save `/apps/wpa3down/<ssid>.cap` (beacon+M1+M2, shared `pcap::writeRecord` lt105, never-overwrite)
   → crack with `cc`.
-- **Wiring:** `SD_DIR_WPA3DOWN` + ensureDir + apps-README map; platformio `-I .../wpa3down` (src_dir=t-rex-firmware,
+- **Wiring:** `SD_DIR_WPA3DOWN` + ensureDir + apps-README map; platformio `-I .../wpa3down` (src_dir=al-anqa-firmware,
   no build filter → auto-compiled); command_manager fwd-decl + register; man `w3d` entry; README row; CLAUDE module
   block + SD-layout line + cmd list; NOTICES #19 (Dragonblood CVE-2019-9494..9499 / TrustedSec / RedLegg — technique
   reference, no code used, per [[feedback_rules]] #8).
@@ -552,7 +552,7 @@ type: project
   into the note's title/body across earlier loop iterations (typed live, since this is now a real visible
   editor) before the match could be known — saving on that exit path would write the passphrase itself
   into a plaintext SD file. Skipping the save keeps the SHA-256 hash the only place it ever persists.
-- **Bugfix — real T-REX status bar + "Locked: HH:MM:SS" leaking over the cover.** Root cause:
+- **Bugfix — real AL-ANQA status bar + "Locked: HH:MM:SS" leaking over the cover.** Root cause:
   `runNotesUi()`'s loop calls `getKeyboardInput()` every iteration (for the passphrase scan), which
   internally pumps `LockScreenManager::intercept()`; if the device is ALSO actually locked (its own
   independent idle timer, unrelated to undercover), `intercept()`'s `refreshDuration()` fires every 1s and
@@ -615,7 +615,7 @@ type: project
 - **Smooth fonts (Abdallah wanted "modern like an Android app").** First built with LovyanGFX bundled FreeSans
   (bitmap/aliased) — then baked **Noto Sans** (Android's family) Regular+Bold to LovyanGFX **VLW smooth fonts**
   for anti-aliased text. `convert_font.py` (root, mirrors convert_splash.py, `pre:` build step) renders glyphs
-  with Pillow → `t-rex-firmware/core/system/undercover/notes_fonts.h` (4 sizes: BIG 20/TITLE 15/BODY 14/META
+  with Pillow → `al-anqa-firmware/core/system/undercover/notes_fonts.h` (4 sizes: BIG 20/TITLE 15/BODY 14/META
   11, ~45KB). VLW format reverse-engineered from LovyanGFX `VLWfont::loadFont` (24B header + 28B/glyph metrics
   `unicode,h,w,xAdv,dY,gdX,0` BE sorted + row-major 8-bit-alpha bitmaps). Loaded as 4 persistent `lgfx::VLWfont`
   + `PointerWrapper` (memcpy_P from flash) once/session; `setFont()` switches are free. Script is best-effort:
@@ -1087,7 +1087,7 @@ sync switch above (async removed entirely). Alt/HDOP exposure in GpsManager stil
   on Windows). Cause: `beginHid()` advertised appearance + HID service UUID but never set the device
   name — NimBLE v2.x doesn't auto-include it, and BlueZ/GNOME only lists a device once it sees the
   COMPLETE LOCAL NAME (Windows is lenient, lists by HID appearance). Fix = buddy-style
-  `adv->enableScanResponse(true); adv->setName("T-REX-KBD");` before `startAdvertising()`. Shared
+  `adv->enableScanResponse(true); adv->setName("AL-ANQA-KBD");` before `startAdvertising()`. Shared
   `beginHid()` so both btkbd + jg ble fixed. This is exactly [[nimble_v2_rules]] #1 — the code just
   wasn't following it. ✅ **HW-VERIFIED 2026-06-21** (user confirmed it shows up + works on Ubuntu).
 
@@ -1117,7 +1117,7 @@ sync switch above (async removed entirely). Alt/HDOP exposure in GpsManager stil
   `jg`/`jg usb` = USB HID (unchanged), `jg ble`/`bt` = BLE HID. Reuses the btkbd HID stack —
   extracted btkbd's NimBLE init→`BleKeyboard::beginHid()` and cleanup→`endHid()` (shared by
   `start()`+`jiggle()`; endHid keeps the "do NOT deinit(true)" rule). New `BleKeyboard::jiggle()`:
-  advertise T-REX-KBD → wait pair → `sendMouseMove(±2,0)` every 30s, with disconnect/reconnect
+  advertise AL-ANQA-KBD → wait pair → `sendMouseMove(±2,0)` every 30s, with disconnect/reconnect
   + lock-unlock redraw. Updated all 4 surfaces: command_manager dispatch **+ arg-autocomplete
   table** (`jg → usb ble`), man_pages, docs/jiggle.md.
 - **Bug fixed — jg re-ran after `q`:** jigglers only read the keyboard, so latched trackball
@@ -1165,7 +1165,7 @@ sync switch above (async removed entirely). Alt/HDOP exposure in GpsManager stil
 - Docs/man/README/CLAUDE.md all updated for ev + mt.
 
 ## Session 2026-05-29
-- **buddy** — NimBLE v2.x name fix (`enableScanResponse`+`setName`); `onConnect` sets `s_connected` immediately; stale bond detection (reasons 0x05/0x06); cleanup removes `init("T-REX")` — field tested, working
+- **buddy** — NimBLE v2.x name fix (`enableScanResponse`+`setName`); `onConnect` sets `s_connected` immediately; stale bond detection (reasons 0x05/0x06); cleanup removes `init("AL-ANQA")` — field tested, working
 - **btkbd** — auto-bond-delete on auth fail; stale bond UI — field tested, working
 - **ble_spam** — `bsRestoreStack` no longer re-inits; Android wait 10s per cycle; `spamAll` Android slot 8s
 - **fast_pair** — `scan()` rewritten: FreeRTOS task removed, `start(0)` + millis() 5s loop; `spam()` wait 10s; hijack prompt cursor fix (promptY saved before poll loop)

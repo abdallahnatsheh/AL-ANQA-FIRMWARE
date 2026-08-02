@@ -82,7 +82,7 @@ big — user rejected it; this is the trimmed version):
   Weather, Clock).
 - **Covert entry unchanged + inherited free** (disguise-agnostic): passphrase-exit
   rolling buffer, `displayManager.setBlocked(true)`, boot-cover, panic key all work
-  as-is → typing the phrase from the home drops to the T-REX CLI.
+  as-is → typing the phrase from the home drops to the AL-ANQA CLI.
 
 ## Build shape (when/if picked up)
 New `core/system/undercover/home_ui.cpp/h` next to `notes_ui.cpp`; `undercover` could

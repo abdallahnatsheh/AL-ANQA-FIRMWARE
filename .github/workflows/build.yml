@@ -8,14 +8,14 @@ on:
   push:
     branches: ["feature/pentest-enhancements", "main"]
     paths:
-      - "t-rex-firmware/**"
+      - "al-anqa-firmware/**"
       - "lib/**"
       - "platformio.ini"
       - "convert_splash.py"
       - ".github/workflows/build.yml"
   pull_request:
     paths:
-      - "t-rex-firmware/**"
+      - "al-anqa-firmware/**"
       - "lib/**"
       - "platformio.ini"
       - "convert_splash.py"
