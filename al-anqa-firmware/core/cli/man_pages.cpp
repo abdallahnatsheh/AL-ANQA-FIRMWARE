@@ -36,9 +36,10 @@ static const ManEntry PAGES[] = {
     { "info", "inf", {
         "SYNTAX   info",
         "",
-        "ABOUT    Device info — 3 pages:",
+        "ABOUT    Device info — 4 pages:",
         "         1. Chip/RAM/flash   2. MACs",
         "         3. LoRa/GPS/battery",
+        "         4. Project + GitHub QR code",
         "",
         "KEYS     [l]/[a] pages  [q] quit",
         nullptr
