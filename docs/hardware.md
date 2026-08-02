@@ -3,6 +3,10 @@ title: T-Deck vs T-Deck Plus
 nav_order: 5
 ---
 
+<p align="right">
+  <a href="{{ site.baseurl }}/ar/hardware/" class="btn btn-primary">🌐 العربية</a>
+</p>
+
 # T-Deck vs T-Deck Plus
 
 The T-Deck and T-Deck Plus run **identical firmware**. The only hardware difference is the GPS module on the Plus. Everything else — display, keyboard, WiFi, Bluetooth, USB, SD card, speaker, audio — is the same.
