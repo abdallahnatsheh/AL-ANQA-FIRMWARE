@@ -1,9 +1,15 @@
 ---
 title: حل المشكلات
-permalink: /troubleshooting/
+permalink: /ar/troubleshooting/
+nav_exclude: true
 lang: ar
-nav_order: 3
 ---
+
+<p align="center">
+  <a href="{{ site.baseurl }}/troubleshooting" class="btn btn-primary">🌐 English</a>
+  &nbsp;
+  <a href="{{ site.baseurl }}/ar/" class="btn">← العودة إلى الرئيسية</a>
+</p>
 
 <div dir="rtl" markdown="1" style="text-align:right">
 

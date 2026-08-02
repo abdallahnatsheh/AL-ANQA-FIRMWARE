@@ -1,8 +1,11 @@
 ---
 title: Keyboard Reference
 nav_order: 3
-lang: en
 ---
+
+<p align="right">
+  <a href="{{ site.baseurl }}/ar/keyboard/" class="btn btn-primary">🌐 العربية</a>
+</p>
 
 # Keyboard Reference
 
