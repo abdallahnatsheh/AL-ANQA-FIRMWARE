@@ -3,14 +3,11 @@ title: Home
 nav_order: 1
 description: Al-Anqa offensive security firmware for LilyGo T-Deck
 permalink: /
+lang: en
 ---
 
 <p align="center">
   <img src="assets/images/banner.png" width="480"/>
-</p>
-
-<p align="center">
-  <a href="{{ site.baseurl }}/ar/" class="btn btn-primary">🌐 العربية</a>
 </p>
 
 # Al-Anqa

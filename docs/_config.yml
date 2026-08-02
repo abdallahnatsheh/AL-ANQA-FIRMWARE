@@ -3,7 +3,7 @@ description: Al-Anqa offensive security firmware for LilyGo T-Deck — hacker CL
 url: "https://abdallahnatsheh.github.io"
 baseurl: "/AL-ANQA-FIRMWARE"
 
-remote_theme: just-the-docs/just-the-docs@v0.10.0
+theme: just-the-docs
 color_scheme: alanqa
 
 
@@ -14,6 +14,17 @@ nav_sort: case_sensitive
 plugins:
   - jekyll-seo-tag
   - jekyll-github-metadata
+  - jekyll-polyglot
+
+# ── i18n (jekyll-polyglot) ────────────────────────────────────────────────
+# English is the default (served at /...); Arabic is served under /ar/...
+# Pages with no `lang` render in BOTH languages (English content is the
+# fallback under /ar/). A page with `lang: ar` overrides the fallback for
+# that URL. The language switcher lives in _includes/nav_footer_custom.html.
+languages: ["en", "ar"]
+default_lang: "en"
+exclude_from_localization: ["assets", "javascript", "images"]
+parallel_localization: false
 
 aux_links:
   "GitHub":
