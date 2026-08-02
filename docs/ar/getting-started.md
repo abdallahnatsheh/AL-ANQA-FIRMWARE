@@ -1,9 +1,15 @@
 ---
 title: دليل البدء
-permalink: /getting-started/
+permalink: /ar/getting-started/
+nav_exclude: true
 lang: ar
-nav_order: 2
 ---
+
+<p align="center">
+  <a href="{{ site.baseurl }}/getting-started" class="btn btn-primary">🌐 English</a>
+  &nbsp;
+  <a href="{{ site.baseurl }}/ar/" class="btn">← العودة إلى الرئيسية</a>
+</p>
 
 <div dir="rtl" markdown="1" style="text-align:right">
 

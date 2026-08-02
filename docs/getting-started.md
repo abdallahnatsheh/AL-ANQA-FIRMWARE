@@ -1,8 +1,11 @@
 ---
 title: Getting Started
 nav_order: 2
-lang: en
 ---
+
+<p align="right">
+  <a href="{{ site.baseurl }}/ar/getting-started/" class="btn btn-primary">🌐 العربية</a>
+</p>
 
 # Getting Started
 

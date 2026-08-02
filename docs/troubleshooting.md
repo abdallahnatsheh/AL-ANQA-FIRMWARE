@@ -1,8 +1,11 @@
 ---
 title: Troubleshooting
 nav_order: 3
-lang: en
 ---
+
+<p align="right">
+  <a href="{{ site.baseurl }}/ar/troubleshooting/" class="btn btn-primary">🌐 العربية</a>
+</p>
 
 # Troubleshooting
 
