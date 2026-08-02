@@ -1,0 +1,10 @@
+source "https://rubygems.org"
+
+gem "jekyll", "~> 4.3.3"
+gem "just-the-docs", "0.10.0"
+gem "jekyll-polyglot", "~> 1.8"
+gem "jekyll-seo-tag", "~> 2.8"
+gem "jekyll-github-metadata", "~> 2.16"
+
+# Windows / JRuby timezone data (harmless elsewhere)
+gem "tzinfo-data", platforms: [:mingw, :mswin, :x64_mingw, :jruby]
