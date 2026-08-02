@@ -6,7 +6,7 @@ has_children: true
 
 # USB Gadget
 
-T-Rex can present the T-Deck as USB devices to a connected PC. All modes are enabled at boot — no reflashing required.
+Al-Anqa can present the T-Deck as USB devices to a connected PC. All modes are enabled at boot — no reflashing required.
 
 | Guide | Commands |
 |-------|---------|
@@ -48,7 +48,7 @@ The T-Deck screen shows the card size and waits. The SD card appears on the PC a
 **Notes:**
 - WiFi is automatically disconnected before MSC starts (shared GDMA bus on ESP32-S3)
 - All three SPI CS pins (display, SD, LoRa radio) are held HIGH during MSC to prevent bus corruption
-- After exit, the SD card is automatically remounted for T-Rex use (up to 8 attempts)
+- After exit, the SD card is automatically remounted for Al-Anqa use (up to 8 attempts)
 - Do not unplug the cable mid-write — always eject from the PC side first
 
 ---
@@ -110,7 +110,7 @@ Executes keystroke injection scripts (DuckyScript) against the connected PC. Com
 
 **Usage:**
 ```
-ux demo                      # built-in demo — opens Notepad and draws T-Rex ASCII art
+ux demo                      # built-in demo — opens Notepad and draws Al-Anqa ASCII art
 ux /apps/badusb/scripts/payload.txt       # run a script from SD card
 ```
 
@@ -159,7 +159,7 @@ DELAY 500
 STRING notepad
 ENTER
 DELAY 1200
-STRING Hello from T-Rex!
+STRING Hello from Al-Anqa!
 ENTER
 REPEAT 2
 ```

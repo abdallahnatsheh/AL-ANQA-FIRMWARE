@@ -6,7 +6,7 @@ type: project
 
 # Project-wide improvement backlog (2026-06-15)
 
-Assessment of the whole T-REX firmware (~60 commands, mature). Leverage now is in
+Assessment of the whole AL-ANQA firmware (~60 commands, mature). Leverage now is in
 **hardening + maintainability**, NOT more features. User asked to save these to consider.
 (New attacks live in [[next_steps]] — deliberately NOT prioritized here.)
 

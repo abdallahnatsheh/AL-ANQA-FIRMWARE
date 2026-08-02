@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/abdallahnatsheh/T-REX-FIRMWARE/actions/workflows/build.yml"><img src="https://github.com/abdallahnatsheh/T-REX-FIRMWARE/actions/workflows/build.yml/badge.svg?style=flat-square"/></a>
+  <a href="https://github.com/abdallahnatsheh/AL-ANQA-FIRMWARE/actions/workflows/build.yml"><img src="https://github.com/abdallahnatsheh/AL-ANQA-FIRMWARE/actions/workflows/build.yml/badge.svg?style=flat-square"/></a>
   <img src="https://img.shields.io/badge/platform-LilyGo%20T--Deck%20%7C%20T--Deck%20Plus-blue?style=flat-square"/>
   <img src="https://img.shields.io/badge/MCU-ESP32--S3-green?style=flat-square"/>
   <img src="https://img.shields.io/badge/language-C%2FC%2B%2B-yellow?style=flat-square"/>
@@ -12,7 +12,7 @@
 
 <p align="center">
   <b>Offensive security firmware for the LilyGo T-Deck — a pentesting terminal in your pocket.</b><br/>
-  <a href="https://abdallahnatsheh.github.io/T-REX-FIRMWARE"><b>📖 Documentation</b></a>
+  <a href="https://abdallahnatsheh.github.io/AL-ANQA-FIRMWARE"><b>📖 Documentation</b></a>
 </p>
 
 ---
@@ -26,7 +26,7 @@
 
 ## Overview
 
-T-Rex turns the LilyGo T-Deck (ESP32-S3) into a self-contained offensive-security terminal:
+Al-Anqa turns the LilyGo T-Deck (ESP32-S3) into a self-contained offensive-security terminal:
 a blinking cursor, a physical keyboard, and 60+ WiFi / Bluetooth / network / radio tools —
 no PC, no app, no GUI. Everything runs on-device and logs to the SD card.
 
@@ -97,7 +97,7 @@ wardriving and audio tools). The project is under **active development**.
 **Requirements:** [VS Code](https://code.visualstudio.com/) + the [PlatformIO](https://platformio.org/) extension.
 
 ```bash
-git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
+git clone https://github.com/abdallahnatsheh/AL-ANQA-FIRMWARE
 # Open in VS Code → pick env:T-Deck or env:T-Deck-Plus → Upload
 ```
 
@@ -244,7 +244,7 @@ Vendored under `lib/`: **libg722** (voice codec) · **ES7210** (mic driver).
 
 Full docs — every command, workflows, keyboard reference, troubleshooting, and the
 `wguard` / `trackme` algorithm write-ups — are published at
-**[abdallahnatsheh.github.io/T-REX-FIRMWARE](https://abdallahnatsheh.github.io/T-REX-FIRMWARE)**
+**[abdallahnatsheh.github.io/AL-ANQA-FIRMWARE](https://abdallahnatsheh.github.io/AL-ANQA-FIRMWARE)**
 (source in [`docs/`](docs/)).
 
 ---

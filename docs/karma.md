@@ -114,7 +114,7 @@ pnl_count, rssi, pnl).
 
 ### WPA2 half-handshake bait — `[h]` / `km hs`
 
-T-REX stands up a **manual rogue AP** that clones the target SSID as WPA2. Because T-REX
+AL-ANQA stands up a **manual rogue AP** that clones the target SSID as WPA2. Because AL-ANQA
 **is** the AP, it generates its own ANonce and injects its own **M1** — so it never needs
 to capture M1 over the air (an ESP32 can't hear its own transmissions). A client that has
 the real network saved associates and replies with **M2**, whose MIC is keyed by the
@@ -142,7 +142,7 @@ On `M2!`:
   miss still leaves the `.cap` on the card and tells you where it is.
 
 > The bait relies on the client associating to an AP that can't ACK at the MAC layer.
-> T-REX sets its interface MAC to the rogue BSSID (and reads it back to guarantee they match)
+> AL-ANQA sets its interface MAC to the rogue BSSID (and reads it back to guarantee they match)
 > so the hardware ACKs the client; success varies by client. The stage counters tell you
 > exactly where a given client stalls. The BSSID line shows **`rnd`** (random/stealthed) or
 > **`REAL`** (fell back to the device's real MAC — still works, just identifiable).

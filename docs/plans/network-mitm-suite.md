@@ -10,7 +10,7 @@
 > Remaining: HW-verify (esp. the SMB2/SPNEGO framing vs a real Windows victim).
 
 ## Context
-T-REX has recon (`nd`, `ns`) and isolation-bypass (`is`) but no active LAN MITM tooling.
+AL-ANQA has recon (`nd`, `ns`) and isolation-bypass (`is`) but no active LAN MITM tooling.
 Built in two phases.
 
 **Honesty constraint (settled in the isoscan work):** true transparent traffic interception

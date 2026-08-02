@@ -32,7 +32,7 @@ implementation didn't just waste RAM/flash, it never actually spoofed the BLE MA
 made the fix a strict improvement with no working behavior to preserve/regress.
 
 ## The fix
-`t-rex-firmware/wifi/attacks/mac_changer/mac_changer.cpp`:
+`al-anqa-firmware/wifi/attacks/mac_changer/mac_changer.cpp`:
 - Swapped `#include "esp_gap_ble_api.h"` + `"esp_bt_main.h"` for `#include <NimBLEDevice.h>`.
 - `applyBleMac()`: `esp_bluedroid_get_status()`/`esp_ble_gap_set_rand_addr()` →
   `NimBLEDevice::isInitialized()` guard + `NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM)`
@@ -76,7 +76,7 @@ xx:CB` for btkbd, `xx:xx:xx:xx:xx:BD`-style for buddy) — by design, so their H
 bonds survive across reboots ("Windows stores two separate bonds and never confuses
 keyboard with NUS client"). Both **intentionally override/ignore whatever `mc` set**. This
 is correct/intended behavior for those two tools, not a bug — but it means there is
-currently no T-Rex command that advertises using `mc`'s raw spoofed address, so true
+currently no Al-Anqa command that advertises using `mc`'s raw spoofed address, so true
 over-the-air confirmation (a phone scanner literally seeing the spoofed MAC) isn't possible
 with existing tooling. The on-device `mc status` signal (address populates + changes only
 on API success) is accepted as sufficient verification for this fix. A future throwaway

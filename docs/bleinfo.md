@@ -8,7 +8,7 @@ nav_order: 2
 
 ## Overview
 
-`bleinfo` (short: `bi`) is a BLE GATT client built into T-REX. It connects to a
+`bleinfo` (short: `bi`) is a BLE GATT client built into AL-ANQA. It connects to a
 Bluetooth Low Energy device, reads its full service/characteristic tree, decodes
 values using standard GATT type descriptors, and provides interactive tools for
 passive monitoring and active interaction.
@@ -329,7 +329,7 @@ Write-cap lets you take a value captured during `[n]` sniff and write it back to
 Sniff sessions are saved as plain-text `.ble` files:
 
 ```
-TREX_BLE_REPLAY
+ALANQA_BLE_REPLAY
 MAC aa:bb:cc:dd:ee:ff
 TYPE 1
 PKT 0x2a37 1234 4800
@@ -426,7 +426,7 @@ MAC: aa:bb:cc:dd:ee:ff
 Auto-saved alongside the sniff log. Contains raw bytes for every captured notification.
 Can be loaded into `[r]wcap` on any T-Deck to replay the packets:
 ```
-TREX_BLE_REPLAY
+ALANQA_BLE_REPLAY
 MAC aa:bb:cc:dd:ee:ff
 TYPE 1
 PKT 0x2a37 1234 4800

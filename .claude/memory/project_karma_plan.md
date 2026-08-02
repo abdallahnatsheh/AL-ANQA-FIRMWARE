@@ -106,7 +106,7 @@ exit `WiFi.mode(WIFI_STA)`/`disconnect(false)`. Poll `q` everywhere; output via
 3. ✅ DONE — WPA2 handshake bait, SAVE-ONLY (user's call: no on-device crack — crack offline
    w/ aircrack/hashcat or a future CLI tool; keeps `ws` cracker untouched). `km hs <ssid> [ch]`
    standalone + interactive `[h]` from HARV(selected SSID)/DEVS(selected device's top PNL).
-   WPA2 softAP clones SSID w/ throwaway PSK "trexkarma"; promiscuous MGMT+DATA sniffs our
+   WPA2 softAP clones SSID w/ throwaway PSK "alanqakarma"; promiscuous MGMT+DATA sniffs our
    beacon + EAPOL (filter on our softAP MAC); M2 (ack=0,mic=1,secure=0) flagged live w/ STA
    MAC. Capture buf in INTERNAL DRAM (heap_caps_malloc MALLOC_CAP_INTERNAL — ISR writes, NOT
    PSRAM), freed on exit. Writes /apps/karma/<ssid>.cap (libpcap lt 105) AFTER teardown

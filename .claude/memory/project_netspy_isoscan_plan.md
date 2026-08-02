@@ -171,7 +171,7 @@ every exit path per mac_util.h idiom, ICMPv6 RA DNS-poison + SD UDP-53 logger). 
   1 datapoint). ⚠️ Stage 0 uncommitted (research instrumentation) — commit once Stage 1 works/stable.
 
 **Commands: `netspy`/`ns` + `isoscan`/`is`** (Network). Stage 0 built (above). Full plan in repo:
-`.claude/memory/TREX_NETSPY_ISOSCAN_PLAN.md`. Based on **AirSnitch (NDSS 2026, Mathy Vanhoef)** —
+`.claude/memory/ALANQA_NETSPY_ISOSCAN_PLAN.md`. Based on **AirSnitch (NDSS 2026, Mathy Vanhoef)** —
 https://github.com/vanhoefm/airsnitch. **No AirSnitch code used** — techniques reimplemented from
 the paper (AirSnitch = all-rights-reserved, no license file). Credit paper+repo in comments/README only.
 

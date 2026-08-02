@@ -135,7 +135,7 @@ BLE and WiFi share one antenna — they cannot run simultaneously.
 
 ### `buddy` / `btkbd` won't appear on Windows Bluetooth
 
-- The device advertises as `Claude-XXXX` (buddy) or `T-REX-KBD` (btkbd) — search for these names in Windows BT settings
+- The device advertises as `Claude-XXXX` (buddy) or `AL-ANQA-KBD` (btkbd) — search for these names in Windows BT settings
 - If Windows shows "auth errors" or immediately disconnects: remove the device from Windows BT settings and re-pair from scratch
 
 ---
@@ -172,7 +172,7 @@ See the [Recovery (Forgot PIN)](lock#recovery-forgot-pin) section in the Lock Sc
 
 **Short version:** Power off → **remove the SD card** → power on. The PIN lives only on the card, so with it gone the device boots unlocked. Re-insert the card and set a new PIN with `lock new`.
 
-**Prefer not to pull the card?** Put the SD in a PC, add a line `reset=1` to `/config/lockscreen.conf`, re-insert, reboot — T-Rex clears the PIN once and boots unlocked. (If you remember the PIN, just unlock and run `lock clean` or `lock wipe`.) Both paths are owner convenience, not security — anyone with the card can do them; the lock protects the running device, not the card's contents.
+**Prefer not to pull the card?** Put the SD in a PC, add a line `reset=1` to `/config/lockscreen.conf`, re-insert, reboot — Al-Anqa clears the PIN once and boots unlocked. (If you remember the PIN, just unlock and run `lock clean` or `lock wipe`.) Both paths are owner convenience, not security — anyone with the card can do them; the lock protects the running device, not the card's contents.
 
 ---
 

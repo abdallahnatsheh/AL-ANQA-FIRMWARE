@@ -5,7 +5,7 @@ type: project
 ---
 
 **Commands: `csidetect`/`csi` (BUILT) + ~~camdetect~~ (dropped).** Full original plan in repo:
-`.claude/memory/TREX_CSI_CAMDETECT_PLAN.md`. ESP32-S3 built-in WiFi only — no extra sensors. Ref:
+`.claude/memory/ALANQA_CSI_CAMDETECT_PLAN.md`. ESP32-S3 built-in WiFi only — no extra sensors. Ref:
 skizzophrenic/Cardputer-CSI-Human-Detector (**MIT**) + official espressif/esp-csi (Apache-2.0).
 
 ## IMPLEMENTATION STATUS (2026-06-26)
@@ -16,7 +16,7 @@ skizzophrenic/Cardputer-CSI-Human-Detector (**MIT**) + official espressif/esp-cs
 - **`camdetect` NOT built — DROPPED from this effort**: it's not CSI at all, just a promiscuous
   camera-OUI sniffer that shared the plan doc. Revisit separately if wanted; same for the trackme
   cam-OUI integration.
-- **Files**: `t-rex-firmware/wifi/sensing/csidetect.cpp` + `.h`; fwd-decl + `registerCommand` in
+- **Files**: `al-anqa-firmware/wifi/sensing/csidetect.cpp` + `.h`; fwd-decl + `registerCommand` in
   `core/cli/command_manager.cpp`; `-I .../wifi/sensing` in `platformio.ini`; credited in `NOTICES`
   (#12 Cardputer-CSI MIT, #13 esp-csi). File-header `Sources:` block present.
 - **What the MVP has**: CSI enable (promiscuous MGMT|DATA + `esp_wifi_set_csi`); IRAM `csiCb` with the

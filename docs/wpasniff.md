@@ -19,7 +19,7 @@ CMD> ws AA:BB:CC:DD:EE:FF 6
 
 ### Step 1 — Capture
 
-T-Rex sets the radio to monitor mode on the target channel and sends deauth frames every 4 seconds to force clients to re-authenticate.
+Al-Anqa sets the radio to monitor mode on the target channel and sends deauth frames every 4 seconds to force clients to re-authenticate.
 
 Status: `[M1] waiting...` → `[M1+M2] COMPLETE`
 
@@ -27,7 +27,7 @@ Status: `[M1] waiting...` → `[M1+M2] COMPLETE`
 
 Press `c` after a successful capture to start on-device cracking.
 
-T-Rex computes PBKDF2-SHA1(passphrase, SSID, 4096) → PMK → PTK → KCK → HMAC-SHA1 MIC and compares against the captured MIC.
+Al-Anqa computes PBKDF2-SHA1(passphrase, SSID, 4096) → PMK → PTK → KCK → HMAC-SHA1 MIC and compares against the captured MIC.
 
 | Wordlist source | Path | Behaviour |
 |-----------------|------|-----------|

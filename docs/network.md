@@ -166,7 +166,7 @@ Sends 4 ICMP echo requests and displays RTT for each reply plus a summary with m
 
 Available inside `portscan` results (both `ps` and `ps top`) — press `b` while viewing an open port to grab its banner.
 
-T-Rex sends a protocol-aware probe and reads the response:
+Al-Anqa sends a protocol-aware probe and reads the response:
 
 | Protocol | Detection | Probe sent |
 |----------|-----------|-----------|

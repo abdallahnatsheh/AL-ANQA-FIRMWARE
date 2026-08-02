@@ -13,7 +13,7 @@ Real-world usage examples that combine multiple commands into complete tasks. Ea
 
 **Goal:** Capture a WPA2 handshake from a target network and crack the password on-device.
 
-**Requirements:** WiFi connection to T-Rex itself is not needed. The target network just needs to have at least one client connected.
+**Requirements:** WiFi connection to Al-Anqa itself is not needed. The target network just needs to have at least one client connected.
 
 ### Steps
 
@@ -38,7 +38,7 @@ Or by BSSID if you already know it:
 CMD> ws AA:BB:CC:DD:EE:FF 6
 ```
 
-T-Rex locks to the target's channel, enters monitor mode, and sends deauth bursts every 4 seconds to force clients to re-authenticate. Watch the status:
+Al-Anqa locks to the target's channel, enters monitor mode, and sends deauth bursts every 4 seconds to force clients to re-authenticate. Watch the status:
 ```
 [M1] waiting...        ← waiting for first EAPOL frame
 [M1+M2] COMPLETE       ← handshake captured
@@ -47,7 +47,7 @@ The handshake is saved to `/apps/wpasniff/<BSSID>.cap`.
 
 **4. Crack the password**
 
-Press **`c`** immediately after capture completes. T-Rex starts cracking:
+Press **`c`** immediately after capture completes. Al-Anqa starts cracking:
 
 ```
 Trying wordlist: /apps/wpasniff/wordlist.txt
@@ -145,7 +145,7 @@ Note the index of the network you want to protect.
 CMD> wg 0 bg           # monitor AP at index 0 in background
 ```
 
-T-Rex returns immediately to the prompt. The **shield icon** in the status bar turns green — wguard is running silently.
+Al-Anqa returns immediately to the prompt. The **shield icon** in the status bar turns green — wguard is running silently.
 
 **3. Use other commands normally**
 

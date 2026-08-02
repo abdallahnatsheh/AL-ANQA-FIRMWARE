@@ -67,7 +67,7 @@ WPA2-only rogue AP via eviltwin → capture via ws/pm → /apps/wpa3down/), Phas
 wguard downgrade-detection (defensive).**
 
 Full plan in repo:
-`.claude/memory/TREX_WPA3_DOWNGRADE_PLAN.md`. Dragonblood CVE-2019-9494..9499 (Vanhoef/Ronen);
+`.claude/memory/ALANQA_WPA3_DOWNGRADE_PLAN.md`. Dragonblood CVE-2019-9494..9499 (Vanhoef/Ronen);
 refs: TrustedSec Jul-2024 writeup, RedLegg Jun-2025 eaphammer, VSMtripathi GitHub.
 
 ## Attack in one line

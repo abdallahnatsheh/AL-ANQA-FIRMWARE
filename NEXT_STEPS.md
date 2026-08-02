@@ -1,4 +1,4 @@
-# T-REX Firmware — Feature Roadmap
+# AL-ANQA Firmware — Feature Roadmap
 
 ## Already Implemented (verified 2026-06-09)
 
@@ -73,7 +73,7 @@
 - ~~`home`~~ ✅ — Done: `home`/`hm` phone-style home-launcher cover (real clock/battery/weather)
 - ~~`weather`~~ ✅ — Done: `weather`/`wx` OpenWeather, shown in the home hero
 - `calc` — Expression calculator
-- `macro` — Batch T-REX command runner from SD script file (separate from BadUSB DuckyScript)
+- `macro` — Batch AL-ANQA command runner from SD script file (separate from BadUSB DuckyScript)
 
 ---
 

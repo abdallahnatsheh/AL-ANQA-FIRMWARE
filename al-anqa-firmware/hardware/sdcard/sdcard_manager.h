@@ -1,0 +1,139 @@
+#ifndef SDCARD_MANAGER_H
+#define SDCARD_MANAGER_H
+
+#include <Arduino.h>
+#include <SD.h>
+#include <SPI.h>
+#include "display_manager.h"
+#include <ff.h>
+
+#define SD_DIR_CONFIG       "/config"
+#define SD_DIR_CONFIG_NOTIF "/config/notification"
+#define SD_DIR_APPS         "/apps"
+
+// Undercover Notes cover — real files at SD ROOT (NOT /apps/), so a PC-browsed
+// card shows an ordinary "notes" folder, not a AL-ANQA tool folder. NNN.txt,
+// sequential, never reused. See core/system/undercover/notes_ui.cpp.
+#define SD_DIR_NOTES         "/apps/notes"
+
+// Per-app /apps/<tool> subfolders + files shared across multiple source files.
+// (Tools that only reference their own folder define it locally instead.)
+#define SD_DIR_TRACKME       "/apps/trackme"
+#define SD_LOG_TRACKME       "/apps/trackme/session.csv"
+#define SD_LOG_TRACKME_KNOWN "/apps/trackme/known.csv"
+#define SD_CFG_SIGNATURES    "/apps/trackme/signatures.csv"
+
+#define SD_DIR_EVILTWIN       "/apps/eviltwin"
+#define SD_LOG_EVILTWIN_CREDS "/apps/eviltwin/creds.csv"
+#define SD_DIR_EVILPORTAL     "/apps/eviltwin/portal"
+
+#define SD_DIR_HIDDENSSID    "/apps/hiddenssid"
+#define SD_LOG_HIDDEN_SSIDS  "/apps/hiddenssid/found.csv"
+
+#define SD_DIR_WPASNIFF      "/apps/wpasniff"
+#define SD_CFG_WORDLIST_WS   "/apps/wpasniff/wordlist.txt"
+#define SD_LOG_CRACKED_WS    "/apps/wpasniff/cracked.csv"
+
+#define SD_DIR_PMKID         "/apps/pmkid"
+#define SD_CFG_WORDLIST_PM   "/apps/pmkid/wordlist.txt"
+#define SD_LOG_CRACKED_PM    "/apps/pmkid/cracked.csv"
+
+#define SD_DIR_WIFIMON       "/apps/wifimon"
+#define SD_LOG_PROBES        "/apps/wifimon/probes.csv"
+
+#define SD_DIR_WGUARD        "/apps/wguard"
+
+#define SD_DIR_WARDRIVE      "/apps/wardrive"         // WiGLE-format wardrive logs (NNN.csv)
+
+#define SD_DIR_BEACONFLOOD   "/apps/beaconflood"
+#define SD_CFG_WORDLIST_BCN  "/apps/beaconflood/wordlist.txt"
+
+#define SD_DIR_KARMA         "/apps/karma"           // karma harvest logs + handshakes
+#define SD_DIR_KARMA_PORTAL  "/apps/karma/portal"    // custom captive-portal .html pages
+
+#define SD_DIR_CAPCRACK      "/apps/capcrack"        // cap cracker results (cracked.csv)
+
+#define SD_DIR_BMON          "/apps/bmon"
+
+#define SD_DIR_CSIDETECT     "/apps/csidetect"        // CSI motion logs (NNN.csv)
+#define SD_DIR_NETSPY        "/apps/netspy"           // netspy device logs + RE dumps
+#define SD_DIR_ISOSCAN       "/apps/isoscan"          // isoscan active-attack logs/captures
+#define SD_DIR_RESPONDER     "/apps/responder"        // responder captured NetNTLM hashes + logs
+#define SD_DIR_ARPSPOOF      "/apps/arpspoof"         // arpspoof redirected-traffic logs (NNN.csv)
+#define SD_DIR_WPS           "/apps/wps"              // wps recon reports + PBC-recovered creds
+#define SD_DIR_WPA3DOWN      "/apps/wpa3down"          // WPA3 transition-downgrade handshakes (.cap)
+
+#define SD_DIR_MACWATCH      "/apps/macwatch"
+#define SD_LOG_MACWATCH_LIST "/apps/macwatch/watchlist.csv"
+#define SD_LOG_MACWATCH_EVT  "/apps/macwatch/events.csv"
+
+#define SD_DIR_I2CSCAN       "/apps/i2cscan"
+#define SD_LOG_I2CSCAN       "/apps/i2cscan/results.csv"
+
+#define SD_DIR_FASTPAIR      "/apps/fastpair"
+#define SD_DIR_ESPSNIFF      "/apps/espsniff"
+#define SD_DIR_BLEINFO       "/apps/bleinfo"
+
+#define SD_DIR_ESPCHAT       "/apps/espchat"
+#define SD_DIR_ESPCHAT_PUB   "/apps/espchat/pub"
+#define SD_DIR_ESPCHAT_PRV   "/apps/espchat/prv"
+
+#define SD_DIR_BADUSB         "/apps/badusb"
+#define SD_DIR_BADUSB_SCRIPTS "/apps/badusb/scripts"
+#define SD_DIR_BADUSB_OS      "/apps/badusb/os"
+#define SD_DIR_BADUSB_OS_WIN  "/apps/badusb/os/windows"
+#define SD_DIR_BADUSB_OS_MAC  "/apps/badusb/os/macos"
+#define SD_DIR_BADUSB_OS_LIN  "/apps/badusb/os/linux"
+
+// NES emulator (gm): one folder under /apps holding both ROMs and save states.
+// The Anemoia core's Bus::saveState/loadState is patched to write under
+// SD_DIR_NES_STATES.
+#define SD_DIR_NES_ROOT       "/apps/nes"            // NES emulator folder (parent)
+#define SD_DIR_NES            "/apps/nes/roms"       // NES ROM files (gm command)
+#define SD_DIR_NES_STATES     "/apps/nes/states"     // NES save states (CRC32-keyed)
+
+#define SD_DIR_SSH            "/apps/ssh"            // ssh client — reserved for
+#define SD_SSH_KNOWNHOSTS     "/apps/ssh/known_hosts" // host-key pinning (planned)
+#define SD_SSH_HOSTS          "/apps/ssh/hosts.csv"   // saved host profiles (planned)
+
+class SDCardManager {
+public:
+    SDCardManager(DisplayManager& displayManager);
+    bool begin();
+    bool tryReinit();    // attempt hot-insert mount; no-op if already ready
+    bool isReady() const;
+    bool canAccessSD() const;   // false while USB MSC/HID is active
+    void lockSD(bool lock);     // called by USBManager
+    void printInfo();
+    void listDirectory(const char* path);
+    void readFile(const char* path);
+    bool removeFile(const char* path);
+    bool appendLine(const char* path, const String& line);
+    bool ensureDir(const char* path);
+    bool formatSDCard();
+    bool performFormat();
+    bool initializeTDeckStructure();
+    void formatCommand(char* args);
+
+    // CWD / path resolution
+    const char* getCwd() const { return _cwd; }
+    void resolvePath(const char* input, char* out, size_t outLen) const;
+    void cdCommand(const char* path);
+
+    // Autocomplete: list entries in searchDir whose names start with filePrefix.
+    // Directories get a trailing '/'. Returns the number of matches written to out.
+    int listCompletions(const char* searchDir, const char* filePrefix,
+                        char out[][64], int maxCount,
+                        bool dirsOnly = false, bool filesOnly = false);
+
+private:
+    DisplayManager& displayManager;
+    bool ready;
+    bool _sdLocked = false;
+    char _cwd[128]  = {'/'};
+    void listDirRecursive(File dir, int depth);
+    void ensureAppsReadme();   // writes /apps/README.txt mapping folders to commands, if missing
+    void ensureTreeStructure(); // creates the full /config + /apps/<tool> tree
+};
+
+#endif // SDCARD_MANAGER_H

@@ -53,7 +53,7 @@ are orphaned, not migrated.
 6. **SD init must EAGERLY create the FULL `/config` + `/apps/<tool>` tree on
    first boot/format** — not lazily on first use.
 
-## Implementation — `t-rex-firmware/hardware/sdcard/sdcard_manager.h/.cpp`
+## Implementation — `al-anqa-firmware/hardware/sdcard/sdcard_manager.h/.cpp`
 - All path defines (`SD_DIR_*` / `SD_LOG_*` / `SD_CFG_*`) centralized in the
   header, e.g. `SD_DIR_TRACKME`, `SD_CFG_WORDLIST_WS`/`SD_CFG_WORDLIST_PM`,
   `SD_DIR_WPASNIFF`/`SD_DIR_PMKID`, `SD_LOG_CRACKED_WS`/`SD_LOG_CRACKED_PM`,

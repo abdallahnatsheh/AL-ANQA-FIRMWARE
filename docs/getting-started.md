@@ -23,7 +23,7 @@ nav_order: 2
 ## Step 1 — Build and Flash
 
 ```bash
-git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
+git clone https://github.com/abdallahnatsheh/AL-ANQA-FIRMWARE
 ```
 
 Open the cloned folder in VSCode. PlatformIO will detect the project automatically.
@@ -45,7 +45,7 @@ Hold the **trackball button** while plugging in the USB cable — this forces th
 ## Step 2 — First Boot
 
 On first power-on you will see:
-1. The T-Rex splash screen
+1. The Al-Anqa splash screen
 2. The status bar at the top (battery, Bluetooth, WiFi, GPS icons)
 3. The command prompt: `CMD>`
 

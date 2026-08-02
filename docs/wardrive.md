@@ -59,7 +59,7 @@ and rows start landing. A **cold** fix takes ~4 minutes outdoors; a **warm** sta
 Sequentially numbered (`001.csv`, `002.csv` …) and **never overwritten** — each run is a new file. The file is **created lazily, on the first AP actually logged** — a session that never gets a fix (or you quit early) leaves **no file**, so you won't accumulate empty CSVs. Format is WiGLE WiFi-1.4:
 
 ```
-WigleWifi-1.4,appRelease=T-REX,model=T-Deck-Plus,release=2026,device=ESP32-S3,display=ST7789,board=LilyGo,brand=LilyGo
+WigleWifi-1.4,appRelease=AL-ANQA,model=T-Deck-Plus,release=2026,device=ESP32-S3,display=ST7789,board=LilyGo,brand=LilyGo
 MAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,Type
 1a:2b:3c:4d:5e:6f,MyWiFi,[WPA2-PSK-CCMP][ESS],2026-06-20 14:30:00,6,-55,40.123456,-74.123456,52.0,5.0,WIFI
 ```

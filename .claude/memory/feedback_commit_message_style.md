@@ -14,7 +14,7 @@ Do NOT put sensitive or host-specific data in commit messages or committed files
 
 On-device firmware paths (e.g. `/apps/nes/roms`) are fine — they're part of the product.
 
-**Why:** commits are pushed to a public GitHub repo (`abdallahnatsheh/T-REX-FIRMWARE`);
+**Why:** commits are pushed to a public GitHub repo (`abdallahnatsheh/AL-ANQA-FIRMWARE`);
 host paths/usernames/serials would leak the dev machine and don't belong in history.
 
 **How to apply:** write concise conventional-commit messages at the firmware/feature level.

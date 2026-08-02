@@ -7,7 +7,7 @@ type: project
 # karma WPA2 handshake bait — rewritten as a manual EAPOL responder (2026-06-15)
 
 ## Why the old approach couldn't crack
-Phase-3 used an **IDF softAP** (`WiFi.softAP(ssid,"trexkarma",...)`). HW-verified that
+Phase-3 used an **IDF softAP** (`WiFi.softAP(ssid,"alanqakarma",...)`). HW-verified that
 the client's **M2 reaches the promiscuous cb** (good). But cracking needs the **ANonce
 from M1**, and M1 is transmitted **by us** — ESP32 promiscuous can't hear self-TX, and
 IDF's softAP exposes no API to read the ANonce it chose. So `karmaCrack` always hit

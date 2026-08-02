@@ -20,9 +20,9 @@ Two transports, identical behaviour:
 | Command | Transport | Setup |
 |---------|-----------|-------|
 | `jg`      | USB HID | Plug the T-DECK into the target PC with a data cable |
-| `jg ble`  | BLE HID | Run it, then pair **T-REX-KBD** on the host (Just Works, no PIN) — reuses the `btkbd` BLE HID stack |
+| `jg ble`  | BLE HID | Run it, then pair **AL-ANQA-KBD** on the host (Just Works, no PIN) — reuses the `btkbd` BLE HID stack |
 
-The BLE mode advertises as `T-REX-KBD`; once the host pairs and the link is encrypted, jiggling begins. If the host drops the link the jiggler pauses and waits to reconnect.
+The BLE mode advertises as `AL-ANQA-KBD`; once the host pairs and the link is encrypted, jiggling begins. If the host drops the link the jiggler pauses and waits to reconnect.
 
 ---
 

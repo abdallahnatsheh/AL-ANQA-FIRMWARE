@@ -1,13 +1,13 @@
-title: T-Rex Docs
-description: T-Rex offensive security firmware for LilyGo T-Deck — hacker CLI in your pocket.
+title: Al-Anqa Docs
+description: Al-Anqa offensive security firmware for LilyGo T-Deck — hacker CLI in your pocket.
 url: "https://abdallahnatsheh.github.io"
-baseurl: "/T-REX-FIRMWARE"
+baseurl: "/AL-ANQA-FIRMWARE"
 
 remote_theme: just-the-docs/just-the-docs@v0.10.0
-color_scheme: trex
+color_scheme: alanqa
 
 
-footer_content: "T-Rex &mdash; your network never saw it coming."
+footer_content: "Al-Anqa &mdash; your network never saw it coming."
 
 nav_sort: case_sensitive
 
@@ -17,7 +17,7 @@ plugins:
 
 aux_links:
   "GitHub":
-    - "https://github.com/abdallahnatsheh/T-REX-FIRMWARE"
+    - "https://github.com/abdallahnatsheh/AL-ANQA-FIRMWARE"
 
 aux_links_new_tab: true
 
@@ -26,7 +26,7 @@ back_to_top_text: "Back to top"
 
 gh_edit_link: true
 gh_edit_link_text: "Edit this page on GitHub"
-gh_edit_repository: "https://github.com/abdallahnatsheh/T-REX-FIRMWARE"
+gh_edit_repository: "https://github.com/abdallahnatsheh/AL-ANQA-FIRMWARE"
 gh_edit_branch: "main"
 gh_edit_source: docs
 gh_edit_view_mode: "edit"

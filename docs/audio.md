@@ -6,7 +6,7 @@ nav_order: 5
 
 # Audio & Notifications
 
-T-REX uses I2S (not `tone()`) for all audio on the T-Deck Plus. Two independent volume controls exist: general volume (`vol`) and notification volume (`nf vol`).
+AL-ANQA uses I2S (not `tone()`) for all audio on the T-Deck Plus. Two independent volume controls exist: general volume (`vol`) and notification volume (`nf vol`).
 
 ---
 
@@ -80,7 +80,7 @@ CMD> nf success file /sounds/ok.wav   # absolute path
 CMD> nf alert file                    # clear — back to built-in tone
 ```
 
-On notification, T-REX checks if a WAV is configured for that level. If the SD card is available and the file exists, it plays the WAV. Otherwise it falls back to the built-in I2S tone.
+On notification, AL-ANQA checks if a WAV is configured for that level. If the SD card is available and the file exists, it plays the WAV. Otherwise it falls back to the built-in I2S tone.
 
 ### Config file — `/config/notif.conf`
 

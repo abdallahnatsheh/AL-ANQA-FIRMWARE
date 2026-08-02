@@ -1,7 +1,7 @@
 ---
 title: Home
 nav_order: 1
-description: T-Rex offensive security firmware for LilyGo T-Deck
+description: Al-Anqa offensive security firmware for LilyGo T-Deck
 permalink: /
 ---
 
@@ -9,11 +9,11 @@ permalink: /
   <img src="assets/images/banner.png" width="480"/>
 </p>
 
-# T-Rex
+# Al-Anqa
 
 **Offensive security firmware for the LilyGo T-Deck — hacker CLI in your pocket.**
 
-T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GUI — just a blinking cursor, a physical keyboard, and a full suite of offensive security tools running on an ESP32-S3.
+Al-Anqa turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GUI — just a blinking cursor, a physical keyboard, and a full suite of offensive security tools running on an ESP32-S3.
 
 ---
 
@@ -104,7 +104,7 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 **Requirements:** [VSCode](https://code.visualstudio.com) + [PlatformIO](https://platformio.org) extension
 
 ```bash
-git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
+git clone https://github.com/abdallahnatsheh/AL-ANQA-FIRMWARE
 # Open in VSCode → select env:T-Deck or env:T-Deck-Plus → click Upload
 ```
 
