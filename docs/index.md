@@ -9,6 +9,10 @@ permalink: /
   <img src="assets/images/banner.png" width="480"/>
 </p>
 
+<p align="center">
+  <a href="{{ site.baseurl }}/ar/" class="btn btn-primary">🌐 العربية</a>
+</p>
+
 # Al-Anqa
 
 **Offensive security firmware for the LilyGo T-Deck — hacker CLI in your pocket.**
