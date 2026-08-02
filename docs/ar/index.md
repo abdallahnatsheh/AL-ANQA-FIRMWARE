@@ -1,17 +1,13 @@
 ---
-title: العربية
-permalink: /ar/
-nav_exclude: true
+title: الرئيسية
+permalink: /
 lang: ar
+nav_order: 1
 description: العنقاء — برنامج أمن هجومي لجهاز LilyGo T-Deck
 ---
 
 <p align="center">
   <img src="{{ site.baseurl }}/assets/images/banner.png" width="480"/>
-</p>
-
-<p align="center">
-  <a href="{{ site.baseurl }}/" class="btn btn-primary">🌐 English</a>
 </p>
 
 <div dir="rtl" markdown="1" style="text-align:right">
@@ -32,11 +28,11 @@ description: العنقاء — برنامج أمن هجومي لجهاز LilyGo
 
 ### 🚀 ابدأ من هنا
 
-- [**دليل البدء**]({{ site.baseurl }}/ar/getting-started/) — التنزيل (Flash)، الإقلاع الأول، إعداد بطاقة SD، أول الأوامر
-- [**مرجع لوحة المفاتيح**]({{ site.baseurl }}/ar/keyboard/) — مفتاح Sym، الإكمال التلقائي، السجل، تحرير المؤشّر، كرة التتبّع (Trackball)
+- [**دليل البدء**]({{ site.baseurl }}/getting-started/) — التنزيل (Flash)، الإقلاع الأول، إعداد بطاقة SD، أول الأوامر
+- [**مرجع لوحة المفاتيح**]({{ site.baseurl }}/keyboard/) — مفتاح Sym، الإكمال التلقائي، السجل، تحرير المؤشّر، كرة التتبّع (Trackball)
 - [**أمثلة عملية (Workflows)**]({{ site.baseurl }}/workflows) — أمثلة متكاملة: التقاط WPA2، استطلاع الشبكة، نظام كشف التسلّل (IDS)، كشف أجهزة التتبّع
-- [**T-Deck مقابل T-Deck Plus**]({{ site.baseurl }}/ar/hardware/) — الفارق الوحيد في العتاد هو وجود GPS
-- [**حل المشكلات**]({{ site.baseurl }}/ar/troubleshooting/) — فشل الرفع، مشاكل SD، WiFi، BLE، GPS، شاشة القفل
+- [**T-Deck مقابل T-Deck Plus**]({{ site.baseurl }}/hardware/) — الفارق الوحيد في العتاد هو وجود GPS
+- [**حل المشكلات**]({{ site.baseurl }}/troubleshooting/) — فشل الرفع، مشاكل SD، WiFi، BLE، GPS، شاشة القفل
 
 ---
 

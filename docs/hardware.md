@@ -1,11 +1,8 @@
 ---
 title: T-Deck vs T-Deck Plus
 nav_order: 5
+lang: en
 ---
-
-<p align="right">
-  <a href="{{ site.baseurl }}/ar/hardware/" class="btn btn-primary">🌐 العربية</a>
-</p>
 
 # T-Deck vs T-Deck Plus
 
