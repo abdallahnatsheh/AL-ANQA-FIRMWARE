@@ -3,6 +3,10 @@ title: Getting Started
 nav_order: 2
 ---
 
+<p align="right">
+  <a href="{{ site.baseurl }}/ar/getting-started/" class="btn btn-primary">🌐 العربية</a>
+</p>
+
 # Getting Started
 
 > This guide takes you from a fresh T-Deck to your first scan. It covers flashing, SD setup, navigating the CLI, and the first commands to run. Takes about 10 minutes.

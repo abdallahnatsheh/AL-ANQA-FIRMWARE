@@ -3,6 +3,10 @@ title: Keyboard Reference
 nav_order: 3
 ---
 
+<p align="right">
+  <a href="{{ site.baseurl }}/ar/keyboard/" class="btn btn-primary">🌐 العربية</a>
+</p>
+
 # Keyboard Reference
 
 The T-Deck has a physical **QWERTY keyboard** that communicates with the ESP32-S3 via I2C. It sends one ASCII byte per keypress — the keyboard firmware handles modifier keys and resolves the final character before Al-Anqa sees it.
