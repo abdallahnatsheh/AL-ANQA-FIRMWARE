@@ -1,5 +1,6 @@
 ---
 title: BT Keyboard
+lang: en
 parent: Bluetooth
 nav_order: 7
 ---

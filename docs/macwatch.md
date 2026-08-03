@@ -1,5 +1,6 @@
 ---
 title: MAC Watch
+lang: en
 parent: Bluetooth
 nav_order: 9
 ---

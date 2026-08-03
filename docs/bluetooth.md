@@ -1,5 +1,6 @@
 ---
 title: Bluetooth
+lang: en
 nav_order: 8
 has_children: true
 ---
