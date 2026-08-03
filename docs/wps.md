@@ -1,5 +1,6 @@
 ---
 title: WPS
+lang: en
 parent: WiFi Attacks
 grand_parent: WiFi
 nav_order: 7
