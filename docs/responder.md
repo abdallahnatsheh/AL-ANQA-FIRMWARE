@@ -6,7 +6,8 @@ nav_order: 7
 
 # Name Poisoner + NTLM Capture — `responder` / `rsp`
 {: .no_toc }
-{: .label .label-yellow }[EXP]
+
+<span class="label label-yellow">EXP</span>
 
 Answers Windows name-resolution broadcasts with the T-Deck's IP, then presents fake **HTTP** and **SMB** login prompts to harvest **NetNTLM** hashes for offline cracking. Modelled on the classic [Responder](https://github.com/lgandx/Responder) tool.
 
