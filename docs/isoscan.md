@@ -1,5 +1,6 @@
 ---
 title: Iso Scan
+lang: en
 parent: Network Recon
 nav_order: 3
 ---
