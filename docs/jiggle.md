@@ -1,5 +1,6 @@
 ---
 title: Mouse Jiggler
+lang: en
 parent: USB Gadget
 nav_order: 4
 ---

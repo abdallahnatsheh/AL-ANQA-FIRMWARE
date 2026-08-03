@@ -1,5 +1,6 @@
 ---
 title: USB Keyboard
+lang: en
 parent: USB Gadget
 nav_order: 2
 ---
