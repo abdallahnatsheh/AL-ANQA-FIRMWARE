@@ -1,5 +1,6 @@
 ---
 title: Port Scan
+lang: en
 parent: Network Recon
 nav_order: 4
 ---

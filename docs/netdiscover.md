@@ -1,5 +1,6 @@
 ---
 title: Net Discover
+lang: en
 parent: Network Recon
 nav_order: 1
 ---
