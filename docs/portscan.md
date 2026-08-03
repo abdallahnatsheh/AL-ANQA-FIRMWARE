@@ -1,7 +1,7 @@
 ---
 title: Port Scan
 parent: Network Recon
-nav_order: 2
+nav_order: 4
 ---
 
 # Port Scan
