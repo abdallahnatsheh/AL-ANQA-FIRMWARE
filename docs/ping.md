@@ -1,7 +1,7 @@
 ---
 title: Ping
 parent: Network Recon
-nav_order: 3
+nav_order: 5
 ---
 
 # Ping
