@@ -1,5 +1,6 @@
 ---
 title: ARP Spoof
+lang: en
 parent: Network Recon
 nav_order: 6
 ---

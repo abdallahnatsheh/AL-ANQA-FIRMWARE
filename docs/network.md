@@ -1,5 +1,6 @@
 ---
 title: Network Recon
+lang: en
 nav_order: 7
 has_children: true
 ---
