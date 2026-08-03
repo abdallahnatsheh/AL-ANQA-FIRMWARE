@@ -14,4 +14,8 @@ sd_dropins
 # Jekyll docs build artifacts (local `bundle exec jekyll build`)
 docs/_site
 docs/.jekyll-cache
-docs/vendor
+docs/vendordocs/.bundle/
+docs/vendor/
+docs/_site/
+docs/.jekyll-cache/
+docs/Gemfile.lock
