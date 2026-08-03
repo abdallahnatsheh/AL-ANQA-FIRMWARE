@@ -7,7 +7,8 @@ nav_order: 8
 
 # WPA3 Transition Downgrade — `wpa3down` / `w3d`
 {: .no_toc }
-{: .label .label-yellow }[EXP]
+
+<span class="label label-yellow">EXP</span>
 
 Forces a **WPA3-capable** client off its network and back onto a **WPA2** clone of the same SSID, so you can capture a crackable 4-way handshake. Exploits the *transition mode* many routers run (WPA2 **and** WPA3 on one SSID) — the Dragonblood class of attacks (CVE-2019-9494…9499).
 

@@ -6,7 +6,8 @@ nav_order: 11
 
 # NES Emulator — `game` / `gm`
 {: .no_toc }
-{: .label .label-yellow }[EXP]
+
+<span class="label label-yellow">EXP</span>
 
 Play NES games on the T-Deck, built on the vendored **[Anemoia-ESP32](https://github.com/Shim06/Anemoia-ESP32)** core (GPL-3.0, © Shim06; see `NOTICES` #20). Supports **mappers 0–4 + 069** — roughly 90% of the commercial library.
 

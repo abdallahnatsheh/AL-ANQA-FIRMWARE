@@ -6,7 +6,8 @@ nav_order: 12
 
 # Undercover Mode — `notes` / `nt` and `undercover` / `uc`
 {: .no_toc }
-{: .label .label-yellow }[EXP]
+
+<span class="label label-yellow">EXP</span>
 
 A real, SD-backed **Notes app** that doubles as a disguise. To an onlooker the device just looks like a phone's notepad — while your passive tools keep running and logging underneath.
 
