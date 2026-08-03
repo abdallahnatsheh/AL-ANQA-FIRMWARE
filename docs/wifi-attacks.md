@@ -1,5 +1,6 @@
 ---
 title: WiFi Attacks
+lang: en
 parent: WiFi
 nav_order: 5
 has_children: true
