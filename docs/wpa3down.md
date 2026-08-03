@@ -1,5 +1,6 @@
 ---
 title: WPA3 Downgrade
+lang: en
 parent: WiFi Attacks
 grand_parent: WiFi
 nav_order: 8
