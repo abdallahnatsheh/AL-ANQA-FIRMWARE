@@ -1,5 +1,6 @@
 ---
 title: Home Launcher
+lang: en
 parent: System
 nav_order: 11
 ---
