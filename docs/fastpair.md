@@ -1,5 +1,6 @@
 ---
 title: Fast Pair
+lang: en
 parent: Bluetooth
 nav_order: 4
 ---
