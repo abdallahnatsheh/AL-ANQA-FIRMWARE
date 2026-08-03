@@ -1,5 +1,6 @@
 ---
 title: SD Card
+lang: en
 parent: System
 nav_order: 9
 ---
