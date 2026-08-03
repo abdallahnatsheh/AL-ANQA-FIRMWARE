@@ -1,5 +1,6 @@
 ---
 title: Tracking Detection
+lang: en
 parent: Bluetooth
 nav_order: 3
 ---
