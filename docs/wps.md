@@ -1,5 +1,8 @@
 ---
 title: WPS
+parent: WiFi Attacks
+grand_parent: WiFi
+nav_order: 7
 ---
 
 # WPS — one-command recon + handshake capture — `wps`
