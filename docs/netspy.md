@@ -6,7 +6,9 @@ nav_order: 2
 
 # Net Spy
 
-## `netspy` / `ns` — Client-Isolation Device Recon  `[EXP]`
+<span class="label label-yellow">EXP</span>
+
+## `netspy` / `ns` — Client-Isolation Device Recon
 
 Discovers devices on a WiFi network that has **client isolation** enabled — where a normal ARP scan (`netdiscover` / `nd`) sees only the gateway because the access point blocks client-to-client unicast traffic.
 

@@ -6,7 +6,9 @@ nav_order: 11
 
 # Home Launcher
 
-## `home` / `hm` — Phone-style home-screen disguise  `[EXP]`
+<span class="label label-yellow">EXP</span>
+
+## `home` / `hm` — Phone-style home-screen disguise
 
 A modern phone **home launcher** used as an undercover disguise — an alternative
 to the Notes-only cover. At a glance it reads as an ordinary smartphone home
