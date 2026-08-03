@@ -49,6 +49,8 @@ Al-Anqa turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no 
   - [PMKID Attack](pmkid) — `pmkid`
   - [WGuard IDS](wguard) — `wguard`
   - [Beacon Flood](beacon-flood) — `beaconflood`
+  - [WPS](wps) — `wps` — recon + PIN gen + handshake capture
+  - [WPA3 Downgrade](wpa3down) — `wpa3down` — **[EXP]** transition-mode downgrade to WPA2
 
 ---
 
@@ -60,6 +62,8 @@ Al-Anqa turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no 
 - [Port Scan](portscan) — `portscan` · `ps top` · banner grabber · OS fingerprint
 - [Ping](ping) — `ping`
 - [SSH Client](ssh) — `ssh` — interactive colour terminal + scrollback
+- [ARP Spoof](arpspoof) — `arpspoof` — L2 ARP cache poisoning + redirected-traffic log
+- [Responder](responder) — `responder` — **[EXP]** LLMNR/NBT-NS/mDNS poisoner + NetNTLM capture
 
 ---
 
@@ -72,6 +76,8 @@ Al-Anqa turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no 
 - [BLE Spam](blespam) — `blespam`
 - [Buddy](buddy) — `buddy`
 - [BT Keyboard](btkbd) — `btkbd`
+- [BLE Monitor](bmon) — `bmon` — passive advertisement sniffer (iBeacon/Eddystone)
+- [MAC Watch](macwatch) — `macwatch` — MAC watchlist + proximity alert
 
 ---
 
@@ -91,10 +97,11 @@ Al-Anqa turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no 
 - [Power Save](pwrsave) — `pwrsave` · `sleep`
 - [Lock Screen](lock) — `lock`
 - [Undercover Mode](system#notes--nt-and-undercover--uc--undercover-mode) — `notes` · `undercover`
+- [NES Emulator](system#game--gm--nes-emulator) — `game` — play NES ROMs from the SD card
 - [Timezone](tz) — `tz`
 - [Audio & Notifications](audio) — `volume` · `notif` · `test spk`
 - [SD Commands](sd-commands) — `sdinfo` · `sdls` · `cd` · `cat` · `edit` · `rm` · `sdformat`
-- [Diagnostics](diagnostics) — `gps on/off/test` · `test spk` · `test mic` · `test lora`
+- [Diagnostics](diagnostics) — `gps on/off/test` · `test spk/mic/lora` · `i2cscan` · `csidetect`
 - [SD Card Layout](sdcard) — file layout reference
 - [Custom Splash Screen](splash) — replace the boot image with your own PNG
 
