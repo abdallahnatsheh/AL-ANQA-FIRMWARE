@@ -1,5 +1,6 @@
 ---
 title: Lock Screen
+lang: en
 parent: System
 nav_order: 4
 ---

@@ -1,5 +1,6 @@
 ---
 title: Custom Splash Screen
+lang: en
 parent: System
 nav_order: 10
 ---
