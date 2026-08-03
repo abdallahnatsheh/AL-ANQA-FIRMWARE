@@ -1,5 +1,6 @@
 ---
 title: WGuard IDS
+lang: en
 parent: WiFi Attacks
 grand_parent: WiFi
 nav_order: 5

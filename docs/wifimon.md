@@ -1,5 +1,6 @@
 ---
 title: WiFi Monitor
+lang: en
 parent: WiFi
 nav_order: 2
 ---
