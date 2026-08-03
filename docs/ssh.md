@@ -1,6 +1,7 @@
 ---
 title: SSH Client
-nav_order: 11
+parent: Network Recon
+nav_order: 8
 ---
 
 # SSH Client — `ssh` / `sc`
