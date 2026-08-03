@@ -6,7 +6,9 @@ nav_order: 3
 
 # Iso Scan
 
-## `isoscan` / `is` — Active Isolation Audit  `[EXP]`
+<span class="label label-yellow">EXP</span>
+
+## `isoscan` / `is` — Active Isolation Audit
 
 The **active** counterpart to [Net Spy](netspy). Where `ns` is 100% passive, **`is` transmits** at a chosen victim to test whether a network's "client isolation" actually protects its clients. Based on the **AirSnitch** research (Vanhoef et al., NDSS 2026) — techniques only, no code used.
 
