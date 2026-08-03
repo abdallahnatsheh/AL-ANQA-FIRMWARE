@@ -1,5 +1,6 @@
 ---
 title: SD Commands
+lang: en
 parent: System
 nav_order: 7
 ---

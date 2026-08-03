@@ -1,5 +1,6 @@
 ---
 title: Diagnostics
+lang: en
 parent: System
 nav_order: 8
 ---
