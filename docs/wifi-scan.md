@@ -1,5 +1,6 @@
 ---
 title: Scan & Connect
+lang: en
 parent: WiFi
 nav_order: 1
 ---
