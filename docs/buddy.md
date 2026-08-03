@@ -1,5 +1,6 @@
 ---
 title: Claude Desktop Buddy
+lang: en
 parent: Bluetooth
 nav_order: 6
 ---

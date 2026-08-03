@@ -1,5 +1,6 @@
 ---
 title: BLE Info
+lang: en
 parent: Bluetooth
 nav_order: 2
 ---
