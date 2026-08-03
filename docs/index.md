@@ -96,8 +96,8 @@ Al-Anqa turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no 
 - [Device Info](info) — `info`
 - [Power Save](pwrsave) — `pwrsave` · `sleep`
 - [Lock Screen](lock) — `lock`
-- [Undercover Mode](system#notes--nt-and-undercover--uc--undercover-mode) — `notes` · `undercover`
-- [NES Emulator](system#game--gm--nes-emulator) — `game` — play NES ROMs from the SD card
+- [Undercover Mode](undercover) — `notes` · `undercover`
+- [NES Emulator](game) — `game` — play NES ROMs from the SD card
 - [Timezone](tz) — `tz`
 - [Audio & Notifications](audio) — `volume` · `notif` · `test spk`
 - [SD Commands](sd-commands) — `sdinfo` · `sdls` · `cd` · `cat` · `edit` · `rm` · `sdformat`

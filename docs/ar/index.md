@@ -92,7 +92,7 @@ description: العنقاء — برنامج أمن هجومي لجهاز LilyGo
 - [معلومات الجهاز]({{ site.baseurl }}/info) — `info`
 - [توفير الطاقة]({{ site.baseurl }}/pwrsave) — `pwrsave` · `sleep`
 - [شاشة القفل]({{ site.baseurl }}/lock) — `lock`
-- [الوضع المتخفّي (Undercover)]({{ site.baseurl }}/system#notes--nt-and-undercover--uc--undercover-mode) — `notes` · `undercover`
+- [الوضع المتخفّي (Undercover)]({{ site.baseurl }}/undercover) — `notes` · `undercover`
 - [المنطقة الزمنية]({{ site.baseurl }}/tz) — `tz`
 - [الصوت والإشعارات]({{ site.baseurl }}/audio) — `volume` · `notif` · `test spk`
 - [أوامر SD]({{ site.baseurl }}/sd-commands) — `sdinfo` · `sdls` · `cd` · `cat` · `edit` · `rm` · `sdformat`
