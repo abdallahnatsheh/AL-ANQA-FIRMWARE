@@ -1,5 +1,6 @@
 ---
 title: Wardrive
+lang: en
 parent: WiFi
 nav_order: 6
 ---

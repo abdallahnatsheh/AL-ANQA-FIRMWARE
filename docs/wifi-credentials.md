@@ -1,5 +1,6 @@
 ---
 title: WiFi Credentials
+lang: en
 parent: WiFi
 nav_order: 3
 ---
