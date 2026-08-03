@@ -1,5 +1,6 @@
 ---
 title: Net Spy
+lang: en
 parent: Network Recon
 nav_order: 2
 ---

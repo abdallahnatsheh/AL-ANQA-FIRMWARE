@@ -1,5 +1,6 @@
 ---
 title: SSH Client
+lang: en
 parent: Network Recon
 nav_order: 8
 ---
