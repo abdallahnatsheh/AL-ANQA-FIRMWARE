@@ -1,5 +1,6 @@
 ---
 title: Power Save
+lang: en
 parent: System
 nav_order: 3
 ---

@@ -1,5 +1,6 @@
 ---
 title: Device Info
+lang: en
 parent: System
 nav_order: 2
 ---
