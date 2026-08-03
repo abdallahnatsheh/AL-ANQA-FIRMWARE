@@ -1,5 +1,6 @@
 ---
 title: BLE Spam
+lang: en
 parent: Bluetooth
 nav_order: 5
 ---

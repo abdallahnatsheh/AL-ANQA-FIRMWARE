@@ -1,5 +1,6 @@
 ---
 title: BLE Advertisement Monitor
+lang: en
 parent: Bluetooth
 nav_order: 8
 ---
