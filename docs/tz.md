@@ -1,5 +1,6 @@
 ---
 title: Timezone
+lang: en
 parent: System
 nav_order: 6
 ---

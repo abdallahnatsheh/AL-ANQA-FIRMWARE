@@ -1,5 +1,6 @@
 ---
 title: NES Emulator
+lang: en
 parent: System
 nav_order: 11
 ---
