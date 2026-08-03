@@ -1,5 +1,6 @@
 ---
 title: WiFi
+lang: en
 nav_order: 6
 has_children: true
 ---
