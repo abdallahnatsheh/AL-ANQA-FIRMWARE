@@ -1,5 +1,6 @@
 ---
 title: USB Mass Storage
+lang: en
 parent: USB Gadget
 nav_order: 1
 ---
