@@ -34,7 +34,7 @@ CMD> home        # or: hm
 
 | Input | Action |
 |-------|--------|
-| Tap a tile | **Notes** opens the real notes app (see [Notes](../system#undercover-mode)); every other tile shows a "No service" toast and opens nothing |
+| Tap a tile | **Notes** opens the real notes app (see [Undercover Mode](undercover)); every other tile shows a "No service" toast and opens nothing |
 | Trackball U/D/L/R | Move the selection ring between tiles |
 | Trackball click | Launch the selected tile |
 | Back chevron **‹** in the notes list | Tap it (top-left of the notes appbar) → returns **here**, to Home. Only shown when Notes was opened from the launcher. |
@@ -64,4 +64,4 @@ wake, and the secret-passphrase rolling-buffer exit.
 - App icons are drawn as vector primitives (no icon font), so they render on both
   board variants without extra assets.
 
-See also: [Notes / Undercover](system#undercover-mode), [Weather](weather).
+See also: [Undercover Mode](undercover), [Weather](weather).
