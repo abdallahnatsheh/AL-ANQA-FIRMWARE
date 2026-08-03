@@ -1,5 +1,6 @@
 ---
 title: ESP-NOW
+lang: en
 nav_order: 7
 ---
 
