@@ -1,5 +1,6 @@
 ---
 title: Audio & Notifications
+lang: en
 parent: System
 nav_order: 5
 ---
