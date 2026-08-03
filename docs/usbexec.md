@@ -1,5 +1,6 @@
 ---
 title: BadUSB
+lang: en
 parent: USB Gadget
 nav_order: 3
 ---
