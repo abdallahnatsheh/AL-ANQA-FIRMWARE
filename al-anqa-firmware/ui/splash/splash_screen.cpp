@@ -7,12 +7,12 @@
 extern LGFX          tft;
 extern InputHandling inputHandler;
 
-void showSplashScreen() {
+void showSplashScreen(bool holdUntilKey) {
     tft.fillScreen(TFT_BLACK);
     tft.drawPng(SPLASH_PNG, SPLASH_PNG_LEN, 0, 0, tft.width(), tft.height());
 
     uint32_t start = millis();
-    while (millis() - start < 3000) {
+    while (holdUntilKey || millis() - start < 3000) {
         if (inputHandler.getKeyboardInput() != 0) break;
         delay(10);
     }
