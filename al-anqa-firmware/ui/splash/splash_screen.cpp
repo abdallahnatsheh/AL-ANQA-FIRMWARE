@@ -1,8 +1,7 @@
 #include "splash_screen.h"
 #include "splash_image.h"
-#include "LGFX_T-Deck.h"
 #include "input_handling.h"
-#include "display_manager.h"
+#include "display_manager.h"   // brings in LGFX_T-Deck.h (no include guard — don't include it directly too)
 #include <Arduino.h>
 
 extern LGFX           tft;
