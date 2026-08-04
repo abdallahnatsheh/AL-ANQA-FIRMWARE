@@ -297,7 +297,7 @@ void ESPInfoPrinter::printESPInfo() {
         if (k == 'q' || k == 'Q') break;
         if ((k == 'l' || k == 'L') && page < PAGES - 1) { page++; redraw = true; }
         if ((k == 'a' || k == 'A') && page > 0)          { page--; redraw = true; }
-        if (k == 's' || k == 'S') { showSplashScreen(); redraw = true; }  // replay boot splash
+        if (k == 's' || k == 'S') { showSplashScreen(true); redraw = true; }  // show splash, hold until keypress
     }
 
     displayManager.printCommandScreen();
