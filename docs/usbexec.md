@@ -14,7 +14,7 @@ Executes keystroke injection scripts. Compatible with Flipper Zero DuckyScript v
 (the T-Deck acts as a Bluetooth keyboard) — see [BadBLE](#badble--ux-over-ble-hid).
 
 ```
-CMD> ux demo                      # USB, built-in demo (opens Notepad, draws Al-Anqa)
+CMD> ux demo                      # USB, built-in demo (OS-aware — draws the Al-Anqa phoenix)
 CMD> ux /apps/badusb/scripts/payload.txt       # USB, run from SD card
 CMD> ux ble                       # BLE, interactive menu (mode / target / name / script)
 CMD> ux ble demo                  # BLE, fresh keyboard
@@ -23,6 +23,19 @@ CMD> ux ble name "Magic Keyboard" demo   # BLE, custom advertised name
 ```
 
 Scripts live in `/apps/badusb/scripts/` on the SD card (auto-created on first boot).
+
+### Built-in demo (`ux demo`) — OS-aware
+
+The demo types an **Al-Anqa phoenix** in ASCII art. Over USB it first **detects the host OS**
+(NumLock-LED probe, same method as `ux auto`) and opens the right target before drawing:
+
+| OS | What it opens |
+|----|---------------|
+| **Windows** | `Win+R` → **notepad** |
+| **macOS** | `Cmd+Space` (Spotlight) → **TextEdit** → `Cmd+N` |
+| **Linux** | `Ctrl+Alt+T` (terminal) → `cat` heredoc that **echoes** the art |
+
+`ux ble demo` can't read the NumLock LED over BLE, so it falls back to the Windows preamble.
 
 ### Supported commands
 

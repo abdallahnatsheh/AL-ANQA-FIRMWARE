@@ -41,7 +41,8 @@ static const ManEntry PAGES[] = {
         "         3. LoRa/GPS/battery",
         "         4. Project + GitHub QR code",
         "",
-        "KEYS     [l]/[a] pages  [q] quit",
+        "KEYS     [l]/[a] pages  [s] splash  [q] quit",
+        "         [s] replays the boot splash (any key exits).",
         nullptr
     }},
 
@@ -922,6 +923,12 @@ static const ManEntry PAGES[] = {
         "ABOUT    BadUSB / DuckyScript executor.",
         "         Scripts: /apps/badusb/scripts/ on SD.",
         "         OS scripts: /apps/badusb/os/<os>/",
+        "",
+        "DEMO     Phoenix ASCII art, OS-aware: probes OS",
+        "         (NumLock LED, USB) then opens the target",
+        "         first -> Win: notepad  mac: TextEdit",
+        "         Linux: terminal echo (cat heredoc).",
+        "         BLE demo falls back to Windows.",
         "",
         "AUTO     Toggles NumLock, reads LED feedback.",
         "         Windows default=NumLock ON (toggles OFF)",

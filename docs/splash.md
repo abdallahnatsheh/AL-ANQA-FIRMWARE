@@ -44,7 +44,7 @@ Reading images/AL-ANQA-LOADING SCREEN.png ...
 Decoded 1448x1086, 1572528 pixels
 Resizing to 320x240 (bilinear) ...
 Re-encoded: 80006 bytes
-splash_image.h written (80006 bytes) -> al-anqa-firmware/splash_image.h
+splash_image.h written (90517 bytes) -> al-anqa-firmware/ui/splash/splash_image.h
 ```
 
 **Step 3 — Flash**
@@ -82,7 +82,7 @@ python convert_splash.py --force
 | Output size | 320×240 pixels |
 | Color depth | 16-bit RGB565 (via PNG re-encode) |
 | Resize algorithm | Bilinear interpolation (pure Python, no Pillow) |
-| Output format | C `uint8_t` array in `al-anqa-firmware/splash_image.h` |
+| Output format | C `uint8_t` array in `al-anqa-firmware/ui/splash/splash_image.h` |
 | Build impact | Script runs as PlatformIO pre-build hook but skips if header is up to date — no slowdown on repeat builds |
 
 The converter is pure Python (no external dependencies — uses only `os`, `zlib`, `struct`, `sys` from the standard library). It works on any machine that can run PlatformIO.
