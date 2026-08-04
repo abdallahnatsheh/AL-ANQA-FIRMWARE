@@ -3,6 +3,7 @@
 #include <esp_system.h>
 #include "mac_changer.h"
 #include "lockscreen_manager.h"
+#include "splash_screen.h"   // [s] on any INFO page replays the boot splash
 
 // LGFX type comes in via display_manager.h -> LGFX_T-Deck.h (which has no
 // include guard, so do NOT include it again here — just borrow the global).
@@ -287,7 +288,7 @@ void ESPInfoPrinter::printESPInfo() {
             }
             displayManager.setCursor(10, displayManager.getCursorY());
             displayManager.setTextColor(0x7BEF);
-            displayManager.println("[a]prev [l]next [q]quit");
+            displayManager.println("[a]prev [l]next [s]splash [q]quit");
             redraw = false;
         }
 
@@ -296,6 +297,7 @@ void ESPInfoPrinter::printESPInfo() {
         if (k == 'q' || k == 'Q') break;
         if ((k == 'l' || k == 'L') && page < PAGES - 1) { page++; redraw = true; }
         if ((k == 'a' || k == 'A') && page > 0)          { page--; redraw = true; }
+        if (k == 's' || k == 'S') { showSplashScreen(); redraw = true; }  // replay boot splash
     }
 
     displayManager.printCommandScreen();
