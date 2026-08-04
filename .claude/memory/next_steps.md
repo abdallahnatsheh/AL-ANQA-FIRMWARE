@@ -4,6 +4,11 @@ description: Ordered feature queue — priority order
 type: project
 ---
 
+> **Last reconciled 2026-08-04** against the live 70-command table. Marked done: #2 arpspoof,
+> #4 wpa3down, #6 responder, #23 NES (`game`), #29 wps, #35 GATT fuzzer (`bi`), netspy/isoscan.
+> Marked ❌ won't-do: #24 USB-LAN dongle (not feasible on this HW), #17 keylogger.
+> **Top open frontier = LoRa (SX1262 radio still unused): #20/#25/#27.**
+
 ## Already implemented (do NOT re-add)
 `beaconflood/bf` · `bleinfo/bi` · `usbkbd/uk` · `usbexec/ux` (BadUSB) · `clock/ClockManager` · `buddy/bd` · `wguard/wg` · `hiddenssid/hs` · `blespam/bs` · `jiggle/jg` (mouse jiggler) · `fast_pair/fp` (Google Fast Pair scan/spam/hijack) · `show/sh` (last scan results) · `tz` (timezone config) · `volume/vol` (I2S volume) · `notif/nf` (per-level sound config) · `wifimon/wm` (airmon-ng rewrite: nets+clients views, targeted deauth, raw PCAP, probe logger `[p]` → `/apps/wifimon/probes.csv`) · `oui_lookup.h` (shared ~350-entry vendor+type table) · `pmkid/pm` (PMKID capture+crack, no client needed, passive M1 sniff) · `bmon/bm` (passive BLE adv sniffer — iBeacon/Eddystone/cleartext, PCAP) · `espvoice/ev` (ESP-NOW G.722 walkie-talkie) · `mictest/mt` (ES7210 mic test) · `trackme/tm` (anti-tracking, service-UUID sigs) · `ssh/sc` (interactive SSH client via LibSSH-ESP32) · `wardrive/wd` (WiFi+GPS → WiGLE 1.4 CSV, Plus only) · `karma/km` (Karma/MANA: harvest+PNL fingerprint, rogue-AP half-handshake, auto mode, captive portal — wifi/attacks/karma/) · `edit/ed` (nano-style on-device SD text editor — core/editor/, trackball cursor + click-menu) · `macwatch/mw` (WiFi+BLE MAC watchlist → proximity alert: beep+wake+popup, presence SM, hunt meter, BLE-only bg mode + MW badge — bluetooth/tools/macwatch/, built but NOT yet HW-tested) · `ble_ident.h` (header-only BLE device ID: SIG company IDs + Apple Continuity + AirPods/Beats models — used by bmon/sbl/mw). SD layout
 is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.md`.
@@ -13,17 +18,24 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
 ## WiFi Pentest
 
 1. **Karma / MANA** — ✅ DONE as `karma/km` (harvest + PNL union-find fingerprinting, rogue-AP half-handshake [`km hs`], captive portal [`km portal`/`[p]`], `km auto` hands-free sweep, never-overwrite `.cap`, GDMA-safe). Module `wifi/attacks/karma/`. HW-verified end-to-end (associate→M2→on-device crack).
-2. **ARP Poisoning** — MITM via fake ARP replies. Command: `arpspoof/as <victim-ip> <gw-ip>`
+2. **ARP Poisoning** — ✅ DONE as `arpspoof/as <victim> [gw]` (HW-verified). L2 ARP cache poison via
+   raw ethernet+ARP → `netif linkoutput` (PTK-encrypted), redirected-traffic capture (DNS/HTTP/SNI) →
+   `/apps/arpspoof/NNN.csv`, heals both caches on exit. HONEST: single radio = redirect/blackhole, no
+   forwarding. Module `wifi/attacks/arpspoof/`.
 3. **LAN MITM (Gateway Takeover)** — join real net as STA, ARP poison all devices + GW, relay traffic, sniff DNS/HTTP, `[b]` block / `[t]` throttle / `[d]` DNS spoof. Command: `lanmitm/lm`
 5. **AP Bridge** — transparent AP+STA bridge; clients get real internet; sniff + redirect. Command: `apbridge/ab [ssid]`
-6. **Responder** — LLMNR/NBT-NS/mDNS poisoner; capture NTLMv2 hashes. Command: `responder/rsp`
+6. **Responder** — ✅ DONE as `responder/rsp [passive]` (built + hardened, **NOT yet HW-tested**).
+   LLMNR/NBT-NS/mDNS poisoner + NetNTLMv1/v2 capture over HTTP(:80) & SMB(:445) → hashcat -m 5500/5600,
+   HTTP-Basic cleartext, WPAD/PAC, per-session `/apps/responder/NNN/`. SMB path best-effort. Module
+   `wifi/attacks/responder/`.
 7. **SSH Connect** — ✅ DONE 2026-06-13 as `ssh/sc <ip> [user]` (LibSSH-ESP32, interactive PTY shell, colour terminal + trackpad scrollback). Remaining: `<#>` index from `nd`, host-key pinning + key auth on `/apps/ssh/`, Ctrl-C, fuller VT100.
 8. **TCP Listener/Client** — catch reverse shells / forward input. `tcplisten/tl <port>` · `tcpclient/tc <ip> <port>`
 9. **DPWO** — default credential checker against discovered hosts. Command: `dpwo/dw <ip|#>`
-4. **WPA3 transition-mode downgrade** — `wpa3down`/`w3d`. Detect transition-mode APs (`[TD]`) +
-   PMF (RSN-IE MFPC/MFPR + AKM SAE+PSK) in `sw`, deauth/pre-assoc-flood victim, WPA2-only rogue AP,
-   capture EAPOL+PMKID → HCCAPX/HC22000. Mostly assembles existing `ws`+`pm`+`eviltwin`+`sw`. Full
-   plan: `ALANQA_WPA3_DOWNGRADE_PLAN.md` · ref: [[project_wpa3down_plan]] (current-repo mapping + reuse).
+4. **WPA3 transition-mode downgrade** — ✅ DONE (Phase 2) as `wpa3down`/`w3d` (built, **NOT yet
+   HW-tested**). TD-filtered picker → karma `roguehs` WPA2-only rogue AP + broadcast-deauth → EAPOL
+   capture → `/apps/wpa3down/<ssid>.cap` (crack via `cc`). Phase 2 = core downgrade only; PMF-required
+   blocks the deauth (Phase 3 empirical-PMF probe NOT built). Module `wifi/attacks/wpa3down/`.
+   Full plan: `ALANQA_WPA3_DOWNGRADE_PLAN.md` · ref: [[project_wpa3down_plan]].
 
 ## Bluetooth
 
@@ -53,11 +65,13 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
 ## Network Intelligence (client-isolation bypass — AirSnitch, NDSS 2026)  [NEW PLAN 2026-06-26]
 Both require T-Deck connected to the target net (`cw`). Full plan: `ALANQA_NETSPY_ISOSCAN_PLAN.md` ·
 ref: [[project_netspy_isoscan_plan]] (current-repo mapping + reuse + GDMA notes).
-- **netspy** (`ns`) — discover devices despite client isolation via DHCP/mDNS/SSDP/IPv6-ND passive
-  sniff + assoc frames + GTK broadcast-ARP (responders = `GTK-REACHABLE` targets) + OUI. Reuse `oui_lookup.h`.
-- **isoscan** (`is` `[#]`) — bypass attacks on a target: GTK check/inject (ICMPv6-RA DNS poison),
-  gateway bounce, broadcast reflect, downlink/uplink port stealing (MAC spoof — **must restore MAC on
-  every exit path**). `isoscan auto` runs all. No AirSnitch code used (techniques from the paper).
+- **netspy** (`ns`) — ✅ DONE + HW-verified. 100% passive client-isolation device recon
+  (DHCP/mDNS/SSDP/ARP/IPv4 sniff of decrypted group frames) + OUI; `[p]`/`[o]` in-app probe; CLI `ns#`
+  targeting. Module `wifi/intel/netspy.cpp`.
+- **isoscan** (`is`) — ✅ DONE (mostly HW-verified). Active AirSnitch Stage-2: `inject` (GTK broadcast
+  ARP isolation-bypass, HW-PROVEN), `bounce`, `portdown` capture, `mitm`/`dns`/`portup` (`[EXP]`, honest
+  "not held" — real interception needs 2 radios). `auto` = 6-stage probe→verdict. Module
+  `wifi/attacks/isoscan/`.
 
 ## Sensing (WiFi CSI)  [2026-06-26]
 ESP32-S3 WiFi only, no extra sensors. Full plan: `ALANQA_CSI_CAMDETECT_PLAN.md` · ref:
@@ -73,7 +87,12 @@ ESP32-S3 WiFi only, no extra sensors. Full plan: `ALANQA_CSI_CAMDETECT_PLAN.md` 
 15. **Auto OS Detection** — ✅ DONE as `ux auto [dir]` (2026-07-19). Toggles NumLock, reads the LED event: Windows default ON→OFF (bit 0), Linux OFF→ON (bit 1), macOS no response=unknown→picker. Auto-picks from `/apps/badusb/os/<os>/`.
 16. **Remote BadUSB via WiFi** — ✅ DONE as `ux remote [ssid]` (2026-07-19). SoftAP (default `AL-ANQA-CMD`) + WebServer; phone hits `192.168.4.1`, picks a script, 3s countdown → runFile. Session log → `/apps/badusb/remote_NNN.txt` (buffered in RAM, flushed after WiFi teardown — GDMA-safe).
 17. **Keylogger Mode** — ❌ WON'T DO. Built as `ux log` (USB DEVICE→HOST PHY switch, boot-keyboard capture, commit `bee9fa3`) but **REVERTED 2026-07-21 (`8bd0c0f`)**: the T-Deck's single USB-C port can't host a keylogger usefully (no pass-through to a victim PC) + the runtime `usb_host_install()` switch was crash-prone. Needs a 2nd USB port/dongle — do not re-add without one.
-24. **USB-LAN AdBlocker / DNS-MITM dongle** — T-Deck as a USB network gadget (TinyUSB
+24. **USB-LAN AdBlocker / DNS-MITM dongle** — ❌ **WON'T DO (owner call 2026-08-04 — not feasible on
+    this hardware).** The USB-NCM↔WiFi bridge is the load-bearing half and it doesn't work out on the
+    T-Deck: USB is Full-Speed only, the NCM+lwIP/NAPT buffers hit internal DRAM (already ~60% used), and
+    it needs an exclusive USB mode (can't co-run MSC/HID). Same class of dead-end as the reverted USB
+    keylogger (#17). Keep the description below for history; do not attempt without different hardware.
+    T-Deck as a USB network gadget (TinyUSB
     **NCM/RNDIS**) bridging the host PC ↔ WiFi STA (lwIP NAPT + DHCP server on the USB side),
     with a DNS sinkhole in the middle. Adblock = benign mode; offensive mode = DNS **log +
     selective redirect** → feed an eviltwin/karma captive portal. Reuse **s60sc/ESP32_AdBlocker**
@@ -97,7 +116,9 @@ ESP32-S3 WiFi only, no extra sensors. Full plan: `ALANQA_CSI_CAMDETECT_PLAN.md` 
 ## Low Priority
 
 22. **Mic Record (WAV→SD)** — PARTIALLY DONE via `mictest/mt` (record 3s + replay, RAM-only). ES7210 mic, both boards. Remaining: WAV-to-SD save (`/apps/micrec/rec_<ts>.wav`).
-23. **NES Emulator** *(Easter egg)* — Nofrendo; ROMs from `/roms/*.nes`
+23. **NES Emulator** — ✅ DONE + HW-verified as `game/gm [<rom.nes>]` [EXP]. Vendored Anemoia-ESP32
+    core (mappers 0–4+069), I2S audio, save states, retro ROM picker; ROMs from `/apps/nes/roms/*.nes`.
+    (Uses Anemoia, not Nofrendo.) Remaining: 2nd controller, in-game menu, battery-backed SRAM persist.
 
 ## Brainstorm — verified NOT implemented (added 2026-07-07)
 Checked against the live `registerCommand` table AND grepped the source — all confirmed unbuilt as
@@ -116,7 +137,10 @@ command_manager.h — arbitrary static array; raise to 128 (~2KB RAM) if working
 ### WiFi (offensive/recon — none of these exist)
 28. **Pwnagotchi mode** ⭐ — unattended channel-roam + auto-harvest handshakes/PMKIDs → SD, with a
     stats/"face" screen. High reuse of `ws`/`pm`. Command: `pwn`.
-29. **WPS Pixie-Dust / PIN attack** — real gap, no WPS attack anywhere. Command: `wps`.
+29. **WPS Pixie-Dust / PIN attack** — ✅ DONE as `wps/wps <idx>` (recon + assisted). HONEST: automated
+    PIN/Pixie is **impossible on ESP32** (closed stack has no PIN field, no registrar mode) — so the tool
+    does WPS recon + a multi-algorithm PIN generator + EAP-WSC handshake sniff, exporting ready
+    reaver/pixiewps commands for a laptop. `[p]` = PBC. Module `wifi/attacks/wps/`.
 30. **WiFi hot/cold locator** — RSSI meter + rising tone to physically FIND a hidden AP / spy camera
     by MAC or SSID. Practical field tool. Command: `locate/loc <bssid|ssid>`.
 31. **Rogue-AP / evil-twin DETECTOR** (defensive) — dedicated alarm; deeper than `wg`'s pass.
@@ -125,7 +149,8 @@ command_manager.h — arbitrary static array; raise to 128 (~2KB RAM) if working
 
 ### BLE
 34. **iBeacon / Eddystone broadcaster** — *advertise* as a beacon (today we only receive via `bmon`).
-35. **GATT fuzzer** — offensive malformed reads/writes vs a target's services (extends `bleinfo`).
+35. **GATT fuzzer** — ✅ DONE as `bleinfo/bi [f]` (5 modes: seq/rand/boundary/oversized/flood) + `[g]`
+    unpaired read-hammer (LEAK detection) + `[b]` security-posture audit. Extends `bleinfo`.
 36. **BLE proximity finder** — ⚠ PARTIAL: `macwatch` already has an RSSI proximity gate + "hunt"
     meter (get-warmer/colder for a target MAC). A standalone app would just surface/polish `mw`'s
     hunt mode, not net-new. Consider promoting the hunt UI instead of a new command.
