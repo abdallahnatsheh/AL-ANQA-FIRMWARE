@@ -51,88 +51,118 @@ const BadUsb::HyphenCombo BadUsb::COMBOS[] = {
 const int BadUsb::COMBOS_COUNT = sizeof(BadUsb::COMBOS) / sizeof(BadUsb::COMBOS[0]);
 
 // ── Built-in demo script ──────────────────────────────────────────────────────
-// Opens Notepad via Win+R then draws the Al-Anqa ASCII art.
+// Opens Notepad via Win+R then draws the Al-Anqa phoenix ASCII art.
 // Flipper Zero / standard DuckyScript v1.0 compatible format.
+// Per-OS editor-open preambles — runDemo() picks one based on the probed OS,
+// runs it, then types the shared art body below.
+//   Windows: Win+R -> notepad
+//   macOS:   Cmd+Space (Spotlight) -> TextEdit -> Cmd+N (new document)
+//   Linux:   Ctrl+Alt+T (terminal) -> `cat <<'PHX'` heredoc; the art rows are fed
+//            as heredoc input and CLOSE_LINUX types the closing delimiter after,
+//            so `cat` echoes the whole phoenix block to the terminal (no editor
+//            needed). '#'-leading rows are literal inside a single-quoted heredoc.
+static const char* const OPEN_WIN[] = {
+    "GUI r", "DELAY 700", "STRING notepad", "ENTER", "DELAY 2000", nullptr
+};
+static const char* const OPEN_MAC[] = {
+    "GUI-SPACE", "DELAY 600", "STRING TextEdit", "DELAY 400", "ENTER",
+    "DELAY 2500", "GUI n", "DELAY 1200", nullptr
+};
+static const char* const OPEN_LINUX[] = {
+    "CTRL-ALT t", "DELAY 1500", "STRING cat <<'PHX'", "ENTER", "DELAY 300", nullptr
+};
+// Linux closer — ends the heredoc so `cat` prints the buffered art block.
+static const char* const CLOSE_LINUX[] = {
+    "STRING PHX", "ENTER", nullptr
+};
+static int arrLen(const char* const* a) { int n = 0; while (a[n]) n++; return n; }
+
+// Shared art body — typed after the OS-specific editor is open.
 static const char* const DEMO_LINES[] = {
     "REM Al-Anqa BadUSB Demo",
     "DEFAULT_DELAY 50",
-    "GUI r",
-    "DELAY 700",
-    "STRING notepad",
-    "ENTER",
-    "DELAY 2000",
-    // art lines — blank lines use ENTER only, content lines use STRING + ENTER
+    // art lines — full-block phoenix + AL-ANQA wordmark (from ascii-art.txt)
     "ENTER",
     "ENTER",
+    "STRING ####################################################################################################",
     "ENTER",
-    "STRING                                                                .",
+    "STRING ###########################+-##########################################-+###########################",
     "ENTER",
-    "STRING                                                            =#+.:*##==#-",
+    "STRING ######################-###+ ############################################ +###-######################",
     "ENTER",
-    "STRING                                                         -#*##. #*  -*#*#######.",
+    "STRING #####################. #-# .############################################. #+# -#####################",
     "ENTER",
-    "STRING                                                       .##++#=.:-: .--*######*##.",
+    "STRING #####################  -+-  ####################+###+###################  -+-  #####################",
     "ENTER",
-    "STRING                                                       ##-+######+#############+:",
+    "STRING ####################+   -+  .#######++#########- +-+###################.  +-   #####################",
     "ENTER",
-    "STRING                                                      .#+=+-+#####=:+####+-.##**=",
+    "STRING #####################+   +.  +.+#############-##.    -##############+.-  .-   +#####################",
     "ENTER",
-    "STRING                                                      ##:+##      .  --==#=-.  -",
+    "STRING #################### ++ -++      -############-         ##########-      ++- ++ ####################",
     "ENTER",
-    "STRING                                                    =##- +###.....        .",
+    "STRING ####################.   -.++.  .+    +#######+        ..  +###+    +.  .++.-   .####################",
     "ENTER",
-    "STRING                                               #######+:..####+:.        .",
+    "STRING ####################.#-  -+#   --+.-  -####### .  .+++####+##+  -.+--   ++-  -#.####################",
     "ENTER",
-    "STRING                                             ########=..  .*==.+# ..    .",
+    "STRING #####################      + .-  +.--  #######-   .++########  --.+  -. +      #####################",
     "ENTER",
-    "STRING                                            ####*##*:.. ..   ...-#:-... .-",
+    "STRING #######################+---+++   .- -.  ######-     +#######  .- -.   +++---+#######################",
     "ENTER",
-    "STRING                          =:            .*#*#**+-##+.  ..       .+#=+-.. +",
+    "STRING #####################+      -++  .-- --   .+##.      -##+.   -- --.  ++-      +#####################",
     "ENTER",
-    "STRING                         #.            ###*.-:...###+.. ..    .: .###=+*:-*",
+    "STRING #######################+-.    -+#---+- -+.-   - .    -   -.+- -+---#+-.    -+#######################",
     "ENTER",
-    "STRING                        **           -#####-.... ###:....    ..#.  .#+#=:=-",
+    "STRING ########################-   -+ .++##+.+#+.+##-     .  .##+.+#+.###++. +-   -########################",
     "ENTER",
-    "STRING                        -#-        +#-#####:    +#+    ...  ...-:     ..",
+    "STRING ########################-      +  -+#+  + ++#+.-. ..-.+#++.+  ++++  +      -########################",
     "ENTER",
-    "STRING                         -*##***####::=###*:.   #=-        .. .-",
+    "STRING #############################-   .+ .-++#+####+-.--.-+###++#++-. +.   -#############################",
     "ENTER",
-    "STRING                          ..-=+==-:. .=*##+:.    . #+#.     . ..-##:",
+    "STRING #################################.  .+  +.+-###++--+####-+.+  +.  .##########+######################",
     "ENTER",
-    "STRING                               . .    .+#+..       .# *     ..   :.=:",
+    "STRING #####################+##############+ -# +-+##+##++#++##+-+ #+ +####################################",
     "ENTER",
-    "STRING                                 .  *#- .. .               ...",
+    "STRING ###########################++###############+-.+##+##.-+############################################",
     "ENTER",
-    "STRING                                   :+...  .            .. .. .",
+    "STRING ############################################+#-+++#+++#--+##########################################",
     "ENTER",
-    "STRING                                   :+.  .              ..",
+    "STRING ######################################--####+#+++--+-++++##++ -#####++##############################",
     "ENTER",
-    "STRING                                  -*.                 .",
+    "STRING ####################################+.######+.+-#+.-+-..-+##+--##+-+##-#############################",
     "ENTER",
-    "STRING                                  +=: .                .. :.",
+    "STRING ###################################-+ -#+####- ++.--.++  . +###+#++ ##+#############################",
     "ENTER",
-    "STRING                                  #.*= .               ..=.=-",
+    "STRING ################################+####-.      .#+ -- --#+- -.  +#+  ++###############################",
     "ENTER",
-    "STRING                               -=#-:#+=.#+.              -#=.-==-.",
+    "STRING ################################++###########.  -+ .+.#-#+ +##++++##################################",
     "ENTER",
-    "STRING                            ... . . -- .   ............. ..+.  ..  ....... .",
+    "STRING ################################-+######.   .-+#. .+.+#+++ +#####+##################################",
     "ENTER",
+    "STRING #################################+++##+ -#####- .+#+#####--#########################################",
     "ENTER",
-    "STRING                      *##########          .##########.  :##########:  ###=   +###",
+    "STRING #######################################-#####+-#########+###########################################",
     "ENTER",
-    "STRING                          *##:             .###    ###:  :##*           #### ####",
+    "STRING ########################################++##########################################################",
     "ENTER",
-    "STRING                          *##:    :######  .##########:  :########:      =#####-",
+    "STRING ##################-     ##+  .###############+     ###   ###   ##      .###+     ###################",
     "ENTER",
-    "STRING                          *##:     ......  .########:    :###.....      -#######.",
+    "STRING ################+    -   -+   ##############    -    #     #   #   +++   #    -   .#################",
     "ENTER",
-    "STRING                          *##:             .###  .####.  :##########:  ####  :####",
+    "STRING ################+   ++-   +   ######       #   +++   #         #   ###   #   -++   #################",
     "ENTER",
-    "STRING                          =##.              ##*    ###.  .##########.  ###    .###",
+    "STRING ################+         +   #######++++++#         #   #-    #   #     #         #################",
     "ENTER",
+    "STRING ################+   ##+   +        #########   ###   #   ###   #-       .#   ###   #####-  -########",
     "ENTER",
-    "STRING                       +-+.*:=:+-+-*-=.. .*.+++=:-*-=-+=- *:.  =:++*+=.*+==++=-=**-.",
+    "STRING ##################++####+###++++++###########+#####+###+#####+####++++   ##++####++######++#########",
     "ENTER",
+    "STRING ####################################################################################################",
+    "ENTER",
+    "STRING ##########-. . - .  -.  +  .  -####  .  .-     -  . .    +####-.. .     .       - -   .#############",
+    "ENTER",
+    "STRING ##########-  . - .. -. . . - .- +## .-. . .-- .-. .+.-- .+-+##+..   +. #-+    +.. -   .# +##########",
+    "ENTER",
+    "STRING ####################################################################################################",
     "ENTER",
     "ENTER",
     "ENTER",
@@ -1200,7 +1230,31 @@ bool BadUsb::bleHostLost() {
 
 // ── runDemo() ─────────────────────────────────────────────────────────────────
 void BadUsb::runDemo() {
-    runLines(DEMO_LINES, DEMO_COUNT);
+    DisplayManager& dm = displayManager;
+
+    // Detect the host OS so we open the right editor before drawing the art.
+    // The NumLock-LED probe only works over USB HID; BLE HID gets no LED event,
+    // so BadBLE falls back to the Windows preamble.
+    OsType os = OS_WINDOWS;
+    if (!_ble) {
+        dm.setCursor(10, dm.getCursorY());
+        dm.setTextColor(0x7BEF); dm.println("Detecting OS (NumLock LED)...");
+        os = probeOs();
+        if (os == OS_UNKNOWN) os = OS_MACOS;   // no LED response ≈ macOS
+    }
+
+    const char* osName = (os == OS_WINDOWS) ? "Windows" :
+                         (os == OS_MACOS)   ? "macOS"   : "Linux";
+    dm.setCursor(10, dm.getCursorY());
+    dm.setTextColor(0x7BEF);   dm.printText("Target OS: ");
+    dm.setTextColor(TFT_CYAN); dm.println(osName);
+
+    const char* const* opener = (os == OS_LINUX) ? OPEN_LINUX :
+                                (os == OS_MACOS) ? OPEN_MAC   : OPEN_WIN;
+    runLines(opener, arrLen(opener));   // open the OS-appropriate target
+    runLines(DEMO_LINES, DEMO_COUNT);   // then type the phoenix art
+    if (os == OS_LINUX)                 // close the heredoc so `cat` echoes it
+        runLines(CLOSE_LINUX, arrLen(CLOSE_LINUX));
 }
 
 // ── drawScriptStatus() — update the "Line N/T" row without clearing the screen ──
