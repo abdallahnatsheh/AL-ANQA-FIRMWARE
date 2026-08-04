@@ -1,5 +1,6 @@
 ---
 title: Workflows
+lang: en
 nav_order: 4
 ---
 
@@ -13,7 +14,7 @@ Real-world usage examples that combine multiple commands into complete tasks. Ea
 
 **Goal:** Capture a WPA2 handshake from a target network and crack the password on-device.
 
-**Requirements:** WiFi connection to T-Rex itself is not needed. The target network just needs to have at least one client connected.
+**Requirements:** WiFi connection to Al-Anqa itself is not needed. The target network just needs to have at least one client connected.
 
 ### Steps
 
@@ -38,29 +39,29 @@ Or by BSSID if you already know it:
 CMD> ws AA:BB:CC:DD:EE:FF 6
 ```
 
-T-Rex locks to the target's channel, enters monitor mode, and sends deauth bursts every 4 seconds to force clients to re-authenticate. Watch the status:
+Al-Anqa locks to the target's channel, enters monitor mode, and sends deauth bursts every 4 seconds to force clients to re-authenticate. Watch the status:
 ```
 [M1] waiting...        ← waiting for first EAPOL frame
 [M1+M2] COMPLETE       ← handshake captured
 ```
-The handshake is saved to `/logs/hs/<BSSID>.cap`.
+The handshake is saved to `/apps/wpasniff/<BSSID>.cap`.
 
 **4. Crack the password**
 
-Press **`c`** immediately after capture completes. T-Rex starts cracking:
+Press **`c`** immediately after capture completes. Al-Anqa starts cracking:
 
 ```
-Trying wordlist: /wordlist.txt
+Trying wordlist: /apps/wpasniff/wordlist.txt
 [142/8432] testing: password123...
 CRACKED: letmein2024
 ```
 
 | Wordlist | Location | Notes |
 |----------|---------|-------|
-| Your custom list | `/wordlist.txt` on SD | Tried first, unlimited size |
+| Your custom list | `/apps/wpasniff/wordlist.txt` on SD | Tried first, unlimited size |
 | Built-in fallback | Embedded | 101 common passwords |
 
-Results are saved to `/logs/cracked.csv`.
+Results are saved to `/apps/wpasniff/cracked.csv`.
 
 **5. Press `q` to stop** at any time (capture or cracking).
 
@@ -95,7 +96,7 @@ ARP-scans the full /24 subnet. Results show each host's IP and MAC. Note the **i
 
 **3. Quick top-port scan on the most interesting host**
 ```
-CMD> ts 0              # top 26 common ports on the gateway
+CMD> ps top 0          # top 26 common ports on the gateway
 ```
 Results show open ports with service names. OS fingerprinting runs automatically.
 
@@ -145,14 +146,14 @@ Note the index of the network you want to protect.
 CMD> wg 0 bg           # monitor AP at index 0 in background
 ```
 
-T-Rex returns immediately to the prompt. The **shield icon** in the status bar turns green — wguard is running silently.
+Al-Anqa returns immediately to the prompt. The **shield icon** in the status bar turns green — wguard is running silently.
 
 **3. Use other commands normally**
 
 While wguard monitors in the background, you can run anything else:
 ```
 CMD> nd                # discover hosts
-CMD> ts 0              # scan ports
+CMD> ps top 0          # scan ports
 CMD> sbl               # scan BLE devices
 ```
 
@@ -179,7 +180,7 @@ Press `s` while in `wg view`, or wguard saves automatically every 2 minutes and 
 CMD> wg stop           # stop monitoring and trigger final save
 ```
 
-Session log: `/logs/wguard/001.csv` (new numbered file each session, never overwritten).
+Session log: `/apps/wguard/001.csv` (new numbered file each session, never overwritten).
 
 > **Tip:** wguard bg blocks other WiFi commands while running. Run `wg stop` before using `deauth`, `eviltwin`, or `wpasniff`. BLE commands (`sbl`, `trackme`, `buddy`) work alongside it fine.
 
@@ -234,7 +235,7 @@ If it's a false positive (your own device that wasn't present during baseline):
 ```
 w      # whitelist the highest-threat non-companion device
 ```
-The MAC is saved to `/logs/trackme_known.csv` permanently.
+The MAC is saved to `/apps/trackme/known.csv` permanently.
 
 **6. Save the session log**
 ```
@@ -242,6 +243,8 @@ s      # save current session to SD
 q      # quit
 ```
 
-Session log: `/logs/trackme.csv`
+Session log: `/apps/trackme/session.csv`
+
+> **Tip:** Press `v` to check the Tier 2 (background) pool, `o` to sort by score/RSSI, `f` to filter Tier 1 down to alerts only, or `h` for a full-screen legend of colors and keys.
 
 > **Tip:** If you suspect an AirTag specifically — look for ALERT level devices with the Apple company ID (`0x004C`). AirTags use stable MACs (they don't randomize) so they're reliably detected from the first sighting.

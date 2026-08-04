@@ -1,6 +1,7 @@
 ---
 title: Troubleshooting
 nav_order: 3
+lang: en
 ---
 
 # Troubleshooting
@@ -110,8 +111,8 @@ The DHCP lease timed out or the AP rejected the connection.
 The password is not in the wordlist.
 
 **Fix:**
-1. Add a custom wordlist to `/wordlist.txt` on the SD card (one password per line)
-2. Copy the `.cap` file from `/logs/hs/<BSSID>.cap` to a PC using `usbmsc` and crack offline with hashcat or aircrack-ng — GPU cracking is orders of magnitude faster
+1. Add a custom wordlist to `/apps/wpasniff/wordlist.txt` on the SD card (one password per line)
+2. Copy the `.cap` file from `/apps/wpasniff/<BSSID>.cap` to a PC using `usbmsc` and crack offline with hashcat or aircrack-ng — GPU cracking is orders of magnitude faster
 
 ---
 
@@ -135,7 +136,7 @@ BLE and WiFi share one antenna — they cannot run simultaneously.
 
 ### `buddy` / `btkbd` won't appear on Windows Bluetooth
 
-- The device advertises as `Claude-XXXX` (buddy) or `T-REX-KBD` (btkbd) — search for these names in Windows BT settings
+- The device advertises as `Claude-XXXX` (buddy) or `AL-ANQA-KBD` (btkbd) — search for these names in Windows BT settings
 - If Windows shows "auth errors" or immediately disconnects: remove the device from Windows BT settings and re-pair from scratch
 
 ---
@@ -170,19 +171,36 @@ The firmware was compiled for the standard T-Deck (`env:T-Deck`). GPS-dependent 
 
 See the [Recovery (Forgot PIN)](lock#recovery-forgot-pin) section in the Lock Screen guide.
 
-**Short version:** Power off → remove SD card → power on → press Space three times to unlock → run `lock wipe` → set a new PIN with `lock new`.
+**Short version:** Power off → **remove the SD card** → power on. The PIN lives only on the card, so with it gone the device boots unlocked. Re-insert the card and set a new PIN with `lock new`.
+
+**Prefer not to pull the card?** Put the SD in a PC, add a line `reset=1` to `/config/lockscreen.conf`, re-insert, reboot — Al-Anqa clears the PIN once and boots unlocked. (If you remember the PIN, just unlock and run `lock clean` or `lock wipe`.) Both paths are owner convenience, not security — anyone with the card can do them; the lock protects the running device, not the card's contents.
 
 ---
 
 ### Lock screen appears after every boot
 
-Auto-lock timeout is set very short.
+Either lock-on-boot is enabled, or the auto-lock timeout is set very short.
 
 **Fix:**
 ```
-CMD> lock timeout 0     # disable auto-lock
-CMD> lock timeout 300   # or set to 5 minutes
+CMD> lock boot off      # disable lock-at-power-on
+CMD> lock timeout 0     # disable idle auto-lock
+CMD> lock timeout 300   # or set idle lock to 5 minutes
 ```
+
+---
+
+### The screen keeps jumping into the Notes app when I type
+
+You have the **undercover panic key** armed (default `@`). Pressing it anywhere — even mid-command — instantly drops into the Notes cover, so that key can no longer be typed normally at the CLI.
+
+**Fix:** type your exit passphrase to return to the terminal, then either change the key or turn it off:
+```
+CMD> uc panic set       # bind a different key
+CMD> uc panic off       # disable the instant-hide key
+CMD> uc status          # check what's armed
+```
+The panic key only fires while an exit passphrase is set (`uc set`); clearing the passphrase (`uc clear`) also disarms it.
 
 ---
 
@@ -206,11 +224,11 @@ The ESP32-S3 rebooted mid-draw and left the display in a corrupt state.
 
 ## Audio (T-Deck Plus)
 
-### `spktest` plays no sound
+### `test spk` plays no sound
 
 - Volume may be zero — run `nf vol 80` to set notification volume
 - Check that the physical speaker connector is seated
-- Run `spktest` and press keys `1`–`6` — these bypass the volume setting entirely and play at full amplitude; if there is still no sound, the speaker hardware connection is the issue
+- Run `test spk` and press keys `1`–`6` — these bypass the volume setting entirely and play at full amplitude; if there is still no sound, the speaker hardware connection is the issue
 
 ---
 

@@ -1,11 +1,12 @@
 ---
 title: Keyboard Reference
 nav_order: 3
+lang: en
 ---
 
 # Keyboard Reference
 
-The T-Deck has a physical **QWERTY keyboard** that communicates with the ESP32-S3 via I2C. It sends one ASCII byte per keypress — the keyboard firmware handles modifier keys and resolves the final character before T-Rex sees it.
+The T-Deck has a physical **QWERTY keyboard** that communicates with the ESP32-S3 via I2C. It sends one ASCII byte per keypress — the keyboard firmware handles modifier keys and resolves the final character before Al-Anqa sees it.
 
 ---
 
@@ -108,12 +109,16 @@ Press `'` at any point while typing to trigger autocomplete:
 | Common prefix | Prefix is filled, cursor advances |
 | No match | Nothing happens |
 
-Works for **command names** and **file paths** when using `sdls`, `cd`, `cat`, `rm`.
+Works for **command names**, **file paths** (`sdls`, `cd`, `cat`, `rm`), and
+**subcommand hints** for commands like `pwrsave`, `notif`, `macchanger`, `wguard`,
+`ssh` — typing the command + space + `'` lists its valid arguments in yellow.
 
 Example:
 ```
 CMD> sca'       → completes to "scanwifi " or lists: scanwifi, scanblue
-CMD> cat /lo'   → completes to "cat /logs/"
+CMD> cat /ap'   → completes to "cat /apps/"
+CMD> ssh '      → save list rm + your saved host names (nas, vps, ...)
+CMD> ssh n'     → completes to "ssh nas " (saved host profile)
 ```
 
 ### Command History

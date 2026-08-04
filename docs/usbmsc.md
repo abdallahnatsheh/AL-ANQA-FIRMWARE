@@ -1,5 +1,6 @@
 ---
 title: USB Mass Storage
+lang: en
 parent: USB Gadget
 nav_order: 1
 ---
@@ -25,5 +26,5 @@ The T-Deck screen shows the card size and waits. Use the SD card normally from t
 
 - WiFi is automatically disconnected before MSC starts (shared GDMA bus on ESP32-S3)
 - All SPI CS pins are held HIGH during MSC to prevent bus corruption
-- SD card is auto-remounted for T-Rex use on exit (up to 8 attempts)
+- SD card is auto-remounted for Al-Anqa use on exit (up to 8 attempts)
 - Always eject from the PC before pressing `q` — do not unplug mid-write

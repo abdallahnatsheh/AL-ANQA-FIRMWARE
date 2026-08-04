@@ -8,4 +8,12 @@ lib/
 .vscode/ipch
 
 # Claude Code editor files — ignore entire directory
-.claude/
+.claude/setting*
+sd_dropins
+
+# Jekyll docs build artifacts (local `bundle exec jekyll build`)
+docs/_site
+docs/.jekyll-cache
+docs/vendor
+docs/.bundle
+docs/Gemfile.lock

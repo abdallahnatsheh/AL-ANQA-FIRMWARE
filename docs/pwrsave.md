@@ -1,5 +1,6 @@
 ---
 title: Power Save
+lang: en
 parent: System
 nav_order: 3
 ---
@@ -25,4 +26,4 @@ CMD> psv set screenoffmode on|off
 
 **Battery-aware dim** — automatically dims when battery drops below threshold regardless of the inactivity timer.
 
-Config is saved to `/pwrsave.conf` on the SD card and restored on boot.
+Config is saved to `/config/pwrsave.conf` on the SD card and restored on boot.

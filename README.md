@@ -3,86 +3,78 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/abdallahnatsheh/AL-ANQA-FIRMWARE/actions/workflows/build.yml"><img src="https://github.com/abdallahnatsheh/AL-ANQA-FIRMWARE/actions/workflows/build.yml/badge.svg?style=flat-square"/></a>
   <img src="https://img.shields.io/badge/platform-LilyGo%20T--Deck%20%7C%20T--Deck%20Plus-blue?style=flat-square"/>
+  <img src="https://img.shields.io/badge/MCU-ESP32--S3-green?style=flat-square"/>
   <img src="https://img.shields.io/badge/language-C%2FC%2B%2B-yellow?style=flat-square"/>
   <img src="https://img.shields.io/badge/license-AGPL--3.0-red?style=flat-square"/>
-  <img src="https://img.shields.io/badge/status-active%20development-orange?style=flat-square"/>
-  <img src="https://img.shields.io/badge/device-ESP32--S3-green?style=flat-square"/>
 </p>
 
 <p align="center">
-  <a href="https://abdallahnatsheh.github.io/T-REX-FIRMWARE"><b>📖 Documentation</b></a>
-</p>
-
-<p align="center">
-  <b>Offensive security firmware for the LilyGo T-Deck — hacker CLI in your pocket.</b><br/>
-  <i>DISCOVER. ENUMERATE. COMPROMISE.</i>
+  <b>Offensive security firmware for the LilyGo T-Deck — a pentesting terminal in your pocket.</b><br/>
+  <a href="https://abdallahnatsheh.github.io/AL-ANQA-FIRMWARE"><b>📖 Documentation</b></a>
 </p>
 
 ---
 
-> **⚠️ Legal Disclaimer**
-> For **authorized security testing, CTF competitions, and educational use only.**
-> Using these tools against networks or devices without explicit permission is illegal.
-> **Always get written permission before you test.**
+> **⚠️ Legal**
+> For **authorized security testing, CTF competitions, and education only.** Using these
+> tools against networks or devices you do not own or have **written permission** to test is
+> illegal. You are responsible for how you use it.
 
 ---
 
-## What is T-Rex?
+## Overview
 
-T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GUI — just a blinking cursor, a physical keyboard, and a full suite of offensive security tools running on an ESP32-S3.
+Al-Anqa turns the LilyGo T-Deck (ESP32-S3) into a self-contained offensive-security terminal:
+a blinking cursor, a physical keyboard, and 60+ WiFi / Bluetooth / network / radio tools —
+no PC, no app, no GUI. Everything runs on-device and logs to the SD card.
+
+Two boards are supported: **T-Deck** and **T-Deck Plus** (adds GPS and a speaker for
+wardriving and audio tools). The project is under **active development**.
 
 ---
 
 ## Features
 
-**📡 WiFi Attacks** — [full guide](docs/wifi-attacks.md)
-- Scan, connect, monitor mode, deauth attack
-- Evil Twin AP with adaptive deauth + captive portal
-- Hidden SSID reveal, WPA2 handshake capture + on-device crack
-- MAC spoofer, WPS flag detection
-- **Beacon flood** (`bf`) — inject hundreds of fake beacon frames/sec; 5 modes: built-in list, rickroll, sequential, SD file, or clone a real network from scan; ~90-100 frames/sec, random MAC per beacon, automatic channel hopping — [full guide](docs/beacon-flood.md)
-- **WiFi IDS** (`wguard`) — passive intrusion detection: deauth flood, evil twin, handshake harvest, PMKID grab, auth flood, probe storm, beacon flood, BSSID cloning, Karma attack; background mode with shield icon + popup alerts; session CSV logs with session-relative timestamps
+### 📡 WiFi &nbsp;·&nbsp; [guide](docs/wifi-attacks.md)
+- Scan, connect, and a full WiFi manager (radio on/off, forget networks)
+- Monitor mode — APs + clients views, targeted deauth, raw PCAP capture (Wireshark-compatible), passive probe logger
+- Evil Twin captive portal, hidden-SSID reveal, MAC spoofing, WPS detection
+- WPA/WPA2 handshake **and** PMKID capture with **on-device cracking**; offline `.cap` cracker
+- WPA3 transition-mode downgrade, Karma rogue-AP suite, beacon flood
+- Wardriving → WiGLE 1.4 CSV (Plus), passive WiFi IDS (`wguard`), WiFi-CSI motion detection
 
-**🔑 WiFi Credentials** — [full guide](docs/wifi-credentials.md)
-- Saved credential manager (`wifipass`) — view all saved passwords
-- Auto-save on connect, NVS + SD dual storage
-- Linux `wpa_supplicant.conf` bidirectional sync — share networks between T-Deck and Linux
-- Desktop Linux migration via `nmcli` + `wpa_passphrase`
+### 🌐 Network &nbsp;·&nbsp; [guide](docs/network.md)
+- ARP host discovery, parallel TCP port scan, ICMP ping, banner grab + OS fingerprinting
+- Interactive **SSH client** (libssh) — PTY shell, 16-colour terminal, trackball scrollback
+- **Client-isolation recon** (`netspy`) and **active isolation audit** (`isoscan`) — implements the AirSnitch technique to reach and enumerate "isolated" clients on your own network
 
-**🌐 Network** — [full guide](docs/network.md)
-- ARP host discovery, TCP port scan (4× parallel), top-31 ports
-- ICMP ping, banner grabber (HTTP/TLS/MySQL/Redis), OS fingerprinting
+### 🔵 Bluetooth LE &nbsp;·&nbsp; [guide](docs/bluetooth.md)
+- Device scanner and **GATT enumeration** — read/write/fuzz characteristics, notify/indicate sniffing, and a full **security audit** of a target device:
+  - **`[b]` audit** — link posture: encrypted? Just Works vs MITM? bonded? counts of chars readable/writable without pairing, plus a secret-value leak scan (keys/PINs)
+  - **`[g]` abuse** — access-control read-hammer: reads *every* characteristic ignoring its Read flag; a char that leaks data it marked non-readable = broken server-side access control
+  - **`[f]` fuzz** — writable-char fuzzer: sequential / random / boundary bytes, plus **oversized** (past-MTU long writes → input-length validation) and **flood** (unthrottled writes → DoS / rate-limit resistance)
+- **Anti-tracking detector** — flags AirTag, Tile, Samsung SmartTag, Chipolo, Pebblebee and Google Find My tags by service-UUID (verified against AirGuard)
+- Fast Pair attack, notification spam (Apple / Android / Microsoft / Samsung), passive advertisement sniffer, MAC-watchlist proximity alerts
+- BLE HID **keyboard + mouse**, and a Claude Desktop **buddy** remote (approve prompts from the T-Deck)
 
-**🔵 Bluetooth** — [full guide](docs/bluetooth.md)
-- BLE device scanner (paginated, RSSI, name)
-- **BLE GATT enumeration** (`bi`) — connect to any BLE device and read its full service/characteristic tree; 0x2901 user descriptions, 0x2904 type auto-decode (uint8/16/32, int8/16, UTF-8); interactive write (trackpad cursor, write-without-response fallback), fuzz (seq/rand/boundary), notify/indicate sniff with 30 s live stream + write-while-connected, pairing/bonding; `bi all` sweeps every scanned device; full UUID + full hex saved to SD — [full guide](docs/bleinfo.md)
-  - **Auth leak detector** (`[b]` audit) — inline risk scoring flags AES-sized binary blobs, hex-encoded secrets, and PIN-shaped values; `[b]` key shows filtered triage view
-  - **Write-cap** (`[r]wcap`) — replay any captured notification back to a writable char; sniff auto-saves `.ble` packet archives to SD; load captures from previous sessions
-  - **Protocol reverse engineering** — sniff baseline → trigger action on device → identify new packet → replay or write back; works on proprietary protocols with no documentation
-- **Tracking detector** (`tm`) — passive BLE + WiFi probe surveillance; 60s baseline learning period; 3-gate pipeline (signature → behaviour score → GPS/time confirmation); Kalman-filtered RSSI; known tracker signatures (AirTag, Tile, SmartTag, Chipolo, Pebblebee); GPS movement gate on T-Deck Plus — [full guide](docs/trackme.md)
-- **Fast Pair attack** (`fp`) — scan for Fast Pair devices, flood Google FP advertisements with per-cycle MAC randomization, GATT probe (WhisperPair) to read anti-spoofing keys
-- **BLE notification spam** (`bs`) — Apple Continuity (Proximity Pairing + Nearby Info popups), Google Fast Pair flood, Microsoft Swift Pair, Samsung Galaxy accessory popups
-- **BLE Keyboard + Mouse** (`bk`) — T-Deck as a wireless BLE HID keyboard + mouse; same features as USB keyboard (`uk`) but over Bluetooth; MITM-protected bonding (passkey shown on screen, typed on host); tap = left click, hold = right click, hold 1.5s = exit; auto-reconnects on drop
+### 📻 ESP-NOW Radio &nbsp;·&nbsp; [guide](docs/espnow.md)
+- Off-grid **encrypted chat** (AES-128), **HD voice walkie-talkie** (G.722 wideband), frame sniffer and diagnostic — no router, no association
 
-**🤖 Claude Desktop Buddy** — [full guide](docs/buddy.md)
-- **BLE remote** (`bd`) — approve/deny Claude Desktop permission prompts from the T-Deck keyboard; MITM-protected bonding (passkey shown on screen)
-- Full-screen terminal popup for long commands — full text wrapped across multiple lines, no truncation
-- Live session stats: tokens, level, mood, energy — all persisted to NVS
-- 19 ASCII pet species with 7-state animation at 5 fps
+### 🔌 USB & HID &nbsp;·&nbsp; [guide](docs/usb.md)
+- Mass storage (SD as a USB drive), USB keyboard + mouse, mouse jiggler
+- **BadUSB / DuckyScript** over USB **or BLE** (`ux ble`) — clone/spoof a bonded device, live-scanning target picker with in-place GATT inspection
 
-**💾 SD Card**
-- Browse, read, delete files; all attack logs saved automatically
+### 🔑 Credentials & Storage &nbsp;·&nbsp; [guide](docs/wifi-credentials.md)
+- Saved WiFi credential manager, bidirectional Linux `wpa_supplicant.conf` sync
+- On-device SD file manager — `ls` / `cd` / `cat` / `edit` (nano-style) / `rm`
 
-**🔌 USB Gadget** — [full guide](docs/usb.md)
-- **Mass Storage** (`um`) — expose SD card as a USB drive; read and write files from any PC with no drivers
-- **USB Keyboard + Mouse** (`uk`) — T-Deck becomes a full USB input device; physical keyboard types into host, trackball moves the mouse cursor with hardware acceleration; tap = left click, hold = right click, hold 1.5s = exit
-- **BadUSB / DuckyScript** (`ux`) — execute keystroke injection payloads; Flipper Zero DuckyScript v1 compatible; built-in T-Rex demo; scripts in `/badusb/` on SD
-
-**🖥️ System** — [full guide](docs/system.md)
-- Man pages on-device (`man <cmd>`), paginated help, power save, Matrix animation
-- Trackpad cursor — move cursor mid-command, click to execute
-- **Lock screen** (`lock`) — [full guide](docs/lock.md) — idle-timeout auto-lock (keyboard **and** trackpad activity both reset the timer); hold trackpad center 3 s to lock from any app; no-PIN mode (Space ×3) or SHA-256 hashed PIN; live locked-duration counter; warns if no SD card; forgot PIN → remove SD + reboot
+### 🖥️ System & Opsec &nbsp;·&nbsp; [guide](docs/system.md)
+- On-device man pages, autocomplete, command history, power save
+- **Lock screen** — SHA-256 PIN or no-PIN mode, idle auto-lock, hold-to-lock
+- **Undercover mode** — a silent phone home-screen disguise with a secret exit passphrase and a panic key; live weather via Open-Meteo (keyless)
+- **NES emulator** (`gm`) — play legal/homebrew `.nes` ROMs (mappers 0–4+069) with a retro library picker, save states, and trackball/keyboard controls
 
 ---
 
@@ -91,212 +83,206 @@ T-Rex turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no GU
 | Component | Details |
 |-----------|---------|
 | Devices | LilyGo T-Deck · LilyGo T-Deck Plus |
-| MCU | ESP32-S3 (16 MB flash, 8 MB PSRAM) |
-| Display | 320×240 ST7789 TFT |
-| Input | Physical QWERTY keyboard (PS/2 over I2C) + trackball |
-| Radio | WiFi 2.4 GHz · Bluetooth 5 · LoRa SX1262 |
-| GPS | L76K / u-blox M10Q (T-Deck Plus only) |
+| MCU | ESP32-S3 · 16 MB flash · 8 MB PSRAM |
+| Display | 320×240 ST7789 TFT (GT911 capacitive touch) |
+| Input | Physical QWERTY keyboard (I2C) + trackball |
+| Radio | WiFi 2.4 GHz · Bluetooth LE (NimBLE) · LoRa SX1262 |
+| GPS | L76K / u-blox M10Q — **T-Deck Plus only** |
+| Audio | ES7210 mic + I2S speaker — **T-Deck Plus** |
 
 ---
 
-## Getting Started
+## Build & Flash
 
-**Requirements:** [VSCode](https://code.visualstudio.com/) + [PlatformIO](https://platformio.org/) extension
+**Requirements:** [VS Code](https://code.visualstudio.com/) + the [PlatformIO](https://platformio.org/) extension.
 
 ```bash
-git clone https://github.com/abdallahnatsheh/T-REX-FIRMWARE
-# Open in VSCode → select env:T-Deck or env:T-Deck-Plus → click Upload
+git clone https://github.com/abdallahnatsheh/AL-ANQA-FIRMWARE
+# Open in VS Code → pick env:T-Deck or env:T-Deck-Plus → Upload
 ```
 
-> **Can't upload?** Hold the trackball button, plug in USB, then try again — this forces download mode.
+> **Can't upload?** Hold the trackball button, plug in USB, then release — this forces the ESP32-S3 into download mode.
 
 ---
 
-## Commands
+## Command Reference
+
+Run `help` for the list on-device, or `man <cmd>` for a full manual page.
 
 | Command | Short | Args | Description |
 |---------|-------|------|-------------|
-| `help` | `hlp` | `[cmd]` | List all commands or detail for one |
+| `help` | `hlp` | `[cmd]` | List commands, or detail one |
 | `man` | `mn` | `<cmd>` | On-device manual page |
-| `info` | `inf` | — | Device info (chip, MACs, battery, SD) |
-| `show` | `sh` | `<wifi\|ble\|hosts>` | Re-display last scan without rescanning |
+| `info` | `inf` | — | Device info (chip, MACs, battery, SD) + project GitHub QR |
+| `show` | `sh` | `<wifi\|ble\|hosts>` | Re-display the last scan |
 | `clear` | `clr` | — | Clear screen |
-| `pwrsave` | `psv` | `[status\|on\|off\|set ...]` | Power save config |
-| `lock` | `lk` | `[new\|update\|clean\|timeout <s>\|status]` | Screen lock — PIN optional; hold trackpad 3 s or run `lock` to lock |
-| `volume` | `vol` | `[0-100\|up\|down\|off]` | General audio volume |
-| `notif` | `nf` | `[on\|off\|vol <n>\|<lvl> on\|off\|file <f>]` | Notification manager — per-level enable/disable, custom MP3 |
-| `tz` | `tz` | `[+HH\|-HH:MM\|<posix>\|status]` | Set device timezone (NVS, survives reboot) |
+| `pwrsave` | `psv` | `[status\|on\|off\|set ...]` | Power-save config (dim / screen-off on idle) |
+| `sleep` | `slp` | — | Deep sleep (~240 µA); click trackball to wake |
+| `lock` | `lk` | `[new\|update\|clean\|timeout <s>\|status]` | Screen lock — optional SHA-256 PIN |
+| `volume` | `vol` | `[0-100\|up\|down\|off]` | Master audio volume |
+| `notif` | `nf` | `[on\|off\|vol <n>\|test\|<lvl> ...]` | Notification manager (per-level, custom WAV) |
+| `tz` | `tz` | `[+HH:MM\|<posix>\|status]` | Device timezone (persisted) |
+| `weather` | `wx` | `[loc <lat> <lon>\|units ...\|now]` | Live weather (Open-Meteo, **no API key**) |
+| `home` | `hm` | `[EXP]` | Home-launcher cover UI (standalone) |
+| `undercover` | `uc` | `[set\|clear\|status\|boot ...\|panic ...]` | **[EXP]** Silent disguise — passphrase exit, panic key |
+| `game` | `gm` | `[<rom.nes>]` | **[EXP]** NES emulator — Anemoia core (mappers 0–4+069), ROM library, save states |
 | **WiFi** | | | |
-| `scanwifi` | `sw` | — | Scan WiFi networks |
-| `connectwifi` | `cw` | `<index\|ssid>` | Connect by scan index or SSID name |
-| `wifipass` | `wp` | — | View all saved WiFi passwords (SD + NVS merged) |
-| `wifiexport` | `wex` | — | Export NVS credentials → wpa_supplicant.conf |
-| `clearwifi` | `clrw` | — | Erase saved credentials |
-| `wifimon` | `wm` | `[ch]` | Monitor mode (ch 1-13, 0=hop) |
-| `deauth` | `da` | `<bssid\|#> [ch] [client]` | Deauth attack |
+| `scanwifi` | `sw` | `[on\|off]` | WiFi manager — scan / connect / forget / radio power |
+| `connectwifi` | `cw` | `<index\|ssid>` | Connect by scan index or SSID |
+| `wifipass` | `wp` | `[export\|clear]` | Saved WiFi creds — view / export / erase |
+| `wifimon` | `wm` | `[ch]` | Monitor mode — APs + clients, `[d]` deauth, `[s]` PCAP, `[p]` probe log |
+| `deauth` | `da` | `<bssid\|#> [ch] [client]` | Deauthentication attack |
 | `eviltwin` | `et` | — | Evil Twin AP + captive portal |
-| `hiddenssid` | `hs` | `<idx\|bssid> [ch] [silent]` | Reveal hidden SSID |
-| `macchanger` | `mc` | `on\|off\|random\|set <mac>` | Spoof STA MAC |
-| `wpasniff` | `ws` | `<idx\|bssid> [ch]` | Capture + crack WPA2 handshake |
-| `wguard` | `wg` | `<idx\|bssid> [ch] [bg]` | WiFi IDS — passive intrusion detection; `wg stop` / `wg view` |
-| `beaconflood` | `bf` | `[list\|rickroll\|seq <base>\|file [path]\|clone]` | Beacon flood — fake AP injection; interactive mode picker; clone mirrors real network security |
+| `hiddenssid` | `hs` | `<idx\|bssid> [ch] [silent]` | Reveal a hidden SSID |
+| `macchanger` | `mc` | `on\|off\|random\|set <mac>` | Spoof the STA MAC |
+| `wpasniff` | `ws` | `<idx\|bssid> [ch]` | Capture + crack a WPA2 handshake |
+| `pmkid` | `pm` | `<idx\|bssid> [ch]` | PMKID capture + crack — passive, no client |
+| `wpa3down` | `w3d` | `[idx]` | **[EXP]** WPA3 transition-mode downgrade → crackable `.cap` |
+| `karma` | `km` | `[auto\|hs\|portal <ssid>]` | Rogue-AP suite — harvest, PNL fingerprint, half-handshake, portal |
+| `crack` | `cc` | `[cap] [wordlist\|dir]` | Offline WPA/WPA2 crack (handshake or PMKID) |
+| `wguard` | `wg` | `<idx\|bssid> [ch] [bg]` | Passive WiFi IDS; `wg stop` / `wg view` |
+| `beaconflood` | `bf` | `[list\|rickroll\|seq <base>\|file\|clone]` | Beacon flood — fake AP injection |
+| `wps` | `wps` | `[<idx>]` | All-in-one WPS: IE decode + device leak + PIN calc + live EAP-WSC handshake sniff (→ pixiewps) + `[p]` push-button |
+| `wardrive` | `wd` | — | Wardriving → WiGLE 1.4 CSV (**Plus only**) |
+| `espsniff` | `es` | `[ch]` | Passive ESP-NOW sniffer — CSV + PCAP |
+| `esptest` | `est` | `[ch]` | ESP-NOW TX/RX diagnostic |
+| `espchat` | `ec` | `[pub\|prv\|bg\|stop] [ch]` | Off-grid ESP-NOW chat (AES-128 private mode) |
+| `espvoice` | `ev` | `[ch]` | ESP-NOW walkie-talkie — G.722 HD voice |
 | **Network** | | | |
-| `netdiscover` | `nd` | — | ARP scan local /24 |
-| `portscan` | `ps` | `<ip\|#> <start> <end>` | TCP port scan |
-| `topscan` | `ts` | `<ip\|#>` | Top 31 common ports |
-| `ping` | `pg` | `<ip\|hostname>` | ICMP ping |
+| `netdiscover` | `nd` | — | ARP scan of the local /24 |
+| `netspy` | `ns` | `[gtk\|dump]` | **[EXP]** Passive client-isolation device recon (AirSnitch) |
+| `isoscan` | `is` | `[ns#] <attack>` · `cctest` | **[EXP]** Active isolation audit — **transmits**; `auto` recommends an attack |
+| `arpspoof` | `as` | `<victim> [gw]` | ARP poisoning + logs what the victim reaches (dst IP/DNS/HTTP → SD); heals on exit |
+| `responder` | `rsp` | `[passive]` | **[EXP]** LLMNR/NBT/mDNS poisoner + NetNTLMv2/v1 + Basic capture (HTTP & SMB); `passive` = listen-only → per-session SD folder |
+| `portscan` | `ps` | `<ip\|#\|ns#> <start> <end>` · `top ...` | TCP port scan (`top` = 26 common ports) |
+| `ping` | `pg` | `<ip\|host\|#\|ns#>` | Continuous ICMP ping with RTT stats |
+| `ssh` | `sc` | `<ip\|name> [user]` | Interactive SSH client (libssh) + saved profiles |
 | **Bluetooth** | | | |
 | `scanblue` | `sbl` | — | BLE device scan |
-| `bleinfo` | `bi` | `<index\|mac\|all>` | GATT enum: services, chars, values, write, fuzz, sniff, pair |
+| `bleinfo` | `bi` | `<index\|mac\|all>` | GATT enum — read/write/`[f]`fuzz(seq/rand/boundary/oversized/flood)/sniff/pair + `[b]`audit + `[g]`abuse read-hammer |
 | `trackme` | `tm` | `[silent]` | Anti-tracking detector |
-| `fastpair` | `fp` | `[scan\|spam\|h <idx>\|h all]` | Fast Pair: scan devices / flood ads / GATT hijack |
-| `blespam` | `bs` | `[apple\|android\|ms\|samsung\|all]` | BLE notification spam (popups on nearby devices) |
-| `buddy` | `bd` | `[name]` | Claude Desktop remote — approve prompts, ASCII pet, NVS stats |
-| `btkbd` | `bk` | — | T-Deck as BLE keyboard + mouse (MITM-bonded, passkey on screen) |
+| `fastpair` | `fp` | `[scan\|spam\|h <idx>\|h all]` | Fast Pair — scan / flood / GATT hijack |
+| `blespam` | `bs` | `[apple\|android\|ms\|samsung\|all]` | BLE notification spam |
+| `bmon` | `bm` | — | Passive BLE advertisement sniffer (iBeacon/Eddystone, PCAP) |
+| `macwatch` | `mw` | `[bg]` | WiFi+BLE MAC watchlist → proximity alerts |
+| `buddy` | `bd` | `[name]` | Claude Desktop remote — approve prompts, ASCII pet |
+| `btkbd` | `bk` | — | T-Deck as a BLE keyboard + mouse (MITM-bonded) |
 | **SD Card** | | | |
 | `sdinfo` | `sdi` | — | SD card info |
-| `sdls` | `ls` | `[path]` | List directory (CWD if no path, paginated, dirs in cyan) |
-| `cd` | `cd` | `<dir\|..>` | Change working directory — `cd badusb`, `cd ..`, `cd /` |
-| `cat` | `cat` | `<path>` | Read file — scrollable viewer, tpad UP/DN, `q` quit |
-| `rm` | `rm` | `<path>` | Delete file (relative to CWD) |
-| `sdformat` | `sdf` | `[init]` | Format SD to FAT32 (`sdf init` also recreates directory structure) |
-| **USB** | | | |
-| `usbmsc` | `um` | — | Expose SD card as USB Mass Storage drive |
-| `usbkbd` | `uk` | — | T-Deck as USB keyboard + mouse (trackball = cursor, tap = left click, hold = right click) |
-| `jiggle` | `jg` | — | Mouse jiggler — nudges cursor ±2 px every 30 s to prevent host screen lock |
-| `usbexec` | `ux` | `demo\|<path>` | BadUSB — execute DuckyScript payload (Flipper Zero compatible) |
+| `sdls` | `ls` | `[path]` | List directory (paginated) |
+| `cd` | `cd` | `<dir\|..>` | Change working directory |
+| `cat` | `cat` | `<path>` | Scrollable file viewer |
+| `edit` | `ed` | `<path>` | nano-style text editor |
+| `rm` | `rm` | `<path>` | Delete file; `rm -d <dir>` recurses |
+| `sdformat` | `sdf` | `[init]` | Format SD to FAT32 |
+| **USB / HID** | | | |
+| `usbmsc` | `um` | — | Expose the SD card as USB mass storage |
+| `usbkbd` | `uk` | — | T-Deck as a USB keyboard + mouse |
+| `jiggle` | `jg` | `[ble]` | Mouse jiggler (USB or BLE) |
+| `usbexec` | `ux` | `[auto\|remote\|ble [clone <mac\|#>]] demo\|<path>` | BadUSB DuckyScript over USB or BLE (`ux ble`); `ux auto` OS-detect, `ux remote` SoftAP web trigger |
 | **Diagnostics** | | | |
-| `gps` | `gps` | `on\|off\|test` | GPS task control + coordinate test (T-Deck Plus) |
-| `spktest` | `st` | — | Speaker tone test |
-| `loratest` | `lt` | — | LoRa SX1262 diagnostic |
+| `gps` | `gps` | `on\|off\|test` | GPS control + coordinate test (Plus) |
+| `test` | `tst` | `<spk\|mic\|lora\|touch>` | Hardware self-tests |
+| `i2cscan` | `isc` | `[r\|raw\|w\|d ...]` | **[EXP]** Interactive I2C bus scanner |
+| `csidetect` | `csi` | `[auto]` | **[EXP]** WiFi-CSI motion detector (energy only, no direction) |
 | `MATRIX` | `matrix` | — | Matrix rain animation |
 
-> **Tip:** Run `nd` first, then use the host index in `ps`/`ts` instead of typing the IP.
+> **Tip:** run `nd` (or `ns`) first, then use the host index in `ps` / `pg` instead of typing the IP.
 
 ---
 
-## Navigation
+## Keyboard & Navigation
 
-All scan tables share the same keys:
+All scan tables share `l` / `a` (next / previous page), `u` (rescan), `q` (quit).
 
-| Key | Action |
-|-----|--------|
-| `l` / `a` | Next / previous page |
-| `u` | Re-run scan |
-| `q` | Quit |
+| Trackball (command line) | Action |
+|--------------------------|--------|
+| Left / Right | Move cursor within the command |
+| Up / Down | Command history (16 entries) |
+| Click | Execute |
+| Double-click | Screen off / on |
+| Hold 3 s | Lock screen (from anywhere) |
 
-**Trackball (command line):**
+- **Backspace hold** (1.5 s) → auto-delete at ~16 chars/s; any key stops it.
+- **Autocomplete** — press `'` (Sym+K): completes command names at the start, file/dir paths after file commands, and valid sub-arguments (shown in yellow).
 
-| Direction | Action |
-|-----------|--------|
-| Left / Right | Move cursor within the current command |
-| Up / Down | Scroll through command history (16 entries) |
-| Click | Execute command |
-| Double-click | Toggle screen off / on |
-| Hold 3 seconds | Lock screen (works from any screen) |
-
-**Backspace auto-repeat:** Hold Backspace for **1.5 seconds** → auto-deletes at ~16 chars/sec. Press any char key to stop — the timer resets immediately so the next hold starts fresh. Pressing Backspace a second time while repeat is armed cancels it (tap safety).
-
-**Autocomplete:** Press `'` (Sym+K) at any point in a command.
-- At the start → completes command names and short names (`sc` + `'` → `scanwifi`; `ps` + `'` → `portscan`)
-- After a command with file args → completes file/dir paths from the current working directory
-- After a command with subcommands → shows valid args in yellow (`psv ` + `'` → `on off status save reset set`)
-- Two-level context: `psv set ` + `'` → shows settable options; `mc target ` + `'` → `wifi bt both`
-- Smart filtering: `cd` suggests dirs only, `rm`/`ux` suggest files only, `ls`/`cat` suggest both
-- Fills common prefix automatically (Linux-style); single match adds a trailing space
+See the [keyboard reference](docs/keyboard.md) for the full mapping.
 
 ---
 
-## SD Layout
+## SD Card Layout
 
 ```
-/wpa_supplicant.conf  — saved WiFi credentials (Linux-compatible format)
-/wpa_supplicant.bak   — auto-backup of original file before T-Rex modifies it
-/wordlist.txt         — custom WPA crack wordlist (one password per line, ≥8 chars)
-/pwrsave.conf         — power save config (key=value)
-/macchanger.conf      — MAC changer config (key=value)
-/lockscreen.conf      — lock screen config (timeout, PIN hash+salt)
-/signatures.csv       — custom BLE tracker signatures
-/logs/                — eviltwin.csv, trackme.csv, hidden_ssids.csv, cracked.csv, fastpair.csv
-/logs/wguard/         — wguard session files (001.csv, 002.csv … — never overwritten)
-/logs/hs/             — WPA handshake captures (<BSSID>.cap, libpcap format)
-/logs/bleinfo/        — GATT dumps (<mac>.txt), sniff logs (<mac>_sniff.txt), write-cap archives (<mac>_replay.ble)
-/fastpair_keys.csv    — cached Fast Pair anti-spoofing keys (modelId,name,key64hex)
-/fastpair_paired.csv  — log of devices successfully paired via GATT
-/evilportal/          — custom HTML portal templates
-/badusb/              — DuckyScript payload files (auto-created on boot)
-/captures/            — misc capture output (auto-created on boot)
+/wpa_supplicant.conf       saved WiFi credentials (Linux-compatible)
+/config/                   device-wide settings (pwrsave, lock, notif, weather, undercover…)
+/config/notification/      per-level alert WAVs (16-bit PCM, 22050 Hz, mono)
+/apps/<tool>/              one self-contained folder per command — logs, captures, wordlists, config
+/apps/notes/               undercover Notes cover files
+/apps/nes/roms/            NES ROMs (.nes) for the `gm` emulator
+/apps/nes/states/          NES save states (one per ROM, keyed by CRC32)
 ```
 
-> See the [SD Card guide](docs/sdcard.md) for the full file reference and quick-start checklist.
+Each tool writes under its own `/apps/<tool>/` folder (e.g. `wpasniff/`, `eviltwin/`,
+`karma/`, `wardrive/`, `bleinfo/`, `badusb/scripts/`). See the [SD Card guide](docs/sdcard.md)
+for the complete file reference.
 
 ---
 
-## Roadmap
+## Dependencies
 
-- [x] WiFi scan, connect, monitor, deauth, Evil Twin, hidden SSID, MAC spoof, WPA2 crack, WPS flag, saved credential manager, Linux wpa_supplicant.conf sync
-- [x] ARP discovery, port scan, ping, banner grabber, OS fingerprinting
-- [x] BLE scanner, anti-tracking detector
-- [x] BLE GATT enumeration (`bi`) — full service/char tree, 0x2904 auto-decode, write (trackpad cursor, write-without-response fallback), fuzz, notify/indicate sniff with write-while-connected, pairing/bonding, `bi all` sweep, full UUID + full hex saved to SD
-- [x] BLE auth leak detector (`[b]` audit view) — inline risk scoring for AES blobs / hex secrets / PINs
-- [x] BLE write-cap (`[r]wcap`) — replay captured notification values back to writable chars; `.ble` SD archive; protocol reverse engineering workflow
-- [x] Fast Pair attack — advertisement flood + GATT probe (WhisperPair)
-- [x] BLE notification spam — Apple / Android / Microsoft / Samsung
-- [x] SD file manager — `ls` (paginated, dirs in cyan), `cd` CWD navigation (relative paths for all SD commands), man pages, help, power save, trackpad cursor
-- [x] Command history (16-entry ring buffer, trackpad UP/DOWN), tab autocomplete with smart per-command filtering (Sym+K)
-- [x] LoRa diagnostic, GPS (T-Deck Plus)
-- [x] USB Mass Storage — expose SD card as USB drive (read + write, 2MB file tested)
-- [x] USB Keyboard + Mouse — T-Deck physical keyboard + trackball as full USB HID input device
-- [x] Mouse Jiggler — USB HID nudge every 30 s to prevent host screen lock
-- [x] BLE Keyboard + Mouse (`bk`) — wireless BLE HID; MITM-bonded passkey pairing; same features as USB keyboard; auto-reconnects on drop
-- [x] Claude Desktop Buddy — BLE remote, permission prompts, ASCII pet, NVS stats; MITM-bonded passkey pairing
-- [x] BadUSB / DuckyScript — Flipper Zero DuckyScript v1 compatible, hyphenated combos, REPEAT, built-in demo
-- [x] `wguard` WiFi IDS — deauth flood, evil twin (two-tier RSSI-filtered detection), handshake harvest, PMKID grab, auth flood, probe storm, beacon flood, BSSID cloning, Karma attack; background mode with shield icon + popup bars; session CSV logs (session-relative timestamps, no duplicate events across save blocks)
-- [x] Notification manager — I2S WAV playback from SD, per-level volume, screen wake callback; wired into Buddy, TrackMe, wguard
-- [x] Lock screen — idle-timeout auto-lock (keyboard + trackpad both reset timer) + hold-trackpad-3s trigger; no-PIN (Space ×3) or SHA-256-hashed PIN (salt via esp_random, mbedTLS); live locked-duration HH:MM:SS; yellow warning when no SD card; recovery = remove SD + reboot; status bar stays live (clock/WiFi/battery update every 1 s while locked)
-- [x] Lock screen display blocking — all interactive apps (`buddy`, `wguard`, `trackme`, `beaconflood`, `cat`, `ls`, etc.) correctly freeze on lock and fully restore on unlock
-- [x] Backspace hold-repeat redesigned — cold/hot state via `_lastBsReturnMs`; char cancel resets timer to cold so next hold is immediately available; 1500ms hold delay; second tap while armed cancels (prevents accidental auto-delete on rapid taps); same fix in CLI, USB keyboard, and BLE keyboard
-- [x] Full docs overhaul — 44 pages, every command documented; Getting Started, Keyboard Reference, Workflows, Troubleshooting, T-Deck vs T-Deck Plus guides; wguard + trackme algorithm docs with academic references; clean nav hierarchy (Just the Docs parent/child/grandchild)
-- [ ] LoRa packet logger
-- [ ] MAC proximity watchlist
-- [ ] DNS enumeration
-- [ ] `bmon` — passive BLE advertisement sniffer: cleartext detector, iBeacon/Eddystone parser, PCAP export to SD (Wireshark compatible)
+Installed automatically via PlatformIO `lib_deps`:
+
+**LovyanGFX** (display) · **NimBLE-Arduino** (BLE) · **RadioLib** (LoRa) ·
+**LibSSH-ESP32** (SSH) · **SensorLib** (GT911 touch) · **ESP32Ping** · **AceButton** ·
+**ArduinoJson** · **TinyGPSPlus** · **TP_Arduino_DigitalRain_Anim** · **18650CL** (battery)
+
+Vendored under `lib/`: **libg722** (voice codec) · **ES7210** (mic driver).
+
+---
+
+## Documentation
+
+Full docs — every command, workflows, keyboard reference, troubleshooting, and the
+`wguard` / `trackme` algorithm write-ups — are published at
+**[abdallahnatsheh.github.io/AL-ANQA-FIRMWARE](https://abdallahnatsheh.github.io/AL-ANQA-FIRMWARE)**
+(source in [`docs/`](docs/)).
 
 ---
 
 ## Screenshots
 
 | Main Screen | WiFi Scanner | Network Scan |
-|-------------|-------------|--------------|
+|-------------|--------------|--------------|
 | ![main](images/1.jpg) | ![wifi](images/3.jpg) | ![net](images/4.jpg) |
-
----
-
-## Dependencies
-
-All install automatically via PlatformIO `lib_deps`:
-LovyanGFX · ESP32Ping · NimBLE-Arduino (h2zero) · Digital Rain Anim · Pangodream 18650CL · RadioLib · ArduinoJson · AceButton · TouchLib · TinyGPS++
 
 ---
 
 ## Contributing
 
-PRs and issues welcome. To add a new command or attack module:
-1. Open an issue describing the feature
-2. Fork, branch, implement
-3. Submit a PR referencing the issue
+Issues and PRs are welcome. To add a command or module:
+
+1. Open an issue describing the feature.
+2. Fork and branch.
+3. Implement (new modules get their own `.cpp/.h`; register the command in `setupCommands()`).
+4. Submit a PR referencing the issue.
+
+CI compiles both `T-Deck` and `T-Deck-Plus` on every push.
+
+---
+
+## License
+
+Released under the **[GNU AGPL-3.0](LICENSE)**. If you run a modified version as a network
+service, you must make your source available under the same license.
 
 ---
 
 ## Credits
 
-- [Bruce Firmware](https://github.com/pr3y/Bruce) — an awesome open source project, parts were adapted and built upon (AGPL-3.0)
-- [LilyGo T-Deck](https://github.com/Xinyuan-LilyGO/T-Deck) — hardware reference
+- [Bruce Firmware](https://github.com/pr3y/Bruce) — reference and adapted components (AGPL-3.0)
+- [LilyGo T-Deck](https://github.com/Xinyuan-LilyGO/T-Deck) — hardware and example code
 - [AirGuard](https://github.com/seemoo-lab/AirGuard) — anti-tracking research (TU Darmstadt)
-- Built with [ChatGPT](https://chatgpt.com) · [GitHub Copilot](https://github.com/features/copilot) · [Claude Code](https://claude.ai/code)
+- AirSnitch (Vanhoef, NDSS 2026) — client-isolation bypass technique
+- [Anemoia-ESP32](https://github.com/Shim06/Anemoia-ESP32) — vendored NES emulator core (GPL-3.0, © Shim06)
 
----
-
-<p align="center">
-  <i>T-Rex — your network never saw it coming.</i>
-</p>
+<p align="center"><sub>Built for the LilyGo T-Deck · ESP32-S3 · AGPL-3.0</sub></p>

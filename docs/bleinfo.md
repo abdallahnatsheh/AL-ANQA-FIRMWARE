@@ -1,5 +1,6 @@
 ---
 title: BLE Info
+lang: en
 parent: Bluetooth
 nav_order: 2
 ---
@@ -8,7 +9,7 @@ nav_order: 2
 
 ## Overview
 
-`bleinfo` (short: `bi`) is a BLE GATT client built into T-REX. It connects to a
+`bleinfo` (short: `bi`) is a BLE GATT client built into AL-ANQA. It connects to a
 Bluetooth Low Energy device, reads its full service/characteristic tree, decodes
 values using standard GATT type descriptors, and provides interactive tools for
 passive monitoring and active interaction.
@@ -40,8 +41,9 @@ bi all            # enumerate every device from last sbl scan
 | `n` | Start notify/indicate sniff (30 s) |
 | `r` | Write-cap — replay a captured notification value back to the device |
 | `w` | Write to a writable characteristic (reconnects, then writes) |
-| `f` | Fuzz a writable characteristic |
-| `b` | Auth leak audit — show only flagged/suspicious characteristics |
+| `f` | Fuzz a writable characteristic (seq / random / boundary / oversized / flood) |
+| `g` | Abuse scan — read-hammer every characteristic, flag no-auth read leaks |
+| `b` | Security audit — link posture (encryption/pairing/bonding, no-auth read/write counts) + value leak scan |
 | `p` | Toggle pairing / bonding mode |
 | `s` | Save GATT tree to SD card |
 | `q` | Quit |
@@ -53,7 +55,7 @@ bi all            # enumerate every device from last sbl scan
 | `w` | Write to a char **without disconnecting** — response appears in sniff stream |
 | `q` | Stop sniff, save log, return to GATT view |
 
-> Keys only appear in the footer when relevant: `[n]` if notify/indicate chars exist, `[r]` if a `.ble` capture file exists, `[b]` if any characteristic was flagged as suspicious.
+> Keys only appear in the footer when relevant: `[n]` if notify/indicate chars exist, `[r]` if a `.ble` capture file exists, `[w]`/`[f]` if writable chars exist. `[b]audit` and `[g]abuse` are always available.
 
 ---
 
@@ -75,7 +77,7 @@ SVC 0xfb005c~ [RWN]
   0xfb005c~  [RWN] 12 00 ..
 !0xfb005d~  [W  ] (UnlockKey)
 ────────────────────────────────
-[q]qt [a/l]pg [n]sniff [w]wr[f]fz [b]audit [s]save [p]pair
+[q]qt [a/l]pg [n]sniff [w]wr[f]fz [b]audit [g]abuse [s]save [p]pair
 ```
 
 **Risk colour coding** (inline, on every line):
@@ -145,7 +147,7 @@ subs:2 total:4 [w]write [q]stop
 - **Indicate** — device pushes and waits for your ACK before sending next
 
 Both are captured in the same ring buffer. After the session ends, the log is
-automatically saved to `/logs/bleinfo/<mac>_sniff.txt` if SD is present.
+automatically saved to `/apps/bleinfo/<mac>_sniff.txt` if SD is present.
 
 **Stop early:** press `q`. The partial log is still saved.
 
@@ -200,6 +202,8 @@ validation bugs, trigger unexpected state transitions, or crash the device.
 | `1` seq | `0x00` → `0xFF` (256 writes, 1 byte each) | Full single-byte space coverage |
 | `2` rand | 64 writes, 1–4 random bytes (LCG) | Multi-byte protocol fuzzing |
 | `3` boundary | `0x00 0x01 0x7F 0x80 0xFE 0xFF` | Off-by-one and overflow testing |
+| `4` oversized | 5 escalating writes: 20 → 64 → 128 → 255 → 509 B (incrementing pattern) | MTU / long-write / buffer-overflow handling |
+| `5` flood | 500 rapid 4-byte writes with no pacing, live writes/sec shown | DoS / hang / rate-limit behaviour |
 
 **What to look for:**
 
@@ -208,25 +212,77 @@ validation bugs, trigger unexpected state transitions, or crash the device.
 - **"Device disconnected!"** — crash or protection triggered; note the payload
 - **Watch screen reacts** — you hit an active control path
 - **Error jumps at specific byte** — boundary condition found
+- **Oversized accepted** — no length validation on writes (may overflow a fixed buffer)
+- **Flood rate stays high / device hangs** — no rate limiting; DoS surface
 
-Writes are sent every 80 ms. `[q]` stops early.
+Pacing is mode-dependent: 80 ms (seq/rand/boundary), 250 ms (oversized), unthrottled (flood). `[q]` stops early.
+
+> **The result screen waits for `[q]`** — after the run finishes (or the device disconnects) the `sent/err` summary stays on screen until you press `[q]`; it does **not** auto-close, so you can read the outcome.
+
+**Why it matters:** proves whether a device validates the input it accepts. Oversized-accepted = no length checking (possible buffer overflow); a disconnect/crash during the run = a firmware bug you triggered; flood that never slows = no rate-limiting (DoS surface).
 
 ---
 
-## Auth Leak Audit (`[b]`)
+## Abuse Scan (`[g]`)
 
-Displays only characteristics that scored a risk flag — a filtered view for rapid triage without scrolling through all services.
+Read-hammer for **broken access control**. Reconnects and attempts a GATT read on
+**every** characteristic — *ignoring* the advertised Read property — then classifies
+what came back:
+
+| Tag | Meaning |
+|-----|---------|
+| `LEAK` (red) | Characteristic has **no** Read property but still returned data — the server should have rejected the read |
+| `open` (yellow) | Readable characteristic that returned data over an **unencrypted** link (no pairing required) |
+
+The summary line shows `tried / leak / open` counts (with `(abrt)` appended if you
+stopped it early). `LEAK` findings are the important ones: they mean the peripheral
+relies on the client honouring the property flags rather than enforcing access control
+server-side. `[a]`/`[l]` page through results, `[q]` returns. This goes beyond
+`[b]audit`, which only reads characteristics that advertise Read.
+
+**Why it matters:** answers "can I read data this device tried to hide, without
+pairing?" A `LEAK` on a lock/wearable/sensor can expose config, keys, or telemetry to
+anyone in range. An all-green result means the device enforces access control properly.
+
+> **Exit / result screen:** the results page waits for `[q]` and does **not**
+> auto-close. If instead you see **"Reconnect failed."**, the abuse scan drops the
+> initial connection and opens a *fresh* one — some devices allow only a single BLE
+> connection at a time and refuse it (that screen now also waits for `[q]` and explains
+> the likely cause). Retry on a device that accepts reconnects.
+
+---
+
+## Security Audit (`[b]`)
+
+Two-part report, always available while connected. First the **access-control posture** of the link (captured live from the connection — `bi` connects without pairing, so anything readable proves broken access control), then the **value leak scan** (characteristics whose contents look like secrets).
 
 ```
-[AUDIT] aa:bb:cc:dd:ee:ff
+[AUDIT] BLE Security Posture
 ────────────────────────────────
+Link:    OPEN - not encrypted
+Pairing: none (no auth needed)
+Bonded:  no
+No-auth: R:7  W:2 chars
+────────────────────────────────
+Value leak scan:
 ! 0xfb005d~ [W  ] (UnlockKey)
   RISK: binary 16B (AES key size?)
 ~ 0xfb005e~ [RW ] 31 32 33 34 35 36
   RISK: 6-digit value (PIN?)
 ────────────────────────────────
-[q]back
+2 flagged  [q] back
 ```
+
+**Posture fields:**
+
+| Field | Meaning |
+|-------|---------|
+| `Link` | `ENCRYPTED (NB key)` (green) or `OPEN - not encrypted` (red) at enumerate time |
+| `Pairing` | `none` (no encryption), `Just Works (no MITM)` (yellow), or `authenticated (MITM)` (green) |
+| `Bonded` | Whether the connection is bonded |
+| `No-auth` | Count of characteristics **readable / writable without encryption** — the core access-control finding |
+
+The posture (and a `leaks=yes/no` flag) is also written to the saved `/apps/bleinfo/<mac>.txt` report on `[s]`.
 
 **Risk scoring logic:**
 
@@ -238,7 +294,7 @@ Displays only characteristics that scored a risk flag — a filtered view for ra
 | `~` MED | 4–8 digit numeric string | Looks like a PIN code |
 | LOW | Writable char with a sensitive-sounding User Description | Direct write access to a sensitive control |
 
-Risk is scored at enumeration time. If the footer shows `[b]audit` at least one char was flagged.
+Risk is scored at enumeration time. `[b]audit` is always shown in the footer — the posture report is meaningful even when no values are flagged.
 
 Press `q` to return to the main GATT view.
 
@@ -257,12 +313,12 @@ Write-cap lets you take a value captured during `[n]` sniff and write it back to
 - Challenge-response authentication: even if you replay the right bytes, the server changes its nonce each session
 - Devices that validate sequence numbers or timestamps embedded in the payload
 
-**Saved captures:** `[n]` sniff auto-saves a `.ble` file to `/logs/bleinfo/<mac>_replay.ble` after each session. Write-cap reads from this file or from the current in-memory sniff buffer.
+**Saved captures:** `[n]` sniff auto-saves a `.ble` file to `/apps/bleinfo/<mac>_replay.ble` after each session. Write-cap reads from this file or from the current in-memory sniff buffer.
 
 **Flow:**
 1. Press `[r]` — source picker appears:
    - `[1]` Use current sniff session (in memory)
-   - `[2]` Load from SD — lists `.ble` files in `/logs/bleinfo/`
+   - `[2]` Load from SD — lists `.ble` files in `/apps/bleinfo/`
 2. Packet picker — shows captured packets, select one
 3. Char picker — shows writable characteristics, select target
 4. `bi` reconnects and writes the selected bytes to the selected char
@@ -274,7 +330,7 @@ Write-cap lets you take a value captured during `[n]` sniff and write it back to
 Sniff sessions are saved as plain-text `.ble` files:
 
 ```
-TREX_BLE_REPLAY
+ALANQA_BLE_REPLAY
 MAC aa:bb:cc:dd:ee:ff
 TYPE 1
 PKT 0x2a37 1234 4800
@@ -331,12 +387,12 @@ ok (3 svcs)
 [2/8] 11:22:33:44:55:66
 failed
 [3/8] ...
-Done. Results in /logs/bleinfo/
+Done. Results in /apps/bleinfo/
 ```
 
 - Timeout per device: 4 seconds
 - Press `q` to abort the sweep early
-- Saved files: `/logs/bleinfo/<mac>.txt` for each device that responded
+- Saved files: `/apps/bleinfo/<mac>.txt` for each device that responded
 - Devices that reject connection or have no services are logged as `failed` on screen
 
 Use this to map all BLE devices in a space without interacting with each manually.
@@ -345,7 +401,7 @@ Use this to map all BLE devices in a space without interacting with each manuall
 
 ## SD Card Output
 
-### GATT structure — `/logs/bleinfo/<mac>.txt`
+### GATT structure — `/apps/bleinfo/<mac>.txt`
 Saved by `[s]` key or `bi all`:
 ```
 MAC: aa:bb:cc:dd:ee:ff
@@ -358,7 +414,7 @@ SVC 0xfb005c~ []
   0xfb005d~ [W  ] (Control Point)
 ```
 
-### Notify log — `/logs/bleinfo/<mac>_sniff.txt`
+### Notify log — `/apps/bleinfo/<mac>_sniff.txt`
 Auto-saved after each sniff session (appended, not overwritten):
 ```
 MAC: aa:bb:cc:dd:ee:ff
@@ -367,11 +423,11 @@ MAC: aa:bb:cc:dd:ee:ff
    2.4s 0xfb005~  49 00 00 00..
 ```
 
-### Write-cap capture — `/logs/bleinfo/<mac>_replay.ble` ⚠️ Not yet tested
+### Write-cap capture — `/apps/bleinfo/<mac>_replay.ble` ⚠️ Not yet tested
 Auto-saved alongside the sniff log. Contains raw bytes for every captured notification.
 Can be loaded into `[r]wcap` on any T-Deck to replay the packets:
 ```
-TREX_BLE_REPLAY
+ALANQA_BLE_REPLAY
 MAC aa:bb:cc:dd:ee:ff
 TYPE 1
 PKT 0x2a37 1234 4800
@@ -422,7 +478,7 @@ Signs of a poorly secured device (visible from `bi` without touching it):
 
 ### 4. Map BLE attack surface before a pentest
 
-Run `bi all` after `sbl`. Review `/logs/bleinfo/` on a PC. For each device note:
+Run `bi all` after `sbl`. Review `/apps/bleinfo/` on a PC. For each device note:
 - Services present → identifies device class
 - Write characteristics present → active attack surface
 - Notify without bonding → data leakage
@@ -463,8 +519,8 @@ sbl                    # scan — find watch at index 2
 bi 2                   # connect and enumerate full GATT tree
                        # DeviceInfo: Manufacturer, Model, FirmwareRev
                        # proprietary services show [W][N] chars
-                       # footer shows [b]audit → suspicious values flagged
-[b]                    # audit view — see only risk-flagged chars at a glance
+                       # footer shows [b]audit → security posture + value scan
+[b]                    # audit — link posture (enc/JustWorks/MITM/bonded, no-auth R/W) + value leak scan
 [s]                    # save full GATT tree to SD
 [n]                    # sniff — all notify/indicate chars subscribed simultaneously
                        # live stream: heart rate, steps, battery, sensor data
@@ -479,7 +535,7 @@ bi 2                   # connect and enumerate full GATT tree
 q
 ```
 
-Results in `/logs/bleinfo/`:
+Results in `/apps/bleinfo/`:
 - `aa-bb-cc-dd-ee-ff.txt` — full GATT map with complete hex values and full UUIDs
 - `aa-bb-cc-dd-ee-ff_sniff.txt` — captured notification stream with full raw bytes
 - `aa-bb-cc-dd-ee-ff_replay.ble` — packet archive for write-cap replay

@@ -1,6 +1,7 @@
 ---
 title: T-Deck vs T-Deck Plus
 nav_order: 5
+lang: en
 ---
 
 # T-Deck vs T-Deck Plus

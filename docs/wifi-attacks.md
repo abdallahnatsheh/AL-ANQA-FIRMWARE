@@ -1,5 +1,6 @@
 ---
 title: WiFi Attacks
+lang: en
 parent: WiFi
 nav_order: 5
 has_children: true
@@ -14,9 +15,13 @@ has_children: true
 | [Deauth](deauth) | `deauth` / `da` | Disconnect clients from an AP |
 | [Evil Twin](eviltwin) | `eviltwin` / `et` | Rogue AP + captive portal |
 | [Hidden SSID](hiddenssid) | `hiddenssid` / `hs` | Reveal hidden network names |
-| [WPA Sniff](wpasniff) | `wpasniff` / `ws` | Capture + crack WPA2 handshake |
+| [WPA Sniff](wpasniff) | `wpasniff` / `ws` | Capture + crack WPA2 handshake (needs client) |
+| [PMKID Attack](pmkid) | `pmkid` / `pm` | PMKID capture + crack — no client needed |
+| [Karma](karma) | `karma` / `km` | Rogue-AP suite — probe harvest, PNL fingerprint, half-handshake / portal bait |
+| [Cap Cracker](capcrack) | `crack` / `cc` | Offline crack of a `.cap` (handshake or PMKID) with wordlists |
 | [WGuard IDS](wguard) | `wguard` / `wg` | Passive WiFi intrusion detection |
 | [Beacon Flood](beacon-flood) | `beaconflood` / `bf` | Flood WiFi scan lists with fake SSIDs |
+| [WPS](wps) | `wps` | WPS recon (IE decode + device-info leak) + PIN calculator + push-button connect |
 
 ---
 

@@ -1,7 +1,8 @@
 ---
 title: Ping
+lang: en
 parent: Network Recon
-nav_order: 3
+nav_order: 5
 ---
 
 # Ping
@@ -21,27 +22,29 @@ Requires an active WiFi connection.
 
 ## How It Works
 
-Sends **4 ICMP echo request** packets to the target and waits for replies. Each reply line shows the sequence number, bytes received, and round-trip time. A final summary shows min/avg/max RTT and packet loss percentage.
+Pings the target **continuously until you press `q`**. The screen shows a fixed layout: a rolling window of the most recent results (sequence number + RTT, or `timeout`), plus a live stats line (sent / received / loss %) and the running min/avg/max RTT.
 
 ```
-PING 192.168.1.1
-[1] 64 bytes  rtt=2ms
-[2] 64 bytes  rtt=1ms
-[3] timeout
-[4] 64 bytes  rtt=2ms
-
---- 192.168.1.1 ping ---
-3/4 received  loss=25%
-rtt min/avg/max = 1/1/2 ms
+[NET::PING]  192.168.1.1
+-> 192.168.1.1
+--------------------------------
+[+] seq 4    2 ms
+[+] seq 5    1 ms
+[-] seq 6    timeout
+[+] seq 7    2 ms
+--------------------------------
+sent 7  recv 6  loss 14%
+rtt 1/1/2 ms (min/avg/max)
+q=stop
 ```
 
-DNS hostnames are resolved before sending — `pg google.com` resolves the IP first, then pings it.
+DNS hostnames are resolved before sending — `pg google.com` resolves the IP first, then pings it. Press `q` at any time to stop.
 
 ---
 
 ## Notes
 
-- **Index shortcut** — after running `netdiscover` (`nd`), you can ping hosts by their index number: `pg 0` pings the first discovered host. No need to type the IP.
+- **Index shortcut** — after running `netdiscover` (`nd`), ping hosts by their index number: `pg 0` pings the first discovered host. After running `netspy` (`ns`), use the `ns` prefix: `pg ns3` pings netspy device #3 (the `#` column in the netspy table). No need to type the IP.
 - **Packet loss > 0%** — could indicate wireless interference, the host firewall dropping ICMP, or the host being down.
 - **Very high RTT** — normal for internet hosts (50–200ms); <5ms expected for local LAN targets.
 - **All timeouts** — host is either down, blocking ICMP, or not reachable from this network.

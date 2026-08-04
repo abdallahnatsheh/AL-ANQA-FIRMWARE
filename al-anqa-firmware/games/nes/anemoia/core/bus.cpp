@@ -1,0 +1,218 @@
+#include "bus.h"
+
+Bus::Bus()
+{
+    memset(RAM, 0, sizeof(RAM));
+    cpu.connectBus(this);
+    cpu.apu.connectBus(this);
+    ppu.connectBus(this);
+}
+
+Bus::~Bus()
+{
+}
+
+IRAM_ATTR void Bus::cpuWrite(uint16_t addr, uint8_t data)
+{
+    if (cart->cpuWrite(addr, data)) {}
+    else if ((addr & 0xE000) == 0x0000) { RAM[addr & 0x07FF] = data; }
+    else if ((addr & 0xE000) == 0x2000) { ppu.cpuWrite(addr & 0x0007, data); }
+    else if ((addr & 0xF000) == 0x4000 && (addr <= 0x4013 || addr == 0x4015 || addr == 0x4017))
+    {
+        cpu.apuWrite(addr, data);
+    }
+    else if (addr == 0x4014) { cpu.OAM_DMA(data); }
+    else if (addr == 0x4016)
+    {
+        controller_strobe = data & 1;
+        if (controller_strobe) { controller_state = controller; }
+    }
+}
+
+IRAM_ATTR uint8_t Bus::cpuRead(uint16_t addr)
+{
+    uint8_t data = 0x00;
+
+    if (cart->cpuRead(addr, data)) {}
+    else if ((addr & 0xE000) == 0x0000) { data = RAM[addr & 0x07FF]; }
+    else if ((addr & 0xE000) == 0x2000) { data = ppu.cpuRead(addr & 0x0007); }
+    else if (addr == 0x4016)
+    {
+        uint8_t value = controller_state & 1;
+        if (!controller_strobe) controller_state >>= 1;
+        data = value | 0x40;
+    }
+    return data;
+}
+
+void Bus::reset()
+{
+    for (auto& i : RAM) i = 0x00;
+    cart->reset();
+    cpu.reset();
+    ppu.reset();
+}
+
+IRAM_ATTR void Bus::clock()
+{
+    // 1 frame == 341 dots * 261 scanlines
+    // Visible scanlines 0-239
+
+    // Rendering 3 scanlines at a time because 1 CPU clock == 3 PPU clocks
+    // and there's only 341 ppu clocks (dots) in a scanline, which is not divisible by 3.
+    // Using a counter/for loop with += 341 & -= 3 is too big of a performance hit.
+    // 1 scanline == ~113.67 CPU clocks, so for every 3 scanlines, two scanlines will have an extra
+    // CPU clock
+    for (ppu_scanline = 0; ppu_scanline < 240; ppu_scanline += 3)
+    {
+        cpu.clock(113);
+        if (!frame_latch) ppu.renderScanline(ppu_scanline);
+        else ppu.fakeSpriteHit(ppu_scanline);
+
+        cpu.clock(114);
+        if (!frame_latch) ppu.renderScanline(ppu_scanline + 1);
+        else ppu.fakeSpriteHit(ppu_scanline + 1);
+
+        cpu.clock(114);
+        if (!frame_latch) ppu.renderScanline(ppu_scanline + 2);
+        else ppu.fakeSpriteHit(ppu_scanline + 2);
+    }
+
+    // Setup for the next frame
+    // Same reason as scanlines 0-239, 2/3 of scanlines will have an extra CPU clock.
+    // Scanline 240
+    cpu.clock(113);
+
+    // Scanline 241-261
+    ppu.setVBlank();
+    cpu.clock(2501);
+
+    ppu.clearVBlank();
+    cpu.clock(114);
+
+#ifdef FRAMESKIP
+    frame_latch = !frame_latch;
+#endif
+}
+
+IRAM_ATTR void Bus::setPPUMirrorMode(Cartridge::MIRROR mirror)
+{
+    ppu.setMirror(mirror);
+}
+
+Cartridge::MIRROR Bus::getPPUMirrorMode()
+{
+    return ppu.getMirror();
+}
+
+IRAM_ATTR void Bus::OAM_Write(uint8_t addr, uint8_t data)
+{
+    ppu.ptr_sprite[addr] = data;
+}
+
+void Bus::insertCartridge(Cartridge* cartridge)
+{
+    cart = cartridge;
+    cpu.connectCartridge(cartridge);
+    ppu.connectCartridge(cartridge);
+    cart->connectBus(this);
+}
+
+void Bus::connectDisplayFlush(NesDisplayFlushFn fn)
+{
+    displayFlush = fn;
+}
+
+void Bus::connectFramebuffer(uint8_t* framebuffer)
+{
+    ppu.connectFramebuffer(framebuffer);
+}
+
+IRAM_ATTR void Bus::renderImage(uint16_t scanline)
+{
+    if (displayFlush)
+        displayFlush(ppu.ptr_display, scanline, SCANLINES_PER_BUFFER);
+}
+
+IRAM_ATTR void Bus::IRQ()
+{
+    cpu.IRQ();
+}
+
+IRAM_ATTR void Bus::NMI()
+{
+    cpu.NMI();
+}
+
+void Bus::saveState()
+{
+    // AL-ANQA patch: save states live under /apps/nes/states (was /states). mkdir
+    // is single-level, so create each parent in turn.
+    if (!SD.exists("/apps")) SD.mkdir("/apps");
+    if (!SD.exists("/apps/nes")) SD.mkdir("/apps/nes");
+    if (!SD.exists("/apps/nes/states")) SD.mkdir("/apps/nes/states");
+    uint32_t CRC32 = cart->CRC32;
+
+    static char CRC32_str[9];
+    sprintf(CRC32_str, "%08lX", (unsigned long)CRC32);
+
+    static char filename[40];
+    sprintf(filename, "/apps/nes/states/%s.state", CRC32_str);   // AL-ANQA patch: was /states/
+
+    File state = SD.open(filename, FILE_WRITE);
+    if (!state) return;
+
+    // Header for verification - ANEMOIA + CRC32
+    state.print("ANEMOIA");
+    state.write((const uint8_t*)CRC32_str, 8);
+
+    // Dump state
+    state.write(RAM, sizeof(RAM));
+    cpu.dumpState(state);
+    ppu.dumpState(state);
+    cart->dumpState(state);
+
+    state.close();
+}
+
+void Bus::loadState()
+{
+    uint32_t CRC32 = cart->CRC32;
+
+    static char CRC32_str[9];
+    sprintf(CRC32_str, "%08lX", (unsigned long)CRC32);
+
+    static char filename[40];
+    sprintf(filename, "/apps/nes/states/%s.state", CRC32_str);   // AL-ANQA patch: was /states/
+    if (!SD.exists(filename)) return;
+
+    File state = SD.open(filename, FILE_READ);
+    if (!state) return;
+
+    // Verify header
+    static char header[8];
+    static char CRC[9];
+    state.read((uint8_t*)&header, 7);
+    header[7] = '\0';
+    state.read((uint8_t*)&CRC, 8);
+    CRC[8] = '\0';
+
+    if (strcmp(header, "ANEMOIA") != 0)
+    {
+        state.close();
+        return;
+    }
+    if (strcmp(CRC, CRC32_str) != 0)
+    {
+        state.close();
+        return;
+    }
+
+    // Load state
+    state.read(RAM, sizeof(RAM));
+    cpu.loadState(state);
+    ppu.loadState(state);
+    cart->loadState(state);
+
+    state.close();
+}

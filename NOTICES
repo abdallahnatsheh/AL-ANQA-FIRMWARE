@@ -1,15 +1,23 @@
-T-REX Third-Party Notices
+AL-ANQA Third-Party Notices
 =========================
 
 This project incorporates code from the following open-source projects:
 
 1. Bruce Firmware
    Source:  https://github.com/pr3y/Bruce
+            https://github.com/BruceDevices/firmware  (maintained fork)
    License: GNU Affero General Public License v3.0 (AGPL-3.0)
-   Files:   t-deck-cli/eviltwin.cpp, t-deck-cli/deauth_functions.cpp
+   Files:   t-deck-cli/eviltwin.cpp, t-deck-cli/deauth_functions.cpp,
+            al-anqa-firmware/wifi/tools/wardrive/wardrive.cpp,
+            al-anqa-firmware/wifi/attacks/arpspoof/arpspoof.cpp
    Notes:   Evil Twin captive portal HTML templates and raw 802.11 frame
             injection approach adapted from Bruce's evil_portal.cpp and
-            related WiFi attack modules.
+            related WiFi attack modules. Wardrive's synchronous WiFi-scan +
+            GPS -> WiGLE CSV method (blocking scan, scanDelete settle delay,
+            HDOP/altitude CSV fields) adapted from Bruce's
+            src/modules/gps/wardriving.cpp. The ARP-reply injection method
+            (raw ethernet+ARP pbuf -> netif linkoutput so the WiFi driver
+            encrypts it) mirrors Bruce's src/modules/ethernet/ARPoisoner.cpp.
 
 2. LovyanGFX
    Source:  https://github.com/lovyan03/LovyanGFX
@@ -58,3 +66,136 @@ This project incorporates code from the following open-source projects:
              gap-and-return analysis, crowd filtering) was inspired by
              AirGuard's published research by the Secure Mobile Networking
              Lab, TU Darmstadt. No source code was copied or adapted.
+
+11. BLE advertisement identifier data (specification reference — no code used)
+    Files:   al-anqa-firmware/bluetooth/core/ble_ident.h
+    Sources: Bluetooth SIG "Assigned Numbers" — Company Identifiers
+             https://www.bluetooth.com/specifications/assigned-numbers/
+             furiousMAC/continuity (Apple Continuity protocol RE + paper
+             "Handoff All Your Privacy", Celosia & Cunche)
+             https://github.com/furiousMAC/continuity
+             kavishdevar/librepods, ECTO-1A/AppleJuice
+             https://github.com/kavishdevar/librepods
+             https://github.com/ECTO-1A/AppleJuice
+    Notes:   The company-ID -> vendor table, Apple Continuity message-type
+             codes, and AirPods/Beats proximity-pairing model-ID -> name
+             mappings are factual identifier data compiled from the public
+             Bluetooth SIG registry and the above community reverse-
+             engineering work. No source code was copied or adapted.
+
+12. Cardputer-CSI-Human-Detector (algorithm reference)
+    Files:   al-anqa-firmware/wifi/sensing/csidetect.cpp
+    Source:  https://github.com/skizzophrenic/Cardputer-CSI-Human-Detector
+    License: MIT License (Copyright (c) skizzophrenic / TalkingSasquach)
+    Notes:   The CSI acquisition config (wifi_csi_config_t fields), the
+             per-subcarrier amplitude/phase variance with asymmetric-EMA
+             self-calibration, and the hold/coast presence logic in csidetect
+             are adapted from its single-device CSI path. No source was copied
+             verbatim — the algorithm and constants were reimplemented for
+             AL-ANQA. CSI is single-antenna: motion energy only, no bearing.
+
+13. esp-csi (official CSI reference — no code used)
+    Source:  https://github.com/espressif/esp-csi
+    License: Apache License 2.0
+    Notes:   Espressif's official ESP32-S3 Channel State Information examples
+             were used as an API/feasibility reference for csidetect. No source
+             code was copied or adapted. (Espressif's newer esp_wifi_sensing /
+             esp-radar components require ESP-IDF >= 5.4 and cannot run on this
+             project's IDF 4.4 / Arduino-core 2.x toolchain.)
+
+14. ESPectre (methodology reference — no code used)
+    Files:   al-anqa-firmware/wifi/sensing/csidetect.cpp
+    Source:  https://github.com/francescopace/espectre
+    License: GPL-3.0
+    Notes:   Methodology/specification reference only — no source copied. Three
+             ideas were re-implemented as portable math in csidetect: (1) NBVI-
+             style automatic subcarrier weighting (emphasise motion-responsive
+             subcarriers via normalized per-subcarrier variance instead of a
+             plain average); (2) Hampel outlier rejection on the motion stream;
+             (3) fully passive operation — sensing off any AP's beacons with no
+             association (AL-ANQA `csi auto` + single-source MAC lock).
+
+15. AirSnitch (research technique reference — no code used)
+    Files:   al-anqa-firmware/wifi/intel/netspy.cpp
+             al-anqa-firmware/wifi/attacks/isoscan/isoscan.cpp
+             al-anqa-firmware/wifi/attacks/isoscan/iso_ccmp.cpp
+    Source:  https://github.com/vanhoefm/airsnitch
+             https://papers.mathyvanhoef.com/ndss2026-airsnitch.pdf
+    License: All rights reserved (no license file) — techniques only, from the
+             published paper (Mathy Vanhoef et al., NDSS 2026).
+    Notes:   Both the passive (netspy / ns) and active (isoscan / is) techniques
+             were reimplemented from the paper's description — no AirSnitch source
+             was read, copied or adapted. netspy uses only the passive portion
+             (sniff the AP-relayed group/broadcast frames, which an associated
+             ESP32 decrypts in hardware, and parse ARP/DHCP/mDNS/SSDP). isoscan
+             implements the active GTK-injection idea by software-CCMP-encrypting
+             a broadcast frame with the live group key and injecting it; the CCMP
+             (AES-CCM) is the standard IEEE 802.11 construction via mbedTLS.
+
+16. SensorLib
+    Source:  https://github.com/lewisxhe/SensorLib  (PlatformIO: lewisxhe/SensorLib @ ^0.4.1)
+    License: MIT License (Copyright (c) 2022 Lewis He)
+    Files:   al-anqa-firmware/core/input/touch/touch_manager.cpp
+    Use:     TouchDrvGT911 — GT911 capacitive touch controller driver.
+
+17. LilyGo T-Deck official examples (configuration reference)
+    Source:  https://github.com/Xinyuan-LilyGO/T-Deck
+             examples/Touchpad/Touchpad.ino
+    License: MIT License (Copyright (c) 2023 Shenzhen Xin Yuan Electronic
+             Technology Co., Ltd)
+    Files:   al-anqa-firmware/core/input/touch/touch_manager.cpp
+    Notes:   The GT911 begin()/setPins/setMaxCoordinates/setSwapXY/setMirrorXY
+             configuration (address, swap-XY, mirror-Y-only, 320x240) is taken
+             verbatim from the vendor's own reference sketch for this exact
+             board — not derived or guessed. No other code was copied.
+
+18. Noto Sans (embedded font)
+    Source:  https://fonts.google.com/noto/specimen/Noto+Sans  (Google / Noto Project)
+    License: SIL Open Font License 1.1
+    Files:   al-anqa-firmware/core/system/undercover/notes_fonts.h (generated),
+             convert_font.py (generator)
+    Notes:   Noto Sans Regular + Bold are rendered to anti-aliased VLW smooth
+             fonts by convert_font.py and embedded for the undercover Notes cover
+             UI (notes_ui.cpp). The OFL permits embedding; the font is bundled as
+             bitmap glyph data, not redistributed as a TTF.
+
+19. WPA3 transition-mode downgrade — Dragonblood (technique reference — no code used)
+    Files:   al-anqa-firmware/wifi/attacks/wpa3down/wpa3down.cpp
+    Source:  Dragonblood — CVE-2019-9494 through CVE-2019-9499 (Mathy Vanhoef,
+             Eyal Ronen), https://wpa3.mathyvanhoef.com/
+             TrustedSec, "Auditing WPA3" (Jul 2024) writeup.
+             RedLegg eaphammer WPA3-downgrade demonstration (Jun 2025).
+    License: Published research / advisories — no source copied.
+    Notes:   The transition-mode downgrade technique (deauth off the real AP, then
+             offer a WPA2-PSK-only rogue AP with the same SSID to force a WPA2
+             reconnect + crackable handshake) is implemented from the published
+             descriptions. The rogue-AP/EAPOL mechanics reuse Al-Anqa's own karma
+             `roguehs` engine; no third-party attack code was read or adapted.
+
+20. Anemoia NES emulator core
+    Files:   al-anqa-firmware/games/nes/anemoia/ (vendored in-tree, patched for AL-ANQA)
+    Source:  https://github.com/Shim06/Anemoia-ESP32 (GPL-3.0), by Shim06
+    License: GPL-3.0 (GNU General Public License v3.0) — full text shipped at
+             al-anqa-firmware/games/nes/anemoia/LICENSE; see that dir's
+             README.AL-ANQA.txt for the local attribution + patch summary.
+    Notes:   Vendored in-tree at games/nes/anemoia/ (NOT under lib/ — PlatformIO's
+             LDF can't auto-discover the core's static constexpr odr-use from a
+             library in gnu++11 mode, so it compiles as project sources).
+             Patches: TFT_eSPI dependency replaced
+             with a display-flush callback (NesDisplayFlushFn) in bus.h/bus.cpp;
+             debug.h OPTIMIZATION_FLAGS #error removed (flag supplied via
+             library.json); ppu2C02.h include path fixed from ../../config.h to
+             config.h; bus.cpp save/load-state path moved from /states to
+             /apps/nes/states (grouped under the emulator's SD folder). All other
+             core files (CPU, PPU, APU, mappers 0-4+069) are otherwise verbatim.
+             I2S audio path (ESP32-S3 external DAC) was
+             already present in the upstream fork; only the pin constants were
+             changed to T-Deck values (BCK=7/WS=5/DOUT=6) via config.h.
+
+21. Responder (LLMNR/NBT-NS poisoning + NetNTLM capture — technique reference)
+    Source:  https://github.com/lgandx/Responder
+    License: Methodology reference only — no source code copied or ported.
+    Notes:   Al-Anqa's `responder`/`rsp` implements the well-known LLMNR/NBT-NS name
+             poisoning + fake-HTTP NTLM challenge/NetNTLMv2 capture technique from
+             published descriptions and the NTLMSSP spec (MS-NLMP). All lwip/HTTP
+             code is original; no Responder (Python) source was read or adapted.

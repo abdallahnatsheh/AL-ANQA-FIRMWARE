@@ -1,0 +1,7 @@
+<div class="lang-switch" style="padding:0.75rem 0.9rem;border-top:1px solid rgba(128,128,128,0.25);margin-top:0.5rem;">
+{% if site.active_lang == site.default_lang %}
+  <a href="{{ site.baseurl }}/ar{{ page.url }}" class="btn btn-primary" style="display:block;text-align:center;">🌐 العربية</a>
+{% else %}
+  <a {% static_href %}href="{{ site.baseurl }}{{ page.url }}"{% endstatic_href %} class="btn btn-primary" style="display:block;text-align:center;">🌐 English</a>
+{% endif %}
+</div>

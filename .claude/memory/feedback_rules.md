@@ -1,0 +1,42 @@
+---
+name: Collaboration + Coding Rules
+description: All rules for how to work with this user and this codebase
+type: feedback
+---
+
+## Collaboration
+1. No `AskUserQuestion` tool — pick best approach, propose in text, let user redirect.
+2. No redundant verification — don't grep/diff/status after edits just to confirm. Trust the edit.
+3. No full license text via Write — AGPL-3.0 text triggers content filter. User pastes manually.
+4. Concise — Abdallah wants direct communication, file:line refs, no padding.
+5. Do NOT run `pio run` / compile — Abdallah compiles + flashes manually (his hardware). Write code, let him build. He also tests on-device per phase ("manual test first"). Compiling burns tokens; he'd rather build himself and report errors back. **Only compile when he EXPLICITLY asks this turn** (e.g. "compile it and validate the warnings" on 2026-07-01) — the exception does not carry over to later turns; default back to no-compile immediately after.
+6. Commits in HIS name ONLY — do NOT add the `Co-Authored-By: Claude` trailer. Plain commit message, no attribution footer.
+7. I cannot flash/run his hardware — only he can. Do NOT burn his flash cycles on speculative "try this" fixes. When a hardware bug's cause is unclear, **instrument the build** (on-screen heap/counters, serial) so ONE flash yields a diagnostic datapoint, then fix from data. Trace logic fully before shipping; don't iterate guesses in chat (he called this out on wardrive).
+8b. **Never use "god" as a casual technical label** (no "god object", "god file", "god class"). This is a firm user style preference. Say "oversized file", "catch-all module", "monolith", "does-too-much class" instead. Corrected 2026-07-08.
+8. **Always credit sources we learn from** (Abdallah cares about this). Whenever code, data tables, protocol/RE knowledge, or a method comes from a third party (repo, paper, spec, community reverse-engineering), credit it in BOTH the **source-file header** (a `Sources:` comment) AND the **`NOTICES`** file at repo root. Match the existing NOTICES style; if no code was copied (just facts/methodology), say so explicitly ("specification reference — no code used", like the AirGuard / ble_ident.h entries). Precedents: Bruce (wardrive/eviltwin), AirGuard (trackme), Bluetooth SIG + furiousMAC/librepods/AppleJuice (ble_ident.h).
+
+## Code Quality
+5. Reuse existing code — read the class before writing new functions. If a method exists, call it.
+5b. **No copy-paste duplication.** If the same code appears in several places unchanged, extract it
+    into ONE global/shared function (e.g. `wifi/core/` — see oui_lookup, wifi_sd_guard, dot11,
+    pcap_writer, captive_portal, wpa_crack). Don't reimplement a feature a sibling command already
+    has — lift it to core and have both call it. Prefer organizing code well over local convenience.
+5c. **Memory discipline — save now, win later (project is growing).** Don't keep sizable buffers
+    always-resident. Allocate transient/per-session buffers on demand and free on exit: big tables →
+    `ps_malloc` PSRAM (freed when the command exits, e.g. karma tables, ssh terminal, CaptivePortal,
+    portal picker `ents[]`); never a large `static`/global array that sits in DRAM while idle.
+    Exceptions: ISR-touched buffers MUST be internal DRAM (`heap_caps_malloc(MALLOC_CAP_INTERNAL)`,
+    still freed on exit) — PSRAM can't be hit from a true ISR. Watch the linker RAM% each build.
+6. Verify APIs before using — check actual header files (e.g. `getInitialized()` not `isInitialized()`).
+7. Test logic mentally — trace crash scenarios before submitting. Don't iterate fixes in chat.
+
+## Hardware Rules (ESP32-S3)
+**GDMA — CRITICAL:** WiFi and SPI-SD share the GDMA controller. Wrong teardown = SD permanently broken until reboot.
+- WiFi teardown: always `WiFi.mode(WIFI_STA)` — never `WIFI_OFF`
+- AP drop: always `WiFi.disconnect(false)` — never `disconnect(true)`
+- SD writes during capture: buffer in RAM, write only AFTER WiFi fully torn down
+- SD file open: always BEFORE `WiFi.mode(APSTA)` or `esp_wifi_set_promiscuous(true)`
+- After `NimBLEDevice::deinit(true)`: always call `SD.begin(39)` — BLE deinit disturbs SPI bus
+
+## User Background
+Abdallah — embedded/ESP32 dev, PlatformIO + Arduino, C++, WiFi/BLE APIs. Personal pentesting firmware project for ethical hacking/education.

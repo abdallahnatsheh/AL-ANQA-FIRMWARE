@@ -1,5 +1,6 @@
 ---
 title: Help & Manual
+lang: en
 parent: System
 nav_order: 1
 ---

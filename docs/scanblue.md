@@ -1,5 +1,6 @@
 ---
 title: Scan BLE
+lang: en
 parent: Bluetooth
 nav_order: 1
 ---

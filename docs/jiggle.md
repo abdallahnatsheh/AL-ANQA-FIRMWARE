@@ -1,5 +1,6 @@
 ---
 title: Mouse Jiggler
+lang: en
 parent: USB Gadget
 nav_order: 4
 ---
@@ -9,16 +10,26 @@ nav_order: 4
 ## `jiggle` / `jg` — Prevent Host Screen Lock
 
 ```
-CMD> jg
+CMD> jg          # USB HID (plug in cable)
+CMD> jg ble      # BLE HID (pair on host)
 ```
 
 Press `q` to stop.
+
+Two transports, identical behaviour:
+
+| Command | Transport | Setup |
+|---------|-----------|-------|
+| `jg`      | USB HID | Plug the T-DECK into the target PC with a data cable |
+| `jg ble`  | BLE HID | Run it, then pair **AL-ANQA-KBD** on the host (Just Works, no PIN) — reuses the `btkbd` BLE HID stack |
+
+The BLE mode advertises as `AL-ANQA-KBD`; once the host pairs and the link is encrypted, jiggling begins. If the host drops the link the jiggler pauses and waits to reconnect.
 
 ---
 
 ## How It Works
 
-`jiggle` sends tiny **USB HID mouse movement** packets to the connected PC on a timed interval. The cursor moves 1 pixel right, then 1 pixel left — staying in effectively the same position but continuously resetting the host OS's idle timer.
+`jiggle` sends tiny **HID mouse movement** packets to the host on a timed interval (over USB or BLE). The cursor moves 2 pixels right, then 2 pixels left — staying in effectively the same position but continuously resetting the host OS's idle timer.
 
 Most operating systems treat any mouse movement as "user activity" and reset their screen lock/sleep timer. This keeps the host awake and unlocked indefinitely without touching the actual keyboard or mouse.
 
