@@ -25,4 +25,5 @@ CMD> info
 | Key | Action |
 |-----|--------|
 | `l` / `a` | Next / previous page |
+| `s` | Replay the boot splash (phoenix) — press any key to return |
 | `q` | Quit |

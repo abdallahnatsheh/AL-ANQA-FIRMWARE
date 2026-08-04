@@ -15,7 +15,7 @@ nav_order: 3
 ينفّذ سكربتات حقن ضغطات المفاتيح. متوافق مع DuckyScript v1 الخاص بـ Flipper Zero. ويمكن تسليم **السكربت نفسه** عبر **USB HID** (وصّل الكابل) أو **BLE HID** (يعمل T-Deck لوحةَ مفاتيح Bluetooth) — انظر قسم BadBLE أدناه.
 
 ```
-CMD> ux demo                      # USB، عرض مدمج (يفتح Notepad، ويرسم العنقاء)
+CMD> ux demo                      # USB، عرض مدمج (يكتشف نظام التشغيل ويرسم العنقاء)
 CMD> ux /apps/badusb/scripts/payload.txt       # USB، من بطاقة SD
 CMD> ux ble                       # BLE، قائمة تفاعلية (الوضع / الهدف / الاسم / السكربت)
 CMD> ux ble demo                  # BLE، لوحة مفاتيح جديدة
@@ -24,6 +24,19 @@ CMD> ux ble name "Magic Keyboard" demo   # BLE، اسم إعلان مخصّص
 ```
 
 تقع السكربتات في `/apps/badusb/scripts/` على بطاقة SD (تُنشَأ عند أوّل إقلاع).
+
+### العرض المدمج (`ux demo`) — واعٍ بنظام التشغيل
+
+يكتب العرض **عنقاء الأنقاء** برسم ASCII. عبر USB يقوم أولًا **باكتشاف نظام التشغيل**
+(فحص مؤشّر NumLock، نفس طريقة `ux auto`) ويفتح الهدف المناسب قبل الرسم:
+
+| النظام | ما يفتحه |
+|----|---------------|
+| **Windows** | `Win+R` ← **notepad** |
+| **macOS** | `Cmd+Space` (Spotlight) ← **TextEdit** ← `Cmd+N` |
+| **Linux** | `Ctrl+Alt+T` (طرفية) ← أمر `cat` (heredoc) **يطبع** الرسم |
+
+لا يستطيع `ux ble demo` قراءة مؤشّر NumLock عبر BLE، فيرجع إلى مقدّمة Windows.
 
 ### الأوامر المدعومة
 
