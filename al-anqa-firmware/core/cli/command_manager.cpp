@@ -77,6 +77,7 @@ void runNetspy(char* a);
 void runIsoscan(char* a);
 void runArpSpoof(char* a);
 void runResponder(char* a);
+void runDpwo(char* a);
 void runWps(char* a);
 void runWpa3Down(char* a);
 
@@ -816,7 +817,7 @@ void CommandManager::setupCommands() {
     registerCommand("macchanger",  "mc",     [](char* a) { stopEspchatBg(); MacChanger::getInstance().handleCommand(a); },  "MAC spoof: mc [on|off|random|set <mac>|restore on|off|target wifi|bt|both|status]", true,  "WiFi");
     registerCommand("wpasniff",    "ws",     [](char* a) { stopEspchatBg(); handshakeCapture.start(a); },                   "WPA2 handshake: ws <idx|bssid> [ch]",                true,  "WiFi");
     registerCommand("pmkid",       "pm",     [](char* a) { stopEspchatBg(); pmkidAttack.start(a); },                        "PMKID capture+crack: pm <idx|bssid> [ch]",           true,  "WiFi");
-    registerCommand("wpa3down",    "w3d",    [](char* a) { stopEspchatBg(); runWpa3Down(a); },                             "[EXP] WPA3 transition downgrade: w3d [idx] [victim-mac]", true, "WiFi");
+    registerCommand("wpa3down",    "w3d",    [](char* a) { stopEspchatBg(); runWpa3Down(a); },                             "[EXP] WPA3 downgrade + PMF probe: w3d [probe] [auto] [idx] [mac]", true, "WiFi");
     registerCommand("wguard",      "wg",     [](char* a) { stopEspchatBg(); handleWGuardCmd(a); },                          "WiFi IDS: wg <idx> [bg|stop]",                       true,  "WiFi");
     registerCommand("beaconflood", "bf",     [](char* a) { stopEspchatBg(); runBeaconFlood(a); },                           "Beacon flood: bf [list|seq <base>|file [path]]",     true,  "WiFi");
     registerCommand("karma",       "km",     [](char* a) { stopEspchatBg(); runKarma(a); },                                "Karma: km (harvest) | km auto | km hs/portal <ssid> | [h]/[p]/[s] in list", true,  "WiFi");
@@ -835,6 +836,7 @@ void CommandManager::setupCommands() {
     registerCommand("isoscan",     "is",     [](char* a) { runIsoscan(a); },                                                 "[EXP] Active isolation-bypass attacks: is [ns#] [attack]", true, "Network");
     registerCommand("arpspoof",    "as",     [](char* a) { runArpSpoof(a); },                                                "ARP cache poisoning + traffic log: as <victim> [gw]", true, "Network");
     registerCommand("responder",   "rsp",    [](char* a) { runResponder(a); },                                               "[EXP] LLMNR/NBT/mDNS poison+capture; rsp passive = listen-only", true, "Network");
+    registerCommand("dpwo",         "dw",     [](char* a) { runDpwo(a); },                                                     "[EXP] Default-password check on common ports: dw <ip|nd#|ns#>", true, "Network");
     registerCommand("ping",        "pg",     [](char* a) { networkScanner.pingHost(a); },                                   "Ping: pg <ip|host|#|ns#>",                 true,  "Network");
     registerCommand("ssh",         "sc",     [](char* a) { runSshCon(a); },                                                 "SSH client: ssh <ip|name> [user] | save/list/rm", true,  "Network");
     // ── Bluetooth ─────────────────────────────────────────────────────────────

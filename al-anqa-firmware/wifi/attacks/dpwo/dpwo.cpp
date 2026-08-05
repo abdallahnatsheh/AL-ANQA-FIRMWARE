@@ -1,0 +1,736 @@
+// AL-ANQA — offensive security firmware for LilyGo T-Deck
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Abdallah Natsheh
+//
+// dpwo / dw — DEFAULT-PASSWORD checker (Network, [EXP]).
+//
+// Audits a host you've already discovered for services still running FACTORY /
+// default credentials — the "admin:admin" class of finding that dominates real
+// LAN audits (IP cameras, routers, printers, NAS, IoT). It is a *default-cred*
+// checker, NOT a brute-forcer: a small curated per-service list, rate-limited,
+// own-networks-only.
+//
+// Everything is a short scripted exchange over a raw WiFiClient (TCP) / WiFiUDP
+// (UDP) socket — no per-protocol libraries, so RAM stays tiny (rule 5c). All
+// plain STA sockets (no promiscuous / no soft-AP) → NO GDMA concern, SD writes
+// are safe anytime. Only HTTP/RTSP Digest needs crypto (mbedTLS MD5, already
+// linked). Target resolution reuses network_scanner's shared resolveNetTarget
+// (ip / nd# / ns#), exactly like ping/portscan/arpspoof.
+//
+// Services checked (Phase 1):
+//   FTP(21) Telnet(23) HTTP(80/81/8000/8080, Basic+Digest) RTSP(554) Redis(6379)
+//   SNMP(161/udp community strings).
+//
+// HONEST LIMITS: default-cred list only (not a wordlist grinder); no modern web
+// FORM logins (CSRF/JS/custom POST) — HTTP is Basic/Digest only; HTTPS panels not
+// probed (TLS DRAM cost). Own networks only.
+//
+// Sources / method (see NOTICES #22 — technique/spec/prior-art references, no code
+// copied): HackTricks network-service pentesting; RFC 2617 (HTTP Basic/Digest),
+// RFC 2326 (RTSP), RFC 1157 (SNMPv1). RouterSploit creds/ modules informed the
+// per-service default-cred flow ("success = past the 401"); Cameradar's RTSP route
+// dictionary informed the brand stream-path probing (cameras 404 on "/"); Bruce
+// ESP32 firmware is prior art for on-device router default-cred search. Camera
+// default-cred prevalence: Hikvision/Dahua public defaults.
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <SD.h>
+#include <mbedtls/md5.h>
+#include <mbedtls/base64.h>
+#include "libssh_esp32.h"          // SSH default-cred check reuses the sc/ssh infra
+#include <libssh/libssh.h>
+#include "dpwo.h"
+#include "display_manager.h"
+#include "input_handling.h"
+#include "lockscreen_manager.h"
+#include "network_scanner.h"   // resolveNetTarget()
+#include "sdcard_manager.h"    // SD_DIR_DPWO
+
+extern DisplayManager displayManager;
+extern InputHandling  inputHandler;
+extern SDCardManager  sdCardManager;
+
+// ── credential lists ──────────────────────────────────────────────────────────────
+struct DpCred { const char* user; const char* pass; };
+
+// Curated user:pass defaults (routers / cameras / NAS / IoT). Kept small so a full
+// pass over an open service is seconds, not minutes.
+static const DpCred DP_BUILTIN[] = {
+    {"admin", "admin"},   {"admin", "password"}, {"admin", ""},        {"admin", "1234"},
+    {"admin", "12345"},   {"admin", "admin123"}, {"admin", "9999"},    {"admin", "pass"},
+    {"root",  "root"},    {"root",  ""},         {"root",  "admin"},   {"root", "toor"},
+    {"root",  "password"},{"root",  "12345"},    {"user",  "user"},    {"guest", "guest"},
+    {"support","support"},{"service","service"},
+};
+static const int DP_BUILTIN_N = (int)(sizeof(DP_BUILTIN) / sizeof(DP_BUILTIN[0]));
+
+// SNMP community strings (read-access probe).
+static const char* DP_SNMP_COMM[] = { "public", "private", "community", "manager", "admin", "cisco" };
+static const int DP_SNMP_COMM_N = (int)(sizeof(DP_SNMP_COMM) / sizeof(DP_SNMP_COMM[0]));
+
+// SSH gets its OWN short list: each attempt is a full key-exchange (slow + a crash
+// risk on the shared HW-SHA engine, see ssh_client), so keep it tight.
+static const DpCred DP_SSH_CREDS[] = {
+    {"root", "root"}, {"root", "admin"},  {"root", "toor"},      {"root", "password"},
+    {"root", ""},     {"admin", "admin"}, {"admin", "password"}, {"admin", ""},
+    {"pi", "raspberry"}, {"user", "user"},
+};
+static const int DP_SSH_N = (int)(sizeof(DP_SSH_CREDS) / sizeof(DP_SSH_CREDS[0]));
+
+// Runtime cred table = built-ins + optional SD extras (/apps/dpwo/creds.csv "user,pass").
+// The SD-row backing store is heap-allocated on demand and freed on exit (rule 5c);
+// built-in rows point at string literals and need no backing.
+#define DP_MAX_CREDS 48
+static DpCred s_creds[DP_MAX_CREDS];               // small (pointer pairs), always resident
+static char (*s_credBuf)[2][24] = nullptr;         // heap SD backing, freed by dpFreeCreds()
+static int  s_credN = 0;
+
+static void dpLoadCreds() {
+    s_credN = 0;
+    for (int i = 0; i < DP_BUILTIN_N && s_credN < DP_MAX_CREDS; i++)
+        s_creds[s_credN++] = DP_BUILTIN[i];
+    if (!sdCardManager.canAccessSD()) return;
+    File f = SD.open(SD_DIR_DPWO "/creds.csv");
+    if (!f) return;
+    s_credBuf = (char (*)[2][24])malloc(sizeof(char) * DP_MAX_CREDS * 2 * 24);
+    if (!s_credBuf) { f.close(); return; }          // no SD extras this run, built-ins still work
+    int row = 0;
+    while (f.available() && s_credN < DP_MAX_CREDS && row < DP_MAX_CREDS) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0 || line[0] == '#') continue;
+        int c = line.indexOf(',');
+        if (c < 0) continue;
+        String u = line.substring(0, c);      u.trim();
+        String p = line.substring(c + 1);     p.trim();
+        strncpy(s_credBuf[row][0], u.c_str(), 23); s_credBuf[row][0][23] = 0;
+        strncpy(s_credBuf[row][1], p.c_str(), 23); s_credBuf[row][1][23] = 0;
+        s_creds[s_credN].user = s_credBuf[row][0];
+        s_creds[s_credN].pass = s_credBuf[row][1];
+        s_credN++; row++;
+    }
+    f.close();
+}
+
+static void dpFreeCreds() { if (s_credBuf) { free(s_credBuf); s_credBuf = nullptr; } s_credN = 0; }
+
+// ── low-level socket helpers ────────────────────────────────────────────────────────
+static bool dpAbort() {
+    char k = inputHandler.getKeyboardInput();
+    return (k == 'q' || k == 'Q');
+}
+
+static bool dpWaitAvail(WiFiClient& c, uint32_t toMs) {
+    uint32_t t0 = millis();
+    while (!c.available()) {
+        if (!c.connected() && !c.available()) return false;
+        if (millis() - t0 > toMs) return false;
+        delay(2);
+    }
+    return true;
+}
+
+// Read into buf until: overall timeout, or a >250ms lull after data arrived, or EOF.
+static int dpRead(WiFiClient& c, char* buf, int n, uint32_t toMs) {
+    uint32_t t0 = millis(), lastData = millis();
+    int got = 0;
+    while (got < n - 1) {
+        while (c.available() && got < n - 1) { buf[got++] = (char)c.read(); lastData = millis(); }
+        if (!c.connected() && !c.available()) break;
+        if (millis() - t0 > toMs) break;
+        if (got > 0 && millis() - lastData > 250) break;
+        delay(4);
+    }
+    buf[got] = 0;
+    return got;
+}
+
+// ── crypto helpers (HTTP/RTSP auth) ──────────────────────────────────────────────────
+static void dpMd5Hex(const String& s, char* outHex /*33*/) {
+    unsigned char d[16];
+    mbedtls_md5_context ctx; mbedtls_md5_init(&ctx);
+    mbedtls_md5_starts_ret(&ctx);
+    mbedtls_md5_update_ret(&ctx, (const unsigned char*)s.c_str(), s.length());
+    mbedtls_md5_finish_ret(&ctx, d);
+    mbedtls_md5_free(&ctx);
+    for (int i = 0; i < 16; i++) sprintf(outHex + i * 2, "%02x", d[i]);
+    outHex[32] = 0;
+}
+
+static String dpBasicHeader(const DpCred& c) {
+    String up = String(c.user) + ":" + c.pass;
+    unsigned char out[160]; size_t ol = 0;
+    if (mbedtls_base64_encode(out, sizeof(out), &ol, (const unsigned char*)up.c_str(), up.length()) != 0)
+        return String();
+    out[ol] = 0;
+    return String("Authorization: Basic ") + (char*)out;
+}
+
+// One WWW-Authenticate / auth challenge.
+enum { DP_AUTH_NONE = 0, DP_AUTH_BASIC, DP_AUTH_DIGEST };
+struct DpAuth { int scheme; char realm[64]; char nonce[160]; char qop[16]; char opaque[80]; };
+
+// Pull key="value" (or key=value) out of a header line, case-insensitive key.
+static bool dpAuthTok(const char* hdr, const char* key, char* out, int n) {
+    out[0] = 0;
+    String h(hdr), k(key);
+    h.toLowerCase(); k.toLowerCase();
+    int p = h.indexOf(k + "=");
+    if (p < 0) return false;
+    p += k.length() + 1;
+    // work on the ORIGINAL (case-preserved) string from p
+    const char* s = hdr + p;
+    while (*s == ' ') s++;
+    int i = 0;
+    if (*s == '"') {
+        s++;
+        while (*s && *s != '"' && i < n - 1) out[i++] = *s++;
+    } else {
+        while (*s && *s != ',' && *s != '\r' && *s != '\n' && *s != ' ' && i < n - 1) out[i++] = *s++;
+    }
+    out[i] = 0;
+    return true;
+}
+
+// Parse the WWW-Authenticate header out of a full HTTP/RTSP response.
+static void dpParseAuth(const char* resp, DpAuth& a) {
+    memset(&a, 0, sizeof(a));
+    // find the header line
+    String r(resp); String rl(resp); rl.toLowerCase();
+    int p = rl.indexOf("www-authenticate:");
+    if (p < 0) { a.scheme = DP_AUTH_NONE; return; }
+    int e = r.indexOf('\n', p); if (e < 0) e = r.length();
+    String line = r.substring(p, e);
+    String ll = line; ll.toLowerCase();
+    a.scheme = (ll.indexOf("digest") >= 0) ? DP_AUTH_DIGEST : DP_AUTH_BASIC;
+    dpAuthTok(line.c_str(), "realm",  a.realm,  sizeof(a.realm));
+    if (a.scheme == DP_AUTH_DIGEST) {
+        dpAuthTok(line.c_str(), "nonce",  a.nonce,  sizeof(a.nonce));
+        dpAuthTok(line.c_str(), "opaque", a.opaque, sizeof(a.opaque));
+        char qop[32]; if (dpAuthTok(line.c_str(), "qop", qop, sizeof(qop))) {
+            // may be "auth,auth-int" — we only do "auth"
+            if (strstr(qop, "auth")) strcpy(a.qop, "auth");
+        }
+    }
+}
+
+// Build the Authorization header line for a Basic/Digest challenge (HTTP or RTSP).
+static String dpAuthHeader(const DpCred& c, const char* method, const char* uri, const DpAuth& a) {
+    if (a.scheme == DP_AUTH_BASIC) return dpBasicHeader(c);
+    if (a.scheme != DP_AUTH_DIGEST) return String();
+    char ha1[33], ha2[33], resp[33];
+    dpMd5Hex(String(c.user) + ":" + a.realm + ":" + c.pass, ha1);
+    dpMd5Hex(String(method) + ":" + uri, ha2);
+    String hdr = String("Authorization: Digest username=\"") + c.user + "\", realm=\"" + a.realm +
+                 "\", nonce=\"" + a.nonce + "\", uri=\"" + uri + "\"";
+    if (a.qop[0]) {
+        char cnonce[9]; snprintf(cnonce, sizeof(cnonce), "%08x", (unsigned)(millis() * 2654435761u));
+        const char* nc = "00000001";
+        dpMd5Hex(String(ha1) + ":" + a.nonce + ":" + nc + ":" + cnonce + ":" + a.qop + ":" + ha2, resp);
+        hdr += String(", qop=") + a.qop + ", nc=" + nc + ", cnonce=\"" + cnonce + "\", response=\"" + resp + "\"";
+    } else {
+        dpMd5Hex(String(ha1) + ":" + a.nonce + ":" + ha2, resp);
+        hdr += String(", response=\"") + resp + "\"";
+    }
+    if (a.opaque[0]) hdr += String(", opaque=\"") + a.opaque + "\"";
+    return hdr;
+}
+
+// Status code out of "HTTP/1.1 401 ..." or "RTSP/1.0 200 ..." (first line).
+static int dpStatusCode(const char* resp) {
+    const char* sp = strchr(resp, ' ');
+    if (!sp) return 0;
+    return atoi(sp + 1);
+}
+
+// ── per-service checks ───────────────────────────────────────────────────────────────
+// return codes: -1 = port closed · 0 = open, no default found · 1 = HIT (creds set)
+//               2 = open with NO auth required · -2 = aborted by [q]
+
+static int dpHttpTry(IPAddress ip, uint16_t port, const DpCred& c, const char* method,
+                     const char* uri, const DpAuth& a) {
+    WiFiClient s;
+    if (!s.connect(ip, port, 800)) return 0;
+    String req = String(method) + " " + uri + " HTTP/1.1\r\nHost: " + ip.toString() +
+                 "\r\n" + dpAuthHeader(c, method, uri, a) + "\r\nConnection: close\r\nUser-Agent: dpwo\r\n\r\n";
+    s.print(req);
+    char r[512]; dpRead(s, r, sizeof(r), 1600); s.stop();       // status line is all we need
+    int code = dpStatusCode(r);
+    return (code >= 200 && code < 400 && code != 0) ? 1 : 0;   // past the 401 = accepted
+}
+
+static int dpHttp(IPAddress ip, uint16_t port, char* hu, char* hp) {
+    WiFiClient s;
+    if (!s.connect(ip, port, 500)) return -1;                  // closed
+    s.print(String("GET / HTTP/1.1\r\nHost: ") + ip.toString() +
+            "\r\nConnection: close\r\nUser-Agent: dpwo\r\n\r\n");
+    char r[1024]; dpRead(s, r, sizeof(r), 1600); s.stop();      // status + headers (auth challenge)
+    int code = dpStatusCode(r);
+    if (code != 401) {
+        if (code >= 200 && code < 400) { strcpy(hu, "(none)"); strcpy(hp, "no auth on /"); return 2; }
+        return 0;   // 403/404/etc with no challenge — nothing to try
+    }
+    DpAuth a; dpParseAuth(r, a);
+    if (a.scheme == DP_AUTH_NONE) return 0;
+    for (int i = 0; i < s_credN; i++) {
+        if (dpAbort()) return -2;
+        if (dpHttpTry(ip, port, s_creds[i], "GET", "/", a) == 1) {
+            strncpy(hu, s_creds[i].user, 23); hu[23] = 0;
+            strncpy(hp, s_creds[i].pass[0] ? s_creds[i].pass : "(blank)", 23); hp[23] = 0;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Common camera stream paths — many cameras 404 on "/" and only challenge auth on a
+// valid route (Cameradar's insight, NOTICES). Probe these until one 401s (or 200s).
+static const char* DP_RTSP_PATHS[] = {
+    "/",                                   // generic / some NVRs
+    "/Streaming/Channels/101",             // Hikvision
+    "/cam/realmonitor?channel=1&subtype=0",// Dahua
+    "/h264Preview_01_main",                // Reolink
+    "/live.sdp", "/live", "/11",           // Axis / generic / some Chinese OEM
+};
+static const int DP_RTSP_PATHS_N = (int)(sizeof(DP_RTSP_PATHS) / sizeof(DP_RTSP_PATHS[0]));
+
+static int dpRtsp(IPAddress ip, char* hu, char* hp) {
+    { WiFiClient p; if (!p.connect(ip, 554, 500)) return -1; p.stop(); }   // port probe
+    // Find a path that either serves without auth (200) or challenges (401).
+    DpAuth a; a.scheme = DP_AUTH_NONE;
+    String url; int cseq = 1; bool challenged = false;
+    for (int pth = 0; pth < DP_RTSP_PATHS_N; pth++) {
+        if (dpAbort()) return -2;
+        String u = String("rtsp://") + ip.toString() + ":554" + DP_RTSP_PATHS[pth];
+        WiFiClient c;
+        if (!c.connect(ip, 554, 700)) return 0;
+        c.print(String("DESCRIBE ") + u + " RTSP/1.0\r\nCSeq: " + cseq++ + "\r\nUser-Agent: dpwo\r\n\r\n");
+        char r[900]; dpRead(c, r, sizeof(r), 1500); c.stop();   // need the WWW-Authenticate header
+        int code = dpStatusCode(r);
+        if (code >= 200 && code < 300) { strcpy(hu, "(none)"); strcpy(hp, "no auth"); return 2; }
+        if (code == 401) { dpParseAuth(r, a); url = u; challenged = true; break; }
+        // 404/400/etc → try the next brand path
+    }
+    if (!challenged || a.scheme == DP_AUTH_NONE) return 0;
+    for (int i = 0; i < s_credN; i++) {
+        if (dpAbort()) return -2;
+        WiFiClient c2;
+        if (!c2.connect(ip, 554, 800)) return 0;
+        String req = String("DESCRIBE ") + url + " RTSP/1.0\r\nCSeq: " + cseq++ + "\r\n" +
+                     dpAuthHeader(s_creds[i], "DESCRIBE", url.c_str(), a) + "\r\nUser-Agent: dpwo\r\n\r\n";
+        c2.print(req);
+        char rr[512]; dpRead(c2, rr, sizeof(rr), 1500); c2.stop();   // status line only
+        int cc = dpStatusCode(rr);
+        if (cc >= 200 && cc < 300) {
+            strncpy(hu, s_creds[i].user, 23); hu[23] = 0;
+            strncpy(hp, s_creds[i].pass[0] ? s_creds[i].pass : "(blank)", 23); hp[23] = 0;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int dpFtp(IPAddress ip, char* hu, char* hp) {
+    { WiFiClient p; if (!p.connect(ip, 21, 500)) return -1; p.stop(); }
+    for (int i = 0; i < s_credN; i++) {
+        if (dpAbort()) return -2;
+        WiFiClient c;
+        if (!c.connect(ip, 21, 800)) return 0;
+        char b[200];
+        dpRead(c, b, sizeof(b), 1500);                            // 220 banner
+        c.print(String("USER ") + s_creds[i].user + "\r\n");
+        dpRead(c, b, sizeof(b), 1500);                            // 331 (need pass) or 230
+        bool ok = (atoi(b) == 230);                               // some servers log in on USER alone
+        if (!ok) {
+            c.print(String("PASS ") + s_creds[i].pass + "\r\n");
+            dpRead(c, b, sizeof(b), 1800);                        // 230 ok / 530 fail
+            ok = (atoi(b) == 230);
+        }
+        c.print("QUIT\r\n"); c.stop();
+        if (ok) {
+            strncpy(hu, s_creds[i].user, 23); hu[23] = 0;
+            strncpy(hp, s_creds[i].pass[0] ? s_creds[i].pass : "(blank)", 23); hp[23] = 0;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Telnet: minimal IAC negotiation (refuse every option), collect printable text.
+static int dpTelnetRead(WiFiClient& c, char* buf, int n, uint32_t toMs) {
+    uint32_t t0 = millis(), lastData = millis();
+    int got = 0;
+    while (got < n - 1) {
+        while (c.available() && got < n - 1) {
+            uint8_t b = c.read(); lastData = millis();
+            if (b == 0xFF) {                                      // IAC
+                if (!dpWaitAvail(c, 300)) break;
+                uint8_t cmd = c.read();
+                if (cmd == 0xFF) { buf[got++] = (char)0xFF; continue; }
+                if (cmd >= 0xFB && cmd <= 0xFE) {                 // WILL/WONT/DO/DONT
+                    if (!dpWaitAvail(c, 300)) break;
+                    uint8_t opt = c.read();
+                    uint8_t reply = 0;
+                    if (cmd == 0xFD) reply = 0xFC;                // DO   -> WONT
+                    else if (cmd == 0xFB) reply = 0xFE;           // WILL -> DONT
+                    if (reply) { uint8_t o[3] = { 0xFF, reply, opt }; c.write(o, 3); }
+                }
+                continue;
+            }
+            if (b >= 32 || b == '\n' || b == '\r') buf[got++] = (char)b;
+        }
+        if (!c.connected() && !c.available()) break;
+        if (millis() - t0 > toMs) break;
+        if (got > 0 && millis() - lastData > 300) break;
+        delay(5);
+    }
+    buf[got] = 0;
+    return got;
+}
+
+static bool dpTelnetSuccess(const char* buf) {
+    String s(buf); s.toLowerCase();
+    if (s.indexOf("incorrect") >= 0 || s.indexOf("invalid") >= 0 || s.indexOf("fail") >= 0 ||
+        s.indexOf("denied") >= 0 || s.indexOf("bad pass") >= 0 || s.indexOf("login:") >= 0 ||
+        s.indexOf("password:") >= 0)
+        return false;
+    // a shell/banner rather than another prompt
+    if (s.indexOf("# ") >= 0 || s.indexOf("$ ") >= 0 || s.indexOf("welcome") >= 0 ||
+        s.indexOf("last login") >= 0 || s.indexOf("busybox") >= 0 || s.endsWith("# ") ||
+        s.endsWith("$ ") || s.endsWith("> "))
+        return true;
+    return false;   // ambiguous → treat as fail (avoid false positives)
+}
+
+static int dpTelnet(IPAddress ip, char* hu, char* hp) {
+    { WiFiClient p; if (!p.connect(ip, 23, 500)) return -1; p.stop(); }
+    for (int i = 0; i < s_credN; i++) {
+        if (dpAbort()) return -2;
+        WiFiClient c;
+        if (!c.connect(ip, 23, 900)) return 0;
+        char b[300];
+        dpTelnetRead(c, b, sizeof(b), 1500);                      // banner + "login:"
+        c.print(s_creds[i].user); c.print("\r\n");
+        dpTelnetRead(c, b, sizeof(b), 1500);                      // "Password:"
+        c.print(s_creds[i].pass); c.print("\r\n");
+        int n = dpTelnetRead(c, b, sizeof(b), 1900);
+        c.stop();
+        if (n > 0 && dpTelnetSuccess(b)) {
+            strncpy(hu, s_creds[i].user, 23); hu[23] = 0;
+            strncpy(hp, s_creds[i].pass[0] ? s_creds[i].pass : "(blank)", 23); hp[23] = 0;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int dpRedis(IPAddress ip, char* hu, char* hp) {
+    WiFiClient c;
+    if (!c.connect(ip, 6379, 500)) return -1;
+    c.print("PING\r\n");
+    char r[128]; dpRead(c, r, sizeof(r), 1200); c.stop();
+    if (strncmp(r, "+PONG", 5) == 0) { strcpy(hu, "(none)"); strcpy(hp, "NO AUTH"); return 2; }
+    // AUTH required → try passwords (redis AUTH is password-only on legacy servers)
+    for (int i = 0; i < s_credN; i++) {
+        if (dpAbort()) return -2;
+        if (!s_creds[i].pass[0]) continue;
+        WiFiClient a;
+        if (!a.connect(ip, 6379, 800)) return 0;
+        a.print(String("AUTH ") + s_creds[i].pass + "\r\n");
+        char rr[128]; dpRead(a, rr, sizeof(rr), 1000); a.stop();
+        if (strncmp(rr, "+OK", 3) == 0) {
+            strcpy(hu, "(any)");
+            strncpy(hp, s_creds[i].pass, 23); hp[23] = 0;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// SNMPv1 GetRequest for sysDescr.0 with `comm` — any valid reply = read access.
+static int dpBuildSnmp(const char* comm, uint8_t* p) {
+    static const uint8_t oid[] = { 0x06, 0x08, 0x2b, 0x06, 0x01, 0x02, 0x01, 0x01, 0x01, 0x00 };
+    int cl = strlen(comm);
+    int varbindContent = sizeof(oid) + 2;          // OID + NULL(05 00)
+    int varbind        = 2 + varbindContent;       // 30 len ...
+    int pduContent     = 3 + 3 + 3 + (2 + varbind); // reqid + err + erridx + varbindlist
+    int msgContent     = 3 + (2 + cl) + (2 + pduContent);
+    int i = 0;
+    p[i++] = 0x30; p[i++] = (uint8_t)msgContent;
+    p[i++] = 0x02; p[i++] = 0x01; p[i++] = 0x00;                 // version v1 (0)
+    p[i++] = 0x04; p[i++] = (uint8_t)cl; memcpy(p + i, comm, cl); i += cl;
+    p[i++] = 0xa0; p[i++] = (uint8_t)pduContent;                 // GetRequest PDU
+    p[i++] = 0x02; p[i++] = 0x01; p[i++] = 0x01;                 // request-id = 1
+    p[i++] = 0x02; p[i++] = 0x01; p[i++] = 0x00;                 // error-status
+    p[i++] = 0x02; p[i++] = 0x01; p[i++] = 0x00;                 // error-index
+    p[i++] = 0x30; p[i++] = (uint8_t)varbind;                    // varbind list
+    p[i++] = 0x30; p[i++] = (uint8_t)varbindContent;             // varbind
+    memcpy(p + i, oid, sizeof(oid)); i += sizeof(oid);
+    p[i++] = 0x05; p[i++] = 0x00;                                // value = NULL
+    return i;
+}
+
+static int dpSnmp(IPAddress ip, char* hu, char* hp) {
+    WiFiUDP udp;
+    if (!udp.begin(0)) return 0;
+    for (int i = 0; i < DP_SNMP_COMM_N; i++) {
+        if (dpAbort()) { udp.stop(); return -2; }
+        uint8_t pkt[96];
+        int len = dpBuildSnmp(DP_SNMP_COMM[i], pkt);
+        udp.beginPacket(ip, 161);
+        udp.write(pkt, len);
+        udp.endPacket();
+        uint32_t t0 = millis();
+        while (millis() - t0 < 700) {
+            if (udp.parsePacket() > 0) {                         // any reply = community valid
+                udp.stop();
+                strcpy(hu, "community");
+                strncpy(hp, DP_SNMP_COMM[i], 23); hp[23] = 0;
+                return 1;
+            }
+            delay(10);
+        }
+    }
+    udp.stop();
+    return -1;   // no reply on any community → treat as closed/filtered
+}
+
+// SSH (22): libssh needs a big stack, so — exactly like the `sc` command — the auth
+// loop runs in a dedicated ~50 KB pinned FreeRTOS task; the CLI task blocks on it.
+// Fresh session per cred (mirrors ssh_client's proven single-session path); a small
+// list bounds runtime + the per-KEX HW-SHA crash window.
+static volatile bool s_sshDone, s_sshAbort;
+static IPAddress     s_sshIp;
+static int           s_sshResult;               // 0 = no default, 1 = hit
+static char          s_sshU[24], s_sshP[24];
+
+static void dpSshTask(void* arg) {
+    (void)arg;
+    libssh_begin();
+    s_sshResult = 0;
+    char ips[20]; strncpy(ips, s_sshIp.toString().c_str(), 19); ips[19] = 0;
+    for (int i = 0; i < DP_SSH_N && !s_sshAbort; i++) {
+        ssh_session ses = ssh_new();
+        if (!ses) continue;
+        int port = 22; long tmo = 8; int noCfg = 0;
+        ssh_options_set(ses, SSH_OPTIONS_HOST, ips);
+        ssh_options_set(ses, SSH_OPTIONS_USER, DP_SSH_CREDS[i].user);
+        ssh_options_set(ses, SSH_OPTIONS_PORT, &port);
+        ssh_options_set(ses, SSH_OPTIONS_TIMEOUT, &tmo);
+        ssh_options_set(ses, SSH_OPTIONS_PROCESS_CONFIG, &noCfg);
+        if (ssh_connect(ses) != SSH_OK) { ssh_free(ses); continue; }
+        int rc = ssh_userauth_password(ses, NULL, DP_SSH_CREDS[i].pass);
+        ssh_disconnect(ses); ssh_free(ses);
+        if (rc == SSH_AUTH_SUCCESS) {
+            strncpy(s_sshU, DP_SSH_CREDS[i].user, 23); s_sshU[23] = 0;
+            const char* pp = DP_SSH_CREDS[i].pass[0] ? DP_SSH_CREDS[i].pass : "(blank)";
+            strncpy(s_sshP, pp, 23); s_sshP[23] = 0;
+            s_sshResult = 1;
+            break;
+        }
+    }
+    ssh_finalize();
+    s_sshDone = true;
+    vTaskDelete(NULL);
+}
+
+static int dpSsh(IPAddress ip, char* hu, char* hp) {
+    { WiFiClient p; if (!p.connect(ip, 22, 600)) return -1; p.stop(); }   // fast port probe
+    s_sshIp = ip; s_sshDone = false; s_sshAbort = false;
+    s_sshResult = 0; s_sshU[0] = 0; s_sshP[0] = 0;
+    if (xTaskCreatePinnedToCore(dpSshTask, "dpssh", 51200, nullptr, tskIDLE_PRIORITY + 3, nullptr, 1) != pdPASS)
+        return 0;                                          // couldn't spawn → treat as no-default
+    while (!s_sshDone) {
+        if (dpAbort()) s_sshAbort = true;                  // stop after the current attempt
+        delay(50);
+    }
+    if (s_sshResult == 1) { strcpy(hu, s_sshU); strcpy(hp, s_sshP); return 1; }
+    return 0;
+}
+
+// ── service table + UI ───────────────────────────────────────────────────────────────
+enum { SV_HTTP, SV_TELNET, SV_FTP, SV_RTSP, SV_REDIS, SV_SNMP, SV_SSH };
+struct DpSvc { uint16_t port; const char* name; uint8_t proto; };
+static const DpSvc DP_SVCS[] = {
+    { 21,   "FTP  ", SV_FTP },
+    { 22,   "SSH  ", SV_SSH },
+    { 23,   "TELNET",SV_TELNET },
+    { 80,   "HTTP ", SV_HTTP },
+    { 81,   "HTTP ", SV_HTTP },
+    { 8080, "HTTP ", SV_HTTP },
+    { 8000, "HTTP ", SV_HTTP },
+    { 554,  "RTSP ", SV_RTSP },
+    { 6379, "REDIS", SV_REDIS },
+    { 161,  "SNMP ", SV_SNMP },
+};
+static const int DP_SVC_N = (int)(sizeof(DP_SVCS) / sizeof(DP_SVCS[0]));
+
+// per-row state
+enum { ST_PENDING = 0, ST_TESTING, ST_CLOSED, ST_NODEF, ST_HIT, ST_OPEN };
+static uint8_t s_state[DP_SVC_N];
+static char    s_hu[DP_SVC_N][24];
+static char    s_hp[DP_SVC_N][24];
+
+static void dpDrawRow(int i) {
+    if (displayManager.isBlocked()) return;
+    int y = outputY + (2 + i) * LINE_HEIGHT;
+    displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+    displayManager.setCursor(6, y);
+    char pn[8]; snprintf(pn, sizeof(pn), "%-5u", DP_SVCS[i].port);
+    displayManager.setTextColor(0x7BEF);   displayManager.printText(pn);
+    displayManager.setTextColor(TFT_WHITE); displayManager.printText(DP_SVCS[i].name);
+    displayManager.printText(" ");
+    char line[40];
+    switch (s_state[i]) {
+        case ST_PENDING: displayManager.setTextColor(0x7BEF);   displayManager.printText("-"); break;
+        case ST_TESTING: displayManager.setTextColor(TFT_YELLOW);displayManager.printText("testing..."); break;
+        case ST_CLOSED:  displayManager.setTextColor(0x39E7);   displayManager.printText("closed"); break;
+        case ST_NODEF:   displayManager.setTextColor(0x7BEF);   displayManager.printText("open, no default"); break;
+        case ST_OPEN:
+            displayManager.setTextColor(TFT_ORANGE);
+            snprintf(line, sizeof(line), "%s", s_hp[i]);         // e.g. "NO AUTH" / "no auth on /"
+            displayManager.printText(line);
+            break;
+        case ST_HIT:
+            displayManager.setTextColor(TFT_GREEN);
+            snprintf(line, sizeof(line), "%s:%s", s_hu[i], s_hp[i]);
+            displayManager.printText(line);
+            break;
+    }
+}
+
+static void dpDrawChrome(IPAddress ip) {
+    displayManager.clearScreen();
+    displayManager.setDefaultTextSize();
+    displayManager.setCursor(10, outputY);
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("[");
+    displayManager.setTextColor(TFT_CYAN);   displayManager.printText("DPWO");
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("::");
+    displayManager.setTextColor(TFT_YELLOW); displayManager.printText("AUDIT");
+    displayManager.setTextColor(0x7BEF);     displayManager.printText("]  ");
+    displayManager.setTextColor(TFT_WHITE);  displayManager.println(ip.toString().c_str());
+    displayManager.setCursor(0, outputY + LINE_HEIGHT + 2);
+    displayManager.printSeparator();
+    for (int i = 0; i < DP_SVC_N; i++) dpDrawRow(i);
+    displayManager.setCursor(0, 210);
+    displayManager.printSeparator();
+    displayManager.setCursor(6, 214);
+    displayManager.setTextColor(0x7BEF); displayManager.printText("[q] stop");
+    displayManager.setTextColor(TFT_WHITE);
+}
+
+// Overwrite the footer line (y=214) with the run summary.
+static void dpDrawFooter(const char* msg, uint16_t color) {
+    if (displayManager.isBlocked()) return;
+    displayManager.fillRect(0, 212, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+    displayManager.setCursor(6, 214);
+    displayManager.setTextColor(color); displayManager.printText(msg);
+    displayManager.setTextColor(TFT_WHITE);
+}
+
+static int dpRunSvc(int i, IPAddress ip) {
+    switch (DP_SVCS[i].proto) {
+        case SV_HTTP:   return dpHttp(ip, DP_SVCS[i].port, s_hu[i], s_hp[i]);
+        case SV_TELNET: return dpTelnet(ip, s_hu[i], s_hp[i]);
+        case SV_FTP:    return dpFtp(ip, s_hu[i], s_hp[i]);
+        case SV_RTSP:   return dpRtsp(ip, s_hu[i], s_hp[i]);
+        case SV_REDIS:  return dpRedis(ip, s_hu[i], s_hp[i]);
+        case SV_SNMP:   return dpSnmp(ip, s_hu[i], s_hp[i]);
+        case SV_SSH:    return dpSsh(ip, s_hu[i], s_hp[i]);
+    }
+    return 0;
+}
+
+static void dpSaveHits(IPAddress ip, int hits) {
+    if (hits <= 0 || !sdCardManager.canAccessSD()) return;
+    sdCardManager.ensureDir(SD_DIR_DPWO);
+    File f = SD.open(SD_DIR_DPWO "/results.csv", FILE_APPEND);
+    if (!f) return;
+    for (int i = 0; i < DP_SVC_N; i++)
+        if (s_state[i] == ST_HIT || s_state[i] == ST_OPEN)
+            f.printf("%s,%u,%s,%s,%s\n", ip.toString().c_str(), DP_SVCS[i].port,
+                     DP_SVCS[i].name, s_hu[i], s_hp[i]);
+    f.close();
+}
+
+// ── entry ─────────────────────────────────────────────────────────────────────────────
+void runDpwo(char* args) {
+    if (WiFi.status() != WL_CONNECTED) {
+        displayManager.clearScreen();
+        displayManager.setCursor(10, outputY);
+        displayManager.setTextColor(TFT_YELLOW);
+        displayManager.println("Not on a network. Run cw first.");
+        displayManager.setTextColor(TFT_WHITE);
+        displayManager.printCommandScreen();
+        return;
+    }
+
+    String tok = args ? String(args) : String();
+    tok.trim();
+    if (tok.length() == 0) {
+        displayManager.clearScreen();
+        displayManager.setCursor(10, outputY);
+        displayManager.setTextColor(TFT_YELLOW);
+        displayManager.println("Usage: dw <ip|nd#|ns#>");
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.setTextColor(0x7BEF);
+        displayManager.println("Target a host from nd/ns, or an IP.");
+        displayManager.setTextColor(TFT_WHITE);
+        displayManager.printCommandScreen();
+        return;
+    }
+
+    IPAddress ip;
+    if (!resolveNetTarget(tok, ip)) {
+        displayManager.clearScreen();
+        displayManager.setCursor(10, outputY);
+        displayManager.setTextColor(TFT_RED);
+        displayManager.println("Can't resolve target.");
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.setTextColor(0x7BEF);
+        displayManager.println("Use an IP, or nd#/ns# after a scan.");
+        displayManager.setTextColor(TFT_WHITE);
+        displayManager.printCommandScreen();
+        return;
+    }
+
+    dpLoadCreds();
+    for (int i = 0; i < DP_SVC_N; i++) { s_state[i] = ST_PENDING; s_hu[i][0] = 0; s_hp[i][0] = 0; }
+    dpDrawChrome(ip);
+
+    int hits = 0; bool aborted = false;
+    for (int i = 0; i < DP_SVC_N && !aborted; i++) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) dpDrawChrome(ip);
+        s_state[i] = ST_TESTING; dpDrawRow(i);
+        int r = dpRunSvc(i, ip);
+        switch (r) {
+            case -2: aborted = true;  s_state[i] = ST_PENDING; break;
+            case -1: s_state[i] = ST_CLOSED; break;
+            case  0: s_state[i] = ST_NODEF;  break;
+            case  1: s_state[i] = ST_HIT;  hits++; break;
+            case  2: s_state[i] = ST_OPEN; hits++; break;
+        }
+        dpDrawRow(i);
+        if (dpAbort()) aborted = true;
+    }
+
+    dpFreeCreds();   // creds no longer needed (rule 5c — free before the results-view wait)
+    dpSaveHits(ip, hits);
+
+    char sm[48];
+    if (aborted)   snprintf(sm, sizeof(sm), "stopped - %d finding(s)  [any] back", hits);
+    else if (hits) snprintf(sm, sizeof(sm), "DONE - %d saved  [any] back", hits);
+    else           snprintf(sm, sizeof(sm), "DONE - no defaults  [any] back");
+    dpDrawFooter(sm, hits ? TFT_GREEN : 0x7BEF);
+
+    // hold for a keypress so results are readable
+    while (true) {
+        char k = inputHandler.getKeyboardInput();
+        if (k) break;
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) { dpDrawChrome(ip); dpDrawFooter(sm, hits ? TFT_GREEN : 0x7BEF); }
+        delay(20);
+    }
+    displayManager.printCommandScreen();
+}

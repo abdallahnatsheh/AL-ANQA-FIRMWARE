@@ -4,8 +4,9 @@ description: Ordered feature queue — priority order
 type: project
 ---
 
-> **Last reconciled 2026-08-04** against the live 70-command table. Marked done: #2 arpspoof,
-> #4 wpa3down, #6 responder, #23 NES (`game`), #29 wps, #35 GATT fuzzer (`bi`), netspy/isoscan.
+> **Last reconciled 2026-08-05** against the live command table. Marked done: #2 arpspoof,
+> #4 wpa3down (+Phase 3 PMF probe/client-discovery), #6 responder, #9 dpwo, #23 NES (`game`),
+> #29 wps, #35 GATT fuzzer (`bi`), netspy/isoscan.
 > Marked ❌ won't-do: #24 USB-LAN dongle (not feasible on this HW), #17 keylogger.
 > **Top open frontier = LoRa (SX1262 radio still unused): #20/#25/#27.**
 
@@ -30,7 +31,22 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
    `wifi/attacks/responder/`.
 7. **SSH Connect** — ✅ DONE 2026-06-13 as `ssh/sc <ip> [user]` (LibSSH-ESP32, interactive PTY shell, colour terminal + trackpad scrollback). Remaining: `<#>` index from `nd`, host-key pinning + key auth on `/apps/ssh/`, Ctrl-C, fuller VT100.
 8. **TCP Listener/Client** — catch reverse shells / forward input. `tcplisten/tl <port>` · `tcpclient/tc <ip> <port>`
-9. **DPWO** — default credential checker against discovered hosts. Command: `dpwo/dw <ip|#>`
+9. **DPWO** — ✅ DONE 2026-08-05 as `dpwo`/`dw <ip|nd#|ns#>` (Network, [EXP], built + static-reviewed,
+   **NOT HW-tested**). Default-password checker: raw-socket default-cred checks on FTP(21)/Telnet(23)/
+   HTTP(80,81,8000,8080 Basic+Digest)/RTSP(554 cameras, multi-path)/Redis(6379)/SNMP(161). **SSH(22)**
+   added via LibSSH-ESP32 in a dedicated 50KB pinned task (reuses `sc` infra; CLI blocks on it; fresh
+   session/cred, short list, slow per-KEX + HW-SHA crash risk). Built-in cred list + SD `/apps/dpwo/creds.csv`;
+   hits → `/apps/dpwo/results.csv`. Needs `cw`; reuses `resolveNetTarget`. mbedTLS MD5 for Digest, base64 for
+   Basic. Plain STA sockets (no GDMA concern). **Web-reviewed vs RouterSploit (creds flow) / Cameradar (RTSP
+   brand paths — cameras 404 on `/`) / Bruce ESP32 (prior art); NOTICES #22.** HONEST: default-cred only (not
+   brute-force), no web FORM logins, no HTTPS, Telnet success is heuristic. Module `wifi/attacks/dpwo/`.
+   **▶ PLANNED (NOT built — usability, do after HW test) [requested 2026-08-05]:**
+   - **Single-target / quiet mode (main ask):** `dw <ip> <port>` or `dw <ip> <service>` (e.g. `dw 192.168.1.10 ssh`,
+     `dw .. 554`, `dw .. http`) to probe ONE service instead of all 10 — less network noise / stealth, faster.
+     Parse a trailing port-number or service-name token; if present, run only that DP_SVCS row (skip the rest).
+     Also allow a subset list (`dw .. ftp,telnet`). Keep the full sweep as the no-token default.
+   - Possible follow-ons (lower prio): MQTT(1883) check (researched, not built); optional rate-limit/pacing
+     between attempts for extra stealth; HTTP form-login (hard — CSRF/JS); HTTPS opt-in (TLS DRAM cost).
 4. **WPA3 transition-mode downgrade** — ✅ DONE (Phase 2) as `wpa3down`/`w3d` (built, **NOT yet
    HW-tested**). TD-filtered picker → karma `roguehs` WPA2-only rogue AP + broadcast-deauth → EAPOL
    capture → `/apps/wpa3down/<ssid>.cap` (crack via `cc`). Phase 2 = core downgrade only; PMF-required

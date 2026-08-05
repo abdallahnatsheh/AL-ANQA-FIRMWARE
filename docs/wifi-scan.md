@@ -46,7 +46,7 @@ Each network is tagged by the AP's advertised authentication mode:
 | `WPA3` | Pure WPA3 (SAE only) — not downgradeable | Green |
 | `WPA3/TD` | **Transition mode** — WPA2 **and** WPA3 both accepted | **Yellow** |
 
-`WPA3/TD` (yellow) marks a WPA3-capable AP that still accepts WPA2, which makes it a candidate for a **WPA3 transition-mode downgrade** — the target class for the planned `wpa3down` / `w3d` attack. A pure WPA3 (SAE-only) AP shows plain `WPA3` (green). The classification comes straight from the ESP32 scan record's `authmode` (no extra probing / no transmit).
+`WPA3/TD` (yellow) marks a WPA3-capable AP that still accepts WPA2, which makes it a candidate for a **WPA3 transition-mode downgrade** — the target class for the [`wpa3down`](wpa3down) / `w3d` attack. A pure WPA3 (SAE-only) AP shows plain `WPA3` (green). The classification comes straight from the ESP32 scan record's `authmode` (no extra probing / no transmit).
 
 ---
 

@@ -124,6 +124,7 @@ void SDCardManager::ensureTreeStructure() {
     ensureDir(SD_DIR_ARPSPOOF);
     ensureDir(SD_DIR_WPS);
     ensureDir(SD_DIR_WPA3DOWN);
+    ensureDir(SD_DIR_DPWO);
     ensureDir(SD_DIR_MACWATCH);
     ensureDir(SD_DIR_I2CSCAN);
     ensureDir(SD_DIR_FASTPAIR);

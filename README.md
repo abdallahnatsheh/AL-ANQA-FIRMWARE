@@ -137,7 +137,7 @@ Run `help` for the list on-device, or `man <cmd>` for a full manual page.
 | `macchanger` | `mc` | `on\|off\|random\|set <mac>` | Spoof the STA MAC |
 | `wpasniff` | `ws` | `<idx\|bssid> [ch]` | Capture + crack a WPA2 handshake |
 | `pmkid` | `pm` | `<idx\|bssid> [ch]` | PMKID capture + crack — passive, no client |
-| `wpa3down` | `w3d` | `[idx]` | **[EXP]** WPA3 transition-mode downgrade → crackable `.cap` |
+| `wpa3down` | `w3d` | `[probe] [auto] [idx] [mac]` | **[EXP]** WPA3 transition downgrade → crackable `.cap`; auto-discovers the AP's clients (no MAC typing) + empirical PMF probe |
 | `karma` | `km` | `[auto\|hs\|portal <ssid>]` | Rogue-AP suite — harvest, PNL fingerprint, half-handshake, portal |
 | `crack` | `cc` | `[cap] [wordlist\|dir]` | Offline WPA/WPA2 crack (handshake or PMKID) |
 | `wguard` | `wg` | `<idx\|bssid> [ch] [bg]` | Passive WiFi IDS; `wg stop` / `wg view` |
@@ -156,6 +156,7 @@ Run `help` for the list on-device, or `man <cmd>` for a full manual page.
 | `responder` | `rsp` | `[passive]` | **[EXP]** LLMNR/NBT/mDNS poisoner + NetNTLMv2/v1 + Basic capture (HTTP & SMB); `passive` = listen-only → per-session SD folder |
 | `portscan` | `ps` | `<ip\|#\|ns#> <start> <end>` · `top ...` | TCP port scan (`top` = 26 common ports) |
 | `ping` | `pg` | `<ip\|host\|#\|ns#>` | Continuous ICMP ping with RTT stats |
+| `dpwo` | `dw` | `<ip\|nd#\|ns#>` | **[EXP]** Default-password check on common ports (FTP/SSH/Telnet/HTTP/RTSP/Redis/SNMP) → `/apps/dpwo/results.csv` |
 | `ssh` | `sc` | `<ip\|name> [user]` | Interactive SSH client (libssh) + saved profiles |
 | **Bluetooth** | | | |
 | `scanblue` | `sbl` | — | BLE device scan |

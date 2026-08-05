@@ -199,3 +199,24 @@ This project incorporates code from the following open-source projects:
              poisoning + fake-HTTP NTLM challenge/NetNTLMv2 capture technique from
              published descriptions and the NTLMSSP spec (MS-NLMP). All lwip/HTTP
              code is original; no Responder (Python) source was read or adapted.
+
+22. dpwo (default-password checker — technique/specification reference)
+    Source:  HackTricks network-service pentesting (https://hacktricks.wiki),
+             RFC 2617 (HTTP Basic/Digest), RFC 2326 (RTSP), RFC 1157 (SNMPv1).
+             Architecture/technique references (no code copied):
+               - RouterSploit (https://github.com/threat9/routersploit) — its
+                 creds/ modules (http_basic_digest_default, ftp/telnet/snmp) informed
+                 the per-service default-cred flow + "success = past the 401" check.
+               - Cameradar (https://github.com/Ullaakut/cameradar) — its RTSP
+                 stream-route dictionary showed that cameras often 404 on "/" and only
+                 challenge auth on a valid path; dpwo probes a small brand-path list.
+               - Bruce ESP32 firmware (https://github.com/BruceDevices/firmware) —
+                 prior art: an ESP32 that also searches default router credentials
+                 (feasibility precedent; no Bruce source read or ported).
+    License: Methodology / specification / prior-art reference only — no source code
+             copied. Camera default-cred prevalence (Hikvision/Dahua) from public
+             vendor documentation.
+    Notes:   Al-Anqa's `dpwo`/`dw` performs banner-grab + default-credential checks
+             (FTP/Telnet/HTTP/RTSP/Redis/SNMP) as short scripted exchanges over raw
+             WiFiClient/WiFiUDP sockets. All socket/auth code is original; the MD5
+             Digest response follows RFC 2617; no third-party tool source was used.
