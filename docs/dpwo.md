@@ -101,7 +101,9 @@ admin,vendor123
 installer,installer
 ```
 
-They're appended to the built-in list for that run.
+They're appended to the built-in list for FTP, Telnet, HTTP, RTSP, Redis, and MQTT.
+
+**SSH has its own file — `/apps/dpwo/ssh_creds.csv`** (same `user,pass` format). SSH is kept separate because each attempt is a full key exchange (slow), so you control its list explicitly. SNMP doesn't use these files at all — it tries **community strings**, not `user,pass`.
 
 ---
 

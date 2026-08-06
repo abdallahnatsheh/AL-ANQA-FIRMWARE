@@ -79,42 +79,65 @@ static const DpCred DP_SSH_CREDS[] = {
 };
 static const int DP_SSH_N = (int)(sizeof(DP_SSH_CREDS) / sizeof(DP_SSH_CREDS[0]));
 
-// Runtime cred table = built-ins + optional SD extras (/apps/dpwo/creds.csv "user,pass").
-// The SD-row backing store is heap-allocated on demand and freed on exit (rule 5c);
-// built-in rows point at string literals and need no backing.
+// Runtime cred tables = built-ins + optional SD extras. Two separate SD files:
+//   /apps/dpwo/creds.csv       → the shared "user,pass" list (FTP/Telnet/HTTP/RTSP/Redis/MQTT)
+//   /apps/dpwo/ssh_creds.csv   → SSH-only (kept separate: each SSH try is a slow key exchange)
+// SD-row backing stores are heap-allocated on demand + freed on exit (rule 5c); built-in
+// rows point at string literals and need no backing.
 #define DP_MAX_CREDS 48
-static DpCred s_creds[DP_MAX_CREDS];               // small (pointer pairs), always resident
-static char (*s_credBuf)[2][24] = nullptr;         // heap SD backing, freed by dpFreeCreds()
-static int  s_credN = 0;
+#define DP_SSH_MAX   24
+static DpCred s_creds[DP_MAX_CREDS];               // shared list (pointer pairs, always resident)
+static DpCred s_sshCr[DP_SSH_MAX];                 // SSH-only list
+static char (*s_credBuf)[2][24] = nullptr;         // heap SD backing for creds.csv
+static char (*s_sshBuf)[2][24]  = nullptr;         // heap SD backing for ssh_creds.csv
+static int  s_credN  = 0;
+static int  s_sshCrN = 0;
 
-static void dpLoadCreds() {
-    s_credN = 0;
-    for (int i = 0; i < DP_BUILTIN_N && s_credN < DP_MAX_CREDS; i++)
-        s_creds[s_credN++] = DP_BUILTIN[i];
-    if (!sdCardManager.canAccessSD()) return;
-    File f = SD.open(SD_DIR_DPWO "/creds.csv");
-    if (!f) return;
-    s_credBuf = (char (*)[2][24])malloc(sizeof(char) * DP_MAX_CREDS * 2 * 24);
-    if (!s_credBuf) { f.close(); return; }          // no SD extras this run, built-ins still work
+// Shared parser: append "user,pass" rows from an open SD file into cr[] (backed by the
+// pre-allocated buf), from *n up to max. Blank lines and '#' comments are skipped.
+static void dpReadCredFile(File& f, DpCred* cr, char (*buf)[2][24], int* n, int max) {
     int row = 0;
-    while (f.available() && s_credN < DP_MAX_CREDS && row < DP_MAX_CREDS) {
+    while (f.available() && *n < max && row < max) {
         String line = f.readStringUntil('\n');
         line.trim();
         if (line.length() == 0 || line[0] == '#') continue;
         int c = line.indexOf(',');
         if (c < 0) continue;
-        String u = line.substring(0, c);      u.trim();
-        String p = line.substring(c + 1);     p.trim();
-        strncpy(s_credBuf[row][0], u.c_str(), 23); s_credBuf[row][0][23] = 0;
-        strncpy(s_credBuf[row][1], p.c_str(), 23); s_credBuf[row][1][23] = 0;
-        s_creds[s_credN].user = s_credBuf[row][0];
-        s_creds[s_credN].pass = s_credBuf[row][1];
-        s_credN++; row++;
+        String u = line.substring(0, c);   u.trim();
+        String p = line.substring(c + 1);  p.trim();
+        strncpy(buf[row][0], u.c_str(), 23); buf[row][0][23] = 0;
+        strncpy(buf[row][1], p.c_str(), 23); buf[row][1][23] = 0;
+        cr[*n].user = buf[row][0];
+        cr[*n].pass = buf[row][1];
+        (*n)++; row++;
     }
-    f.close();
 }
 
-static void dpFreeCreds() { if (s_credBuf) { free(s_credBuf); s_credBuf = nullptr; } s_credN = 0; }
+static void dpLoadCreds() {
+    s_credN = 0;
+    for (int i = 0; i < DP_BUILTIN_N && s_credN < DP_MAX_CREDS; i++) s_creds[s_credN++] = DP_BUILTIN[i];
+    s_sshCrN = 0;
+    for (int i = 0; i < DP_SSH_N && s_sshCrN < DP_SSH_MAX; i++) s_sshCr[s_sshCrN++] = DP_SSH_CREDS[i];
+    if (!sdCardManager.canAccessSD()) return;
+    File f = SD.open(SD_DIR_DPWO "/creds.csv");
+    if (f) {
+        s_credBuf = (char (*)[2][24])malloc(sizeof(char) * DP_MAX_CREDS * 2 * 24);
+        if (s_credBuf) dpReadCredFile(f, s_creds, s_credBuf, &s_credN, DP_MAX_CREDS);
+        f.close();
+    }
+    File sf = SD.open(SD_DIR_DPWO "/ssh_creds.csv");
+    if (sf) {
+        s_sshBuf = (char (*)[2][24])malloc(sizeof(char) * DP_SSH_MAX * 2 * 24);
+        if (s_sshBuf) dpReadCredFile(sf, s_sshCr, s_sshBuf, &s_sshCrN, DP_SSH_MAX);
+        sf.close();
+    }
+}
+
+static void dpFreeCreds() {
+    if (s_credBuf) { free(s_credBuf); s_credBuf = nullptr; }
+    if (s_sshBuf)  { free(s_sshBuf);  s_sshBuf  = nullptr; }
+    s_credN = 0; s_sshCrN = 0;
+}
 
 // ── low-level socket helpers ────────────────────────────────────────────────────────
 static bool dpAbort() {
@@ -603,22 +626,22 @@ static void dpSshTask(void* arg) {
     libssh_begin();
     s_sshResult = 0;
     char ips[20]; strncpy(ips, s_sshIp.toString().c_str(), 19); ips[19] = 0;
-    for (int i = 0; i < DP_SSH_N && !s_sshAbort; i++) {
+    for (int i = 0; i < s_sshCrN && !s_sshAbort; i++) {
         s_sshTry = i + 1;                                        // live progress for the CLI task
         ssh_session ses = ssh_new();
         if (!ses) continue;
         int port = s_sshPort; long tmo = 8; int noCfg = 0;
         ssh_options_set(ses, SSH_OPTIONS_HOST, ips);
-        ssh_options_set(ses, SSH_OPTIONS_USER, DP_SSH_CREDS[i].user);
+        ssh_options_set(ses, SSH_OPTIONS_USER, s_sshCr[i].user);
         ssh_options_set(ses, SSH_OPTIONS_PORT, &port);
         ssh_options_set(ses, SSH_OPTIONS_TIMEOUT, &tmo);
         ssh_options_set(ses, SSH_OPTIONS_PROCESS_CONFIG, &noCfg);
         if (ssh_connect(ses) != SSH_OK) { ssh_free(ses); continue; }
-        int rc = ssh_userauth_password(ses, NULL, DP_SSH_CREDS[i].pass);
+        int rc = ssh_userauth_password(ses, NULL, s_sshCr[i].pass);
         ssh_disconnect(ses); ssh_free(ses);
         if (rc == SSH_AUTH_SUCCESS) {
-            strncpy(s_sshU, DP_SSH_CREDS[i].user, 23); s_sshU[23] = 0;
-            const char* pp = DP_SSH_CREDS[i].pass[0] ? DP_SSH_CREDS[i].pass : "(blank)";
+            strncpy(s_sshU, s_sshCr[i].user, 23); s_sshU[23] = 0;
+            const char* pp = s_sshCr[i].pass[0] ? s_sshCr[i].pass : "(blank)";
             strncpy(s_sshP, pp, 23); s_sshP[23] = 0;
             s_sshResult = 1;
             break;
@@ -645,7 +668,7 @@ static int dpSsh(IPAddress ip, uint16_t port, char* hu, char* hp) {
             displayManager.fillRect(DP_COL_STAT, y - 1, SCREEN_WIDTH - DP_COL_STAT, LINE_HEIGHT, TFT_BLACK);
             displayManager.setCursor(DP_COL_STAT, y);
             displayManager.setTextColor(TFT_YELLOW);
-            char b[20]; snprintf(b, sizeof(b), "testing %d/%d", t, DP_SSH_N);
+            char b[20]; snprintf(b, sizeof(b), "testing %d/%d", t, s_sshCrN);
             displayManager.printText(b);
             displayManager.setTextColor(TFT_WHITE);
             lastTry = t;

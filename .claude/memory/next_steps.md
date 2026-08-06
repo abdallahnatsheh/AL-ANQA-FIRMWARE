@@ -52,8 +52,11 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
    find the 401 → try creds there; Metasploit http_login/changeme method, NOTICES). **Unreachable footer** when
    all ports closed (isolation/down hint). UI: header n/total progress, live SSH `testing k/N`, `!` finding
    markers, aligned columns, multi-colour summary.
+   **✅ 2026-08-06:** SSH now has its OWN SD file `/apps/dpwo/ssh_creds.csv` (built-in ~10 + SD extras; kept
+   separate from creds.csv since each SSH try is a slow KEX). Shared parser `dpReadCredFile` (rule 5b), both
+   backing stores heap-freed on exit.
    **▶ PLANNED (NOT built, lower prio):** rate-limit/pacing for stealth; HTTP form-login (needs per-device
-   fingerprints); HTTPS opt-in (TLS DRAM); SSH keyboard-interactive; SD creds.csv not applied to SSH (own list).
+   fingerprints); HTTPS opt-in (TLS DRAM); SSH keyboard-interactive auth (only password now).
 4. **WPA3 transition-mode downgrade** — ✅ DONE (Phase 2) as `wpa3down`/`w3d` (built, **NOT yet
    HW-tested**). TD-filtered picker → karma `roguehs` WPA2-only rogue AP + broadcast-deauth → EAPOL
    capture → `/apps/wpa3down/<ssid>.cap` (crack via `cc`). Phase 2 = core downgrade only; PMF-required
