@@ -641,12 +641,16 @@ static const ManEntry PAGES[] = {
     }},
 
     { "dpwo", "dw", {
-        "SYNTAX   dw <ip|nd#|ns#>",
+        "SYNTAX   dw <ip|nd#|ns#> [port|service]",
         "",
         "ABOUT    [EXP] Default-password checker. Probes",
         "         a host's common services and tries a",
         "         small curated list of factory logins.",
         "         Needs cw (must be on the network).",
+        "",
+        "QUIET    add a port/service to check just ONE",
+        "         (less noise): dw <ip> ssh / 554 / http",
+        "         / a list: dw <ip> ftp,telnet",
         "",
         "PORTS    FTP(21) SSH(22) Telnet(23) HTTP(80/",
         "         81/8000/8080 Basic+Digest) RTSP(554,",

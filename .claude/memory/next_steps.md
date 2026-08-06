@@ -40,13 +40,12 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
    Basic. Plain STA sockets (no GDMA concern). **Web-reviewed vs RouterSploit (creds flow) / Cameradar (RTSP
    brand paths — cameras 404 on `/`) / Bruce ESP32 (prior art); NOTICES #22.** HONEST: default-cred only (not
    brute-force), no web FORM logins, no HTTPS, Telnet success is heuristic. Module `wifi/attacks/dpwo/`.
-   **▶ PLANNED (NOT built — usability, do after HW test) [requested 2026-08-05]:**
-   - **Single-target / quiet mode (main ask):** `dw <ip> <port>` or `dw <ip> <service>` (e.g. `dw 192.168.1.10 ssh`,
-     `dw .. 554`, `dw .. http`) to probe ONE service instead of all 10 — less network noise / stealth, faster.
-     Parse a trailing port-number or service-name token; if present, run only that DP_SVCS row (skip the rest).
-     Also allow a subset list (`dw .. ftp,telnet`). Keep the full sweep as the no-token default.
-   - Possible follow-ons (lower prio): MQTT(1883) check (researched, not built); optional rate-limit/pacing
-     between attempts for extra stealth; HTTP form-login (hard — CSRF/JS); HTTPS opt-in (TLS DRAM cost).
+   **✅ Quiet mode DONE 2026-08-06** (the main ask): `dw <ip> <port|service>` or a comma list (`dw <ip> ftp,telnet`)
+   limits the run to matching DP_SVCS rows — less noise/faster. `dpApplyFilter`→`s_enabled[]`; skipped rows show
+   `- skip` (ST_SKIP). Names ftp/ssh/telnet/http(all 4)/rtsp/redis/snmp or a port number; no filter = full sweep.
+   man/docs(EN+AR)/README/CLAUDE updated. **NOT HW-tested.**
+   **▶ PLANNED (NOT built, lower prio):** MQTT(1883) check (researched); optional rate-limit/pacing between
+   attempts for extra stealth; HTTP form-login (hard — CSRF/JS); HTTPS opt-in (TLS DRAM cost).
 4. **WPA3 transition-mode downgrade** — ✅ DONE (Phase 2) as `wpa3down`/`w3d` (built, **NOT yet
    HW-tested**). TD-filtered picker → karma `roguehs` WPA2-only rogue AP + broadcast-deauth → EAPOL
    capture → `/apps/wpa3down/<ssid>.cap` (crack via `cc`). Phase 2 = core downgrade only; PMF-required

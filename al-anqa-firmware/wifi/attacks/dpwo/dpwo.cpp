@@ -568,10 +568,39 @@ static const DpSvc DP_SVCS[] = {
 static const int DP_SVC_N = (int)(sizeof(DP_SVCS) / sizeof(DP_SVCS[0]));
 
 // per-row state
-enum { ST_PENDING = 0, ST_TESTING, ST_CLOSED, ST_NODEF, ST_HIT, ST_OPEN };
+enum { ST_PENDING = 0, ST_TESTING, ST_CLOSED, ST_NODEF, ST_HIT, ST_OPEN, ST_SKIP };
 static uint8_t s_state[DP_SVC_N];
+static bool    s_enabled[DP_SVC_N];             // quiet mode: only test these rows
 static char    s_hu[DP_SVC_N][24];
 static char    s_hp[DP_SVC_N][24];
+
+// Quiet/single-target mode: `dw <ip> <port|service>[,port|service...]` limits the run
+// to specific rows (less network noise). Token = a port number (554) or a service name
+// (ssh/http/ftp/telnet/rtsp/redis/snmp; "http" enables all HTTP ports). Returns the
+// number of rows enabled (0 = nothing matched).
+static int dpApplyFilter(const String& filter, bool* en) {
+    for (int i = 0; i < DP_SVC_N; i++) en[i] = false;
+    int start = 0, any = 0;
+    while (start < (int)filter.length()) {
+        int comma = filter.indexOf(',', start);
+        String t = (comma < 0) ? filter.substring(start) : filter.substring(start, comma);
+        t.trim(); t.toLowerCase();
+        if (t.length()) {
+            bool isNum = true;
+            for (unsigned k = 0; k < t.length(); k++)
+                if (!isdigit((unsigned char)t[k])) { isNum = false; break; }
+            for (int i = 0; i < DP_SVC_N; i++) {
+                bool match;
+                if (isNum) match = (DP_SVCS[i].port == (uint16_t)t.toInt());
+                else { String nm = DP_SVCS[i].name; nm.trim(); nm.toLowerCase(); match = (nm == t); }
+                if (match && !en[i]) { en[i] = true; any++; }
+            }
+        }
+        if (comma < 0) break;
+        start = comma + 1;
+    }
+    return any;
+}
 
 static void dpDrawRow(int i) {
     if (displayManager.isBlocked()) return;
@@ -585,6 +614,7 @@ static void dpDrawRow(int i) {
     char line[40];
     switch (s_state[i]) {
         case ST_PENDING: displayManager.setTextColor(0x7BEF);   displayManager.printText("-"); break;
+        case ST_SKIP:    displayManager.setTextColor(0x39E7);   displayManager.printText("- skip"); break;
         case ST_TESTING: displayManager.setTextColor(TFT_YELLOW);displayManager.printText("testing..."); break;
         case ST_CLOSED:  displayManager.setTextColor(0x39E7);   displayManager.printText("closed"); break;
         case ST_NODEF:   displayManager.setTextColor(0x7BEF);   displayManager.printText("open, no default"); break;
@@ -667,20 +697,26 @@ void runDpwo(char* args) {
         return;
     }
 
-    String tok = args ? String(args) : String();
-    tok.trim();
-    if (tok.length() == 0) {
+    String all = args ? String(args) : String();
+    all.trim();
+    if (all.length() == 0) {
         displayManager.clearScreen();
         displayManager.setCursor(10, outputY);
         displayManager.setTextColor(TFT_YELLOW);
-        displayManager.println("Usage: dw <ip|nd#|ns#>");
+        displayManager.println("Usage: dw <ip|nd#|ns#> [port|service]");
         displayManager.setCursor(10, displayManager.getCursorY());
         displayManager.setTextColor(0x7BEF);
-        displayManager.println("Target a host from nd/ns, or an IP.");
+        displayManager.println("e.g. dw 192.168.1.10 ssh  (quiet: one svc)");
         displayManager.setTextColor(TFT_WHITE);
         displayManager.printCommandScreen();
         return;
     }
+
+    // Split target token from an optional service/port filter (quiet mode).
+    int sp = all.indexOf(' ');
+    String tok    = (sp < 0) ? all : all.substring(0, sp);
+    String filter = (sp < 0) ? String() : all.substring(sp + 1);
+    filter.trim();
 
     IPAddress ip;
     if (!resolveNetTarget(tok, ip)) {
@@ -696,12 +732,28 @@ void runDpwo(char* args) {
         return;
     }
 
+    // Apply the quiet-mode filter (default = all services enabled).
+    for (int i = 0; i < DP_SVC_N; i++) s_enabled[i] = true;
+    if (filter.length() && dpApplyFilter(filter, s_enabled) == 0) {
+        displayManager.clearScreen();
+        displayManager.setCursor(10, outputY);
+        displayManager.setTextColor(TFT_YELLOW);
+        displayManager.println("No service/port matches that.");
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.setTextColor(0x7BEF);
+        displayManager.println("Try: ftp ssh telnet http rtsp redis snmp");
+        displayManager.setTextColor(TFT_WHITE);
+        displayManager.printCommandScreen();
+        return;
+    }
+
     dpLoadCreds();
     for (int i = 0; i < DP_SVC_N; i++) { s_state[i] = ST_PENDING; s_hu[i][0] = 0; s_hp[i][0] = 0; }
     dpDrawChrome(ip);
 
     int hits = 0; bool aborted = false;
     for (int i = 0; i < DP_SVC_N && !aborted; i++) {
+        if (!s_enabled[i]) { s_state[i] = ST_SKIP; dpDrawRow(i); continue; }
         if (LockScreenManager::getInstance().consumeJustUnlocked()) dpDrawChrome(ip);
         s_state[i] = ST_TESTING; dpDrawRow(i);
         int r = dpRunSvc(i, ip);

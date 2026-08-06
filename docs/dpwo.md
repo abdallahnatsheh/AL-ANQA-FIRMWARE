@@ -26,10 +26,23 @@ You must be on the network (`cw`) so the T-Deck can reach the target.
 ```
 CMD> cw MyWiFi password        # join the LAN
 CMD> nd                        # (optional) discover hosts → indices
-CMD> dw 192.168.1.10           # audit an IP directly
+CMD> dw 192.168.1.10           # full audit of an IP
 CMD> dw nd3                    # …or a netdiscover index
 CMD> dw ns2                    # …or a netspy index
 ```
+
+### Quiet mode — check one service
+
+Auditing all ten ports is noisy. Add a **port** or **service name** to probe just that one (fewer packets, faster, stealthier):
+
+```
+CMD> dw 192.168.1.10 ssh       # only SSH
+CMD> dw 192.168.1.10 554       # only RTSP (by port)
+CMD> dw 192.168.1.10 http      # all HTTP ports (80/81/8000/8080)
+CMD> dw 192.168.1.10 ftp,telnet   # a short list
+```
+
+Service names: `ftp ssh telnet http rtsp redis snmp`. Skipped rows show `- skip`. With no filter, all services are checked.
 
 Each service is shown on its own row and updates live as it's tested:
 
