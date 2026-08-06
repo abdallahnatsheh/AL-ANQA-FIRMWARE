@@ -44,8 +44,10 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
    limits the run to matching DP_SVCS rows — less noise/faster. `dpApplyFilter`→`s_enabled[]`; skipped rows show
    `- skip` (ST_SKIP). Names ftp/ssh/telnet/http(all 4)/rtsp/redis/snmp or a port number; no filter = full sweep.
    man/docs(EN+AR)/README/CLAUDE updated. **NOT HW-tested.**
-   **▶ PLANNED (NOT built, lower prio):** MQTT(1883) check (researched); optional rate-limit/pacing between
-   attempts for extra stealth; HTTP form-login (hard — CSRF/JS); HTTPS opt-in (TLS DRAM cost).
+   **✅ MQTT(1883) DONE 2026-08-06:** hand-built MQTT 3.1.1 CONNECT (`dpBuildMqtt`) — anonymous probe → open
+   broker (NO AUTH), else default creds; CONNACK rc==0 = accepted (`dpMqttConnack`). 11th service row.
+   **▶ PLANNED (NOT built, lower prio):** optional rate-limit/pacing between attempts for extra stealth;
+   HTTP form-login (hard — CSRF/JS); HTTPS opt-in (TLS DRAM cost).
 4. **WPA3 transition-mode downgrade** — ✅ DONE (Phase 2) as `wpa3down`/`w3d` (built, **NOT yet
    HW-tested**). TD-filtered picker → karma `roguehs` WPA2-only rogue AP + broadcast-deauth → EAPOL
    capture → `/apps/wpa3down/<ssid>.cap` (crack via `cc`). Phase 2 = core downgrade only; PMF-required

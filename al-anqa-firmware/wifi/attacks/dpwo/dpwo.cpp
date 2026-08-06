@@ -497,6 +497,69 @@ static int dpSnmp(IPAddress ip, char* hu, char* hp) {
     return -1;   // no reply on any community → treat as closed/filtered
 }
 
+// MQTT (1883): hand-built MQTT 3.1.1 CONNECT + CONNACK parse. Anonymous first (open
+// broker = NO AUTH), else try default creds. Ref: MQTT 3.1.1 spec (OASIS).
+static int dpBuildMqtt(uint8_t* buf, const char* clientId, const char* user, const char* pass) {
+    uint8_t vh[12]; int vhl = 0;
+    vh[vhl++] = 0x00; vh[vhl++] = 0x04;                          // protocol name len
+    vh[vhl++] = 'M'; vh[vhl++] = 'Q'; vh[vhl++] = 'T'; vh[vhl++] = 'T';
+    vh[vhl++] = 0x04;                                            // protocol level 4 (3.1.1)
+    uint8_t flags = 0x02;                                        // clean session
+    if (user) { flags |= 0x80; if (pass) flags |= 0x40; }       // username + password flags
+    vh[vhl++] = flags;
+    vh[vhl++] = 0x00; vh[vhl++] = 0x3C;                          // keep-alive 60s
+
+    uint8_t pl[160]; int pll = 0;
+    int idl = strlen(clientId);
+    pl[pll++] = (idl >> 8) & 0xFF; pl[pll++] = idl & 0xFF; memcpy(pl + pll, clientId, idl); pll += idl;
+    if (user) {
+        int ul = strlen(user);
+        pl[pll++] = (ul >> 8) & 0xFF; pl[pll++] = ul & 0xFF; memcpy(pl + pll, user, ul); pll += ul;
+        if (pass) {
+            int ppl = strlen(pass);
+            pl[pll++] = (ppl >> 8) & 0xFF; pl[pll++] = ppl & 0xFF; memcpy(pl + pll, pass, ppl); pll += ppl;
+        }
+    }
+    int rem = vhl + pll, n = 0;
+    buf[n++] = 0x10;                                             // CONNECT
+    do { uint8_t e = rem % 128; rem /= 128; if (rem) e |= 0x80; buf[n++] = e; } while (rem);
+    memcpy(buf + n, vh, vhl); n += vhl;
+    memcpy(buf + n, pl, pll); n += pll;
+    return n;
+}
+
+// CONNACK return code (0 = accepted), or -1 if the reply isn't a CONNACK.
+static int dpMqttConnack(WiFiClient& c) {
+    char r[8]; int n = dpRead(c, r, sizeof(r), 1500);
+    if (n < 4 || (uint8_t)r[0] != 0x20) return -1;              // 0x20 = CONNACK
+    return (uint8_t)r[3];                                        // return code byte
+}
+
+static int dpMqtt(IPAddress ip, char* hu, char* hp) {
+    { WiFiClient c;
+      if (!c.connect(ip, 1883, 600)) return -1;                 // closed
+      uint8_t pkt[192]; int len = dpBuildMqtt(pkt, "dpwo", nullptr, nullptr);
+      c.write(pkt, len);
+      int rc = dpMqttConnack(c); c.stop();
+      if (rc == 0x00) { strcpy(hu, "(none)"); strcpy(hp, "NO AUTH"); return 2; }
+      if (rc < 0) return 0;                                     // not MQTT / no CONNACK
+    }                                                           // rc 0x04/0x05 → needs creds
+    for (int i = 0; i < s_credN; i++) {
+        if (dpAbort()) return -2;
+        WiFiClient c;
+        if (!c.connect(ip, 1883, 800)) return 0;
+        uint8_t pkt[192]; int len = dpBuildMqtt(pkt, "dpwo", s_creds[i].user, s_creds[i].pass);
+        c.write(pkt, len);
+        int rc = dpMqttConnack(c); c.stop();
+        if (rc == 0x00) {
+            strncpy(hu, s_creds[i].user, 23); hu[23] = 0;
+            strncpy(hp, s_creds[i].pass[0] ? s_creds[i].pass : "(blank)", 23); hp[23] = 0;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 // SSH (22): libssh needs a big stack, so — exactly like the `sc` command — the auth
 // loop runs in a dedicated ~50 KB pinned FreeRTOS task; the CLI task blocks on it.
 // Fresh session per cred (mirrors ssh_client's proven single-session path); a small
@@ -551,7 +614,7 @@ static int dpSsh(IPAddress ip, char* hu, char* hp) {
 }
 
 // ── service table + UI ───────────────────────────────────────────────────────────────
-enum { SV_HTTP, SV_TELNET, SV_FTP, SV_RTSP, SV_REDIS, SV_SNMP, SV_SSH };
+enum { SV_HTTP, SV_TELNET, SV_FTP, SV_RTSP, SV_REDIS, SV_SNMP, SV_SSH, SV_MQTT };
 struct DpSvc { uint16_t port; const char* name; uint8_t proto; };
 static const DpSvc DP_SVCS[] = {
     { 21,   "FTP  ", SV_FTP },
@@ -563,6 +626,7 @@ static const DpSvc DP_SVCS[] = {
     { 8000, "HTTP ", SV_HTTP },
     { 554,  "RTSP ", SV_RTSP },
     { 6379, "REDIS", SV_REDIS },
+    { 1883, "MQTT ", SV_MQTT },
     { 161,  "SNMP ", SV_SNMP },
 };
 static const int DP_SVC_N = (int)(sizeof(DP_SVCS) / sizeof(DP_SVCS[0]));
@@ -604,7 +668,7 @@ static int dpApplyFilter(const String& filter, bool* en) {
 
 static void dpDrawRow(int i) {
     if (displayManager.isBlocked()) return;
-    int y = outputY + (2 + i) * LINE_HEIGHT;
+    int y = outputY + LINE_HEIGHT + 4 + i * LINE_HEIGHT;   // 11 rows fit above the y=210 footer
     displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
     displayManager.setCursor(6, y);
     char pn[8]; snprintf(pn, sizeof(pn), "%-5u", DP_SVCS[i].port);
@@ -669,6 +733,7 @@ static int dpRunSvc(int i, IPAddress ip) {
         case SV_REDIS:  return dpRedis(ip, s_hu[i], s_hp[i]);
         case SV_SNMP:   return dpSnmp(ip, s_hu[i], s_hp[i]);
         case SV_SSH:    return dpSsh(ip, s_hu[i], s_hp[i]);
+        case SV_MQTT:   return dpMqtt(ip, s_hu[i], s_hp[i]);
     }
     return 0;
 }

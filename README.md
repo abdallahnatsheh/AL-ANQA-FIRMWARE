@@ -156,7 +156,7 @@ Run `help` for the list on-device, or `man <cmd>` for a full manual page.
 | `responder` | `rsp` | `[passive]` | **[EXP]** LLMNR/NBT/mDNS poisoner + NetNTLMv2/v1 + Basic capture (HTTP & SMB); `passive` = listen-only → per-session SD folder |
 | `portscan` | `ps` | `<ip\|#\|ns#> <start> <end>` · `top ...` | TCP port scan (`top` = 26 common ports) |
 | `ping` | `pg` | `<ip\|host\|#\|ns#>` | Continuous ICMP ping with RTT stats |
-| `dpwo` | `dw` | `<ip\|nd#\|ns#> [port\|service]` | **[EXP]** Default-password check (FTP/SSH/Telnet/HTTP/RTSP/Redis/SNMP); add a port/service for a quiet single-service run → `/apps/dpwo/results.csv` |
+| `dpwo` | `dw` | `<ip\|nd#\|ns#> [port\|service]` | **[EXP]** Default-password check (FTP/SSH/Telnet/HTTP/RTSP/Redis/MQTT/SNMP); add a port/service for a quiet single-service run → `/apps/dpwo/results.csv` |
 | `ssh` | `sc` | `<ip\|name> [user]` | Interactive SSH client (libssh) + saved profiles |
 | **Bluetooth** | | | |
 | `scanblue` | `sbl` | — | BLE device scan |

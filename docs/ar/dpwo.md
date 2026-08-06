@@ -45,7 +45,7 @@ CMD> dw 192.168.1.10 http      # كل منافذ HTTP (80/81/8000/8080)
 CMD> dw 192.168.1.10 ftp,telnet   # قائمة قصيرة
 ```
 
-أسماء الخدمات: `ftp ssh telnet http rtsp redis snmp`. تظهر الصفوف المتخطّاة كـ `- skip`. بدون مُرشِّح، تُفحَص كل الخدمات.
+أسماء الخدمات: `ftp ssh telnet http rtsp redis mqtt snmp`. تظهر الصفوف المتخطّاة كـ `- skip`. بدون مُرشِّح، تُفحَص كل الخدمات.
 
 تظهر كل خدمة في صفّها وتتحدّث حيًّا أثناء اختبارها. تُضاف النتائج إلى **`/apps/dpwo/results.csv`** (`ip,port,service,user,pass`).
 
@@ -61,6 +61,7 @@ CMD> dw 192.168.1.10 ftp,telnet   # قائمة قصيرة
 | 80 / 81 / 8000 / 8080 | HTTP | مصادقة Basic **و** Digest (`WWW-Authenticate`) |
 | 554 | RTSP | `DESCRIBE` + Basic/Digest — **كاميرات IP**. يجرّب مسارات البثّ الشائعة للعلامات (Hikvision `/Streaming/Channels/101`، Dahua `/cam/realmonitor`، Reolink `/h264Preview_01_main`، …) لأن كثيرًا من الكاميرات تُرجع 404 على `/` ولا تطلب المصادقة إلا على مسار صحيح |
 | 6379 | Redis | `PING` ← مفتوح بلا مصادقة، وإلا `AUTH` |
+| 1883 | MQTT | `CONNECT` مجهول ← وسيط مفتوح، وإلا بيانات الاعتماد الافتراضية (CONNACK) |
 | 161 (UDP) | SNMP | سلاسل المجتمع (`public`، `private`، …) |
 
 كلّ ذلك تبادل مُبرمَج قصير عبر **مقبس خام** — بلا مكتبات ثقيلة، فهو خفيف على الذاكرة. حركة STA عادية، فلا مشكلة GDMA، وتُكتب النتائج مباشرةً إلى بطاقة SD.

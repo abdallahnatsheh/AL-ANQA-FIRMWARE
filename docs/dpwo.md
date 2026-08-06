@@ -42,7 +42,7 @@ CMD> dw 192.168.1.10 http      # all HTTP ports (80/81/8000/8080)
 CMD> dw 192.168.1.10 ftp,telnet   # a short list
 ```
 
-Service names: `ftp ssh telnet http rtsp redis snmp`. Skipped rows show `- skip`. With no filter, all services are checked.
+Service names: `ftp ssh telnet http rtsp redis mqtt snmp`. Skipped rows show `- skip`. With no filter, all services are checked.
 
 Each service is shown on its own row and updates live as it's tested:
 
@@ -70,6 +70,7 @@ Findings are appended to **`/apps/dpwo/results.csv`** (`ip,port,service,user,pas
 | 80 / 81 / 8000 / 8080 | HTTP | Basic **and** Digest auth (`WWW-Authenticate`) |
 | 554 | RTSP | `DESCRIBE` + Basic/Digest — **IP cameras**. Probes common brand stream paths (Hikvision `/Streaming/Channels/101`, Dahua `/cam/realmonitor`, Reolink `/h264Preview_01_main`, …) since many cameras 404 on `/` and only challenge auth on a valid path |
 | 6379 | Redis | `PING` → open-no-auth, else `AUTH` |
+| 1883 | MQTT | `CONNECT` anonymous → open-broker, else default creds (CONNACK) |
 | 161 (UDP) | SNMP | community strings (`public`, `private`, …) |
 
 Everything is a short scripted exchange over a **raw socket** — no heavy libraries, so it's RAM-light. It's plain STA traffic, so there's no GDMA concern and results are written straight to SD.

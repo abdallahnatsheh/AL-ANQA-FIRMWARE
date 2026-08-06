@@ -202,7 +202,8 @@ This project incorporates code from the following open-source projects:
 
 22. dpwo (default-password checker — technique/specification reference)
     Source:  HackTricks network-service pentesting (https://hacktricks.wiki),
-             RFC 2617 (HTTP Basic/Digest), RFC 2326 (RTSP), RFC 1157 (SNMPv1).
+             RFC 2617 (HTTP Basic/Digest), RFC 2326 (RTSP), RFC 1157 (SNMPv1),
+             MQTT 3.1.1 (OASIS standard).
              Architecture/technique references (no code copied):
                - RouterSploit (https://github.com/threat9/routersploit) — its
                  creds/ modules (http_basic_digest_default, ftp/telnet/snmp) informed
