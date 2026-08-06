@@ -568,6 +568,16 @@ static volatile bool s_sshDone, s_sshAbort;
 static IPAddress     s_sshIp;
 static int           s_sshResult;               // 0 = no default, 1 = hit
 static char          s_sshU[24], s_sshP[24];
+static volatile int  s_sshTry;                  // current cred # (live SSH progress)
+static int           s_curRow = -1;             // row being tested (for the SSH live redraw)
+
+// Row baseline y + fixed columns (6px font) — shared by the drawing code and the SSH
+// live-progress redraw so the status text lines up in one clean column.
+static inline int dpRowY(int i) { return outputY + LINE_HEIGHT + 4 + i * LINE_HEIGHT; }
+#define DP_COL_MARK  4
+#define DP_COL_PORT  16
+#define DP_COL_SVC   52
+#define DP_COL_STAT  96
 
 static void dpSshTask(void* arg) {
     (void)arg;
@@ -575,6 +585,7 @@ static void dpSshTask(void* arg) {
     s_sshResult = 0;
     char ips[20]; strncpy(ips, s_sshIp.toString().c_str(), 19); ips[19] = 0;
     for (int i = 0; i < DP_SSH_N && !s_sshAbort; i++) {
+        s_sshTry = i + 1;                                        // live progress for the CLI task
         ssh_session ses = ssh_new();
         if (!ses) continue;
         int port = 22; long tmo = 8; int noCfg = 0;
@@ -602,11 +613,24 @@ static void dpSshTask(void* arg) {
 static int dpSsh(IPAddress ip, char* hu, char* hp) {
     { WiFiClient p; if (!p.connect(ip, 22, 600)) return -1; p.stop(); }   // fast port probe
     s_sshIp = ip; s_sshDone = false; s_sshAbort = false;
-    s_sshResult = 0; s_sshU[0] = 0; s_sshP[0] = 0;
+    s_sshResult = 0; s_sshU[0] = 0; s_sshP[0] = 0; s_sshTry = 0;
     if (xTaskCreatePinnedToCore(dpSshTask, "dpssh", 51200, nullptr, tskIDLE_PRIORITY + 3, nullptr, 1) != pdPASS)
         return 0;                                          // couldn't spawn → treat as no-default
+    int lastTry = -1;
     while (!s_sshDone) {
         if (dpAbort()) s_sshAbort = true;                  // stop after the current attempt
+        int t = s_sshTry;
+        if (t != lastTry && t > 0 && !displayManager.isBlocked() && s_curRow >= 0) {
+            // SSH is slow (a key exchange per cred) — show which one so it isn't "frozen".
+            int y = dpRowY(s_curRow);
+            displayManager.fillRect(DP_COL_STAT, y - 1, SCREEN_WIDTH - DP_COL_STAT, LINE_HEIGHT, TFT_BLACK);
+            displayManager.setCursor(DP_COL_STAT, y);
+            displayManager.setTextColor(TFT_YELLOW);
+            char b[20]; snprintf(b, sizeof(b), "testing %d/%d", t, DP_SSH_N);
+            displayManager.printText(b);
+            displayManager.setTextColor(TFT_WHITE);
+            lastTry = t;
+        }
         delay(50);
     }
     if (s_sshResult == 1) { strcpy(hu, s_sshU); strcpy(hp, s_sshP); return 1; }
@@ -668,17 +692,24 @@ static int dpApplyFilter(const String& filter, bool* en) {
 
 static void dpDrawRow(int i) {
     if (displayManager.isBlocked()) return;
-    int y = outputY + LINE_HEIGHT + 4 + i * LINE_HEIGHT;   // 11 rows fit above the y=210 footer
+    int y = dpRowY(i);
     displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
-    displayManager.setCursor(6, y);
+    // finding marker — a bright "!" so hits/open rows jump out when scanning
+    if (s_state[i] == ST_HIT || s_state[i] == ST_OPEN) {
+        displayManager.setCursor(DP_COL_MARK, y);
+        displayManager.setTextColor(s_state[i] == ST_HIT ? TFT_GREEN : TFT_ORANGE);
+        displayManager.printText("!");
+    }
+    displayManager.setCursor(DP_COL_PORT, y);
     char pn[8]; snprintf(pn, sizeof(pn), "%-5u", DP_SVCS[i].port);
     displayManager.setTextColor(0x7BEF);   displayManager.printText(pn);
+    displayManager.setCursor(DP_COL_SVC, y);
     displayManager.setTextColor(TFT_WHITE); displayManager.printText(DP_SVCS[i].name);
-    displayManager.printText(" ");
+    displayManager.setCursor(DP_COL_STAT, y);
     char line[40];
     switch (s_state[i]) {
-        case ST_PENDING: displayManager.setTextColor(0x7BEF);   displayManager.printText("-"); break;
-        case ST_SKIP:    displayManager.setTextColor(0x39E7);   displayManager.printText("- skip"); break;
+        case ST_PENDING: displayManager.setTextColor(0x39E7);   displayManager.printText("."); break;
+        case ST_SKIP:    displayManager.setTextColor(0x39E7);   displayManager.printText("skip"); break;
         case ST_TESTING: displayManager.setTextColor(TFT_YELLOW);displayManager.printText("testing..."); break;
         case ST_CLOSED:  displayManager.setTextColor(0x39E7);   displayManager.printText("closed"); break;
         case ST_NODEF:   displayManager.setTextColor(0x7BEF);   displayManager.printText("open, no default"); break;
@@ -715,12 +746,28 @@ static void dpDrawChrome(IPAddress ip) {
     displayManager.setTextColor(TFT_WHITE);
 }
 
-// Overwrite the footer line (y=214) with the run summary.
-static void dpDrawFooter(const char* msg, uint16_t color) {
+// Live progress on the right of the header line (so slow rows don't look frozen).
+static void dpDrawProgress(int done, int total) {
+    if (displayManager.isBlocked()) return;
+    displayManager.fillRect(224, outputY - 1, SCREEN_WIDTH - 224, LINE_HEIGHT, TFT_BLACK);
+    displayManager.setCursor(230, outputY);
+    char b[16]; snprintf(b, sizeof(b), "%d/%d", done, total);
+    displayManager.setTextColor(TFT_CYAN); displayManager.printText(b);
+    displayManager.setTextColor(TFT_WHITE);
+}
+
+// Multi-colour run summary in the footer (colours double as the legend).
+static void dpDrawSummary(int nHit, int nOpen, bool aborted) {
     if (displayManager.isBlocked()) return;
     displayManager.fillRect(0, 212, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
     displayManager.setCursor(6, 214);
-    displayManager.setTextColor(color); displayManager.printText(msg);
+    displayManager.setTextColor(0x7BEF);                 displayManager.printText(aborted ? "STOP " : "DONE ");
+    char b[12];
+    displayManager.setTextColor(nHit  ? TFT_GREEN  : 0x7BEF);
+    snprintf(b, sizeof(b), " hit %d", nHit);   displayManager.printText(b);
+    displayManager.setTextColor(nOpen ? TFT_ORANGE : 0x7BEF);
+    snprintf(b, sizeof(b), "  open %d", nOpen); displayManager.printText(b);
+    displayManager.setTextColor(0x7BEF);                 displayManager.printText("   [any] back");
     displayManager.setTextColor(TFT_WHITE);
 }
 
@@ -814,14 +861,20 @@ void runDpwo(char* args) {
 
     dpLoadCreds();
     for (int i = 0; i < DP_SVC_N; i++) { s_state[i] = ST_PENDING; s_hu[i][0] = 0; s_hp[i][0] = 0; }
+    int enabledTotal = 0;
+    for (int i = 0; i < DP_SVC_N; i++) if (s_enabled[i]) enabledTotal++;
     dpDrawChrome(ip);
+    int done = 0;
+    dpDrawProgress(done, enabledTotal);
 
     int hits = 0; bool aborted = false;
     for (int i = 0; i < DP_SVC_N && !aborted; i++) {
         if (!s_enabled[i]) { s_state[i] = ST_SKIP; dpDrawRow(i); continue; }
-        if (LockScreenManager::getInstance().consumeJustUnlocked()) dpDrawChrome(ip);
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) { dpDrawChrome(ip); dpDrawProgress(done, enabledTotal); }
         s_state[i] = ST_TESTING; dpDrawRow(i);
+        s_curRow = i;                                    // let dpSsh redraw live progress here
         int r = dpRunSvc(i, ip);
+        s_curRow = -1;
         switch (r) {
             case -2: aborted = true;  s_state[i] = ST_PENDING; break;
             case -1: s_state[i] = ST_CLOSED; break;
@@ -830,23 +883,27 @@ void runDpwo(char* args) {
             case  2: s_state[i] = ST_OPEN; hits++; break;
         }
         dpDrawRow(i);
+        if (!aborted) { done++; dpDrawProgress(done, enabledTotal); }
         if (dpAbort()) aborted = true;
     }
 
     dpFreeCreds();   // creds no longer needed (rule 5c — free before the results-view wait)
     dpSaveHits(ip, hits);
 
-    char sm[48];
-    if (aborted)   snprintf(sm, sizeof(sm), "stopped - %d finding(s)  [any] back", hits);
-    else if (hits) snprintf(sm, sizeof(sm), "DONE - %d saved  [any] back", hits);
-    else           snprintf(sm, sizeof(sm), "DONE - no defaults  [any] back");
-    dpDrawFooter(sm, hits ? TFT_GREEN : 0x7BEF);
+    int nHit = 0, nOpen = 0;
+    for (int i = 0; i < DP_SVC_N; i++) {
+        if (s_state[i] == ST_HIT)  nHit++;
+        else if (s_state[i] == ST_OPEN) nOpen++;
+    }
+    dpDrawSummary(nHit, nOpen, aborted);
 
     // hold for a keypress so results are readable
     while (true) {
         char k = inputHandler.getKeyboardInput();
         if (k) break;
-        if (LockScreenManager::getInstance().consumeJustUnlocked()) { dpDrawChrome(ip); dpDrawFooter(sm, hits ? TFT_GREEN : 0x7BEF); }
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            dpDrawChrome(ip); dpDrawProgress(done, enabledTotal); dpDrawSummary(nHit, nOpen, aborted);
+        }
         delay(20);
     }
     displayManager.printCommandScreen();
