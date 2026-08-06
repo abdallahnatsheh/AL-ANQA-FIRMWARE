@@ -83,6 +83,7 @@ void SDCardManager::ensureAppsReadme() {
     f.println("wguard/     wg          WiFi IDS session logs (NNN.csv)");
     f.println("wifimon/    wm          raw 802.11 PCAP captures + probe log");
     f.println("wpa3down/   w3d         WPA3 transition-downgrade handshakes (.cap)");
+    f.println("dpwo/       dw          default-password hits (results.csv) + creds.csv");
     f.println("wpasniff/   ws          WPA handshake captures (.cap), wordlist.txt,");
     f.println("                        cracked.csv");
     f.println("");
