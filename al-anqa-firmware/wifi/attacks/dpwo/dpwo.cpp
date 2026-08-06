@@ -261,22 +261,40 @@ static int dpHttpTry(IPAddress ip, uint16_t port, const DpCred& c, const char* m
     return (code >= 200 && code < 400 && code != 0) ? 1 : 0;   // past the 401 = accepted
 }
 
+// Common admin/login paths — many devices leave "/" open (200) but Basic/Digest-gate
+// the real panel elsewhere. Probe these to find the one that challenges (401), then try
+// creds there. Method = Metasploit http_login / changeme (probe URIs → 401 → brute).
+// HTTP is Basic/Digest only — form logins need per-device fingerprints (out of scope).
+static const char* DP_HTTP_PATHS[] = {
+    "/",              "/admin",    "/login",     "/cgi-bin/luci",   // generic + OpenWrt LuCI
+    "/setup.cgi",     "/index.asp","/main.html", "/system.html",    // routers
+    "/doc/page/login.asp",                                          // Hikvision cameras
+};
+static const int DP_HTTP_PATHS_N = (int)(sizeof(DP_HTTP_PATHS) / sizeof(DP_HTTP_PATHS[0]));
+
 static int dpHttp(IPAddress ip, uint16_t port, char* hu, char* hp) {
-    WiFiClient s;
-    if (!s.connect(ip, port, 500)) return -1;                  // closed
-    s.print(String("GET / HTTP/1.1\r\nHost: ") + ip.toString() +
-            "\r\nConnection: close\r\nUser-Agent: dpwo\r\n\r\n");
-    char r[1024]; dpRead(s, r, sizeof(r), 1600); s.stop();      // status + headers (auth challenge)
-    int code = dpStatusCode(r);
-    if (code != 401) {
-        if (code >= 200 && code < 400) { strcpy(hu, "(none)"); strcpy(hp, "no auth on /"); return 2; }
-        return 0;   // 403/404/etc with no challenge — nothing to try
+    { WiFiClient p; if (!p.connect(ip, port, 500)) return -1; p.stop(); }   // closed?
+    DpAuth a; a.scheme = DP_AUTH_NONE;
+    const char* authPath = nullptr;
+    bool sawOpen = false;
+    for (int pth = 0; pth < DP_HTTP_PATHS_N && !authPath; pth++) {
+        if (dpAbort()) return -2;
+        WiFiClient s;
+        if (!s.connect(ip, port, 700)) break;
+        s.print(String("GET ") + DP_HTTP_PATHS[pth] + " HTTP/1.1\r\nHost: " + ip.toString() +
+                "\r\nConnection: close\r\nUser-Agent: dpwo\r\n\r\n");
+        char r[1024]; dpRead(s, r, sizeof(r), 1600); s.stop();
+        int code = dpStatusCode(r);
+        if (code == 401) { dpParseAuth(r, a); if (a.scheme != DP_AUTH_NONE) authPath = DP_HTTP_PATHS[pth]; }
+        else if (code >= 200 && code < 400) sawOpen = true;    // reachable but no challenge (yet)
     }
-    DpAuth a; dpParseAuth(r, a);
-    if (a.scheme == DP_AUTH_NONE) return 0;
+    if (!authPath) {                                           // no Basic/Digest gate found
+        if (sawOpen) { strcpy(hu, "(none)"); strcpy(hp, "no auth (form?)"); return 2; }
+        return 0;
+    }
     for (int i = 0; i < s_credN; i++) {
         if (dpAbort()) return -2;
-        if (dpHttpTry(ip, port, s_creds[i], "GET", "/", a) == 1) {
+        if (dpHttpTry(ip, port, s_creds[i], "GET", authPath, a) == 1) {
             strncpy(hu, s_creds[i].user, 23); hu[23] = 0;
             strncpy(hp, s_creds[i].pass[0] ? s_creds[i].pass : "(blank)", 23); hp[23] = 0;
             return 1;
@@ -296,16 +314,16 @@ static const char* DP_RTSP_PATHS[] = {
 };
 static const int DP_RTSP_PATHS_N = (int)(sizeof(DP_RTSP_PATHS) / sizeof(DP_RTSP_PATHS[0]));
 
-static int dpRtsp(IPAddress ip, char* hu, char* hp) {
-    { WiFiClient p; if (!p.connect(ip, 554, 500)) return -1; p.stop(); }   // port probe
+static int dpRtsp(IPAddress ip, uint16_t port, char* hu, char* hp) {
+    { WiFiClient p; if (!p.connect(ip, port, 500)) return -1; p.stop(); }   // port probe
     // Find a path that either serves without auth (200) or challenges (401).
     DpAuth a; a.scheme = DP_AUTH_NONE;
     String url; int cseq = 1; bool challenged = false;
     for (int pth = 0; pth < DP_RTSP_PATHS_N; pth++) {
         if (dpAbort()) return -2;
-        String u = String("rtsp://") + ip.toString() + ":554" + DP_RTSP_PATHS[pth];
+        String u = String("rtsp://") + ip.toString() + ":" + port + DP_RTSP_PATHS[pth];
         WiFiClient c;
-        if (!c.connect(ip, 554, 700)) return 0;
+        if (!c.connect(ip, port, 700)) return 0;
         c.print(String("DESCRIBE ") + u + " RTSP/1.0\r\nCSeq: " + cseq++ + "\r\nUser-Agent: dpwo\r\n\r\n");
         char r[900]; dpRead(c, r, sizeof(r), 1500); c.stop();   // need the WWW-Authenticate header
         int code = dpStatusCode(r);
@@ -317,7 +335,7 @@ static int dpRtsp(IPAddress ip, char* hu, char* hp) {
     for (int i = 0; i < s_credN; i++) {
         if (dpAbort()) return -2;
         WiFiClient c2;
-        if (!c2.connect(ip, 554, 800)) return 0;
+        if (!c2.connect(ip, port, 800)) return 0;
         String req = String("DESCRIBE ") + url + " RTSP/1.0\r\nCSeq: " + cseq++ + "\r\n" +
                      dpAuthHeader(s_creds[i], "DESCRIBE", url.c_str(), a) + "\r\nUser-Agent: dpwo\r\n\r\n";
         c2.print(req);
@@ -332,12 +350,12 @@ static int dpRtsp(IPAddress ip, char* hu, char* hp) {
     return 0;
 }
 
-static int dpFtp(IPAddress ip, char* hu, char* hp) {
-    { WiFiClient p; if (!p.connect(ip, 21, 500)) return -1; p.stop(); }
+static int dpFtp(IPAddress ip, uint16_t port, char* hu, char* hp) {
+    { WiFiClient p; if (!p.connect(ip, port, 500)) return -1; p.stop(); }
     for (int i = 0; i < s_credN; i++) {
         if (dpAbort()) return -2;
         WiFiClient c;
-        if (!c.connect(ip, 21, 800)) return 0;
+        if (!c.connect(ip, port, 800)) return 0;
         char b[200];
         dpRead(c, b, sizeof(b), 1500);                            // 220 banner
         c.print(String("USER ") + s_creds[i].user + "\r\n");
@@ -404,12 +422,12 @@ static bool dpTelnetSuccess(const char* buf) {
     return false;   // ambiguous → treat as fail (avoid false positives)
 }
 
-static int dpTelnet(IPAddress ip, char* hu, char* hp) {
-    { WiFiClient p; if (!p.connect(ip, 23, 500)) return -1; p.stop(); }
+static int dpTelnet(IPAddress ip, uint16_t port, char* hu, char* hp) {
+    { WiFiClient p; if (!p.connect(ip, port, 500)) return -1; p.stop(); }
     for (int i = 0; i < s_credN; i++) {
         if (dpAbort()) return -2;
         WiFiClient c;
-        if (!c.connect(ip, 23, 900)) return 0;
+        if (!c.connect(ip, port, 900)) return 0;
         char b[300];
         dpTelnetRead(c, b, sizeof(b), 1500);                      // banner + "login:"
         c.print(s_creds[i].user); c.print("\r\n");
@@ -426,9 +444,9 @@ static int dpTelnet(IPAddress ip, char* hu, char* hp) {
     return 0;
 }
 
-static int dpRedis(IPAddress ip, char* hu, char* hp) {
+static int dpRedis(IPAddress ip, uint16_t port, char* hu, char* hp) {
     WiFiClient c;
-    if (!c.connect(ip, 6379, 500)) return -1;
+    if (!c.connect(ip, port, 500)) return -1;
     c.print("PING\r\n");
     char r[128]; dpRead(c, r, sizeof(r), 1200); c.stop();
     if (strncmp(r, "+PONG", 5) == 0) { strcpy(hu, "(none)"); strcpy(hp, "NO AUTH"); return 2; }
@@ -437,7 +455,7 @@ static int dpRedis(IPAddress ip, char* hu, char* hp) {
         if (dpAbort()) return -2;
         if (!s_creds[i].pass[0]) continue;
         WiFiClient a;
-        if (!a.connect(ip, 6379, 800)) return 0;
+        if (!a.connect(ip, port, 800)) return 0;
         a.print(String("AUTH ") + s_creds[i].pass + "\r\n");
         char rr[128]; dpRead(a, rr, sizeof(rr), 1000); a.stop();
         if (strncmp(rr, "+OK", 3) == 0) {
@@ -472,14 +490,14 @@ static int dpBuildSnmp(const char* comm, uint8_t* p) {
     return i;
 }
 
-static int dpSnmp(IPAddress ip, char* hu, char* hp) {
+static int dpSnmp(IPAddress ip, uint16_t port, char* hu, char* hp) {
     WiFiUDP udp;
     if (!udp.begin(0)) return 0;
     for (int i = 0; i < DP_SNMP_COMM_N; i++) {
         if (dpAbort()) { udp.stop(); return -2; }
         uint8_t pkt[96];
         int len = dpBuildSnmp(DP_SNMP_COMM[i], pkt);
-        udp.beginPacket(ip, 161);
+        udp.beginPacket(ip, port);
         udp.write(pkt, len);
         udp.endPacket();
         uint32_t t0 = millis();
@@ -535,9 +553,9 @@ static int dpMqttConnack(WiFiClient& c) {
     return (uint8_t)r[3];                                        // return code byte
 }
 
-static int dpMqtt(IPAddress ip, char* hu, char* hp) {
+static int dpMqtt(IPAddress ip, uint16_t port, char* hu, char* hp) {
     { WiFiClient c;
-      if (!c.connect(ip, 1883, 600)) return -1;                 // closed
+      if (!c.connect(ip, port, 600)) return -1;                 // closed
       uint8_t pkt[192]; int len = dpBuildMqtt(pkt, "dpwo", nullptr, nullptr);
       c.write(pkt, len);
       int rc = dpMqttConnack(c); c.stop();
@@ -547,7 +565,7 @@ static int dpMqtt(IPAddress ip, char* hu, char* hp) {
     for (int i = 0; i < s_credN; i++) {
         if (dpAbort()) return -2;
         WiFiClient c;
-        if (!c.connect(ip, 1883, 800)) return 0;
+        if (!c.connect(ip, port, 800)) return 0;
         uint8_t pkt[192]; int len = dpBuildMqtt(pkt, "dpwo", s_creds[i].user, s_creds[i].pass);
         c.write(pkt, len);
         int rc = dpMqttConnack(c); c.stop();
@@ -566,6 +584,7 @@ static int dpMqtt(IPAddress ip, char* hu, char* hp) {
 // list bounds runtime + the per-KEX HW-SHA crash window.
 static volatile bool s_sshDone, s_sshAbort;
 static IPAddress     s_sshIp;
+static uint16_t      s_sshPort;                  // supports a custom SSH port
 static int           s_sshResult;               // 0 = no default, 1 = hit
 static char          s_sshU[24], s_sshP[24];
 static volatile int  s_sshTry;                  // current cred # (live SSH progress)
@@ -588,7 +607,7 @@ static void dpSshTask(void* arg) {
         s_sshTry = i + 1;                                        // live progress for the CLI task
         ssh_session ses = ssh_new();
         if (!ses) continue;
-        int port = 22; long tmo = 8; int noCfg = 0;
+        int port = s_sshPort; long tmo = 8; int noCfg = 0;
         ssh_options_set(ses, SSH_OPTIONS_HOST, ips);
         ssh_options_set(ses, SSH_OPTIONS_USER, DP_SSH_CREDS[i].user);
         ssh_options_set(ses, SSH_OPTIONS_PORT, &port);
@@ -610,9 +629,9 @@ static void dpSshTask(void* arg) {
     vTaskDelete(NULL);
 }
 
-static int dpSsh(IPAddress ip, char* hu, char* hp) {
-    { WiFiClient p; if (!p.connect(ip, 22, 600)) return -1; p.stop(); }   // fast port probe
-    s_sshIp = ip; s_sshDone = false; s_sshAbort = false;
+static int dpSsh(IPAddress ip, uint16_t port, char* hu, char* hp) {
+    { WiFiClient p; if (!p.connect(ip, port, 600)) return -1; p.stop(); }   // fast port probe
+    s_sshIp = ip; s_sshPort = port; s_sshDone = false; s_sshAbort = false;
     s_sshResult = 0; s_sshU[0] = 0; s_sshP[0] = 0; s_sshTry = 0;
     if (xTaskCreatePinnedToCore(dpSshTask, "dpssh", 51200, nullptr, tskIDLE_PRIORITY + 3, nullptr, 1) != pdPASS)
         return 0;                                          // couldn't spawn → treat as no-default
@@ -656,38 +675,76 @@ static const DpSvc DP_SVCS[] = {
 static const int DP_SVC_N = (int)(sizeof(DP_SVCS) / sizeof(DP_SVCS[0]));
 
 // per-row state
-enum { ST_PENDING = 0, ST_TESTING, ST_CLOSED, ST_NODEF, ST_HIT, ST_OPEN, ST_SKIP };
-static uint8_t s_state[DP_SVC_N];
-static bool    s_enabled[DP_SVC_N];             // quiet mode: only test these rows
-static char    s_hu[DP_SVC_N][24];
-static char    s_hp[DP_SVC_N][24];
+enum { ST_PENDING = 0, ST_TESTING, ST_CLOSED, ST_NODEF, ST_HIT, ST_OPEN };
 
-// Quiet/single-target mode: `dw <ip> <port|service>[,port|service...]` limits the run
-// to specific rows (less network noise). Token = a port number (554) or a service name
-// (ssh/http/ftp/telnet/rtsp/redis/snmp; "http" enables all HTTP ports). Returns the
-// number of rows enabled (0 = nothing matched).
-static int dpApplyFilter(const String& filter, bool* en) {
-    for (int i = 0; i < DP_SVC_N; i++) en[i] = false;
-    int start = 0, any = 0;
+// The run list — the actual targets to test this run (built-ins the filter selected,
+// plus any custom service:port entries). Row state/results index into it 1:1.
+struct DpTarget { uint16_t port; uint8_t proto; char name[8]; };
+static DpTarget s_run[DP_SVC_N];
+static int      s_runN = 0;
+static uint8_t  s_state[DP_SVC_N];
+static char     s_hu[DP_SVC_N][24];
+static char     s_hp[DP_SVC_N][24];
+
+static const char* dpProtoLabel(uint8_t proto) {
+    switch (proto) {
+        case SV_FTP:  return "FTP  "; case SV_SSH:   return "SSH  "; case SV_TELNET: return "TELNET";
+        case SV_HTTP: return "HTTP "; case SV_RTSP:  return "RTSP "; case SV_REDIS:  return "REDIS";
+        case SV_MQTT: return "MQTT "; case SV_SNMP:  return "SNMP ";
+    }
+    return "?";
+}
+static int dpProtoFromName(const String& n) {
+    if (n == "ftp")   return SV_FTP;   if (n == "ssh")  return SV_SSH;   if (n == "telnet") return SV_TELNET;
+    if (n == "http")  return SV_HTTP;  if (n == "rtsp") return SV_RTSP;  if (n == "redis")  return SV_REDIS;
+    if (n == "mqtt")  return SV_MQTT;  if (n == "snmp") return SV_SNMP;
+    return -1;
+}
+static void dpAddRun(uint16_t port, uint8_t proto, const char* name) {
+    if (s_runN >= DP_SVC_N) return;
+    for (int i = 0; i < s_runN; i++) if (s_run[i].port == port && s_run[i].proto == proto) return;  // dedup
+    s_run[s_runN].port = port; s_run[s_runN].proto = proto;
+    strncpy(s_run[s_runN].name, name, 7); s_run[s_runN].name[7] = 0;
+    s_runN++;
+}
+
+// Build the run list from the filter. Empty filter = all built-in services. Tokens
+// (comma-separated): `service` (ssh → all built-in rows of that service) · `port`
+// (554 → the built-in row on that port) · `service:port` (ssh:2222 → a CUSTOM target:
+// that protocol on a non-standard port). Returns the target count (0 = nothing matched).
+static int dpBuildRun(const String& filter) {
+    s_runN = 0;
+    if (filter.length() == 0) {
+        for (int i = 0; i < DP_SVC_N; i++) dpAddRun(DP_SVCS[i].port, DP_SVCS[i].proto, DP_SVCS[i].name);
+        return s_runN;
+    }
+    int start = 0;
     while (start < (int)filter.length()) {
         int comma = filter.indexOf(',', start);
         String t = (comma < 0) ? filter.substring(start) : filter.substring(start, comma);
         t.trim(); t.toLowerCase();
         if (t.length()) {
-            bool isNum = true;
-            for (unsigned k = 0; k < t.length(); k++)
-                if (!isdigit((unsigned char)t[k])) { isNum = false; break; }
-            for (int i = 0; i < DP_SVC_N; i++) {
-                bool match;
-                if (isNum) match = (DP_SVCS[i].port == (uint16_t)t.toInt());
-                else { String nm = DP_SVCS[i].name; nm.trim(); nm.toLowerCase(); match = (nm == t); }
-                if (match && !en[i]) { en[i] = true; any++; }
+            int colon = t.indexOf(':');
+            if (colon > 0) {                                      // service:port custom target
+                int proto = dpProtoFromName(t.substring(0, colon));
+                long port = t.substring(colon + 1).toInt();
+                if (proto >= 0 && port > 0 && port < 65536)
+                    dpAddRun((uint16_t)port, (uint8_t)proto, dpProtoLabel(proto));
+            } else {
+                bool isNum = t.length() > 0;
+                for (unsigned k = 0; k < t.length(); k++) if (!isdigit((unsigned char)t[k])) { isNum = false; break; }
+                for (int i = 0; i < DP_SVC_N; i++) {
+                    bool m;
+                    if (isNum) m = (DP_SVCS[i].port == (uint16_t)t.toInt());
+                    else { String nm = DP_SVCS[i].name; nm.trim(); nm.toLowerCase(); m = (nm == t); }
+                    if (m) dpAddRun(DP_SVCS[i].port, DP_SVCS[i].proto, DP_SVCS[i].name);
+                }
             }
         }
         if (comma < 0) break;
         start = comma + 1;
     }
-    return any;
+    return s_runN;
 }
 
 static void dpDrawRow(int i) {
@@ -701,15 +758,14 @@ static void dpDrawRow(int i) {
         displayManager.printText("!");
     }
     displayManager.setCursor(DP_COL_PORT, y);
-    char pn[8]; snprintf(pn, sizeof(pn), "%-5u", DP_SVCS[i].port);
+    char pn[8]; snprintf(pn, sizeof(pn), "%-5u", s_run[i].port);
     displayManager.setTextColor(0x7BEF);   displayManager.printText(pn);
     displayManager.setCursor(DP_COL_SVC, y);
-    displayManager.setTextColor(TFT_WHITE); displayManager.printText(DP_SVCS[i].name);
+    displayManager.setTextColor(TFT_WHITE); displayManager.printText(s_run[i].name);
     displayManager.setCursor(DP_COL_STAT, y);
     char line[40];
     switch (s_state[i]) {
         case ST_PENDING: displayManager.setTextColor(0x39E7);   displayManager.printText("."); break;
-        case ST_SKIP:    displayManager.setTextColor(0x39E7);   displayManager.printText("skip"); break;
         case ST_TESTING: displayManager.setTextColor(TFT_YELLOW);displayManager.printText("testing..."); break;
         case ST_CLOSED:  displayManager.setTextColor(0x39E7);   displayManager.printText("closed"); break;
         case ST_NODEF:   displayManager.setTextColor(0x7BEF);   displayManager.printText("open, no default"); break;
@@ -738,7 +794,7 @@ static void dpDrawChrome(IPAddress ip) {
     displayManager.setTextColor(TFT_WHITE);  displayManager.println(ip.toString().c_str());
     displayManager.setCursor(0, outputY + LINE_HEIGHT + 2);
     displayManager.printSeparator();
-    for (int i = 0; i < DP_SVC_N; i++) dpDrawRow(i);
+    for (int i = 0; i < s_runN; i++) dpDrawRow(i);
     displayManager.setCursor(0, 210);
     displayManager.printSeparator();
     displayManager.setCursor(6, 214);
@@ -756,11 +812,19 @@ static void dpDrawProgress(int done, int total) {
     displayManager.setTextColor(TFT_WHITE);
 }
 
-// Multi-colour run summary in the footer (colours double as the legend).
-static void dpDrawSummary(int nHit, int nOpen, bool aborted) {
+// Multi-colour run summary in the footer (colours double as the legend). `unreachable`
+// = every tested port was closed → the host likely isn't reachable (isolated / down).
+static void dpDrawSummary(int nHit, int nOpen, bool aborted, bool unreachable) {
     if (displayManager.isBlocked()) return;
     displayManager.fillRect(0, 212, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
     displayManager.setCursor(6, 214);
+    if (unreachable && !aborted) {
+        displayManager.setTextColor(TFT_YELLOW);
+        displayManager.printText("host unreachable? (isolated/down)");
+        displayManager.setTextColor(0x7BEF); displayManager.printText("  [any]");
+        displayManager.setTextColor(TFT_WHITE);
+        return;
+    }
     displayManager.setTextColor(0x7BEF);                 displayManager.printText(aborted ? "STOP " : "DONE ");
     char b[12];
     displayManager.setTextColor(nHit  ? TFT_GREEN  : 0x7BEF);
@@ -772,15 +836,16 @@ static void dpDrawSummary(int nHit, int nOpen, bool aborted) {
 }
 
 static int dpRunSvc(int i, IPAddress ip) {
-    switch (DP_SVCS[i].proto) {
-        case SV_HTTP:   return dpHttp(ip, DP_SVCS[i].port, s_hu[i], s_hp[i]);
-        case SV_TELNET: return dpTelnet(ip, s_hu[i], s_hp[i]);
-        case SV_FTP:    return dpFtp(ip, s_hu[i], s_hp[i]);
-        case SV_RTSP:   return dpRtsp(ip, s_hu[i], s_hp[i]);
-        case SV_REDIS:  return dpRedis(ip, s_hu[i], s_hp[i]);
-        case SV_SNMP:   return dpSnmp(ip, s_hu[i], s_hp[i]);
-        case SV_SSH:    return dpSsh(ip, s_hu[i], s_hp[i]);
-        case SV_MQTT:   return dpMqtt(ip, s_hu[i], s_hp[i]);
+    uint16_t port = s_run[i].port;
+    switch (s_run[i].proto) {
+        case SV_HTTP:   return dpHttp(ip, port, s_hu[i], s_hp[i]);
+        case SV_TELNET: return dpTelnet(ip, port, s_hu[i], s_hp[i]);
+        case SV_FTP:    return dpFtp(ip, port, s_hu[i], s_hp[i]);
+        case SV_RTSP:   return dpRtsp(ip, port, s_hu[i], s_hp[i]);
+        case SV_REDIS:  return dpRedis(ip, port, s_hu[i], s_hp[i]);
+        case SV_SNMP:   return dpSnmp(ip, port, s_hu[i], s_hp[i]);
+        case SV_SSH:    return dpSsh(ip, port, s_hu[i], s_hp[i]);
+        case SV_MQTT:   return dpMqtt(ip, port, s_hu[i], s_hp[i]);
     }
     return 0;
 }
@@ -790,10 +855,10 @@ static void dpSaveHits(IPAddress ip, int hits) {
     sdCardManager.ensureDir(SD_DIR_DPWO);
     File f = SD.open(SD_DIR_DPWO "/results.csv", FILE_APPEND);
     if (!f) return;
-    for (int i = 0; i < DP_SVC_N; i++)
+    for (int i = 0; i < s_runN; i++)
         if (s_state[i] == ST_HIT || s_state[i] == ST_OPEN)
-            f.printf("%s,%u,%s,%s,%s\n", ip.toString().c_str(), DP_SVCS[i].port,
-                     DP_SVCS[i].name, s_hu[i], s_hp[i]);
+            f.printf("%s,%u,%s,%s,%s\n", ip.toString().c_str(), s_run[i].port,
+                     s_run[i].name, s_hu[i], s_hp[i]);
     f.close();
 }
 
@@ -815,10 +880,10 @@ void runDpwo(char* args) {
         displayManager.clearScreen();
         displayManager.setCursor(10, outputY);
         displayManager.setTextColor(TFT_YELLOW);
-        displayManager.println("Usage: dw <ip|nd#|ns#> [port|service]");
+        displayManager.println("Usage: dw <ip|nd#|ns#> [svc|port|svc:port]");
         displayManager.setCursor(10, displayManager.getCursorY());
         displayManager.setTextColor(0x7BEF);
-        displayManager.println("e.g. dw 192.168.1.10 ssh  (quiet: one svc)");
+        displayManager.println("e.g. dw 192.168.1.10 ssh   dw .. ssh:2222");
         displayManager.setTextColor(TFT_WHITE);
         displayManager.printCommandScreen();
         return;
@@ -844,33 +909,31 @@ void runDpwo(char* args) {
         return;
     }
 
-    // Apply the quiet-mode filter (default = all services enabled).
-    for (int i = 0; i < DP_SVC_N; i++) s_enabled[i] = true;
-    if (filter.length() && dpApplyFilter(filter, s_enabled) == 0) {
+    // Build the run list (default = all services; filter selects services/ports/custom).
+    if (dpBuildRun(filter) == 0) {
         displayManager.clearScreen();
         displayManager.setCursor(10, outputY);
         displayManager.setTextColor(TFT_YELLOW);
         displayManager.println("No service/port matches that.");
         displayManager.setCursor(10, displayManager.getCursorY());
         displayManager.setTextColor(0x7BEF);
-        displayManager.println("Try: ftp ssh telnet http rtsp redis snmp");
+        displayManager.println("Try: ftp ssh telnet http rtsp redis mqtt snmp");
+        displayManager.setCursor(10, displayManager.getCursorY());
+        displayManager.println("or svc:port, e.g. ssh:2222  http:8443");
         displayManager.setTextColor(TFT_WHITE);
         displayManager.printCommandScreen();
         return;
     }
 
     dpLoadCreds();
-    for (int i = 0; i < DP_SVC_N; i++) { s_state[i] = ST_PENDING; s_hu[i][0] = 0; s_hp[i][0] = 0; }
-    int enabledTotal = 0;
-    for (int i = 0; i < DP_SVC_N; i++) if (s_enabled[i]) enabledTotal++;
+    for (int i = 0; i < s_runN; i++) { s_state[i] = ST_PENDING; s_hu[i][0] = 0; s_hp[i][0] = 0; }
     dpDrawChrome(ip);
     int done = 0;
-    dpDrawProgress(done, enabledTotal);
+    dpDrawProgress(done, s_runN);
 
     int hits = 0; bool aborted = false;
-    for (int i = 0; i < DP_SVC_N && !aborted; i++) {
-        if (!s_enabled[i]) { s_state[i] = ST_SKIP; dpDrawRow(i); continue; }
-        if (LockScreenManager::getInstance().consumeJustUnlocked()) { dpDrawChrome(ip); dpDrawProgress(done, enabledTotal); }
+    for (int i = 0; i < s_runN && !aborted; i++) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) { dpDrawChrome(ip); dpDrawProgress(done, s_runN); }
         s_state[i] = ST_TESTING; dpDrawRow(i);
         s_curRow = i;                                    // let dpSsh redraw live progress here
         int r = dpRunSvc(i, ip);
@@ -883,26 +946,30 @@ void runDpwo(char* args) {
             case  2: s_state[i] = ST_OPEN; hits++; break;
         }
         dpDrawRow(i);
-        if (!aborted) { done++; dpDrawProgress(done, enabledTotal); }
+        if (!aborted) { done++; dpDrawProgress(done, s_runN); }
         if (dpAbort()) aborted = true;
     }
 
     dpFreeCreds();   // creds no longer needed (rule 5c — free before the results-view wait)
     dpSaveHits(ip, hits);
 
-    int nHit = 0, nOpen = 0;
-    for (int i = 0; i < DP_SVC_N; i++) {
-        if (s_state[i] == ST_HIT)  nHit++;
-        else if (s_state[i] == ST_OPEN) nOpen++;
+    int nHit = 0, nOpen = 0, nClosed = 0, nTested = 0;
+    for (int i = 0; i < s_runN; i++) {
+        if (s_state[i] == ST_PENDING) continue;         // not reached (aborted early)
+        nTested++;
+        if      (s_state[i] == ST_HIT)    nHit++;
+        else if (s_state[i] == ST_OPEN)   nOpen++;
+        else if (s_state[i] == ST_CLOSED) nClosed++;
     }
-    dpDrawSummary(nHit, nOpen, aborted);
+    bool unreachable = (nTested > 0 && nClosed == nTested);   // everything closed → host down/isolated
+    dpDrawSummary(nHit, nOpen, aborted, unreachable);
 
     // hold for a keypress so results are readable
     while (true) {
         char k = inputHandler.getKeyboardInput();
         if (k) break;
         if (LockScreenManager::getInstance().consumeJustUnlocked()) {
-            dpDrawChrome(ip); dpDrawProgress(done, enabledTotal); dpDrawSummary(nHit, nOpen, aborted);
+            dpDrawChrome(ip); dpDrawProgress(done, s_runN); dpDrawSummary(nHit, nOpen, aborted, unreachable);
         }
         delay(20);
     }

@@ -208,6 +208,9 @@ This project incorporates code from the following open-source projects:
                - RouterSploit (https://github.com/threat9/routersploit) — its
                  creds/ modules (http_basic_digest_default, ftp/telnet/snmp) informed
                  the per-service default-cred flow + "success = past the 401" check.
+               - Metasploit http_login + changeme (https://github.com/jtesta/changeme)
+                 — the "probe several admin URIs to find the 401, then try creds there"
+                 method for HTTP; MQTT 3.1.1 CONNECT/CONNACK per the OASIS standard.
                - Cameradar (https://github.com/Ullaakut/cameradar) — its RTSP
                  stream-route dictionary showed that cameras often 404 on "/" and only
                  challenge auth on a valid path; dpwo probes a small brand-path list.

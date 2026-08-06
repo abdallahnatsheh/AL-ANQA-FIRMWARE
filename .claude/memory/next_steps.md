@@ -45,9 +45,15 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
    `- skip` (ST_SKIP). Names ftp/ssh/telnet/http(all 4)/rtsp/redis/snmp or a port number; no filter = full sweep.
    man/docs(EN+AR)/README/CLAUDE updated. **NOT HW-tested.**
    **✅ MQTT(1883) DONE 2026-08-06:** hand-built MQTT 3.1.1 CONNECT (`dpBuildMqtt`) — anonymous probe → open
-   broker (NO AUTH), else default creds; CONNACK rc==0 = accepted (`dpMqttConnack`). 11th service row.
-   **▶ PLANNED (NOT built, lower prio):** optional rate-limit/pacing between attempts for extra stealth;
-   HTTP form-login (hard — CSRF/JS); HTTPS opt-in (TLS DRAM cost).
+   broker (NO AUTH), else default creds; CONNACK rc==0 = accepted (`dpMqttConnack`).
+   **✅ 2026-08-06 batch — custom ports + HTTP paths + unreachable + UI:** refactored to a `DpTarget s_run[]`
+   run-list (`dpBuildRun`); **custom port `dw <ip> svc:port`** (ssh:2222/http:8443 — every protocol fn now takes
+   a port param). HTTP now **probes an admin-path list** (`DP_HTTP_PATHS` /admin//login//cgi-bin/luci/… →
+   find the 401 → try creds there; Metasploit http_login/changeme method, NOTICES). **Unreachable footer** when
+   all ports closed (isolation/down hint). UI: header n/total progress, live SSH `testing k/N`, `!` finding
+   markers, aligned columns, multi-colour summary.
+   **▶ PLANNED (NOT built, lower prio):** rate-limit/pacing for stealth; HTTP form-login (needs per-device
+   fingerprints); HTTPS opt-in (TLS DRAM); SSH keyboard-interactive; SD creds.csv not applied to SSH (own list).
 4. **WPA3 transition-mode downgrade** — ✅ DONE (Phase 2) as `wpa3down`/`w3d` (built, **NOT yet
    HW-tested**). TD-filtered picker → karma `roguehs` WPA2-only rogue AP + broadcast-deauth → EAPOL
    capture → `/apps/wpa3down/<ssid>.cap` (crack via `cc`). Phase 2 = core downgrade only; PMF-required

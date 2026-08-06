@@ -42,7 +42,21 @@ CMD> dw 192.168.1.10 http      # all HTTP ports (80/81/8000/8080)
 CMD> dw 192.168.1.10 ftp,telnet   # a short list
 ```
 
-Service names: `ftp ssh telnet http rtsp redis mqtt snmp`. Skipped rows show `- skip`. With no filter, all services are checked.
+Service names: `ftp ssh telnet http rtsp redis mqtt snmp`. With no filter, all services are checked.
+
+### Custom ports — `service:port`
+
+A protocol on a **non-standard port** (SSH on 2222, an HTTP panel on 8443, Telnet on 2323 …): give `service:port`.
+
+```
+CMD> dw 192.168.1.10 ssh:2222      # speak SSH to port 2222
+CMD> dw 192.168.1.10 http:8443     # HTTP Basic/Digest on 8443
+CMD> dw 192.168.1.10 http,ssh:2222 # mix built-ins and custom
+```
+
+### "Host unreachable?"
+
+If **every** probed port comes back `closed`, the footer says **`host unreachable? (isolated/down)`** — the device is off, firewalled, or you're on a **client-isolated** network (where you can't reach other clients — target the **gateway/router** instead).
 
 Each service is shown on its own row and updates live as it's tested:
 
@@ -67,7 +81,7 @@ Findings are appended to **`/apps/dpwo/results.csv`** (`ip,port,service,user,pas
 | 21 | FTP | `USER`/`PASS` → `230` |
 | 22 | SSH | `ssh_userauth_password` (reuses the [`sc`](ssh) LibSSH stack) — **slow**: a full key-exchange per credential, so it uses a short SSH-specific list |
 | 23 | Telnet | login/password, shell-prompt heuristic |
-| 80 / 81 / 8000 / 8080 | HTTP | Basic **and** Digest auth (`WWW-Authenticate`) |
+| 80 / 81 / 8000 / 8080 | HTTP | Basic **and** Digest auth — probes common admin paths (`/`, `/admin`, `/login`, `/cgi-bin/luci`, …) to find the one that challenges, then tries creds there. Form logins aren't covered (need per-device fingerprints) |
 | 554 | RTSP | `DESCRIBE` + Basic/Digest — **IP cameras**. Probes common brand stream paths (Hikvision `/Streaming/Channels/101`, Dahua `/cam/realmonitor`, Reolink `/h264Preview_01_main`, …) since many cameras 404 on `/` and only challenge auth on a valid path |
 | 6379 | Redis | `PING` → open-no-auth, else `AUTH` |
 | 1883 | MQTT | `CONNECT` anonymous → open-broker, else default creds (CONNACK) |
