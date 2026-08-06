@@ -668,6 +668,8 @@ static const ManEntry PAGES[] = {
         "         its own /apps/dpwo/ssh_creds.csv.",
         "OUTPUT   hits -> /apps/dpwo/results.csv",
         "KEYS     [q] stop",
+        "HINT     all ports closed = host unreachable",
+        "         (isolated net? target the gateway).",
         "NOTE     Default-cred check, NOT a brute-forcer.",
         "         No web FORM logins / no HTTPS. Own",
         "         networks only.",
