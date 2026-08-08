@@ -643,7 +643,7 @@ static const ManEntry PAGES[] = {
     { "dpwo", "dw", {
         "SYNTAX   dw <ip|nd#|ns#> [svc|port|svc:port]",
         "",
-        "ABOUT    [EXP] Default-password checker. Probes",
+        "ABOUT    Default-password checker. Probes",
         "         a host's common services and tries a",
         "         small curated list of factory logins.",
         "         Needs cw (must be on the network).",

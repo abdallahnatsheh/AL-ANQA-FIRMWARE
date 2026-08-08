@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Abdallah Natsheh
 //
-// dpwo / dw — DEFAULT-PASSWORD checker (Network, [EXP]).
+// dpwo / dw — DEFAULT-PASSWORD checker (Network).
 //
 // Audits a host you've already discovered for services still running FACTORY /
 // default credentials — the "admin:admin" class of finding that dominates real
@@ -268,6 +268,10 @@ static int dpStatusCode(const char* resp) {
     return atoi(sp + 1);
 }
 
+// Forward decl — live "currently trying" indicator (defined below with the UI helpers,
+// after the column layout); every per-service cred loop calls it.
+static void dpTrying(const char* user, const char* pass);
+
 // ── per-service checks ───────────────────────────────────────────────────────────────
 // return codes: -1 = port closed · 0 = open, no default found · 1 = HIT (creds set)
 //               2 = open with NO auth required · -2 = aborted by [q]
@@ -317,6 +321,7 @@ static int dpHttp(IPAddress ip, uint16_t port, char* hu, char* hp) {
     }
     for (int i = 0; i < s_credN; i++) {
         if (dpAbort()) return -2;
+        dpTrying(s_creds[i].user, s_creds[i].pass);
         if (dpHttpTry(ip, port, s_creds[i], "GET", authPath, a) == 1) {
             strncpy(hu, s_creds[i].user, 23); hu[23] = 0;
             strncpy(hp, s_creds[i].pass[0] ? s_creds[i].pass : "(blank)", 23); hp[23] = 0;
@@ -357,6 +362,7 @@ static int dpRtsp(IPAddress ip, uint16_t port, char* hu, char* hp) {
     if (!challenged || a.scheme == DP_AUTH_NONE) return 0;
     for (int i = 0; i < s_credN; i++) {
         if (dpAbort()) return -2;
+        dpTrying(s_creds[i].user, s_creds[i].pass);
         WiFiClient c2;
         if (!c2.connect(ip, port, 800)) return 0;
         String req = String("DESCRIBE ") + url + " RTSP/1.0\r\nCSeq: " + cseq++ + "\r\n" +
@@ -377,6 +383,7 @@ static int dpFtp(IPAddress ip, uint16_t port, char* hu, char* hp) {
     { WiFiClient p; if (!p.connect(ip, port, 500)) return -1; p.stop(); }
     for (int i = 0; i < s_credN; i++) {
         if (dpAbort()) return -2;
+        dpTrying(s_creds[i].user, s_creds[i].pass);
         WiFiClient c;
         if (!c.connect(ip, port, 800)) return 0;
         char b[200];
@@ -449,6 +456,7 @@ static int dpTelnet(IPAddress ip, uint16_t port, char* hu, char* hp) {
     { WiFiClient p; if (!p.connect(ip, port, 500)) return -1; p.stop(); }
     for (int i = 0; i < s_credN; i++) {
         if (dpAbort()) return -2;
+        dpTrying(s_creds[i].user, s_creds[i].pass);
         WiFiClient c;
         if (!c.connect(ip, port, 900)) return 0;
         char b[300];
@@ -477,6 +485,7 @@ static int dpRedis(IPAddress ip, uint16_t port, char* hu, char* hp) {
     for (int i = 0; i < s_credN; i++) {
         if (dpAbort()) return -2;
         if (!s_creds[i].pass[0]) continue;
+        dpTrying("", s_creds[i].pass);
         WiFiClient a;
         if (!a.connect(ip, port, 800)) return 0;
         a.print(String("AUTH ") + s_creds[i].pass + "\r\n");
@@ -518,6 +527,7 @@ static int dpSnmp(IPAddress ip, uint16_t port, char* hu, char* hp) {
     if (!udp.begin(0)) return 0;
     for (int i = 0; i < DP_SNMP_COMM_N; i++) {
         if (dpAbort()) { udp.stop(); return -2; }
+        dpTrying("", DP_SNMP_COMM[i]);
         uint8_t pkt[96];
         int len = dpBuildSnmp(DP_SNMP_COMM[i], pkt);
         udp.beginPacket(ip, port);
@@ -587,6 +597,7 @@ static int dpMqtt(IPAddress ip, uint16_t port, char* hu, char* hp) {
     }                                                           // rc 0x04/0x05 → needs creds
     for (int i = 0; i < s_credN; i++) {
         if (dpAbort()) return -2;
+        dpTrying(s_creds[i].user, s_creds[i].pass);
         WiFiClient c;
         if (!c.connect(ip, port, 800)) return 0;
         uint8_t pkt[192]; int len = dpBuildMqtt(pkt, "dpwo", s_creds[i].user, s_creds[i].pass);
@@ -620,6 +631,28 @@ static inline int dpRowY(int i) { return outputY + LINE_HEIGHT + 4 + i * LINE_HE
 #define DP_COL_PORT  16
 #define DP_COL_SVC   52
 #define DP_COL_STAT  96
+
+static int s_sel = -1;   // selected result row in the interactive view; -1 while scanning
+
+// Row background: a dark-blue bar when this is the highlighted result row, else black.
+static inline uint16_t dpRowBg(int i) { return (i == s_sel) ? 0x0010 : TFT_BLACK; }
+
+// Live "currently trying" indicator — repaints the status cell of the row under test
+// (s_curRow) with the exact credential (or SNMP community) in flight, so a slow service
+// shows progress instead of a frozen "testing...". `user`=="" → single value (community).
+static void dpTrying(const char* user, const char* pass) {
+    if (displayManager.isBlocked() || s_curRow < 0) return;
+    int y = dpRowY(s_curRow);
+    displayManager.fillRect(DP_COL_STAT, y - 1, SCREEN_WIDTH - DP_COL_STAT, LINE_HEIGHT, dpRowBg(s_curRow));
+    displayManager.setCursor(DP_COL_STAT, y);
+    displayManager.setTextColor(TFT_YELLOW);
+    char b[40];
+    const char* pp = (pass && pass[0]) ? pass : "-";
+    if (user && user[0]) snprintf(b, sizeof(b), "try %.13s:%.11s", user, pp);
+    else                 snprintf(b, sizeof(b), "try %.24s", pp);
+    displayManager.printText(b);
+    displayManager.setTextColor(TFT_WHITE);
+}
 
 static void dpSshTask(void* arg) {
     (void)arg;
@@ -663,12 +696,16 @@ static int dpSsh(IPAddress ip, uint16_t port, char* hu, char* hp) {
         if (dpAbort()) s_sshAbort = true;                  // stop after the current attempt
         int t = s_sshTry;
         if (t != lastTry && t > 0 && !displayManager.isBlocked() && s_curRow >= 0) {
-            // SSH is slow (a key exchange per cred) — show which one so it isn't "frozen".
+            // SSH is slow (a key exchange per cred) — show which cred so it isn't "frozen".
             int y = dpRowY(s_curRow);
-            displayManager.fillRect(DP_COL_STAT, y - 1, SCREEN_WIDTH - DP_COL_STAT, LINE_HEIGHT, TFT_BLACK);
+            displayManager.fillRect(DP_COL_STAT, y - 1, SCREEN_WIDTH - DP_COL_STAT, LINE_HEIGHT, dpRowBg(s_curRow));
             displayManager.setCursor(DP_COL_STAT, y);
             displayManager.setTextColor(TFT_YELLOW);
-            char b[20]; snprintf(b, sizeof(b), "testing %d/%d", t, s_sshCrN);
+            char b[36]; int ci = t - 1;
+            if (ci >= 0 && ci < s_sshCrN)
+                snprintf(b, sizeof(b), "try %d/%d %.9s:%.7s", t, s_sshCrN,
+                         s_sshCr[ci].user, s_sshCr[ci].pass[0] ? s_sshCr[ci].pass : "-");
+            else snprintf(b, sizeof(b), "testing %d/%d", t, s_sshCrN);
             displayManager.printText(b);
             displayManager.setTextColor(TFT_WHITE);
             lastTry = t;
@@ -773,7 +810,7 @@ static int dpBuildRun(const String& filter) {
 static void dpDrawRow(int i) {
     if (displayManager.isBlocked()) return;
     int y = dpRowY(i);
-    displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+    displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, dpRowBg(i));
     // finding marker — a bright "!" so hits/open rows jump out when scanning
     if (s_state[i] == ST_HIT || s_state[i] == ST_OPEN) {
         displayManager.setCursor(DP_COL_MARK, y);
@@ -820,9 +857,6 @@ static void dpDrawChrome(IPAddress ip) {
     for (int i = 0; i < s_runN; i++) dpDrawRow(i);
     displayManager.setCursor(0, 210);
     displayManager.printSeparator();
-    displayManager.setCursor(6, 214);
-    displayManager.setTextColor(0x7BEF); displayManager.printText("[q] stop");
-    displayManager.setTextColor(TFT_WHITE);
 }
 
 // Live progress on the right of the header line (so slow rows don't look frozen).
@@ -835,26 +869,49 @@ static void dpDrawProgress(int done, int total) {
     displayManager.setTextColor(TFT_WHITE);
 }
 
-// Multi-colour run summary in the footer (colours double as the legend). `unreachable`
+// Header-right run tally (hit/open counts, or an "unreachable?" hint) — colours double as
+// the legend. Drawn in the same slot the live progress used during the scan. `unreachable`
 // = every tested port was closed → the host likely isn't reachable (isolated / down).
-static void dpDrawSummary(int nHit, int nOpen, bool aborted, bool unreachable) {
+static void dpDrawCounts(int nHit, int nOpen, bool unreachable) {
+    if (displayManager.isBlocked()) return;
+    displayManager.fillRect(224, outputY - 1, SCREEN_WIDTH - 224, LINE_HEIGHT, TFT_BLACK);
+    displayManager.setCursor(228, outputY);
+    if (unreachable) {
+        displayManager.setTextColor(TFT_YELLOW); displayManager.printText("unreach?");
+        displayManager.setTextColor(TFT_WHITE); return;
+    }
+    char b[16];
+    displayManager.setTextColor(nHit  ? TFT_GREEN  : 0x7BEF);
+    snprintf(b, sizeof(b), "hit %d",  nHit);  displayManager.printText(b);
+    displayManager.setTextColor(nOpen ? TFT_ORANGE : 0x7BEF);
+    snprintf(b, sizeof(b), " open %d", nOpen); displayManager.printText(b);
+    displayManager.setTextColor(TFT_WHITE);
+}
+
+// Footer shown while a scan is running.
+static void dpDrawFooterScan() {
     if (displayManager.isBlocked()) return;
     displayManager.fillRect(0, 212, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
     displayManager.setCursor(6, 214);
-    if (unreachable && !aborted) {
-        displayManager.setTextColor(TFT_YELLOW);
-        displayManager.printText("host unreachable? (isolated/down)");
-        displayManager.setTextColor(0x7BEF); displayManager.printText("  [any]");
-        displayManager.setTextColor(TFT_WHITE);
-        return;
+    displayManager.setTextColor(0x7BEF); displayManager.printText("[q] stop");
+    displayManager.setTextColor(TFT_WHITE);
+}
+
+// Footer for the interactive results view: trackpad picks a row, keys re-scan.
+static void dpDrawFooterResults() {
+    if (displayManager.isBlocked()) return;
+    displayManager.fillRect(0, 212, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+    displayManager.setCursor(6, 214);
+    struct { const char* k; const char* label; } keys[] = {
+        { "r", " rescan " }, { "a", " all " }, { "q", " quit  " },
+    };
+    for (auto& e : keys) {
+        displayManager.setTextColor(0x7BEF);    displayManager.printText("[");
+        displayManager.setTextColor(TFT_CYAN);  displayManager.printText(e.k);
+        displayManager.setTextColor(0x7BEF);    displayManager.printText("]");
+        displayManager.setTextColor(TFT_WHITE); displayManager.printText(e.label);
     }
-    displayManager.setTextColor(0x7BEF);                 displayManager.printText(aborted ? "STOP " : "DONE ");
-    char b[12];
-    displayManager.setTextColor(nHit  ? TFT_GREEN  : 0x7BEF);
-    snprintf(b, sizeof(b), " hit %d", nHit);   displayManager.printText(b);
-    displayManager.setTextColor(nOpen ? TFT_ORANGE : 0x7BEF);
-    snprintf(b, sizeof(b), "  open %d", nOpen); displayManager.printText(b);
-    displayManager.setTextColor(0x7BEF);                 displayManager.printText("   [any] back");
+    displayManager.setTextColor(0x7BEF); displayManager.printText("^v pick");
     displayManager.setTextColor(TFT_WHITE);
 }
 
@@ -873,8 +930,13 @@ static int dpRunSvc(int i, IPAddress ip) {
     return 0;
 }
 
-static void dpSaveHits(IPAddress ip, int hits) {
-    if (hits <= 0 || !sdCardManager.canAccessSD()) return;
+// One-shot save of the current HIT/OPEN rows (called once on exit, so per-row rescans
+// don't append duplicates). No-op when there's nothing to save or no SD.
+static void dpSaveHits(IPAddress ip) {
+    if (!sdCardManager.canAccessSD()) return;
+    int any = 0;
+    for (int i = 0; i < s_runN; i++) if (s_state[i] == ST_HIT || s_state[i] == ST_OPEN) any++;
+    if (!any) return;
     sdCardManager.ensureDir(SD_DIR_DPWO);
     File f = SD.open(SD_DIR_DPWO "/results.csv", FILE_APPEND);
     if (!f) return;
@@ -883,6 +945,69 @@ static void dpSaveHits(IPAddress ip, int hits) {
             f.printf("%s,%u,%s,%s,%s\n", ip.toString().c_str(), s_run[i].port,
                      s_run[i].name, s_hu[i], s_hp[i]);
     f.close();
+}
+
+// ── scan orchestration + interactive results ─────────────────────────────────────────
+static void dpResetStates() {
+    for (int i = 0; i < s_runN; i++) { s_state[i] = ST_PENDING; s_hu[i][0] = 0; s_hp[i][0] = 0; }
+}
+
+// Test one service row: mark testing, run it, store the result, redraw. Returns the raw
+// dpRunSvc code (-2 = the user pressed q mid-test → the row's previous state is kept, so
+// a single-row rescan can be cancelled without losing the earlier result).
+static int dpScanRow(int i, IPAddress ip) {
+    uint8_t prev = s_state[i];
+    s_state[i] = ST_TESTING; dpDrawRow(i);
+    s_curRow = i;                       // lets dpTrying / dpSsh repaint live progress here
+    int r = dpRunSvc(i, ip);
+    s_curRow = -1;
+    switch (r) {
+        case -2: s_state[i] = prev;      break;
+        case -1: s_state[i] = ST_CLOSED; break;
+        case  0: s_state[i] = ST_NODEF;  break;
+        case  1: s_state[i] = ST_HIT;    break;
+        case  2: s_state[i] = ST_OPEN;   break;
+    }
+    dpDrawRow(i);
+    return r;
+}
+
+// Run every row in order (states must be pre-reset). Draws live progress. Returns true if
+// the user aborted with q — but the caller shows the (partial) results either way.
+static bool dpScanAll(IPAddress ip) {
+    int done = 0;
+    dpDrawProgress(done, s_runN);
+    bool aborted = false;
+    for (int i = 0; i < s_runN && !aborted; i++) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
+            dpDrawChrome(ip); dpDrawFooterScan(); dpDrawProgress(done, s_runN);
+        }
+        int r = dpScanRow(i, ip);
+        if (r == -2) aborted = true;
+        else { done++; dpDrawProgress(done, s_runN); }
+        if (!aborted && dpAbort()) aborted = true;
+    }
+    return aborted;
+}
+
+static void dpTally(int& nHit, int& nOpen, bool& unreachable) {
+    int nClosed = 0, nTested = 0; nHit = 0; nOpen = 0;
+    for (int i = 0; i < s_runN; i++) {
+        if (s_state[i] == ST_PENDING) continue;
+        nTested++;
+        if      (s_state[i] == ST_HIT)    nHit++;
+        else if (s_state[i] == ST_OPEN)   nOpen++;
+        else if (s_state[i] == ST_CLOSED) nClosed++;
+    }
+    unreachable = (nTested > 0 && nClosed == nTested);
+}
+
+// Full repaint of the interactive results view (chrome + selection highlight + counts + footer).
+static void dpRedrawResults(IPAddress ip) {
+    int nHit, nOpen; bool un; dpTally(nHit, nOpen, un);
+    dpDrawChrome(ip);
+    dpDrawCounts(nHit, nOpen, un);
+    dpDrawFooterResults();
 }
 
 // ── entry ─────────────────────────────────────────────────────────────────────────────
@@ -949,52 +1074,44 @@ void runDpwo(char* args) {
     }
 
     dpLoadCreds();
-    for (int i = 0; i < s_runN; i++) { s_state[i] = ST_PENDING; s_hu[i][0] = 0; s_hp[i][0] = 0; }
+    dpResetStates();
+    s_sel = -1;                          // no selection highlight while the first scan runs
     dpDrawChrome(ip);
-    int done = 0;
-    dpDrawProgress(done, s_runN);
+    dpDrawFooterScan();
+    dpScanAll(ip);                       // initial full sweep (q stops early → still show results)
 
-    int hits = 0; bool aborted = false;
-    for (int i = 0; i < s_runN && !aborted; i++) {
-        if (LockScreenManager::getInstance().consumeJustUnlocked()) { dpDrawChrome(ip); dpDrawProgress(done, s_runN); }
-        s_state[i] = ST_TESTING; dpDrawRow(i);
-        s_curRow = i;                                    // let dpSsh redraw live progress here
-        int r = dpRunSvc(i, ip);
-        s_curRow = -1;
-        switch (r) {
-            case -2: aborted = true;  s_state[i] = ST_PENDING; break;
-            case -1: s_state[i] = ST_CLOSED; break;
-            case  0: s_state[i] = ST_NODEF;  break;
-            case  1: s_state[i] = ST_HIT;  hits++; break;
-            case  2: s_state[i] = ST_OPEN; hits++; break;
-        }
-        dpDrawRow(i);
-        if (!aborted) { done++; dpDrawProgress(done, s_runN); }
-        if (dpAbort()) aborted = true;
-    }
-
-    dpFreeCreds();   // creds no longer needed (rule 5c — free before the results-view wait)
-    dpSaveHits(ip, hits);
-
-    int nHit = 0, nOpen = 0, nClosed = 0, nTested = 0;
-    for (int i = 0; i < s_runN; i++) {
-        if (s_state[i] == ST_PENDING) continue;         // not reached (aborted early)
-        nTested++;
-        if      (s_state[i] == ST_HIT)    nHit++;
-        else if (s_state[i] == ST_OPEN)   nOpen++;
-        else if (s_state[i] == ST_CLOSED) nClosed++;
-    }
-    bool unreachable = (nTested > 0 && nClosed == nTested);   // everything closed → host down/isolated
-    dpDrawSummary(nHit, nOpen, aborted, unreachable);
-
-    // hold for a keypress so results are readable
+    // Interactive results view — do NOT exit on a keypress. Trackpad picks a row; [r] (or
+    // trackball click) re-scans just that service in place, [a] re-scans everything, [q] leaves.
+    s_sel = 0;
+    dpRedrawResults(ip);
     while (true) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) dpRedrawResults(ip);
+
+        TrackballEvent tb = inputHandler.getTrackballEvent();
+        if (tb == TBALL_UP && s_sel > 0)                 { int o = s_sel; s_sel--; dpDrawRow(o); dpDrawRow(s_sel); }
+        else if (tb == TBALL_DOWN && s_sel < s_runN - 1) { int o = s_sel; s_sel++; dpDrawRow(o); dpDrawRow(s_sel); }
+
         char k = inputHandler.getKeyboardInput();
-        if (k) break;
-        if (LockScreenManager::getInstance().consumeJustUnlocked()) {
-            dpDrawChrome(ip); dpDrawProgress(done, s_runN); dpDrawSummary(nHit, nOpen, aborted, unreachable);
+        if (k == 'q' || k == 'Q') break;
+
+        if (k == 'r' || k == 'R' || tb == TBALL_CLICK) {          // re-scan the selected service
+            dpScanRow(s_sel, ip);                                 // row stays highlighted (s_sel==row)
+            int nHit, nOpen; bool un; dpTally(nHit, nOpen, un);
+            dpDrawCounts(nHit, nOpen, un);
+        } else if (k == 'a' || k == 'A') {                        // re-scan everything
+            int sv = s_sel; s_sel = -1;
+            dpResetStates();
+            dpDrawChrome(ip); dpDrawFooterScan();
+            dpScanAll(ip);
+            s_sel = sv;
+            dpRedrawResults(ip);
         }
         delay(20);
     }
+
+    dpFreeCreds();                       // rule 5c — creds held through rescans, freed on exit
+    dpSaveHits(ip);                      // persist current HIT/OPEN rows once (no per-rescan dupes)
+    displayManager.clearScreen();        // wipe the table so the CLI prompt doesn't overprint it
+    displayManager.setCursor(10, outputY);
     displayManager.printCommandScreen();
 }

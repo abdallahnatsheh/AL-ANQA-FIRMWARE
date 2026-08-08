@@ -64,7 +64,7 @@ Al-Anqa turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no 
 - [SSH Client](ssh) — `ssh` — interactive colour terminal + scrollback
 - [ARP Spoof](arpspoof) — `arpspoof` — L2 ARP cache poisoning + redirected-traffic log
 - [Responder](responder) — `responder` — **[EXP]** LLMNR/NBT-NS/mDNS poisoner + NetNTLM capture
-- [Default-Password Check](dpwo) — `dpwo` / `dw` — **[EXP]** default creds on FTP/SSH/Telnet/HTTP/RTSP/Redis/MQTT/SNMP (custom ports too)
+- [Default-Password Check](dpwo) — `dpwo` / `dw` — default creds on FTP/SSH/Telnet/HTTP/RTSP/Redis/MQTT/SNMP (custom ports too)
 
 ---
 

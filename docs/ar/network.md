@@ -28,7 +28,7 @@ has_children: true
 | [فحص المنافذ]({{ site.baseurl }}/portscan) | `ps` · `ps top` | فحص منافذ TCP (نطاق أو الأشهر)، و**التقاط البانر** (`b`)، و**بصمة نظام التشغيل** |
 | [Ping]({{ site.baseurl }}/ping) | `pg` | ICMP × 4 مع ملخّص RTT والفقد |
 | [عميل SSH]({{ site.baseurl }}/ssh) | `ssh` · `sc` | طرفية SSH تفاعلية ملوّنة مع تمرير للخلف |
-| [فحص كلمات المرور الافتراضية]({{ site.baseurl }}/dpwo) | `dw` · **[تجريبي]** | تجربة بيانات الاعتماد الافتراضية على FTP/SSH/Telnet/HTTP/RTSP/Redis/MQTT/SNMP (أو منفذ مخصّص `svc:port`) ← `results.csv` |
+| [فحص كلمات المرور الافتراضية]({{ site.baseurl }}/dpwo) | `dw` | تجربة بيانات الاعتماد الافتراضية على FTP/SSH/Telnet/HTTP/RTSP/Redis/MQTT/SNMP (أو منفذ مخصّص `svc:port`) ← `results.csv` |
 
 ## الهجمات
 

@@ -25,7 +25,7 @@ Tools for mapping and attacking the LAN you're connected to. **All of them requi
 | [Port Scan](portscan) | `ps` · `ps top` | TCP port scan (range or top-common), **banner grab** (`b`), and **OS fingerprint** |
 | [Ping](ping) | `pg` | ICMP echo × 4 with RTT + loss summary |
 | [SSH Client](ssh) | `ssh` · `sc` | Interactive colour SSH terminal with scrollback |
-| [Default-Password Check](dpwo) | `dw` · **[EXP]** | Try factory/default creds on FTP/SSH/Telnet/HTTP/RTSP/Redis/MQTT/SNMP (or a custom `svc:port`) → `results.csv` |
+| [Default-Password Check](dpwo) | `dw` | Try factory/default creds on FTP/SSH/Telnet/HTTP/RTSP/Redis/MQTT/SNMP (or a custom `svc:port`) → `results.csv` |
 
 > **Targeting shortcut:** after `nd` or `ns`, use the host **index** instead of typing an IP — e.g. `ps top 0`, `pg 1`, `as ns3`.
 

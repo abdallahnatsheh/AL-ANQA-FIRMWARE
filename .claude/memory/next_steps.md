@@ -31,8 +31,8 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
    `wifi/attacks/responder/`.
 7. **SSH Connect** — ✅ DONE 2026-06-13 as `ssh/sc <ip> [user]` (LibSSH-ESP32, interactive PTY shell, colour terminal + trackpad scrollback). Remaining: `<#>` index from `nd`, host-key pinning + key auth on `/apps/ssh/`, Ctrl-C, fuller VT100.
 8. **TCP Listener/Client** — catch reverse shells / forward input. `tcplisten/tl <port>` · `tcpclient/tc <ip> <port>`
-9. **DPWO** — ✅ DONE 2026-08-05 as `dpwo`/`dw <ip|nd#|ns#>` (Network, [EXP], built + static-reviewed,
-   **NOT HW-tested**). Default-password checker: raw-socket default-cred checks on FTP(21)/Telnet(23)/
+9. **DPWO** — ✅ DONE as `dpwo`/`dw <ip|nd#|ns#>` (Network, built 2026-08-05, **HW-tested + fully
+   working 2026-08-08 — graduated from [EXP] → stable**). Default-password checker: raw-socket default-cred checks on FTP(21)/Telnet(23)/
    HTTP(80,81,8000,8080 Basic+Digest)/RTSP(554 cameras, multi-path)/Redis(6379)/SNMP(161). **SSH(22)**
    added via LibSSH-ESP32 in a dedicated 50KB pinned task (reuses `sc` infra; CLI blocks on it; fresh
    session/cred, short list, slow per-KEX + HW-SHA crash risk). Built-in cred list + SD `/apps/dpwo/creds.csv`;
@@ -55,6 +55,11 @@ is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.
    **✅ 2026-08-06:** SSH now has its OWN SD file `/apps/dpwo/ssh_creds.csv` (built-in ~10 + SD extras; kept
    separate from creds.csv since each SSH try is a slow KEX). Shared parser `dpReadCredFile` (rule 5b), both
    backing stores heap-freed on exit.
+   **✅ 2026-08-08 (HW-tested, graduated from [EXP] → stable):** live per-cred display in each row
+   (`try user:pass` / SNMP community / SSH `try k/N user:pass`, shared `dpTrying()`); post-scan
+   **interactive results view** — trackball selects a row (dark-blue highlight), `[r]`/click re-scans that
+   service in place, `[a]` re-scans all, `[q]` exits (`q` mid-rescan cancels only that rescan); one-shot
+   save-on-exit (no dup rows); `clearScreen()`-on-exit so the CLI prompt doesn't overprint the table.
    **▶ PLANNED (NOT built, lower prio):** rate-limit/pacing for stealth; HTTP form-login (needs per-device
    fingerprints); HTTPS opt-in (TLS DRAM); SSH keyboard-interactive auth (only password now).
 4. **WPA3 transition-mode downgrade** — ✅ DONE (Phase 2) as `wpa3down`/`w3d` (built, **NOT yet

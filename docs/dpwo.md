@@ -8,8 +8,6 @@ nav_order: 10
 # Default-Password Checker — `dpwo` / `dw`
 {: .no_toc }
 
-<span class="label label-yellow">EXP</span>
-
 Audits a host you've already discovered for services still running **factory / default credentials** — the `admin:admin` class of finding that dominates real LAN audits (IP cameras, routers, printers, NAS, IoT). It is a **default-credential checker, not a brute-forcer**: a small curated per-service list, own-networks-only.
 
 **Own networks only.**
