@@ -53,6 +53,10 @@
 
 #define SD_DIR_CAPCRACK      "/apps/capcrack"        // cap cracker results (cracked.csv)
 
+#define SD_DIR_PWN           "/apps/pwn"             // pwnagotchi pet: captures + on-device crack ledgers
+
+#define SD_DIR_WORDLISTS     "/apps/wordlists"       // shared crack wordlists — global fallback for ws/pm/karma/pwn
+
 #define SD_DIR_BMON          "/apps/bmon"
 
 #define SD_DIR_CSIDETECT     "/apps/csidetect"        // CSI motion logs (NNN.csv)
@@ -119,6 +123,11 @@ public:
     // CWD / path resolution
     const char* getCwd() const { return _cwd; }
     void resolvePath(const char* input, char* out, size_t outLen) const;
+
+    // Wordlist resolution: prefer the first non-empty .txt in /apps/wordlists (shared
+    // global list), else fall back to `appPath` (the tool's own wordlist.txt). `out`
+    // is always set; check SD.exists(out) for whether any SD wordlist is present.
+    void resolveWordlist(const char* appPath, char* out, size_t outLen) const;
     void cdCommand(const char* path);
 
     // Autocomplete: list entries in searchDir whose names start with filePrefix.

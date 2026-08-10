@@ -51,6 +51,7 @@ description: العنقاء — برنامج أمن هجومي لجهاز LilyGo
   - [هجوم PMKID]({{ site.baseurl }}/pmkid) — `pmkid`
   - [نظام الحماية WGuard]({{ site.baseurl }}/wguard) — `wguard`
   - [إغراق المنارات (Beacon Flood)]({{ site.baseurl }}/beacon-flood) — `beaconflood`
+  - [حيوان Pwnagotchi]({{ site.baseurl }}/pwn) — `pwn` / `pw` — تجوّل والتقاط وكسر على الجهاز
 
 ---
 

@@ -51,6 +51,7 @@ Al-Anqa turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no 
   - [Beacon Flood](beacon-flood) — `beaconflood`
   - [WPS](wps) — `wps` — recon + PIN gen + handshake capture
   - [WPA3 Downgrade](wpa3down) — `wpa3down` — **[EXP]** transition-mode downgrade to WPA2
+  - [Pwnagotchi Pet](pwn) — `pwn` / `pw` — autonomous roam + capture + **on-device crack** (active/stealth/passive)
 
 ---
 

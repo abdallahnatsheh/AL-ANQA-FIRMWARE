@@ -217,11 +217,12 @@ void PmkidAttack::crack() {
 
     drawHeader();
 
-    bool hasWl = sdCardManager.isReady() && SD.exists(SD_CFG_WORDLIST_PM);
+    char wlPath[80]; sdCardManager.resolveWordlist(SD_CFG_WORDLIST_PM, wlPath, sizeof(wlPath));  // shared → own
+    bool hasWl = sdCardManager.isReady() && SD.exists(wlPath);
     bool useSD = hasWl;
     if (hasWl) {
         _dm.setCursor(10, _dm.getCursorY());
-        _dm.setTextColor(TFT_GREEN); _dm.println("[1] /apps/pmkid/wordlist.txt (SD)");
+        _dm.setTextColor(TFT_GREEN); _dm.println("[1] SD wordlist (shared/own)");
         _dm.setCursor(10, _dm.getCursorY());
         _dm.setTextColor(0x7BEF);   _dm.println("[2] Built-in (100 pwds)");
         _dm.setCursor(10, _dm.getCursorY());
@@ -259,12 +260,12 @@ void PmkidAttack::crack() {
         _dm.setTextColor(0x4208); _dm.println(stat);
         _dm.setCursor(10, _dm.getCursorY());
         _dm.setTextColor(useSD ? TFT_CYAN : TFT_YELLOW);
-        _dm.println(useSD ? "Source: /apps/pmkid/wordlist.txt" : "Source: built-in (100)");
+        _dm.println(useSD ? "Source: SD wordlist" : "Source: built-in (100)");
         _dm.setTextColor(TFT_WHITE);
     };
 
     if (useSD) {
-        File wl = SD.open(SD_CFG_WORDLIST_PM, FILE_READ);
+        File wl = SD.open(wlPath, FILE_READ);
         if (wl) {
             char line[64];
             while (wl.available() && !done) {

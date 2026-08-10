@@ -249,12 +249,13 @@ void HandshakeCapture::crack() {
 
     drawHeader();
 
-    // ── Wordlist selection ────────────────────────────────────────────────────
-    bool hasWl = sdCardManager.isReady() && SD.exists(SD_CFG_WORDLIST_WS);
+    // ── Wordlist selection (shared /apps/wordlists → own → built-in) ──────────
+    char wlPath[80]; sdCardManager.resolveWordlist(SD_CFG_WORDLIST_WS, wlPath, sizeof(wlPath));
+    bool hasWl = sdCardManager.isReady() && SD.exists(wlPath);
     bool useSD = hasWl;
     if (hasWl) {
         _dm.setCursor(10, _dm.getCursorY());
-        _dm.setTextColor(TFT_GREEN);  _dm.println("[1] /apps/wpasniff/wordlist.txt (SD)");
+        _dm.setTextColor(TFT_GREEN);  _dm.println("[1] SD wordlist (shared/own)");
         _dm.setCursor(10, _dm.getCursorY());
         _dm.setTextColor(0x7BEF);    _dm.println("[2] Built-in (100 pwds)");
         _dm.setCursor(10, _dm.getCursorY());
@@ -297,13 +298,13 @@ void HandshakeCapture::crack() {
 
         _dm.setCursor(10, _dm.getCursorY());
         _dm.setTextColor(useSD ? TFT_CYAN : TFT_YELLOW);
-        _dm.println(useSD ? "Source: /apps/wpasniff/wordlist.txt" : "Source: built-in (100)");
+        _dm.println(useSD ? "Source: SD wordlist" : "Source: built-in (100)");
         _dm.setTextColor(TFT_WHITE);
     };
 
     // ── SD wordlist (up to 1000 lines) ───────────────────────────────────────
     if (useSD) {
-        wl = SD.open(SD_CFG_WORDLIST_WS, FILE_READ);
+        wl = SD.open(wlPath, FILE_READ);
         if (wl) {
             char line[64];
             while (wl.available() && !done) {

@@ -224,3 +224,20 @@ This project incorporates code from the following open-source projects:
              (FTP/Telnet/HTTP/RTSP/Redis/SNMP) as short scripted exchanges over raw
              WiFiClient/WiFiUDP sockets. All socket/auth code is original; the MD5
              Digest response follows RFC 2617; no third-party tool source was used.
+
+23. pwn (autonomous handshake/PMKID capture + on-device crack — concept/prior-art ref)
+    Source:  Concept and prior art (no code copied):
+               - Pwnagotchi (https://github.com/evilsocket/pwnagotchi) — the original
+                 "WiFi pet": mood/face framing + the capture algorithm (assoc for PMKID,
+                 deauth for handshakes). Pwnagotchi is capture-only (cracks offline).
+               - ESP32-WiFi-Hash-Monster (https://github.com/G4lile0/ESP32-WiFi-Hash-
+                 Monster) — ESP32 pwnagotchi prior art; its 1/6/11 + "smart-hop" channel
+                 strategy informed pwn's roamer. Capture-only, passive.
+               - minigotchi-ESP32 (https://github.com/dj1ch/minigotchi-ESP32) — ESP32
+                 pwngrid detection prior art (noted; pwn deliberately does NOT emit the
+                 de:ad:be:ef:de:ad pwngrid beacon, so detectors can't fingerprint it).
+    License: Concept / prior-art reference only — no source code copied. pwn's capture,
+             crack (wpa_crack/cap_parse), roam and UI are original to Al-Anqa.
+    Notes:   pwn's differentiator over all of the above is ON-DEVICE cracking during
+             idle time (resume cursor + prior-related-password priority ordering) — no
+             prior pwnagotchi recovers passwords on the device unattended.

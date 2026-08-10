@@ -517,6 +517,35 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "pwn", "pw", {
+        "SYNTAX   pwn              (active)",
+        "         pwn stealth      (low signature)",
+        "         pwn passive      (zero TX)",
+        "         pwn full         (channels 1-13)",
+        "         pwn wl ...       (whitelist)",
+        "",
+        "ABOUT    Autonomous pwnagotchi pet. Roams",
+        "         channels, captures WPA handshakes",
+        "         + PMKIDs, and CRACKS them ON-DEVICE",
+        "         during idle time (resume cursor +",
+        "         smart priority guessing). PWNED =",
+        "         a real recovered password.",
+        "",
+        "MODES    active  = deauth-forced, loud",
+        "         stealth = quiet, low IDS signature",
+        "         passive = sniff-only, undetectable",
+        "WLIST    pwn wl list",
+        "         pwn wl add <sw-idx|bssid>",
+        "         pwn wl add ssid <name>  (broad!)",
+        "         pwn wl rm <n> | clear",
+        "KEYS     [m]mode [c]chans [k]backlog",
+        "         [s]stats [q]quit",
+        "FILES    /apps/pwn/*.cap + cracked.csv +",
+        "         captured.csv + progress.csv",
+        "NOTE     Own/authorized networks only.",
+        nullptr
+    }},
+
     { "netdiscover", "nd", {
         "SYNTAX   netdiscover",
         "",

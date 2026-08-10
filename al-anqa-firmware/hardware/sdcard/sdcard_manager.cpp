@@ -84,6 +84,10 @@ void SDCardManager::ensureAppsReadme() {
     f.println("wifimon/    wm          raw 802.11 PCAP captures + probe log");
     f.println("wpa3down/   w3d         WPA3 transition-downgrade handshakes (.cap)");
     f.println("dpwo/       dw          default-pw hits (results.csv) + creds.csv + ssh_creds.csv");
+    f.println("pwn/        pw          pwnagotchi pet: .cap captures + captured/cracked/");
+    f.println("                        progress/whitelist.csv + wordlist.txt");
+    f.println("wordlists/  (shared)    drop ONE crack list here (any .txt); ws/pm/karma/");
+    f.println("                        pwn use it before their own folder's wordlist.txt");
     f.println("wpasniff/   ws          WPA handshake captures (.cap), wordlist.txt,");
     f.println("                        cracked.csv");
     f.println("");
@@ -117,6 +121,8 @@ void SDCardManager::ensureTreeStructure() {
     ensureDir(SD_DIR_KARMA);
     ensureDir(SD_DIR_KARMA_PORTAL);
     ensureDir(SD_DIR_CAPCRACK);
+    ensureDir(SD_DIR_PWN);
+    ensureDir(SD_DIR_WORDLISTS);
     ensureDir(SD_DIR_BMON);
     ensureDir(SD_DIR_CSIDETECT);
     ensureDir(SD_DIR_NETSPY);
@@ -214,6 +220,30 @@ void SDCardManager::resolvePath(const char* input, char* out, size_t outLen) con
         }
     }
     out[outLen - 1] = '\0';
+}
+
+void SDCardManager::resolveWordlist(const char* appPath, char* out, size_t outLen) const {
+    // Prefer the shared global list: first non-empty .txt in /apps/wordlists.
+    File d = SD.open(SD_DIR_WORDLISTS);
+    if (d && d.isDirectory()) {
+        for (File f = d.openNextFile(); f; f = d.openNextFile()) {
+            if (!f.isDirectory() && f.size() > 0) {
+                String nm = f.name();
+                int sl = nm.lastIndexOf('/');
+                String base = sl >= 0 ? nm.substring(sl + 1) : nm;
+                String low = base; low.toLowerCase();
+                if (low.endsWith(".txt")) {
+                    snprintf(out, outLen, "%s/%s", SD_DIR_WORDLISTS, base.c_str());
+                    f.close(); d.close();
+                    return;
+                }
+            }
+            f.close();
+        }
+    }
+    if (d) d.close();
+    // Fallback: the tool's own wordlist path.
+    snprintf(out, outLen, "%s", appPath);
 }
 
 void SDCardManager::cdCommand(const char* path) {

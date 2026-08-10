@@ -663,12 +663,13 @@ static void karmaCrack(const char* ssid, const uint8_t apMac[6], const uint8_t s
     const mbedtls_md_info_t* sha1 = mbedtls_md_info_from_type(MBEDTLS_MD_SHA1);
     mbedtls_md_context_t ctx; mbedtls_md_init(&ctx); mbedtls_md_setup(&ctx, sha1, 1);
 
-    // ── Wordlist source picker (mirrors ws): only prompt if an SD list exists ──
-    bool hasWl = sdCardManager.canAccessSD() && SD.exists(SD_DIR_KARMA "/wordlist.txt");
+    // ── Wordlist source picker (shared /apps/wordlists → own → built-in) ──
+    char wlPath[80]; sdCardManager.resolveWordlist(SD_DIR_KARMA "/wordlist.txt", wlPath, sizeof(wlPath));
+    bool hasWl = sdCardManager.canAccessSD() && SD.exists(wlPath);
     bool useSD = hasWl;
     if (hasWl) {
         dm.setCursor(4, dm.getCursorY());
-        dm.setTextColor(TFT_GREEN);  dm.println("[1] /apps/karma/wordlist.txt (SD)");
+        dm.setTextColor(TFT_GREEN);  dm.println("[1] SD wordlist (shared/own)");
         dm.setCursor(4, dm.getCursorY());
         dm.setTextColor(0x7BEF);     dm.println("[2] Built-in (100 pwds)");
         dm.setCursor(4, dm.getCursorY());
@@ -702,7 +703,7 @@ static void karmaCrack(const char* ssid, const uint8_t apMac[6], const uint8_t s
 
     // SD wordlist first
     if (useSD) {
-        File wl = SD.open(SD_DIR_KARMA "/wordlist.txt", FILE_READ);
+        File wl = SD.open(wlPath, FILE_READ);
         while (wl && wl.available() && !done) {
             String line = wl.readStringUntil('\n'); line.trim();
             if (line.length() < 8) continue;
