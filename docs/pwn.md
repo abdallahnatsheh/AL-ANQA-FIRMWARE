@@ -43,13 +43,23 @@ CMD> pwn full            # roam all channels 1-13 (default is 1/6/11)
 
 ### Modes
 
-| Mode | Transmits? | Behaviour | Trade-off |
-|------|-----------|-----------|-----------|
-| **active** (default) | yes, loud | broadcast deauth to force handshakes | best capture rate; trips deauth IDS |
-| **stealth** | yes, quiet | reduced, jittered deauth + randomised timing | blends into traffic; fewer captures |
-| **passive** | **no** | listen only, no frames sent | undetectable; captures only what clients leak |
+| Mode | Capture | Grid | Trade-off |
+|------|---------|------|-----------|
+| **active** (default) | broadcast deauth (loud) | **on** | best capture rate; trips deauth IDS |
+| **passive** | sniff-only, no attack | **on** | captures only what clients leak; still social |
+| **stealth** | quiet directed deauth | **off — dark** | the one truly undetectable mode |
 
-Toggle live with **`[m]`**. The pet **never** emits a pwngrid advertisement beacon, so pwnagotchi detectors (nzyme, Kismet, Marauder) cannot fingerprint it.
+Toggle live with **`[m]`**. `pwn` **never** emits the pwnagotchi `de:ad:be:ef` pwngrid beacon, so pwnagotchi detectors (nzyme, Kismet, Marauder) cannot fingerprint it — only our own private grid beacon (below), and only when not in stealth.
+
+### Grid — AL-ANQA pets greet each other
+
+Run `pwn` on **two or more T-Decks** and they find each other on the air and show each other's stats — the social side of a pwnagotchi.
+
+- Each deck has an identity `A2:9A:0A:xx:xx:xx` (AL-ANQA prefix + its own MAC tail) and a name `ANQA-XXXX`, shown on screen. Override the name in `/apps/pwn/grid.conf` (`name=MyPet`).
+- **Broadcast** happens only in **active** and **passive** (both "social/visible"); **stealth stays dark** — it never transmits the grid beacon, so it's undetectable, but it still **listens** and shows peers one-way.
+- The HUD shows `g<N>` (peer count) on the mode line, and a `met ANQA-XXXX` message + a happy phoenix pose when a new pet appears.
+
+Uses a private beacon frame (not ESP-NOW libraries) received in pwn's own sniffer — no extra radio setup. Cooperation (shared dedup / handshake-swap) is planned for a later version.
 
 ### On-screen controls
 

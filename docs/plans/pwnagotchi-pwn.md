@@ -531,3 +531,80 @@ Goal: `pwn` does everything an existing pwnagotchi does, unless deliberately exc
 - Pwnagotchi DETECTION — spot other pwnagotchis by their pwngrid beacon (Hash
   Monster & minigotchi both do this). Fits `wguard` or a passive readout in `pwn`.
   Candidate for v1 or a fast follow.
+
+---
+
+## 12. pwn-grid — the social pack (private AL-ANQA peer greeting)
+
+**Status:** ✅ v1 BUILT (2026-08-11) — presence + scoreboard. NOT HW-tested (needs 2
+decks; user has 1 for now). Prefix `A2:9A:0A`; TX gated active/passive, stealth dark;
+RX all modes. `GridAdv{magic"ANQG",ver,name[12],pwned,hs,pmkid,uptimeMin}` in a
+beacon-format frame at offset 36; detected in the sniffer cb (kind 3) by the SA
+prefix. UI: `g<N>` peer count on the mode line + "met <name>" ticker + SOCIAL phoenix
+pose. Name override `/apps/pwn/grid.conf` (`name=`). v2 (dedup/handshake-swap) later.
+**Idea:** two+ AL-ANQA decks running `pwn` recognise each other on the air, show each
+other's stats, and (v2) split the work. The multiplayer/"make friends" side of a
+pwnagotchi, done AL-ANQA's way.
+
+### 12a. Identity — branded but unique (user's idea)
+- **Grid MAC = fixed AL-ANQA prefix (3 bytes, LA-bit set) + this device's own last 3
+  MAC bytes.** e.g. `A2:9A:0A:XX:XX:XX`. First half = "an AL-ANQA pwn pet" (peers filter
+  on it), second half = unique per device. (Can't literally spell "ANQA" — N/Q aren't
+  hex, like Pwnagotchi's all-hex `de:ad:be:ef`.) Final prefix bytes TBD at build.
+- **Human name** auto-derived from the suffix: `ANQA-<last2 MAC hex>` (e.g. `ANQA-7F3A`),
+  shown on screen. Optional override in `/apps/pwn/grid.conf`.
+
+### 12b. Grid FOLLOWS THE MODE — final table (user decision)
+A fixed recognisable prefix IS a detectable signature (same as pwngrid's
+`de:ad:be:ef`), so grid **broadcast** must never happen in the go-dark mode. Grid is
+automatic (follows the mode; no separate command / `[g]` toggle — `[m]` cycles it):
+
+| Mode | Capture (WiFi) | Grid broadcast | Grid listen |
+|---|---|---|---|
+| **active**  | broadcast deauth (loud)     | ✅ ON  | ✅ |
+| **passive** | sniff-only, NO attack       | ✅ ON  | ✅ |
+| **stealth** | quiet DIRECTED deauth       | ❌ OFF | ✅ |
+
+- **active + passive broadcast the grid** (both are "social/visible"). NOTE: passive
+  therefore gives up its old *zero-TX* property — it now emits the ANQA beacon.
+- **stealth is the single go-dark mode**: no ANQA prefix ever on the air → undetectable
+  as an AL-ANQA pet; it still captures via *quiet directed* deauth (user's pick: quiet
+  capture, not a total ghost) and still LISTENS to the grid.
+- **RX in ALL modes** — receiving is passive (parse frames pwn already sniffs), so a
+  stealth deck SEES other pets one-way **without revealing itself**.
+HARD RULE: our own private prefix, NEVER the `de:ad:be:ef:de:ad` pwngrid format.
+
+### 12c. Transport — reuses pwn's existing radio path (no ESP-NOW API, no channel-sync)
+- **TX:** broadcast a small AL-ANQA grid frame (ANQA-prefixed SA + payload) on the
+  current roam channel via `esp_wifi_80211_tx` — same primitive as the deauth. ~every 3s.
+- **RX:** detect a peer's frame in pwn's EXISTING promiscuous cb (match the ANQA prefix)
+  → ring → peers table. No `esp_now_*` (avoids the ESP-NOW-recv-vs-promiscuous conflict).
+- **No channel sync needed:** both hop 1/6/11 → coincide ~1/3 of the time → a greeting
+  lands every few seconds. Good enough for presence.
+
+### 12d. Wire format (draft)
+`GridAdv{ magic[4]="ANQG", ver, name[12], pwned, hs, pmkid, uptime_min }` (~26 B),
+carried in a vendor-specific frame. v2 adds a compact captured-BSSID digest (bloom or
+truncated-hash list) for shared dedup.
+
+### 12e. v1 scope — presence + scoreboard
+- Peers table `GridPeer{ name, pwned, hs, rssi, lastSeenMs }` (drop after ~30s silent).
+- UI: a `grid: N peers` readout on the pwn screen (below-box strip or right column) +
+  cycle peer names/scores; **phoenix does a brief social pose** when a NEW peer appears.
+- Grid is automatic (follows the mode, §12b) — no `pwn grid` command, no `[g]` toggle.
+  Broadcast only in active; RX (peer detection + display) in every mode.
+
+### 12f. v2 — cooperation (after v1 proven)
+- **Shared dedup:** advert carries a digest of captured BSSIDs → skip APs a peer already
+  owns (two pets divide the area instead of double-cracking).
+- **Handshake swap:** hand a `.cap` to a peer (multi-frame transfer) so loot is pooled.
+
+### 12g. Files / config
+- `/apps/pwn/grid.conf` — `name=` override, `grid=on|off` default.
+
+### 12h. Open questions
+- Final ANQA prefix bytes (LA-bit set; memorable).
+- Frame type: vendor action frame vs a data frame w/ our SNAP — pick what promiscuous
+  reliably delivers on this stack.
+- Does `esp_wifi_80211_tx` of our advert interfere with the concurrent deauth cadence?
+  (Both are just TX bursts; expected fine — verify.)

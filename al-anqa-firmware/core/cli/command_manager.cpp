@@ -324,6 +324,13 @@ static const ArgHintEntry kArgHints[] = {
     { "km",          "",              "auto hs portal" },
     { "karma",       "auto",          "deauth" },
     { "km",          "auto",          "deauth" },
+    // pwn / pw
+    { "pwn",         "",              "stealth passive full wl" },
+    { "pw",          "",              "stealth passive full wl" },
+    { "pwn",         "wl",            "list add rm clear" },
+    { "pw",          "wl",            "list add rm clear" },
+    { "pwn",         "add",           "ssid" },
+    { "pw",          "add",           "ssid" },
     // scanwifi / sw  (WiFi manager)
     { "scanwifi",    "",              "on off" },
     { "sw",          "",              "on off" },

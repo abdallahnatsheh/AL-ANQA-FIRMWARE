@@ -81,7 +81,10 @@ static void IRAM_ATTR pwnRxCb(void* buf, wifi_promiscuous_pkt_type_t t) {
     static uint32_t s_dcnt = 0;
     uint8_t kind; uint16_t copyN;
     if (t == WIFI_PKT_MGMT && dot11::fSubtype(d) == dot11::ST_BEACON) {
-        kind = 0; copyN = len;
+        // AL-ANQA grid beacon? (SA = our prefix) → kind 3, else a normal AP beacon
+        if (d[10] == 0xA2 && d[11] == 0x9A && d[12] == 0x0A) kind = 3;
+        else kind = 0;
+        copyN = len;
     } else if (t == WIFI_PKT_DATA) {
         dot11::Eapol ev;
         if (dot11::parseEapol(d, len, ev)) { kind = 1; copyN = len; }  // EAPOL-Key (priority)
@@ -418,6 +421,77 @@ static const uint8_t* cliFor(const uint8_t* bssid) {
     return nullptr;
 }
 
+// ── pwn-grid: peer greeting over a private AL-ANQA beacon (§12) ────────────────
+// Identity = fixed AL-ANQA prefix + this device's own last 3 MAC bytes; carried in a
+// beacon-format frame TX'd via esp_wifi_80211_tx and RX'd in our own promiscuous cb
+// (no ESP-NOW API). Broadcast in active+passive; stealth stays dark (RX only).
+static const uint8_t PWN_GRID_PREFIX[3] = {0xA2, 0x9A, 0x0A};   // "an AL-ANQA pwn pet"
+#define PWN_GRID_TX_MS   3000
+#define PWN_GRID_ADV_OFF 36          // GridAdv sits at this byte offset in the frame
+#define PWN_MAX_PEERS    8
+#define PWN_PEER_TTL_MS  30000
+
+struct __attribute__((packed)) GridAdv {
+    char     magic[4];   // "ANQG"
+    uint8_t  ver;
+    char     name[12];
+    uint16_t pwned, hs, pmkid, uptimeMin;
+};
+struct GridPeer { char name[13]; uint16_t pwned, hs; int8_t rssi; uint32_t lastSeenMs; };
+static GridPeer s_peer[PWN_MAX_PEERS];
+static int      s_nPeer = 0;
+static uint8_t  s_gridMac[6];
+static char     s_gridName[13];
+static char     s_metName[13];        // last newly-met peer (for the ticker)
+
+static void gridInitIdentity() {      // grid MAC + auto name from the real STA MAC
+    uint8_t base[6] = {0}; esp_wifi_get_mac(WIFI_IF_STA, base);
+    memcpy(s_gridMac, PWN_GRID_PREFIX, 3);
+    s_gridMac[3] = base[3]; s_gridMac[4] = base[4]; s_gridMac[5] = base[5];
+    snprintf(s_gridName, sizeof(s_gridName), "ANQA-%02X%02X", base[4], base[5]);
+    // optional name override in /apps/pwn/grid.conf  (name=...)
+    File f = SD.open(SD_DIR_PWN "/grid.conf", FILE_READ);
+    if (f) {
+        while (f.available()) {
+            String ln = f.readStringUntil('\n'); ln.trim();
+            if (ln.startsWith("name=")) { String v = ln.substring(5); v.trim();
+                if (v.length()) { strncpy(s_gridName, v.c_str(), 12); s_gridName[12] = 0; } break; }
+        }
+        f.close();
+    }
+}
+static uint16_t gridBuildFrame(uint8_t* out, const GridAdv& a) {
+    uint16_t i = 0;
+    out[i++] = 0x80; out[i++] = 0x00; out[i++] = 0x00; out[i++] = 0x00;   // FC beacon + dur
+    for (int k = 0; k < 6; k++) out[i++] = 0xFF;                          // DA broadcast
+    for (int k = 0; k < 6; k++) out[i++] = s_gridMac[k];                  // SA = grid MAC
+    for (int k = 0; k < 6; k++) out[i++] = s_gridMac[k];                  // BSSID
+    out[i++] = 0x00; out[i++] = 0x00;                                     // seq
+    for (int k = 0; k < 8; k++) out[i++] = 0x00;                          // timestamp
+    out[i++] = 0x64; out[i++] = 0x00; out[i++] = 0x01; out[i++] = 0x00;   // interval + cap  (i==36)
+    memcpy(out + i, &a, sizeof(GridAdv)); i += sizeof(GridAdv);
+    return i;
+}
+static void gridSendAdv(uint16_t pwned, uint16_t hs, uint16_t pmkid, uint16_t upMin) {
+    GridAdv a; memset(&a, 0, sizeof(a));
+    memcpy(a.magic, "ANQG", 4); a.ver = 1; strncpy(a.name, s_gridName, 12);
+    a.pwned = pwned; a.hs = hs; a.pmkid = pmkid; a.uptimeMin = upMin;
+    uint8_t fr[80]; uint16_t n = gridBuildFrame(fr, a);
+    esp_wifi_80211_tx(WIFI_IF_STA, fr, n, false);
+}
+static bool gridPeerUpdate(const char* name, uint16_t pwned, uint16_t hs, int8_t rssi) {
+    for (int i = 0; i < s_nPeer; i++)
+        if (strncmp(s_peer[i].name, name, 12) == 0) {
+            s_peer[i].pwned = pwned; s_peer[i].hs = hs; s_peer[i].rssi = rssi;
+            s_peer[i].lastSeenMs = millis(); return false;    // known peer
+        }
+    if (s_nPeer >= PWN_MAX_PEERS) return false;
+    strncpy(s_peer[s_nPeer].name, name, 12); s_peer[s_nPeer].name[12] = 0;
+    s_peer[s_nPeer].pwned = pwned; s_peer[s_nPeer].hs = hs; s_peer[s_nPeer].rssi = rssi;
+    s_peer[s_nPeer].lastSeenMs = millis(); s_nPeer++;
+    return true;                                              // newly met
+}
+
 // opportunistic geotag — only reads GPS if the task is ALREADY running (never starts
 // it: the GpsManager first-fix NVS flash write can corrupt WiFi DMA while promiscuous).
 static void pwnGeo(char* latS, char* lonS, size_t n) {
@@ -490,6 +564,16 @@ static char drainOne(uint8_t curCh) {
         PwnTarget* t = targAdd(b, ssid, curCh, fr.rssi);
         if (t) t->wl = whitelisted(b, ssid);
         return 'B';
+    }
+    if (fr.kind == 3) {                                 // AL-ANQA grid advert from a peer
+        if (fr.len < PWN_GRID_ADV_OFF + (int)sizeof(GridAdv)) return 0;
+        if (memcmp(fr.data + 10, s_gridMac, 6) == 0) return 0;   // our own broadcast — ignore
+        GridAdv a; memcpy(&a, fr.data + PWN_GRID_ADV_OFF, sizeof(a));
+        if (memcmp(a.magic, "ANQG", 4) != 0) return 0;
+        char nm[13]; strncpy(nm, a.name, 12); nm[12] = 0;
+        bool isNew = gridPeerUpdate(nm, a.pwned, a.hs, fr.rssi);
+        if (isNew) { strncpy(s_metName, nm, sizeof(s_metName) - 1); s_metName[12] = 0; return 'G'; }
+        return 0;
     }
     if (fr.kind == 2) {                                 // data frame → learn a client STA
         bool td = dot11::toDS(fr.data), fd = dot11::fromDS(fr.data);
@@ -565,13 +649,16 @@ static const uint16_t PH_GOLD=C565(246,201,69), PH_AMBER=C565(245,151,42),
     PH_ORANGE=C565(239,107,31), PH_RED=C565(214,59,42), PH_CORE=C565(255,233,168),
     PH_WHITE=C565(255,244,214), PH_ASH=C565(125,115,103), PH_ASHDK=C565(74,64,56),
     PH_BOXBG=C565(11,6,3), PH_BOXBRD=C565(138,74,26), PH_GLOW=C565(94,26,14),
-    PH_EYE=C565(58,30,10), PH_MAROON=C565(224,70,110), PH_DIM=C565(85,97,115);
+    PH_EYE=C565(58,30,10), PH_MAROON=C565(224,70,110), PH_DIM=C565(85,97,115),
+    // muted "keep the fire low" palette for STEALTH posture
+    PH_SW=C565(150,95,35), PH_SF=C565(120,55,18), PH_SE=C565(88,34,18);
 
 static const char* modeName(PwnMode m) { return m == PWN_ACTIVE ? "ACTIVE" : m == PWN_STEALTH ? "STEALTH" : "PASSIVE"; }
 enum { PM_IDLE, PM_HUNT, PM_CRACK, PM_CAPTURE, PM_PWNED, PM_LONELY };
 static int moodId(const char* m) {
     if (!strcmp(m, "PWNED"))   return PM_PWNED;
     if (!strcmp(m, "EXCITED")) return PM_CAPTURE;
+    if (!strcmp(m, "SOCIAL"))  return PM_CAPTURE;   // "happy to meet a friend" pose
     if (!strcmp(m, "HUNT"))    return PM_HUNT;
     if (!strcmp(m, "CRACK"))   return PM_CRACK;
     if (!strcmp(m, "LONELY"))  return PM_LONELY;
@@ -581,7 +668,7 @@ static int moodId(const char* m) {
 // Draw the phoenix centred at (cx,cy) into sprite g, expressing mood m; `fr` drives
 // flame flicker / ember drift / blink. Body language carries the emotion: wing
 // spread, flame size, eye shape, posture lift, palette (ashen when lonely).
-static void drawPhoenix(LGFX_Sprite& g, int cx, int cy, int m, uint32_t fr, float s) {
+static void drawPhoenix(LGFX_Sprite& g, int cx, int cy, int m, uint32_t fr, float s, int md) {
     auto P = [s](int v) -> int { return (int)(v * s); };     // scale a relative offset
     int flick = (fr & 1) ? P(1) : 0;
     bool blink = ((fr >> 3) % 7) == 0 && m != PM_LONELY;
@@ -594,6 +681,21 @@ static void drawPhoenix(LGFX_Sprite& g, int cx, int cy, int m, uint32_t fr, floa
       case PM_PWNED:   wing=PH_GOLD;  wingIn=PH_CORE;   body=PH_WHITE;core=PH_WHITE; t1=PH_RED;    t2=PH_ORANGE; spread=40; lift=-5; flame=4; eye=3; wingUp=34; break;
       case PM_LONELY:  wing=PH_ASH;   wingIn=PH_ASHDK;  body=PH_ASH;  core=PH_ASHDK; t1=PH_ORANGE; t2=PH_ASHDK;  spread=6;  lift=4;  flame=0; eye=4; wingUp=-8; break;
       default:         wing=PH_AMBER; wingIn=PH_ORANGE; body=PH_GOLD; core=PH_CORE;  t1=PH_ORANGE; t2=PH_AMBER;  spread=12; lift=1;  flame=1; eye=0; wingUp=-4; break; // IDLE
+    }
+    // Mode shapes posture + fire ON TOP of the mood pose (PWNED celebration exempt).
+    //  active  = bigger/brighter flame, leans up (fierce)
+    //  stealth = muted palette, low ember, crouched (stalker keeping its fire hidden)
+    //  passive = the steady middle baseline — unchanged
+    if (m != PM_PWNED) {
+        if (md == PWN_STEALTH) {
+            if (m != PM_LONELY) { wing = PH_SW; wingIn = PH_SE; body = PH_SW; core = PH_SF; t1 = PH_SF; t2 = PH_SE; }
+            if (flame > 1) flame = 1;      // keep the fire low
+            lift += 5;                      // crouch down
+            if (wingUp > 2) wingUp = 2;     // wings tucked, not flared
+        } else if (md == PWN_ACTIVE) {
+            flame += 1;                     // brighter, bigger fire
+            lift -= 1;                       // lean up / forward
+        }
     }
     cy += P(lift);
     int hx = cx, hy = cy - P(22);
@@ -650,7 +752,8 @@ static bool argHas(const char* a, const char* w) { return a && strstr(a, w); }
 
 static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     DisplayManager& dm = displayManager;
-    s_nTarg = 0; s_nCli = 0; memset(&s_cap, 0, sizeof(s_cap)); s_priorityDone.clear(); s_sessionCaps.clear();
+    s_nTarg = 0; s_nCli = 0; s_nPeer = 0; s_metName[0] = 0;
+    memset(&s_cap, 0, sizeof(s_cap)); s_priorityDone.clear(); s_sessionCaps.clear();
     s_rHead = s_rTail = 0;
     whitelistLoad();   // cache whitelist once (hot path checks RAM, not SD)
 
@@ -661,6 +764,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     esp_wifi_set_promiscuous_rx_cb(&pwnRxCb);
     esp_wifi_set_promiscuous(true);
     s_sniffing = true;
+    gridInitIdentity();   // grid MAC + name (needs WiFi started for esp_wifi_get_mac)
 
     int nChans = fullChans ? 13 : (int)(sizeof(PWN_CHANS));
     int ci = 0;
@@ -668,7 +772,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     uint32_t apCount = 0, hsCount = 0, pmCount = 0, pwnedCount = 0;
     char ticker[40] = "roaming...";
     char mood[10] = "IDLE";
-    uint32_t hopAt = 0, drawAt = 0, pwnFlash = 0, toastUntil = 0, frame = 0, crackAt = 0, lastMoodEvt = 0, lastM1Ms = 0;
+    uint32_t hopAt = 0, drawAt = 0, pwnFlash = 0, toastUntil = 0, frame = 0, crackAt = 0, lastMoodEvt = 0, lastM1Ms = 0, gridTxAt = 0;
     bool running = true;
     char toast[28] = {0};
     uint32_t t0Session = millis();
@@ -691,7 +795,8 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         dm.setTextColor(TFT_CYAN); dm.printText("PWN");
         dm.setTextColor(PH_DIM);   dm.printText("::");
         dm.setTextColor(PH_AMBER); dm.printText(modeName(mode));
-        dm.setTextColor(PH_DIM);   dm.println("]");
+        dm.setTextColor(PH_DIM);   dm.printText("]  ");
+        dm.setTextColor(0x07FF);   dm.println(s_gridName);   // this device's own grid name
         tft.fillRect(4, BOX_Y - 4, SCREEN_WIDTH - 8, 2, PH_MAROON);
     };
     drawChrome();
@@ -728,6 +833,18 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         if (ev == 'B') { apCount = s_nTarg; }
         else if (ev == '1') { strcpy(mood, "HUNT"); lastMoodEvt = now; lastM1Ms = now; }
         else if (ev == '2') { strcpy(mood, "EXCITED"); lastMoodEvt = now; }
+        else if (ev == 'G') { strcpy(mood, "SOCIAL"); lastMoodEvt = now;   // met a grid peer
+                              snprintf(ticker, sizeof(ticker), "met %.12s", s_metName); }
+
+        // grid broadcast (active + passive only; stealth stays dark). RX runs in every mode.
+        if (mode != PWN_STEALTH && now >= gridTxAt) {
+            gridTxAt = now + PWN_GRID_TX_MS;
+            gridSendAdv(pwnedCount, hsCount, pmCount, (uint16_t)((now - t0Session) / 60000));
+        }
+        // expire peers not heard from in a while
+        for (int i = 0; i < s_nPeer; )
+            if (now - s_peer[i].lastSeenMs > PWN_PEER_TTL_MS) s_peer[i] = s_peer[--s_nPeer];
+            else i++;
 
         // complete a capture?
         if (s_cap.active && s_cap.haveM1 && (s_cap.haveM2 || s_cap.m1HasPmkid)) {
@@ -788,10 +905,14 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
             }
         }
 
-        // mood decay: after a quiet stretch (no capture/crack event) settle back to
-        // IDLE, or LONELY when no APs are in range at all.
-        if ((now - lastMoodEvt) > 2500 && !s_cap.active)
-            strcpy(mood, s_nTarg ? "IDLE" : "LONELY");
+        // resting mood after a quiet stretch: HUNT while un-captured prey is in range
+        // (the normal roaming state), IDLE when everything around is already captured,
+        // LONELY when no APs at all.
+        if ((now - lastMoodEvt) > 2500 && !s_cap.active) {
+            int prey = 0;
+            for (int i = 0; i < s_nTarg; i++) if (!s_targ[i].captured && !s_targ[i].wl) prey++;
+            strcpy(mood, s_nTarg == 0 ? "LONELY" : prey > 0 ? "HUNT" : "IDLE");
+        }
 
         // redraw ~8fps (phoenix animates)
         if (LockScreenManager::getInstance().consumeJustUnlocked()) { drawChrome(); drawAt = 0; }
@@ -811,7 +932,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
             // ── big phoenix ember chamber (double-buffered) ──
             if (haveSpr) {
                 phx.fillSprite(celebrate ? PH_ORANGE : PH_BOXBG);
-                drawPhoenix(phx, BOX_W / 2, 74, mid, frame, 1.6f);
+                drawPhoenix(phx, BOX_W / 2, 74, mid, frame, 1.6f, (int)mode);
                 phx.drawRoundRect(0, 0, BOX_W, BOX_H, 6, PH_BOXBRD);
                 phx.drawRoundRect(1, 1, BOX_W - 2, BOX_H - 2, 6, PH_BOXBRD);
                 phx.pushSprite(BOX_X, BOX_Y);
@@ -823,7 +944,9 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
             tft.setTextSize(2); tft.setTextColor(mc, TFT_BLACK); tft.setCursor(RX, BOX_Y); tft.print(mood);
             tft.setTextSize(1);
             tft.setTextColor(PH_DIM, TFT_BLACK); tft.setCursor(RX, BOX_Y + 24);
-            snprintf(l, sizeof(l), "%-7s ch%-2u", modeName(mode), curCh); tft.print(l);
+            if (s_nPeer > 0) snprintf(l, sizeof(l), "%-7s ch%-2u g%d", modeName(mode), curCh, s_nPeer);
+            else             snprintf(l, sizeof(l), "%-7s ch%-2u    ", modeName(mode), curCh);
+            tft.print(l);
             tft.setTextColor(PH_DIM, TFT_BLACK); tft.setCursor(RX, BOX_Y + 40); tft.print("SIGNAL");
             for (int i = 0; i < 4; i++) tft.fillRect(RX + i * 14, BOX_Y + 52, 11, 13, i < bars ? TFT_GREEN : PH_ASHDK);
             tft.setTextColor(PH_DIM, TFT_BLACK); tft.setCursor(RX, BOX_Y + 72);
