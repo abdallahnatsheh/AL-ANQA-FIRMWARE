@@ -43,6 +43,7 @@ wardriving and audio tools). The project is under **active development**.
 - Evil Twin captive portal, hidden-SSID reveal, MAC spoofing, WPS detection
 - WPA/WPA2 handshake **and** PMKID capture with **on-device cracking**; offline `.cap` cracker
 - WPA3 transition-mode downgrade, Karma rogue-AP suite, beacon flood
+- **Autonomous pwnagotchi pet** (`pwn`) — roams channels, captures handshakes/PMKIDs, and **cracks them on-device** during idle time (resume cursor, smart priority guessing) — the first ESP32 pwnagotchi to close the capture→crack loop; retro phoenix HUD
 - Wardriving → WiGLE 1.4 CSV (Plus), passive WiFi IDS (`wguard`), WiFi-CSI motion detection
 
 ### 🌐 Network &nbsp;·&nbsp; [guide](docs/network.md)
@@ -140,6 +141,7 @@ Run `help` for the list on-device, or `man <cmd>` for a full manual page.
 | `wpa3down` | `w3d` | `[probe] [auto] [idx] [mac]` | **[EXP]** WPA3 transition downgrade → crackable `.cap`; auto-discovers the AP's clients (no MAC typing) + empirical PMF probe |
 | `karma` | `km` | `[auto\|hs\|portal <ssid>]` | Rogue-AP suite — harvest, PNL fingerprint, half-handshake, portal |
 | `crack` | `cc` | `[cap] [wordlist\|dir]` | Offline WPA/WPA2 crack (handshake or PMKID) |
+| `pwn` | `pw` | `[stealth\|passive\|full\|wl ...]` | Autonomous pet — roam, capture handshakes/PMKIDs, **crack on-device** in idle time (resume cursor); phoenix HUD |
 | `wguard` | `wg` | `<idx\|bssid> [ch] [bg]` | Passive WiFi IDS; `wg stop` / `wg view` |
 | `beaconflood` | `bf` | `[list\|rickroll\|seq <base>\|file\|clone]` | Beacon flood — fake AP injection |
 | `wps` | `wps` | `[<idx>]` | All-in-one WPS: IE decode + device leak + PIN calc + live EAP-WSC handshake sniff (→ pixiewps) + `[p]` push-button |

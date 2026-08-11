@@ -87,9 +87,11 @@ When idle, the pet spends CPU (no radio — silent) working through its loot, pe
 
 1. **Prior related passwords** — any password you've already cracked whose **SSID or BSSID** matches this AP. Catches mesh networks, reused passwords, and routers that were renamed/reset. Verified, never assumed.
 2. **Common-default list** — a small built-in high-probability set.
-3. **Your wordlist** — `/apps/pwn/wordlist.txt` if present, else a built-in list, resumed from the saved cursor.
+3. **Your wordlist**, resumed from the saved cursor. Precedence: the **shared** `/apps/wordlists/*.txt` (drop your big list here once and every cracker — `pwn`/`ws`/`pm`/`karma` — uses it) → the tool's own `/apps/pwn/wordlist.txt` → the built-in ~100 list.
 
 Every candidate is verified with the real handshake/PMKID check, so a recorded password is always genuine.
+
+> **Tip:** the resume cursor keys on the wordlist's identity, so **changing or extending the wordlist automatically re-arms** caps that were previously exhausted — they get another pass against the new list.
 
 ---
 
@@ -104,7 +106,9 @@ Everything lives in `/apps/pwn/`:
 | `cracked.csv` | recovered passwords — `time,bssid,ssid,password` |
 | `progress.csv` | per-capture resume cursor (so cracking never restarts) |
 | `whitelist.csv` | never-touch APs |
-| `wordlist.txt` | your optional dictionary |
+| `wordlist.txt` | this tool's optional dictionary (fallback) |
+
+The **shared** wordlist lives outside this folder at `/apps/wordlists/*.txt` and is preferred over the per-tool one — keep one big list there for all crackers.
 
 On a T-Deck **Plus**, if the GPS task is already running (`gps`), captures are geotagged with `lat,lon`.
 
