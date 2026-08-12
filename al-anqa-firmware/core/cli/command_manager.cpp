@@ -325,8 +325,10 @@ static const ArgHintEntry kArgHints[] = {
     { "karma",       "auto",          "deauth" },
     { "km",          "auto",          "deauth" },
     // pwn / pw
-    { "pwn",         "",              "stealth passive full wl" },
-    { "pw",          "",              "stealth passive full wl" },
+    { "pwn",         "",              "stealth passive full ai wl" },
+    { "pw",          "",              "stealth passive full ai wl" },
+    { "pwn",         "ai",            "debug full stealth passive" },
+    { "pw",          "ai",            "debug full stealth passive" },
     { "pwn",         "wl",            "list add rm clear" },
     { "pw",          "wl",            "list add rm clear" },
     { "pwn",         "add",           "ssid" },
@@ -832,7 +834,7 @@ void CommandManager::setupCommands() {
     registerCommand("wps",         "wps",    [](char* a) { stopEspchatBg(); runWps(a); },                                  "WPS recon (IE/device leak) + PIN calc + pbc: wps [<idx>|pbc <idx>]", true, "WiFi");
     registerCommand("wardrive",    "wd",     [](char* a) { stopEspchatBg(); runWardrive(a); },                             "Wardrive: WiFi+GPS -> WiGLE CSV (Plus only)",        false, "WiFi");
     registerCommand("crack",       "cc",     [](char* a) { stopEspchatBg(); runCapCrack(a); },                             "Crack .cap: cc [cap] [wordlist|dir]",                true,  "WiFi", COMP_ANY);
-    registerCommand("pwn",          "pw",     [](char* a) { stopEspchatBg(); runPwn(a); },                                  "Auto capture+crack pet: pwn [stealth|passive|full|wl ...]", true, "WiFi");
+    registerCommand("pwn",          "pw",     [](char* a) { stopEspchatBg(); runPwn(a); },                                  "Auto capture+crack pet: pwn [stealth|passive|full|ai|wl ...]", true, "WiFi");
     registerCommand("espsniff",    "es",     [](char* a) { if (!Utils::checkChannelArg(a, "es")) return; runEspSniff(a); },     "ESP-NOW sniffer: es [ch 1-13]",                      true,  "WiFi");
     registerCommand("esptest",     "est",    [](char* a) { if (!Utils::checkChannelArg(a, "est")) return; runEspTest(a); },     "ESP-NOW test TX/RX: est [ch 1-13]",                  true,  "WiFi");
     registerCommand("espchat",     "ec",     [](char* a) { runEspchat(a); },                                                   "ESP-NOW chat: ec [pub [set <ch>]|prv <M>|bg|stop]",  true,  "WiFi");

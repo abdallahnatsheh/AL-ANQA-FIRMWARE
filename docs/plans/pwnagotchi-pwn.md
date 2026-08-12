@@ -608,3 +608,84 @@ truncated-hash list) for shared dedup.
   reliably delivers on this stack.
 - Does `esp_wifi_80211_tx` of our advert interfere with the concurrent deauth cadence?
   (Both are just TX bursts; expected fine — verify.)
+
+## 13. Adaptive roaming — `pwn ai` (tabular Discounted-UCB learner) [EXP]
+
+Optional, gated behind the `ai` keyword (`pwn ai [debug] [full] [stealth|passive]`),
+toggle live with `[a]`. Brings the Raspberry-Pi Pwnagotchi's *learned* channel behavior
+to the ESP32 with a lightweight bandit instead of a neural net.
+
+### 13a. Why (research, 2026-08-12)
+- Real Pwnagotchi = A2C neural net, but its action space is just timing/selection knobs
+  (`recon_time`, `hop_recon_time`, `_channel_N` on/off bits) and its reward = handshakes
+  captured per epoch (`evilsocket/pwnagotchi/ai/gym.py`).
+- Every ESP32 pwnagotchi hops **blindly**: minigotchi-ESP32 `Channel::cycle()` =
+  `random(numChannels)`; ESP32 Marauder = fixed 1s timer; Hash Monster = manual button.
+  **None adapt.** So a learned channel selector is a genuine ESP32 first (stacks on the
+  on-device-crack first).
+- Non-stationary bandit theory: **Discounted-UCB** (discount old rewards by γ) is the
+  resource-efficient answer for a slowly-changing single area; our EMA *is* D-UCB.
+  Sources in NOTICES #23.
+
+### 13b. Model
+- State = channel (the meaningful axis, mirrors Pwnagotchi's per-channel bits).
+- Per channel: discounted reward sum `value` + discounted visit `count` (γ=0.95 →
+  early hits persist ~20 visits). `mean = value/count`.
+- **Reward** per dwell: capture +10, M1 +3, new client +2, new AP +1, plus a **standing
+  presence reward** +0.25 per un-captured AP on the channel (cap 6) so a channel that
+  *hosts* prey keeps out-scoring an empty one every visit — not just on first discovery
+  (the discovery-only reward decays to 0 once an area is mapped → flat, nothing to learn).
+
+### 13c. Selection — weighted-random, NOT argmax
+- Pick next channel with probability ∝ `mean + floor`. Argmax-UCB was tried and **camps
+  100% on one channel** (a bounded exploration bonus can never catch a high mean) — HW
+  observed 87/87 picks on one channel. Weighted-random (probability matching) gives the
+  productive channel most visits while a **floor** guarantees every channel a nonzero
+  share → no lone/new AP is ever starved.
+- **Scout floor**: channels that currently host un-captured prey get the full `floor=0.5`;
+  **empty** channels get a tiny `scout=0.1` so full-13 stops wasting ~⅓ of its time on
+  dead air, while still periodically peeking for a new/odd-channel AP. Cold start (nothing
+  discovered yet) → all scout → uniform scan → discover → concentrate. Self-correcting:
+  once every AP on a channel is captured it reverts to scout.
+- **Adaptive dwell**: a productive channel earns up to ~2× the base dwell (Pwnagotchi's
+  `recon_time` lever).
+
+### 13d. Persistence & area changes
+- `/apps/pwn/learn.csv` (`channel,value,count`), **loaded ×0.5-decayed** so old-area
+  knowledge is a weak prior that washes out fast if you've moved (cross-session D-UCB
+  discount). **2-min autosave** so a crash/power-off can't cost a session; also saved on
+  quit. `[a]` toggle keeps the in-RAM table (never reloads the stale file mid-session).
+
+### 13e. Debug trace — `pwn ai debug`
+- `/apps/pwn/ai_debug.log`: session header (all params) + one line per hop showing the
+  leaving channel's reward, every channel's `mean` + pick-`prob%`, the pick, and the
+  dwell. Per-hop flush (survives power-off). The instrument used to tune all of the above.
+
+### 13f. Capture-completion fixes (found via the learner runs)
+The learner exposed that **full-13 captured slowly not because of channel choice but
+because the 4-way rarely completes in a short window**. Fixes (help both modes):
+- **M1→M2 window 3s→6s** — 3s dropped handshakes that the sparse full-13 revisit couldn't
+  re-try in time.
+- **Hot-channel hold** (`PWN_HOT_MS`=12s, cap `PWN_HOT_MAX`=30s) — on an M1 (a client
+  handshaking *now*), STOP roaming and hold that channel, re-deauthing to force the 4-way,
+  until captured or the window lapses. Turns "saw M1 5× over 21 min, caught it on the 6th"
+  into catching it on the first/second. Released instantly on capture.
+- **Cracking yields to the hunt** — while un-captured prey is in range, crack only a
+  trickle (one ~500ms slice / 5s ≈ 10% CPU); crack hard (every 0.7s) only when the area is
+  quiet. Capture > crack (captures are always crackable later with `cc`/PC).
+
+### 13g. HW test status (2026-08-12)
+- ✅ **Learner proven**: weighted+scout-floor concentrates on productive channels, keeps
+  coverage, self-corrects after a capture; `learn.csv` shows correct per-channel means.
+- ✅ **Full-13 capture works** (~14–26 min for a single on-band target; high stochastic
+  variance). **1/6/11 default ≈ 2 min** — stays the fast mode; **full is thorough/discovery**
+  and inherently trails it for a target on the common channels.
+- ⏳ **Hot-channel hold + crack-yield: built, NOT yet HW-timed** — next run measures whether
+  hot-hold lands the handshake on the 1st/2nd M1 (target: cut full-13 capture time hard).
+- Honest ceiling: no tuning makes 13 channels as fast as 3 for an on-band target; the AI's
+  real payoff is making `full` mode *viable/thorough* + learning a fixed area over sessions.
+
+### 13h. Tunables (all in pwn.cpp)
+`PWN_LEARN_GAMMA`=0.95 · `PWN_LEARN_FLOOR`=0.5 · `PWN_SCOUT_FLOOR`=0.1 ·
+`PWN_PRESENCE_W`=0.25 (`PWN_PRESENCE_CAP`=6) · `PWN_REWARD_CAP`=4 (dwell) ·
+`PWN_HOT_MS`=12000 · `PWN_HOT_MAX`=30000 · crack trickle 5s / hard 0.7s.
