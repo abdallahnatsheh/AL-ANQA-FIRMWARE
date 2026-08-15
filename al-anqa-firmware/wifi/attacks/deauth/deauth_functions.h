@@ -11,7 +11,13 @@ class DeauthAttack {
 public:
     DeauthAttack(DisplayManager& displayManager, WiFiFunctions& wifiFunctions);
     void start(char* args);
-    void sendBroadcastBurst(const uint8_t* bssid);
+    // both return the number of esp_wifi_80211_tx calls that did NOT return ESP_OK
+    // (0 = every frame queued to the radio; >0 = the driver rejected some — e.g. a
+    // channel/interface problem). Callers may ignore the return.
+    uint32_t sendBroadcastBurst(const uint8_t* bssid);
+    // directed deauth+disassoc to ONE client, both directions (AP<->STA). Quieter than
+    // a broadcast burst (no storm signature) — used by pwn's stealth/targeted path.
+    uint32_t sendDirectedBurst(const uint8_t* bssid, const uint8_t* client);
 
 private:
     DisplayManager& displayManager;

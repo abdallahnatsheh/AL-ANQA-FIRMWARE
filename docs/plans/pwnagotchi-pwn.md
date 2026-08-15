@@ -496,6 +496,73 @@ uses `s_sessionCaps`.
   path untouched. (Remaining edge: `wl add ssid <name>` with a comma in the name — a
   triple-edge case, left as-is; the broad-match is already warned.)
 
+**CRITICAL CAPTURE FIX (2026-08-15) — "runs fine but never catches a handshake":**
+- **Root cause:** `runPwnSession` set `WiFi.mode(WIFI_STA)` (bare STA, UNassociated) and injected
+  deauth + grid via `esp_wifi_80211_tx(WIFI_IF_STA,…)`. On ESP32-S3 a raw 80211_tx only actually
+  hits the air when the **AP interface is up** (or the STA is associated). Roaming pwn is neither →
+  **the deauth frames never transmitted** → no client was ever kicked → no reconnect → no EAPOL →
+  HS counter stuck at 0. Passive natural capture is rare, so it looked like "nothing works".
+- Confirmed against **our own proven `ws`/`da`/`karma`** (all `WIFI_MODE_APSTA` + hidden `softAP` +
+  inject on `WIFI_IF_AP`; `deauth_functions.cpp:457` literally comments "AP interface needed for
+  80211_tx injection"), **Bruce** (`wifi_atks.cpp`: APSTA + `softAP(WIFI_ATK_NAME,…,1,4,false)`),
+  **Marauder** (`esp_wifi_set_mode(WIFI_MODE_AP)`, `ssid_hidden=1`), and the ESP-IDF API doc
+  (ifx must match mode). pwn was the lone STA-only outlier.
+- **Fix:** `WiFi.mode(WIFI_MODE_APSTA)` + `WiFi.softAP("x",nullptr,1,1,0,false)` (hidden, 0 clients =
+  minimal tell); capture our own AP MAC (`s_apMac`) and ignore its beacons in `drainOne` so we never
+  target ourselves; teardown adds `WiFi.softAPdisconnect(true)` and moves `learnSave()` to after the
+  radio is fully idle. Roam still hops via `esp_wifi_set_channel()` each dwell (softAP home channel is
+  cosmetic). SD flushes keep `ScopedPromiscPause` (a client-less hidden softAP is lighter DMA than an
+  associated STA — matches the arpspoof/isoscan mid-session-write precedent).
+- **Reuse over reimplement (rule 5b, user's steer):** pwn's hand-rolled single-frame `sendDeauth` was
+  DELETED and replaced with the **proven `DeauthAttack` primitive** that `da`/`ws` use (HW-verified
+  100%). It sends **both deauth (0xC0) and disassoc (0xA0)** with randomised seq, 3× each with 1 ms
+  gaps — far more reliable at kicking a client than the old one deauth-only frame with seq=0. Exposed
+  a new public `DeauthAttack::sendDirectedBurst(bssid,client)` (mirrors `sendBroadcastBurst`, both
+  directions AP↔STA) for the stealth/targeted path; active uses `sendBroadcastBurst`. Grid advert TX
+  also moved to `WIFI_IF_AP`. So even beyond the interface fix, the deauth frames themselves are now
+  the proven ones — this is the bigger reason capture should now work.
+- **▶ HW-TEST WATCH ITEM:** channel-hop-while-softAP-up is new to our repo (ws/da/karma all use a
+  FIXED channel). Marauder/Bruce hop with an AP up fine, and our STA is idle + AP has 0 clients so
+  `esp_wifi_set_channel` should hold — but confirm on HW that it still hops 1/6/11 while capturing.
+
+**CRACK SCHEDULING REWORK + GDMA read fix (2026-08-15):**
+- **Fix #2 (GDMA read hole):** the idle cracker reads the SD (dir list, `.cap`, wordlist) while
+  promiscuous + softAP were live — writes were `ScopedPromiscPause`-guarded but the READS weren't.
+  Now the whole crack batch (dir scan + `pwnCrackCap` calls) runs inside a `ScopedPromiscPause` (RX
+  firehose paused; softAP stays up but near-idle). Cracking needs no radio, so the deaf window only
+  ever occurs when there's nothing worth hearing.
+- **"Crack only in free time" (user's model, replaces the old trickle throttle):** cracking is now
+  gated on `preyInRange==0 && !s_cap.active` — **zero cracking while any un-captured AP is in range or
+  a capture is in flight** (capture is always the priority). When the air is quiet it cracks ONE short
+  **batch** (`PWN_CRACK_SLICE_MS` 500→300ms ≈ a handful of candidates), then drops back to the loop to
+  drain + re-assess the air before the next batch — so the instant a target appears it bails to the
+  deauth/capture phase. `crackAt` backoff: `didWork ? 0 : 12s` (crack back-to-back while there's
+  progress; back off once the backlog is solved/exhausted so it can't re-scan SD every loop).
+- **Startup warm-up:** cracking is suppressed for the first 12s (`now-t0Session>12000` ≈ one 1/6/11
+  sweep) so a fresh session with a backlog spends its first sweep DISCOVERING nearby APs (it's deaf
+  while cracking) instead of immediately going heads-down on old loot.
+
+**WHITELIST PARSE BUG — a whitelisted AP got captured (2026-08-15, HW-found):** user's
+`whitelist.csv` had MACs written with COMMAS between octets (`bssid,80,C5,48,21,55,C3,label`) —
+a natural hand-edit mistake since the file is itself CSV. `whitelistLoad` split on commas and took
+the field between the 1st/2nd comma as the BSSID (`"80"`), so `whitelisted()` never matched the real
+MAC → the "protected" AP (`BeSpot32F3_2.4`) was deauthed + captured. A silently-failing whitelist is
+the worst outcome for an authorization-safety feature. **Fix:** `wlNormalizeMac()` — tolerant parse
+that accepts `:`/`,`/`-`/space separators and missing leading zeros, reads exactly 6 octets, ignores
+the trailing label, emits canonical `XX:XX:XX:XX:XX:XX`. Canonical colon files (what `wl add` writes)
+still work. `ssid` rows still take the name up to the next comma.
+
+**Exhausted-cap skip-set (2026-08-15, user ask):** correctness was already there (the resume
+cursor persists `next_index >= wordlist_count` in `progress.csv`, so a wordlist that can't crack a cap
+returns -1 and is skipped this session AND across reboots). Added `s_crackSkip` — an in-RAM set of
+caps that returned -1 this session (solved/exhausted/unparseable) so they're not even re-opened, and a
+wordlist with no password for a cap can't keep stealing crack cycles. NOTE re the paired "keep hunting
+while looking for other APs" idea: already the behavior — cracking is gated on `preyInRange==0` (never
+runs while any un-captured AP is in range), the roam keeps HOPPING every dwell during idle so new APs
+are discovered, and any un-captured AP is deauthed the instant it's seen (pass-1 broadcast if no client
+known). Blind deauth during true idle would only re-hit captured APs (no new HS) = pure RF noise, so it
+was intentionally not added.
+
 **TODO / follow-ups:**
 - Stealth PMKID-first-via-ASSOC — actively associate to solicit a PMKID without any
   deauth (quietest). Not yet: PMKID currently comes from natural/deauth-forced M1.
@@ -689,3 +756,116 @@ because the 4-way rarely completes in a short window**. Fixes (help both modes):
 `PWN_LEARN_GAMMA`=0.95 · `PWN_LEARN_FLOOR`=0.5 · `PWN_SCOUT_FLOOR`=0.1 ·
 `PWN_PRESENCE_W`=0.25 (`PWN_PRESENCE_CAP`=6) · `PWN_REWARD_CAP`=4 (dwell) ·
 `PWN_HOT_MS`=12000 · `PWN_HOT_MAX`=30000 · crack trickle 5s / hard 0.7s.
+
+## 14. Maximizing handshake/PMKID capture (research 2026-08-15, NOT yet built)
+
+Research against the reference tools (**hcxdumptool** — the gold standard for capture; **risinek
+esp32-wifi-penetration-tool**; ESP-IDF WiFi docs). Goal: capture as much crackable key material as
+possible. Ranked by impact × ESP32 feasibility. Sources for NOTICES: HackingArticles PMKID writeup,
+risinek tool docs, ESP-IDF `esp_wifi` reference — methodology only, no code copied.
+
+**Context from HW runs:** the a residential AP run got **1 passive capture in 16 min** — most residential
+APs had no active client during the dwell, so there was nothing to deauth and nothing to passively
+catch. The BeSpot run saw an M1 flood but few completed captures (single-buffer collision). Both point
+straight at the two top items below.
+
+### 14a. #1 lever — ACTIVE PMKID solicitation (clientless) — biggest gap
+- **Why:** hcxdumptool's whole edge over passive tools is that it *actively solicits* PMKID/EAPOL
+  instead of waiting. **PMKID is clientless** — it rides in **M1 (AP→client)**, needs no connected
+  client and no 4-way completion; most modern routers leak it. Crack = hashcat **mode 22000** (same as
+  handshakes).
+- **How:** initiate a connection to the AP (even with a dummy/wrong PSK) → AP replies M1 w/ PMKID.
+  One association attempt (~1-2 s), no waiting for a human.
+- **pwn today:** only parses PMKID *passively* if an M1 happens to fly by (`drainOne`, the KDE walk).
+  It never SOLICITS one → clientless APs (most of a residential area) are currently uncapturable.
+- **Why it matters HERE (HW-confirmed 2026-08-15):** the diag runs proved the deauth path works
+  (`txf=0`) but is starved — `dD=0 dB=60 m1=0` in a uniformly weak area (every AP -87…-95, all below
+  the -80 deauth cutoff, the only 7 clients on those weak APs). Deauth has NO valid target here.
+  PMKID solicitation is **clientless and not gated by the deauth cutoff**, so it's the one path that
+  could capture this environment.
+
+- **CHOSEN APPROACH — raw-inject assoc + promiscuous M1 capture (Approach B).** Research settled it:
+  **Sablina-Tamagotchi-ESP32 does exactly this** ("native promiscuous mode + raw frame injection" for
+  clientless PMKID), **HaleHound-CYD** "extracts PMKID from M1 RSN IE", and `esp32free80211` proves
+  arbitrary 802.11 injection — so it's a PROVEN ESP32 route, not a guess. It also **reuses the most
+  pwn code**: the M1/PMKID KDE parser already lives in `drainOne`, plus the `.cap` writer + synth
+  beacon + crack loop. And it **stays in APSTA+promiscuous** (no radio teardown → fits the roam,
+  GDMA unchanged). Method/prior-art credit → NOTICES (hcxdumptool concept; Sablina/HaleHound ESP32
+  prior art; no code copied).
+
+- **Frame sequence (per target AP, on its channel):**
+  1. Pick a spoofed client MAC (LA-bit, random via `mac_util randomLaMac`) and **`esp_wifi_set_mac(WIFI_IF_STA, mac)`** — this is the load-bearing bit: the HW auto-ACKs frames addressed to our own STA MAC, so the AP will proceed past auth/assoc to M1 (the ACK subtlety `karma roguehs` also solves via set-mac).
+  2. Inject **Authentication** (open, seq 1) via `esp_wifi_80211_tx(WIFI_IF_AP,…)` (AP iface = reliable TX, per the capture-fix finding). AP → Auth-Resp to our STA MAC (HW ACKs).
+  3. Inject **Association Request** carrying a valid **RSN IE** advertising PMKID-capable (AKM PSK, RSN caps). AP → Assoc-Resp (HW ACKs) → then **EAPOL-Key M1 with the PMKID KDE** (`DD…000FAC04 <16B>`).
+  4. **Promiscuous captures M1** → existing `drainOne` PMKID walk extracts it → `flushCapture` writes `<BSSID>_<SSID>.cap` (PMKID type) → same crack pipeline. STA MAC for the hc22000 = our spoofed MAC (known).
+  5. Restore the STA MAC (or rotate next target). Timeout ~300–500 ms waiting for M1; give up + move on if none.
+
+- **Phasing in the roam — a "PMKID sweep":** target selection = uncaptured APs that are **clientless
+  or below the deauth cutoff** (exactly what deauth can't get). A few solicits per dwell, then resume
+  roaming. Runs in ACTIVE + a new gating so PASSIVE/stealth stay quiet (assoc-inject IS a TX tell).
+
+- **Fallback if B is unreliable on real APs:** real-stack connect (`WiFi.begin(ssid,dummy)`) + read
+  PMKID from `gWpaSm` (netspy's technique; framework-pinned offset) — reliable auth/assoc but tears
+  down promiscuous per AP and the offset is fragile. Only if the RSN-IE/ACK dance in B doesn't pan out.
+
+- **▶ SPIKE FIRST (make-or-break, before the full sweep):** prove that ONE injected association to a
+  known AP yields a captured **M1-with-PMKID** in promiscuous on the actual T-Deck. If that single
+  round-trip works, the sweep + targeting is straightforward orchestration; if it doesn't (RSN-IE
+  rejected / no ACK / no PMKID), fall back to the connect approach. Don't build the whole phase until
+  the spike lands.
+
+- **HONESTY:** only APs that actually **leak** PMKID (most WPA2-PSK, but not all); **WPA3-SAE has no
+  PMKID** via this path; **PMF does NOT block it** (association isn't a protected mgmt frame); a very
+  weak AP (-90) may not answer the assoc at all (same physics ceiling as deauth). So PMKID widens
+  coverage massively but isn't universal.
+
+- **Verdict:** highest-ROI capture change. Converts the whole clientless-AP population from
+  "uncapturable" to "one association away." Supersedes the old "Stealth PMKID-first-via-ASSOC" TODO
+  in §10a.
+
+### 14b. #2 — Rogue-AP capture for deauth-resistant / clientless-reconnect clients
+- risinek notes broadcast deauth is unreliable ("some devices ignore broadcast deauths"). Its most
+  ROBUST method is the **rogue AP**: clone the target SSID+BSSID+channel; a client reaching for the
+  real AP associates to US and completes **M1+M2 keyed by the real PSK** → crackable half-handshake.
+- **pwn's sibling `karma` already has this engine (`roguehs`, HW-verified)** — reuse it (rule 5b) for a
+  stubborn uncaptured client-AP. Also beats PMF APs that ignore deauth. Cost: one AP at a time, noisy.
+
+### 14c. #3 — Multi-slot capture buffer (fix the single-buffer collision)
+- pwn has ONE `s_cap`; a different BSSID's M1 clobbers a half-captured one (`drainOne`). On a busy
+  channel → many M1s, few completed captures (the BeSpot symptom). Replace with a **small array of
+  in-progress captures keyed by BSSID** so concurrent 4-ways complete independently. Direct yield win
+  on crowded channels.
+
+### 14d. Already done / lower-effort
+- Directed deauth both directions (AP↔STA) + disassoc in bursts — ✅ (the `DeauthAttack` reuse).
+- Correct injection iface `WIFI_IF_AP` + softAP — ✅ (2026-08-15 capture fix).
+- Hot-hold after M1 to catch M2 — ✅. M1→M2 window 6s — ✅.
+- Broadcast deauth to kick ALL clients periodically (catch un-sampled clients) — partial (pass-1).
+- **Recon-driven targeting:** confirmed-client AP → directed deauth; no-client AP → PMKID solicit
+  (don't waste deauth budget on a clientless AP — it can't hand over a 4-way, only a PMKID).
+- **Diag counters (2026-08-15):** each `ai_debug.log` hop line tails `dD=<directed bursts> dB=<broadcast
+  bursts> txf=<driver TX rejects> m1=<M1 seen> m2=<M2 seen> ap=<#APs> cli=<#clients>`. **Run as
+  `pwn ai debug`** (plain `pwn` writes no log). Reading it when m1=0 (no captures):
+  - `dD=0` (all broadcast) → no client ever sat on a deauthable AP → the clients are on WEAK APs below
+    the -80 cutoff (environment). Fix = PMKID solicit (§14a) or a lower cutoff.
+  - `dD>0 & txf>0` → the driver is rejecting frames → real TX bug (softAP/channel).
+  - `dD>0 & txf=0 & m1=0` → directed deauth queued fine but no reconnect handshake → frame not landing
+    on the victim's channel (softAP-vs-hop mismatch, the watch item) or PMF.
+  - **First diag run (session @70817, ~40 min):** `dtx=39 m1=0 m2=0 ap=28 cli=7` — deauth fires at the
+    call level, but ZERO EAPOL forced (matches the soak's 4 captures all being weak passive). Leading
+    theory: weak environment, clients on sub-cutoff APs. The dD/dB/txf split (added after) will confirm.
+  - **✅ HEADLINE (same run): first on-device crack — a real WPA2 AP (redacted)** in `cracked.csv`. The
+    autonomous capture→crack→PWNED loop is HW-proven end-to-end (a residential AP was a -95 dBm passive catch).
+
+### 14e. Honest ESP32 constraints
+- Single radio, half-duplex → PMKID-via-connect must be a phased sweep, not continuous.
+- PMF-protected APs resist deauth (can't force reassoc) — but PMKID-via-association still works if they
+  leak it.
+- Weak APs (≈-90 dBm, e.g. the a residential AP -92 capture) may not receive our frames at all — physics.
+
+### 14f. Recommended capture strategy (recon → per-AP method)
+| AP state | Best method | pwn status |
+|---|---|---|
+| Has active client | directed deauth → M1+M2 | ✅ (add 14c multi-slot) |
+| **No client** | **active PMKID solicitation (14a)** | ❌ biggest gap |
+| Client ignores deauth / PMF | rogue-AP half-handshake (14b, reuse karma) | reuse existing engine |

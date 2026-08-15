@@ -4,6 +4,27 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-08-15 (pwn capture root-cause fix) — UNCOMMITTED, user to build+HW-test
+- **`pwn`/`pw` "runs fine but never catches a handshake" — ROOT CAUSE FOUND + FIXED.** Reported by
+  user: pwn roams but HS counter stuck at 0. Cause: `runPwnSession` ran in bare `WiFi.mode(WIFI_STA)`
+  (UNassociated) and injected deauth via `esp_wifi_80211_tx(WIFI_IF_STA,…)`. On ESP32-S3 a raw
+  80211_tx only reaches the air when the **AP interface is up** (or STA associated) → pwn's deauths
+  never transmitted → no client kicked → no reconnect → no EAPOL. Confirmed by researching our own
+  proven `ws`/`da`/`karma` (`deauth_functions.cpp:457` literally comments "AP interface needed for
+  80211_tx injection") + **Bruce** (`wifi_atks.cpp` APSTA+softAP) + **Marauder** (`WIFI_MODE_AP`,
+  `ssid_hidden=1`) + ESP-IDF API doc. pwn was the lone STA-only outlier.
+- **Fix (pwn.cpp):** `WIFI_MODE_APSTA` + hidden `softAP("x",…,1,1,0,false)`; ignore our own AP's
+  beacons (`s_apMac`); teardown `softAPdisconnect(true)` + `learnSave()` after radio idle. **Plus
+  (user's steer) REUSE the HW-verified deauth, don't reimplement:** deleted pwn's single-frame
+  `sendDeauth`, now calls the proven `DeauthAttack` (deauth+disassoc, randomised seq, 3× each) — added
+  public `DeauthAttack::sendDirectedBurst(bssid,client)` for the stealth/targeted path (mirrors
+  `sendBroadcastBurst`). Grid advert TX → `WIFI_IF_AP` too. Files: `wifi/attacks/pwn/pwn.cpp`,
+  `wifi/attacks/deauth/deauth_functions.{h,cpp}`.
+- **▶ HW-TEST WATCH:** channel-hop-while-softAP-up is new to our repo (ws/da/karma use a FIXED
+  channel); Marauder/Bruce hop with an AP up fine and our STA is idle + AP has 0 clients, but confirm
+  1/6/11 still hops while capturing. Full detail: `docs/plans/pwnagotchi-pwn.md` §10a "CRITICAL
+  CAPTURE FIX (2026-08-15)".
+
 ## Session 2026-08-02 (rebrand T-REX -> AL-ANQA + info QR) — COMMITTED + PUSHED (feature/pentest-enhancements)
 - **Full rebrand T-REX -> AL-ANQA** (العنقاء, phoenix): source tree `t-rex-firmware/` -> `al-anqa-firmware/`
   (`git mv` + all `platformio.ini` `-I` paths + CI path filters); every string/comment/doc/plan; on-air names

