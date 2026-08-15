@@ -468,7 +468,7 @@ void PmkidAttack::run(const uint8_t* bssid, int channel, const char* ssid) {
     uint8_t origMac[6] = {0}, staMac[6] = {0};
     if (g_pmSolicit) {
         esp_wifi_get_mac(WIFI_IF_STA, origMac);
-        randomLaMac(staMac);
+        macutil::randomLaMac(staMac);
         esp_wifi_set_mac(WIFI_IF_STA, staMac);
     }
     WiFi.softAP("x", nullptr, channel, 1, 0, false);
