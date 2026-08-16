@@ -16,13 +16,13 @@ has_children: true
 | [Evil Twin](eviltwin) | `eviltwin` / `et` | Rogue AP + captive portal |
 | [Hidden SSID](hiddenssid) | `hiddenssid` / `hs` | Reveal hidden network names |
 | [WPA Sniff](wpasniff) | `wpasniff` / `ws` | Capture + crack WPA2 handshake (needs client) |
-| [PMKID Attack](pmkid) | `pmkid` / `pm` | PMKID capture + crack — no client needed |
+| [PMKID Attack](pmkid) | `pmkid` / `pm` | PMKID capture + crack — **active clientless by default** (`pm passive` = silent sniff), no client needed |
 | [Karma](karma) | `karma` / `km` | Rogue-AP suite — probe harvest, PNL fingerprint, half-handshake / portal bait |
 | [Cap Cracker](capcrack) | `crack` / `cc` | Offline crack of a `.cap` (handshake or PMKID) with wordlists |
 | [WGuard IDS](wguard) | `wguard` / `wg` | Passive WiFi intrusion detection |
 | [Beacon Flood](beacon-flood) | `beaconflood` / `bf` | Flood WiFi scan lists with fake SSIDs |
 | [WPS](wps) | `wps` | WPS recon (IE decode + device-info leak) + PIN calculator + push-button connect |
-| [Pwnagotchi Pet](pwn) | `pwn` / `pw` | Autonomous roam + capture handshakes/PMKIDs + **crack on-device** (active/stealth/passive) |
+| [Pwnagotchi Pet](pwn) | `pwn` / `pw` | Autonomous **AI-adaptive roam** (all 13 ch; `basic`=1/6/11) + capture handshakes/PMKIDs (clientless solicit) + **crack on-device** (active/stealth/passive) |
 
 ---
 

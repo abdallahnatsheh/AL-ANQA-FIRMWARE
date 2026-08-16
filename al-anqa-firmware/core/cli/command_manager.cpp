@@ -292,6 +292,9 @@ static const ArgHintEntry kArgHints[] = {
     // responder / rsp
     { "responder",   "",              "passive" },
     { "rsp",         "",              "passive" },
+    // pmkid / pm  (active clientless is the default; "passive" = silent no-TX sniff)
+    { "pmkid",       "",              "passive" },
+    { "pm",          "",              "passive" },
     // tz
     { "tz",          "",              "status" },
     // macchanger / mc  ("status" isn't a distinct code path — handleCommand() falls through
@@ -324,11 +327,11 @@ static const ArgHintEntry kArgHints[] = {
     { "km",          "",              "auto hs portal" },
     { "karma",       "auto",          "deauth" },
     { "km",          "auto",          "deauth" },
-    // pwn / pw
-    { "pwn",         "",              "stealth passive full ai wl" },
-    { "pw",          "",              "stealth passive full ai wl" },
-    { "pwn",         "ai",            "debug full stealth passive" },
-    { "pw",          "ai",            "debug full stealth passive" },
+    // pwn / pw  (default = AI adaptive roam over all 13 chans; `basic` = plain 1/6/11 round-robin)
+    { "pwn",         "",              "basic stealth passive full fast debug wl" },
+    { "pw",          "",              "basic stealth passive full fast debug wl" },
+    { "pwn",         "basic",         "full stealth passive" },
+    { "pw",          "basic",         "full stealth passive" },
     { "pwn",         "wl",            "list add rm clear" },
     { "pw",          "wl",            "list add rm clear" },
     { "pwn",         "add",           "ssid" },
@@ -826,7 +829,7 @@ void CommandManager::setupCommands() {
     registerCommand("hiddenssid",  "hs",     [](char* a) { stopEspchatBg(); hiddenSSID.start(a); },                         "Uncover hidden SSID: hs <idx|bssid> [ch] [silent]", true,  "WiFi");
     registerCommand("macchanger",  "mc",     [](char* a) { stopEspchatBg(); MacChanger::getInstance().handleCommand(a); },  "MAC spoof: mc [on|off|random|set <mac>|restore on|off|target wifi|bt|both|status]", true,  "WiFi");
     registerCommand("wpasniff",    "ws",     [](char* a) { stopEspchatBg(); handshakeCapture.start(a); },                   "WPA2 handshake: ws <idx|bssid> [ch]",                true,  "WiFi");
-    registerCommand("pmkid",       "pm",     [](char* a) { stopEspchatBg(); pmkidAttack.start(a); },                        "PMKID capture+crack: pm <idx|bssid> [ch]",           true,  "WiFi");
+    registerCommand("pmkid",       "pm",     [](char* a) { stopEspchatBg(); pmkidAttack.start(a); },                        "PMKID capture+crack (active; 'pm passive'=silent): pm <idx|bssid>", true,  "WiFi");
     registerCommand("wpa3down",    "w3d",    [](char* a) { stopEspchatBg(); runWpa3Down(a); },                             "[EXP] WPA3 downgrade + PMF probe: w3d [probe] [auto] [idx] [mac]", true, "WiFi");
     registerCommand("wguard",      "wg",     [](char* a) { stopEspchatBg(); handleWGuardCmd(a); },                          "WiFi IDS: wg <idx> [bg|stop]",                       true,  "WiFi");
     registerCommand("beaconflood", "bf",     [](char* a) { stopEspchatBg(); runBeaconFlood(a); },                           "Beacon flood: bf [list|seq <base>|file [path]]",     true,  "WiFi");
@@ -834,7 +837,7 @@ void CommandManager::setupCommands() {
     registerCommand("wps",         "wps",    [](char* a) { stopEspchatBg(); runWps(a); },                                  "WPS recon (IE/device leak) + PIN calc + pbc: wps [<idx>|pbc <idx>]", true, "WiFi");
     registerCommand("wardrive",    "wd",     [](char* a) { stopEspchatBg(); runWardrive(a); },                             "Wardrive: WiFi+GPS -> WiGLE CSV (Plus only)",        false, "WiFi");
     registerCommand("crack",       "cc",     [](char* a) { stopEspchatBg(); runCapCrack(a); },                             "Crack .cap: cc [cap] [wordlist|dir]",                true,  "WiFi", COMP_ANY);
-    registerCommand("pwn",          "pw",     [](char* a) { stopEspchatBg(); runPwn(a); },                                  "Auto capture+crack pet: pwn [stealth|passive|full|ai|wl ...]", true, "WiFi");
+    registerCommand("pwn",          "pw",     [](char* a) { stopEspchatBg(); runPwn(a); },                                  "Auto capture+crack pet (AI+13ch default; 'pwn basic'=1/6/11): pwn [basic|stealth|passive|full|fast|wl ...]", true, "WiFi");
     registerCommand("espsniff",    "es",     [](char* a) { if (!Utils::checkChannelArg(a, "es")) return; runEspSniff(a); },     "ESP-NOW sniffer: es [ch 1-13]",                      true,  "WiFi");
     registerCommand("esptest",     "est",    [](char* a) { if (!Utils::checkChannelArg(a, "est")) return; runEspTest(a); },     "ESP-NOW test TX/RX: est [ch 1-13]",                  true,  "WiFi");
     registerCommand("espchat",     "ec",     [](char* a) { runEspchat(a); },                                                   "ESP-NOW chat: ec [pub [set <ch>]|prv <M>|bg|stop]",  true,  "WiFi");

@@ -137,11 +137,11 @@ Run `help` for the list on-device, or `man <cmd>` for a full manual page.
 | `hiddenssid` | `hs` | `<idx\|bssid> [ch] [silent]` | Reveal a hidden SSID |
 | `macchanger` | `mc` | `on\|off\|random\|set <mac>` | Spoof the STA MAC |
 | `wpasniff` | `ws` | `<idx\|bssid> [ch]` | Capture + crack a WPA2 handshake |
-| `pmkid` | `pm` | `<idx\|bssid> [ch]` | PMKID capture + crack — passive, no client |
+| `pmkid` | `pm` | `[passive] <idx\|bssid> [ch]` | PMKID capture + crack — active clientless by default (`pm passive` = silent sniff) |
 | `wpa3down` | `w3d` | `[probe] [auto] [idx] [mac]` | **[EXP]** WPA3 transition downgrade → crackable `.cap`; auto-discovers the AP's clients (no MAC typing) + empirical PMF probe |
 | `karma` | `km` | `[auto\|hs\|portal <ssid>]` | Rogue-AP suite — harvest, PNL fingerprint, half-handshake, portal |
 | `crack` | `cc` | `[cap] [wordlist\|dir]` | Offline WPA/WPA2 crack (handshake or PMKID) |
-| `pwn` | `pw` | `[stealth\|passive\|full\|wl ...]` | Autonomous pet — roam, capture handshakes/PMKIDs, **crack on-device** in idle time (resume cursor); phoenix HUD |
+| `pwn` | `pw` | `[basic\|stealth\|passive\|full\|fast\|wl ...]` | Autonomous pet — **AI adaptive roam over all 13 channels by default** (`pwn basic` = plain 1/6/11); captures handshakes + PMKIDs (clientless solicit), **cracks on-device** in idle time; phoenix HUD |
 | `wguard` | `wg` | `<idx\|bssid> [ch] [bg]` | Passive WiFi IDS; `wg stop` / `wg view` |
 | `beaconflood` | `bf` | `[list\|rickroll\|seq <base>\|file\|clone]` | Beacon flood — fake AP injection |
 | `wps` | `wps` | `[<idx>]` | All-in-one WPS: IE decode + device leak + PIN calc + live EAP-WSC handshake sniff (→ pixiewps) + `[p]` push-button |
