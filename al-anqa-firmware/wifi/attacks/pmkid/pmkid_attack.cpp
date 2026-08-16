@@ -182,9 +182,9 @@ String PmkidAttack::macStr(const uint8_t* m) {
 void PmkidAttack::start(char* args) {
     if (!args || !*args) {
         _dm.println("Usage:");
-        _dm.println("  pm <index>              (passive)");
-        _dm.println("  pm assoc <index>        (active/clientless)");
-        _dm.println("  pm [assoc] <bssid> [ch]");
+        _dm.println("  pm <index>              (active/clientless)");
+        _dm.println("  pm passive <index>      (silent sniff)");
+        _dm.println("  pm [passive] <bssid> [ch]");
         _dm.printCommandScreen();
         return;
     }
@@ -194,13 +194,14 @@ void PmkidAttack::start(char* args) {
     buf[sizeof(buf) - 1] = '\0';
 
     char* first  = strtok(buf, " ");
-    // optional leading flag: `pm assoc ...` / `pm a ...` = ACTIVE clientless solicitation
-    g_pmSolicit = false;
-    if (first && (!strcmp(first, "assoc") || !strcmp(first, "a") || !strcmp(first, "solicit"))) {
-        g_pmSolicit = true;
+    // ACTIVE clientless solicitation is the DEFAULT (superset — keeps the passive M1 sniffer
+    // running while also injecting auth+assoc). `pm passive ...` = silent, no-TX sniff only.
+    g_pmSolicit = true;
+    if (first && (!strcmp(first, "passive") || !strcmp(first, "p"))) {
+        g_pmSolicit = false;
         first = strtok(nullptr, " ");           // advance to the real target arg
     }
-    if (!first) { _dm.println("Usage: pm assoc <index|bssid> [ch]"); _dm.printCommandScreen(); return; }
+    if (!first) { _dm.println("Usage: pm [passive] <index|bssid> [ch]"); _dm.printCommandScreen(); return; }
     char* second = strtok(nullptr, " ");
 
     uint8_t bssid[6];
@@ -510,7 +511,7 @@ void PmkidAttack::run(const uint8_t* bssid, int channel, const char* ssid) {
             _dm.setCursor(10, _dm.getCursorY());
             _dm.setTextColor(0x4208);
             _dm.println(m1Count ? "M1 seen — no PMKID in Key Data"
-                                : (g_pmSolicit ? "Soliciting M1 (assoc)..." : "Waiting for EAPOL M1..."));
+                                : (g_pmSolicit ? "Soliciting M1 (active)..." : "Waiting for EAPOL M1..."));
             _dm.setCursor(10, _dm.getCursorY());
             _dm.setTextColor(g_pmSolicit ? TFT_YELLOW : (uint16_t)0x4208);
             _dm.println(g_pmSolicit ? "[ACTIVE clientless]  [q] stop" : "[q] stop");

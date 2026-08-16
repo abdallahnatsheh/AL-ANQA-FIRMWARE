@@ -10,13 +10,22 @@ nav_order: 5
 
 ## `pmkid` / `pm` — PMKID Capture + Crack
 
-Captures the PMKID from a single EAPOL M1 frame and optionally cracks the WPA2 password on-device. **No client required** — stealthier than WPA handshake capture (`ws`).
+Captures the PMKID from a single EAPOL M1 frame and optionally cracks the WPA2 password on-device. **No client required.**
+
+By **default `pm` is active (clientless)**: it spoofs a client MAC and sends the AP an open Authentication + Association Request, so the AP immediately replies with M1 carrying the PMKID — no waiting for a real client. Add **`passive`** for a silent, transmit-nothing sniff that only waits for a real client to associate.
 
 ```
-CMD> pm <index|bssid> [channel]
+CMD> pm <index|bssid> [channel]           ← active (forces the PMKID)
+CMD> pm passive <index|bssid> [channel]   ← silent, no-TX sniff
 CMD> pm 2
 CMD> pm AA:BB:CC:DD:EE:FF 6
+CMD> pm passive 2
 ```
+
+| Mode | Command | Transmits? | Needs a real client? |
+|------|---------|-----------|----------------------|
+| **Active** (default) | `pm <idx>` | Yes (auth + assoc) | No — forces M1 on demand |
+| **Passive** | `pm passive <idx>` | No | Yes — waits for one to associate |
 
 ---
 
@@ -39,7 +48,7 @@ CMD> sw          ← scan first to build index
 CMD> pm 2        ← target AP at index 2
 ```
 
-Al-Anqa monitors the target channel passively. The AP sends M1 whenever any client naturally associates. When a PMKID is found in the Key Data, the screen shows:
+In the default **active** mode, Al-Anqa spoof-associates to the AP to force it to send M1 straight away (retried every 800 ms until captured). In **passive** mode it just listens and the AP sends M1 whenever any client naturally associates. When a PMKID is found in the Key Data, the screen shows:
 
 ```
 [PMKID CAPTURED!]
@@ -47,7 +56,7 @@ A1B2C3D4E5F6A7B8   ← first 8 bytes preview
 [c] crack   [q] stop
 ```
 
-> **Note:** Not all routers include the PMKID KDE in M1. If you see `M1 seen — no PMKID in Key Data`, the router does not support this attack — use `ws` instead.
+> **Note:** Not all APs include the PMKID KDE in M1. If you see `M1 seen — no PMKID in Key Data`, that AP does not embed a PMKID — use `ws` instead. (Software APs such as **hostapd deliberately omit the PSK PMKID**; most consumer routers include it.)
 
 ---
 
