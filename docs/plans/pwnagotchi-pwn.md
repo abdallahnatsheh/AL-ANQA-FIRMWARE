@@ -764,7 +764,7 @@ esp32-wifi-penetration-tool**; ESP-IDF WiFi docs). Goal: capture as much crackab
 possible. Ranked by impact × ESP32 feasibility. Sources for NOTICES: HackingArticles PMKID writeup,
 risinek tool docs, ESP-IDF `esp_wifi` reference — methodology only, no code copied.
 
-**Context from HW runs:** the a residential AP run got **1 passive capture in 16 min** — most residential
+**Context from HW runs:** a residential-AP run got **1 passive capture in 16 min** — most residential
 APs had no active client during the dwell, so there was nothing to deauth and nothing to passively
 catch. The BeSpot run saw an M1 flood but few completed captures (single-buffer collision). Both point
 straight at the two top items below.
@@ -854,14 +854,14 @@ straight at the two top items below.
   - **First diag run (session @70817, ~40 min):** `dtx=39 m1=0 m2=0 ap=28 cli=7` — deauth fires at the
     call level, but ZERO EAPOL forced (matches the soak's 4 captures all being weak passive). Leading
     theory: weak environment, clients on sub-cutoff APs. The dD/dB/txf split (added after) will confirm.
-  - **✅ HEADLINE (same run): first on-device crack — a real WPA2 AP (redacted)** in `cracked.csv`. The
-    autonomous capture→crack→PWNED loop is HW-proven end-to-end (a residential AP was a -95 dBm passive catch).
+  - **✅ HEADLINE (same run): first on-device crack of a real WPA2 AP** written to `cracked.csv`. The
+    autonomous capture→crack→PWNED loop is HW-proven end-to-end (a ~-95 dBm passive catch, weak password).
 
 ### 14e. Honest ESP32 constraints
 - Single radio, half-duplex → PMKID-via-connect must be a phased sweep, not continuous.
 - PMF-protected APs resist deauth (can't force reassoc) — but PMKID-via-association still works if they
   leak it.
-- Weak APs (≈-90 dBm, e.g. the a residential AP -92 capture) may not receive our frames at all — physics.
+- Weak APs (≈-90 dBm, e.g. a -92 dBm capture) may not receive our frames at all — physics.
 
 ### 14f. Recommended capture strategy (recon → per-AP method)
 | AP state | Best method | pwn status |
