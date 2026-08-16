@@ -676,7 +676,7 @@ truncated-hash list) for shared dedup.
 - Does `esp_wifi_80211_tx` of our advert interfere with the concurrent deauth cadence?
   (Both are just TX bursts; expected fine — verify.)
 
-## 13. Adaptive roaming — `pwn ai` (tabular Discounted-UCB learner) [EXP]
+## 13. Adaptive roaming — tabular Discounted-UCB learner (DEFAULT roam; `pwn basic` disables it) — ✅ HW-verified
 
 Optional, gated behind the `ai` keyword (`pwn ai [debug] [full] [stealth|passive]`),
 toggle live with `[a]`. Brings the Raspberry-Pi Pwnagotchi's *learned* channel behavior

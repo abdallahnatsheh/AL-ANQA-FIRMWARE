@@ -22,8 +22,8 @@ An unattended, channel-roaming "pet" that captures WPA/WPA2 handshakes and PMKID
 
 Each cycle the pet:
 
-1. **Roams** WiFi channels (1/6/11 by default, or all 1–13) and passively listens.
-2. **Captures** crackable key material — full/half 4-way handshakes (deauth-assisted) and PMKIDs (from the first handshake message), saved as standard `.cap` files.
+1. **Roams** WiFi channels — by default an **adaptive AI learner over all 13 channels** that concentrates on productive channels and remembers your area across reboots (`pwn basic` = plain 1/6/11 round-robin).
+2. **Captures** crackable key material — full/half 4-way handshakes (deauth-assisted) and PMKIDs. PMKIDs are grabbed **clientlessly**: the pet spoof-associates to each AP to solicit the first handshake message (no client, no deauth needed). All saved as standard `.cap` files.
 3. **Cracks** during idle moments, using a resume cursor so it picks up exactly where it left off — even across reboots — and a smart priority order so likely passwords are tried first.
 
 Its mood face reflects **real** events: hunting when targets appear, excited on a capture, and a green **PWNED** flash when a password actually breaks.
@@ -35,19 +35,25 @@ Its mood face reflects **real** events: hunting when targets appear, excited on 
 ## Usage
 
 ```
-CMD> pwn                 # active mode (deauth-forced captures, loud)
-CMD> pwn stealth         # quiet, low IDS signature
+CMD> pwn                 # DEFAULT: AI adaptive roam over all 13 channels, active mode
+CMD> pwn basic           # plain fixed 1/6/11 round-robin (learner off)
+CMD> pwn stealth         # quiet, low IDS signature (PMKID solicit, no broadcast deauth)
 CMD> pwn passive         # sniff-only, zero transmit (undetectable)
-CMD> pwn full            # roam all channels 1-13 (default is 1/6/11)
+CMD> pwn fast            # AI learner but only 1/6/11 (fast common-band sweep)
+CMD> pwn basic full      # plain round-robin over all 13 channels
 ```
+
+### Roaming — AI adaptive learner (default)
+
+By default `pwn` runs a per-channel **Discounted-UCB learner** over **all 13 channels**: it scores each channel by past productivity (captures / handshake messages / clients), spends more time where the prey is, and only *scout-peeks* dead channels — then persists what it learned to `/apps/pwn/learn.csv`, so it **gets better in a fixed location across sessions**. This is where the learner pays off; on the 3-channel common band alone it barely differs from round-robin, so **`pwn basic`** gives you the plain, predictable `1/6/11` rotation instead. Toggle the learner live with **`[a]`**. Overrides: `full` forces all 13, `fast` forces `1/6/11`.
 
 ### Modes
 
 | Mode | Capture | Grid | Trade-off |
 |------|---------|------|-----------|
-| **active** (default) | broadcast deauth (loud) | **on** | best capture rate; trips deauth IDS |
+| **active** (default) | broadcast deauth **+ clientless PMKID solicit** (loud) | **on** | best capture rate; trips deauth IDS |
 | **passive** | sniff-only, no attack | **on** | captures only what clients leak; still social |
-| **stealth** | quiet directed deauth | **off — dark** | the one truly undetectable mode |
+| **stealth** | **clientless PMKID solicit** + directed deauth only if a client is seen | **off — dark** | the one truly undetectable mode; solicitation makes it productive with no client |
 
 Toggle live with **`[m]`**. `pwn` **never** emits the pwnagotchi `de:ad:be:ef` pwngrid beacon, so pwnagotchi detectors (nzyme, Kismet, Marauder) cannot fingerprint it — only our own private grid beacon (below), and only when not in stealth.
 
