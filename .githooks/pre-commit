@@ -1,0 +1,34 @@
+#!/bin/bash
+# Pre-commit sensitive-data guard for AL-ANQA firmware.
+# Blocks raw packet captures and flags real network identifiers (MACs) added to
+# docs/notes/data files, before they can enter git history.
+# Override a genuine false positive with:  git commit --no-verify
+set -u
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+fail=0
+
+# 1) Never commit raw packet captures — they always hold real SSIDs/MACs/handshakes.
+caps=$(printf '%s\n' "$staged" | grep -iE '\.(cap|pcap|pcapng)$' || true)
+if [ -n "$caps" ]; then
+  echo "BLOCK: packet-capture file(s) staged (real network data):"
+  printf '    %s\n' $caps
+  fail=1
+fi
+
+# 2) Flag MAC-address strings ADDED to docs/notes/data (code files are exempt:
+#    OUI tables, test frames, etc. legitimately contain MACs).
+macs=$(git diff --cached -U0 -- '*.md' '*.txt' '*.csv' 2>/dev/null \
+       | grep -E '^\+' | grep -iE '([0-9a-f]{2}:){5}[0-9a-f]{2}' || true)
+if [ -n "$macs" ]; then
+  echo "BLOCK: MAC-like string added to a doc/data file:"
+  printf '%s\n' "$macs" | sed 's/^/    /'
+  fail=1
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo
+  echo "Redact real SSIDs/MACs/cracked passwords, or override: git commit --no-verify"
+  exit 1
+fi
+exit 0
