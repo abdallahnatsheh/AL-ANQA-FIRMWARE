@@ -481,6 +481,8 @@ static const uint8_t PWN_GRID_PREFIX[3] = {0xA2, 0x9A, 0x0A};   // "an AL-ANQA p
 #define PWN_GRID_ADV_OFF 36          // GridAdv sits at this byte offset in the frame
 #define PWN_MAX_PEERS    8
 #define PWN_PEER_TTL_MS  30000
+#define PWN_GRID_SWEEP_HI  13        // advert is swept over channels 1..this so a peer on ANY channel hears it
+#define PWN_GRID_TX_GAP_MS 3         // ms between per-channel advert TX (let each frame leave before hopping)
 
 struct __attribute__((packed)) GridAdv {
     char     magic[4];   // "ANQG"
@@ -523,12 +525,27 @@ static uint16_t gridBuildFrame(uint8_t* out, const GridAdv& a) {
     memcpy(out + i, &a, sizeof(GridAdv)); i += sizeof(GridAdv);
     return i;
 }
-static void gridSendAdv(uint16_t pwned, uint16_t hs, uint16_t pmkid, uint16_t upMin) {
+// Broadcast our advert. A peer's promiscuous RX only ever hears ITS OWN current channel, so
+// we SWEEP the advert across channels 1..PWN_GRID_SWEEP_HI — a peer roaming any channel then
+// catches the greeting during the sweep. Without this, two full-13 decks would coincide only
+// ~1/13 of the time (the full-13 roam default made the old single-channel TX rarely land).
+// Both decks sweep, so both discover each other with NO time-sync. ~40ms per tick; the roam
+// channel is restored at the end so capture/deauth resume where they were.
+static void gridSendAdv(uint16_t pwned, uint16_t hs, uint16_t pmkid, uint16_t upMin, uint8_t roamCh) {
     GridAdv a; memset(&a, 0, sizeof(a));
     memcpy(a.magic, "ANQG", 4); a.ver = 1; strncpy(a.name, s_gridName, 12);
     a.pwned = pwned; a.hs = hs; a.pmkid = pmkid; a.uptimeMin = upMin;
     uint8_t fr[80]; uint16_t n = gridBuildFrame(fr, a);
-    esp_wifi_80211_tx(WIFI_IF_AP, fr, n, false);   // AP iface — see softAP note in runPwnSession
+    // Pause promiscuous for the sweep: TX doesn't need RX, and it stops an M1 from an AP on a
+    // swept channel from clobbering an in-progress capture (s_cap resets on a new BSSID). The
+    // guard restores promiscuous on scope-exit — after we've set the channel back to roamCh.
+    ScopedPromiscPause _;
+    for (uint8_t ch = 1; ch <= PWN_GRID_SWEEP_HI; ch++) {
+        if (esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE) != ESP_OK) continue;  // region may block 12/13
+        esp_wifi_80211_tx(WIFI_IF_AP, fr, n, false);   // AP iface — see softAP note in runPwnSession
+        vTaskDelay(pdMS_TO_TICKS(PWN_GRID_TX_GAP_MS));
+    }
+    esp_wifi_set_channel(roamCh, WIFI_SECOND_CHAN_NONE);   // back to the roam channel (before promiscuous resumes)
 }
 static bool gridPeerUpdate(const char* name, uint16_t pwned, uint16_t hs, int8_t rssi) {
     for (int i = 0; i < s_nPeer; i++)
@@ -1167,9 +1184,11 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
                               snprintf(ticker, sizeof(ticker), "met %.12s", s_metName); }
 
         // grid broadcast (active + passive only; stealth stays dark). RX runs in every mode.
+        // The advert TX sweeps all channels then restores curCh, so peers rendezvous regardless
+        // of each deck's roam channel (see gridSendAdv).
         if (mode != PWN_STEALTH && now >= gridTxAt) {
             gridTxAt = now + PWN_GRID_TX_MS;
-            gridSendAdv(pwnedCount, hsCount, pmCount, (uint16_t)((now - t0Session) / 60000));
+            gridSendAdv(pwnedCount, hsCount, pmCount, (uint16_t)((now - t0Session) / 60000), curCh);
         }
         // expire peers not heard from in a while
         for (int i = 0; i < s_nPeer; )

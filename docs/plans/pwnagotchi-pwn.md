@@ -642,12 +642,18 @@ automatic (follows the mode; no separate command / `[g]` toggle — `[m]` cycles
 HARD RULE: our own private prefix, NEVER the `de:ad:be:ef:de:ad` pwngrid format.
 
 ### 12c. Transport — reuses pwn's existing radio path (no ESP-NOW API, no channel-sync)
-- **TX:** broadcast a small AL-ANQA grid frame (ANQA-prefixed SA + payload) on the
-  current roam channel via `esp_wifi_80211_tx` — same primitive as the deauth. ~every 3s.
+- **TX:** broadcast a small AL-ANQA grid frame (ANQA-prefixed SA + payload) via
+  `esp_wifi_80211_tx` — same primitive as the deauth. ~every 3s, **swept across channels
+  1–13** (`gridSendAdv`): a peer's promiscuous RX only ever hears its OWN channel, so the
+  sender sweeps so a peer on ANY channel catches it. Promiscuous is paused for the ~40ms
+  sweep (TX-only; also stops a cross-channel M1 clobbering the in-progress capture), roam
+  channel restored after.
 - **RX:** detect a peer's frame in pwn's EXISTING promiscuous cb (match the ANQA prefix)
   → ring → peers table. No `esp_now_*` (avoids the ESP-NOW-recv-vs-promiscuous conflict).
-- **No channel sync needed:** both hop 1/6/11 → coincide ~1/3 of the time → a greeting
-  lands every few seconds. Good enough for presence.
+- **No channel sync needed:** the swept TX means whichever channel each deck is roaming, it
+  catches the peer's sweep (a deck is roaming/listening 98.7% of the time vs ~40ms sweeping).
+  Both sweep → mutual discovery within seconds. Superseded the old "both hop 1/6/11 → coincide
+  ~1/3" assumption, which broke once full-13 roam became the default (~1/13 coincidence).
 
 ### 12d. Wire format (draft)
 `GridAdv{ magic[4]="ANQG", ver, name[12], pwned, hs, pmkid, uptime_min }` (~26 B),

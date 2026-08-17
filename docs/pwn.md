@@ -65,7 +65,7 @@ Run `pwn` on **two or more T-Decks** and they find each other on the air and sho
 - **Broadcast** happens only in **active** and **passive** (both "social/visible"); **stealth stays dark** — it never transmits the grid beacon, so it's undetectable, but it still **listens** and shows peers one-way.
 - The HUD shows `g<N>` (peer count) on the mode line, and a `met ANQA-XXXX` message + a happy phoenix pose when a new pet appears.
 
-Uses a private beacon frame (not ESP-NOW libraries) received in pwn's own sniffer — no extra radio setup. Cooperation (shared dedup / handshake-swap) is planned for a later version.
+Uses a private beacon frame (not ESP-NOW libraries) received in pwn's own sniffer — no extra radio setup. The greeting is **swept across all 13 channels** each cycle, so two pets find each other no matter which channels they're roaming (no channel-sync needed). Cooperation (shared dedup / handshake-swap) is planned for a later version.
 
 ### On-screen controls
 
