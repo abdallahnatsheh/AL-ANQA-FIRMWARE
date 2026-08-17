@@ -63,9 +63,13 @@ Run `pwn` on **two or more T-Decks** and they find each other on the air and sho
 
 - Each deck has an identity `A2:9A:0A:xx:xx:xx` (AL-ANQA prefix + its own MAC tail) and a name `ANQA-XXXX`, shown on screen. Override the name in `/apps/pwn/grid.conf` (`name=MyPet`).
 - **Broadcast** happens only in **active** and **passive** (both "social/visible"); **stealth stays dark** — it never transmits the grid beacon, so it's undetectable, but it still **listens** and shows peers one-way.
-- The HUD shows `g<N>` (peer count) on the mode line, and a `met ANQA-XXXX` message + a happy phoenix pose when a new pet appears.
+- The HUD shows `g<N>` (peer count) on the stats line, and a `met ANQA-XXXX` message + a happy phoenix pose when a new pet appears.
 
-Uses a private beacon frame (not ESP-NOW libraries) received in pwn's own sniffer — no extra radio setup. The greeting is **swept across all 13 channels** each cycle, so two pets find each other no matter which channels they're roaming (no channel-sync needed). Cooperation (shared dedup / handshake-swap) is planned for a later version.
+Uses a private beacon frame (not ESP-NOW libraries) received in pwn's own sniffer — no extra radio setup. The greeting is **swept across all 13 channels** each cycle, so two pets find each other no matter which channels they're roaming (no channel-sync needed).
+
+**Cracked-credential sharing (the pack learns together).** When any deck cracks a network, it broadcasts the recovered **SSID + password** over the grid, and every other pet **auto-saves it** (to NVS on a card-less deck, or `cracked.csv` on a deck with a card) and shows a `learned <ssid>` message. So a whole pack of pets pools its wins — crack a network on one, and they all know it. Sharing follows the same mode rules (active/passive broadcast, stealth stays dark). The password travels in clear over the pack's private beacon, so this is for **your own networks** only.
+
+> ✅ **Hardware-verified (two decks).** Mutual discovery, peer names, `g1` count, independent-channel rendezvous, and card-less→card cred-sharing were all confirmed on real hardware.
 
 ### On-screen controls
 
@@ -108,6 +112,21 @@ When idle, the pet spends CPU (no radio — silent) working through its loot, pe
 Every candidate is verified with the real handshake/PMKID check, so a recorded password is always genuine.
 
 > **Tip:** the resume cursor keys on the wordlist's identity, so **changing or extending the wordlist automatically re-arms** caps that were previously exhausted — they get another pass against the new list.
+
+---
+
+## Runs without an SD card
+
+`pwn` works with **no SD card inserted** — it degrades gracefully to a RAM-only run (a small amber `NO-SD` tag shows in the header):
+
+- **Captures and cracks one handshake at a time in RAM** — off the built-in default list (no card = no wordlist file), verified the same way. A win still fires the green **PWNED** state.
+- **Saves a cracked network to NVS** — into the same connectable Wi-Fi store `connectwifi` (`cw`) / `scanwifi` (`sw`) read, so a network you crack card-less becomes a saved Wi-Fi on the device. (NVS keys are capped at 15 characters, so SSIDs longer than that can't be stored there.)
+- **Whitelist works in RAM** — `pwn wl add/rm/clear/list` all function; entries clear on reboot.
+- **The grid works fully**, including cracked-credential sharing.
+
+What you give up without a card: saved `.cap` files, the crackable backlog, resume cursors, the capture log, GPS geotags, and cross-reboot AI-roam memory. With a card inserted, everything behaves exactly as before.
+
+> ✅ **Hardware-verified (2026-08-17).** A card-less deck captured, cracked, saved to NVS, and shared the result to a second deck.
 
 ---
 

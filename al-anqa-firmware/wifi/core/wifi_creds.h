@@ -25,5 +25,9 @@ void        wifiExportCommand();
 WifiNetwork getWifiNetwork(const String& ssid);
 int         appendWpaNetwork(const WifiNetwork& net);  // 1=saved, 0=already exists, -1=no SD, -2=write failed
 int         removeWpaNetwork(const String& ssid);      // 1=removed, 0=not found, -1=no SD, -2=write failed
+// Save one network to the NVS "wifi" namespace (the connectable store sw/cw/Settings read) —
+// the no-SD persistence path (e.g. pwn cracked creds). NVS keys cap at 15 chars, so an SSID
+// longer than that cannot be stored → returns false. true = stored.
+bool        wifiCredsSaveNvs(const String& ssid, const String& psk);
 
 #endif // WIFI_CREDS_H

@@ -166,6 +166,19 @@ static std::vector<WifiNetwork> loadNvsNetworks() {
     return out;
 }
 
+// Save one network to the NVS "wifi" namespace — the connectable store sw/cw/Settings
+// read (key = SSID, value = PSK; mirrors app_settings' inline save). The no-SD
+// persistence path for cracked creds. NVS keys cap at 15 chars, so a longer SSID
+// cannot be stored here → returns false.
+bool wifiCredsSaveNvs(const String& ssid, const String& psk) {
+    if (ssid.isEmpty() || ssid.length() > 15) return false;   // NVS key length limit
+    Preferences p;
+    if (!p.begin("wifi", false)) return false;
+    size_t w = p.putString(ssid.c_str(), psk);
+    p.end();
+    return w > 0 || psk.isEmpty();   // empty value (open net) writes 0 bytes but is still stored
+}
+
 // ── Render ────────────────────────────────────────────────────────────────────
 
 static void renderWpPage(const std::vector<WifiNetwork>& nets, int page, bool fromSD) {

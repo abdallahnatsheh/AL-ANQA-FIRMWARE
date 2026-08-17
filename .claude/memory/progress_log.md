@@ -4,6 +4,34 @@ description: Recent session changes + not-yet-built list
 type: project
 ---
 
+## Session 2026-08-17 (pwn card-less + grid cred-share — ✅ HW-VERIFIED, graduated from EXP)
+- **`pwn` now runs WITHOUT an SD card + AL-ANQA pets share cracked creds over the grid. HW-tested on 2
+  decks (one w/ SD, one card-less) — ALL PASS. `pwn` declared non-experimental by the user.**
+- **Card-less (§B/§C in the plan):** the old hard "No SD — pwn needs SD" bail deleted; `s_haveSd`
+  (resolved once in `runPwn`) gates a RAM-only degrade. Card-less pwn captures **ONE HS at a time** into
+  `s_cap`, cracks it **from RAM** off the built-in list (`pwnRamCrackSlice`), and saves a cracked cred to
+  **NVS "wifi"** (`wifiCredsSaveNvs`, connectable via sw/cw) instead of `cracked.csv`. Whitelist works in
+  RAM (`pwn wl` on `s_wlBssid`/`s_wlSsid`; `whitelistLoad` skips the SD wipe; clears on reboot). Grid fully
+  works. Skipped card-less: `.cap`/backlog/`progress`/`captured`/geotag/AI-persist (`learnSave` + file-crack
+  idle gate `s_haveSd`-gated so no needless `ScopedPromiscPause`). Amber `NO-SD` header tag.
+- **Grid cracked-cred sharing (§12i, v1.5):** on a crack a deck broadcasts `GridCred{magic"ANQC",ssid,psk,
+  bssid}` (~108B) in the same offset-36 slot as the advert (told apart by magic), swept 1–13, re-sent a few
+  ticks; peer RX in `drainOne` (kind 3, magic ANQC) → staged → main loop persists by the SAME routing
+  (no SD → NVS, SD → cracked.csv), dedup by SSID, "learned <ssid>" ticker. Gated off in stealth. Cleartext
+  PSK over the private beacon = own-net only. `gridBuildFrameRaw` shared by both frame kinds (DRY).
+- **DRY reuse:** extracted `capparse::applyDataFrame` (one-frame EAPOL/PMKID extract) out of `parseCap`;
+  added `capparse::parseFrames` (RAM M1/M2 → CrackJob). Added shared `wifiCredsSaveNvs(ssid,psk)` to
+  `wifi_creds.{h,cpp}` (NVS "wifi", 15-char key cap). `pwnCrackCap` gained a `bssidOut` param so the SD
+  file-crack path also grid-shares.
+- **UI bug fixed:** `g<N>` peer count was hidden whenever AI roam (the default) was on — the AI channel
+  readout overwrote that slot. Now shown in BOTH branches. User confirmed `g1` on both decks after reflash.
+- **HW test results (user):** peer name in ticker ✓, NO-SD tag ✓, card-less deck cracked the test AP and
+  shared SSID+password to the SD deck ✓, both hunt on different channels + still rendezvous ✓, `g1` ✓.
+- **Build:** T-Deck-Plus SUCCESS (RAM 64.5%, Flash 37.8%). Base T-Deck env hit a stale-SCons
+  `.sconsign311.dblite` glitch (NOT a code error) — needs `rm -rf .pio/build/T-Deck` + rebuild.
+- Files: `wifi/attacks/pwn/pwn.cpp`, `wifi/core/cap_parse.h`, `wifi/core/wifi_creds.{h,cpp}`. Docs: CLAUDE.md,
+  README, man `pwn`, docs/pwn.md + wifi-attacks.md + ar mirrors, plan §12i/§14. **User: commit + push.**
+
 ## Session 2026-08-15 (pwn capture root-cause fix) — UNCOMMITTED, user to build+HW-test
 - **`pwn`/`pw` "runs fine but never catches a handshake" — ROOT CAUSE FOUND + FIXED.** Reported by
   user: pwn roams but HS counter stuck at 0. Cause: `runPwnSession` ran in bare `WiFi.mode(WIFI_STA)`

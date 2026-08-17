@@ -22,7 +22,7 @@ has_children: true
 | [WGuard IDS](wguard) | `wguard` / `wg` | Passive WiFi intrusion detection |
 | [Beacon Flood](beacon-flood) | `beaconflood` / `bf` | Flood WiFi scan lists with fake SSIDs |
 | [WPS](wps) | `wps` | WPS recon (IE decode + device-info leak) + PIN calculator + push-button connect |
-| [Pwnagotchi Pet](pwn) | `pwn` / `pw` | Autonomous **AI-adaptive roam** (all 13 ch; `basic`=1/6/11) + capture handshakes/PMKIDs (clientless solicit) + **crack on-device** (active/stealth/passive) |
+| [Pwnagotchi Pet](pwn) | `pwn` / `pw` | Autonomous **AI-adaptive roam** (all 13 ch; `basic`=1/6/11) + capture handshakes/PMKIDs (clientless solicit) + **crack on-device** (active/stealth/passive); **runs card-less** (RAM crack → NVS) + **pack-shares cracked creds over the grid** |
 
 ---
 

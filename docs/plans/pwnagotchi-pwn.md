@@ -1,10 +1,33 @@
 # AL-ANQA `pwn` — Autonomous Capture→Crack→PWNED WiFi Pet
 
-**Status:** v1 FIRST CUT — ✅ COMPILES CLEAN on T-Deck-Plus (2026-08-10; RAM 63.6%,
-Flash 37.5%). NOT yet HW-tested; base T-Deck env not yet built locally (CI covers it).
-Module `wifi/attacks/pwn/pwn.{h,cpp}` + shared parser `wifi/core/cap_parse.h`
-(extracted from capcrack, DRY). Registered `pwn`/`pw` (WiFi). `-I` added to
-platformio.ini (new-module dir needs it). See "Build status" (§10a).
+**Status:** ✅ **HW-VERIFIED & APPROVED (2026-08-17)** — no longer experimental.
+capture→crack→PWNED loop verified 2026-08-11; **pwn-grid + cracked-cred sharing +
+card-less (RAM crack → NVS) all verified 2026-08-17 with two decks**. Builds clean on
+T-Deck-Plus (RAM ~64.5%, Flash ~37.8%); base T-Deck env needs a clean
+`.pio/build/T-Deck` rebuild (stale-SCons glitch, not a code error). Module
+`wifi/attacks/pwn/pwn.{h,cpp}` + shared parser `wifi/core/cap_parse.h` (extracted from
+capcrack, DRY; now also `parseFrames` for RAM crack). Registered `pwn`/`pw` (WiFi).
+See "Build status" (§10a) and card-less notes (§14).
+
+## 14. Card-less operation (✅ HW-verified 2026-08-17)
+`pwn` no longer requires an SD card. `runPwn` resolves `s_haveSd` once; with no card it
+degrades to a RAM-only run instead of the old hard bail:
+- **Capture + crack one HS at a time in RAM.** `flushCapture` stashes a single job from
+  `s_cap` via `capparse::parseFrames` (the M1/M2 EAPOL extraction factored out of
+  `parseCap` into a shared `applyDataFrame`, DRY). The loop cracks it in time-sliced
+  passes off session priors + the built-in list (`pwnRamCrackSlice`). One at a time.
+- **Cracked cred → NVS.** `pwnPersistCred` routes no-SD hits to `wifiCredsSaveNvs`
+  (NVS "wifi" namespace = the connectable store `sw`/`cw`/Settings read); SD hits still
+  go to `cracked.csv`. NVS keys cap at 15 chars, so a longer SSID can't persist there.
+- **Whitelist in RAM.** `pwn wl add/rm/clear/list` operate on the RAM vectors when
+  card-less; `whitelistLoad` skips the SD wipe so entries survive into the session.
+  Clears on reboot (expected).
+- **Grid fully works** (auto `ANQA-XXXX` name, RAM peer table, cred sharing).
+- **Skipped card-less:** `.cap`/backlog/`progress.csv`/`captured.csv`/GPS-geotag/AI-table
+  persistence. `learnSave` + the file-crack idle gate are `s_haveSd`-gated so a card-less
+  deck never opens a needless `ScopedPromiscPause` (stays listening 100% of idle time).
+- HS/PMKID counters still increment in RAM (keeps the grid scoreboard live); an amber
+  `NO-SD` tag shows in the header. With a card in, behavior is unchanged.
 
 ### Decisions locked (2026-08-10)
 - **Q1 — DRY core extraction: YES.** Factor reusable capture/crack cores out of
@@ -603,12 +626,28 @@ Goal: `pwn` does everything an existing pwnagotchi does, unless deliberately exc
 
 ## 12. pwn-grid — the social pack (private AL-ANQA peer greeting)
 
-**Status:** ✅ v1 BUILT (2026-08-11) — presence + scoreboard. NOT HW-tested (needs 2
-decks; user has 1 for now). Prefix `A2:9A:0A`; TX gated active/passive, stealth dark;
-RX all modes. `GridAdv{magic"ANQG",ver,name[12],pwned,hs,pmkid,uptimeMin}` in a
-beacon-format frame at offset 36; detected in the sniffer cb (kind 3) by the SA
-prefix. UI: `g<N>` peer count on the mode line + "met <name>" ticker + SOCIAL phoenix
-pose. Name override `/apps/pwn/grid.conf` (`name=`). v2 (dedup/handshake-swap) later.
+**Status:** ✅ **HW-VERIFIED 2026-08-17 with two decks** (one with SD, one card-less):
+mutual discovery, peer name in the ticker, `g1` count on both, SOCIAL pose, and
+independent-channel rendezvous all confirmed. Presence + scoreboard + **cracked-cred
+sharing (v1.5)**. Prefix `A2:9A:0A`; TX gated active/passive, stealth dark; RX all
+modes. `GridAdv{magic"ANQG",ver,name[12],pwned,hs,pmkid,uptimeMin}` in a beacon-format
+frame at offset 36; detected in the sniffer cb (kind 3) by the SA prefix, dispatched by
+inner magic. UI: `g<N>` peer count — now shown in **both** the AI and non-AI stats
+lines (a fix: the AI channel readout used to hide it) — + "met <name>" ticker + SOCIAL
+phoenix pose. Name override `/apps/pwn/grid.conf` (`name=`). v2 (BSSID dedup /
+full-handshake-swap) later.
+
+### 12i. Cracked-cred sharing (v1.5, ✅ HW-verified 2026-08-17)
+On a successful crack (local RAM or SD file crack), a deck broadcasts
+`GridCred{magic"ANQC",ver,ssid[33],psk[64],bssid[6]}` (~108 B) in the same offset-36
+slot as the advert, told apart by the inner magic. TX = the same swept 1–13 path
+(`gridSendCred`), re-sent on the next few grid ticks for lossy air, **gated off in
+stealth** like all grid TX. A peer RX's it in `drainOne` (`kind 3`, magic `ANQC`),
+stages it, and the main loop persists it by the **same routing as a local crack**:
+no SD → NVS "wifi" (connectable), SD → `cracked.csv`. Dedup by SSID; "learned <ssid>"
+ticker + SOCIAL pose. **HW-confirmed:** a card-less deck cracked the test AP and shared
+SSID+password to the SD deck. PSK is cleartext over the private beacon → own-network
+use only. `gridBuildFrameRaw` builds the header for both frame kinds (DRY).
 **Idea:** two+ AL-ANQA decks running `pwn` recognise each other on the air, show each
 other's stats, and (v2) split the work. The multiplayer/"make friends" side of a
 pwnagotchi, done AL-ANQA's way.

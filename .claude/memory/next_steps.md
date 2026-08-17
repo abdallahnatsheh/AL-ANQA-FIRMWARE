@@ -166,8 +166,12 @@ command_manager.h — arbitrary static array; raise to 128 (~2KB RAM) if working
 27. **LoRa jammer / spectrum** — offensive; RSSI sweep + carrier flood on a band.
 
 ### WiFi (offensive/recon — none of these exist)
-28. **Pwnagotchi mode** ⭐ — unattended channel-roam + auto-harvest handshakes/PMKIDs → SD, with a
-    stats/"face" screen. High reuse of `ws`/`pm`. Command: `pwn`.
+28. **Pwnagotchi mode** ⭐ — ✅ **DONE + HW-VERIFIED + graduated from EXP (2026-08-17).** `pwn`/`pw`:
+    unattended AI-adaptive channel-roam + auto-harvest handshakes/PMKIDs (clientless solicit) + **on-device
+    crack** (first ESP32 pwnagotchi to close capture→crack). **pwn-grid** = AL-ANQA pets greet + **share
+    cracked creds** over a private swept beacon (whole pack learns each network). **Runs card-less** (RAM
+    capture→crack one HS off the built-in list → save to NVS; whitelist in RAM). Retro phoenix HUD. Module
+    `wifi/attacks/pwn/`; plan `docs/plans/pwnagotchi-pwn.md`.
 29. **WPS Pixie-Dust / PIN attack** — ✅ DONE as `wps/wps <idx>` (recon + assisted). HONEST: automated
     PIN/Pixie is **impossible on ESP32** (closed stack has no PIN field, no registrar mode) — so the tool
     does WPS recon + a multi-algorithm PIN generator + EAP-WSC handshake sniff, exporting ready
