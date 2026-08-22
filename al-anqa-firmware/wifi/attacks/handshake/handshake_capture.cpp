@@ -32,9 +32,15 @@ struct WpaHandshake {
     uint8_t  keyDescriptor;     // 0x02 = RSN/WPA2
     bool     hasM1;
     bool     hasM2;
-    // Raw 802.11 frames stored in RAM — written to SD only after WiFi teardown
+    bool     hasM3;
+    // Raw 802.11 frames stored in RAM — written to SD only after WiFi teardown.
+    // M3 is kept so the saved cap holds the M2+M3 "authorized" pair that aircrack-ng
+    // requires (aircrack rejects an M1+M2-only cap; hashcat -m 22000 accepts either).
+    // M3 adds no crypto for the on-device crack — M2 already carries the MIC — it is
+    // captured purely for PC-tool (aircrack) compatibility on real-client handshakes.
     uint8_t  m1Raw[256]; uint16_t m1RawLen; uint32_t m1Ts;
     uint8_t  m2Raw[256]; uint16_t m2RawLen; uint32_t m2Ts;
+    uint8_t  m3Raw[256]; uint16_t m3RawLen; uint32_t m3Ts;
 };
 
 static WpaHandshake g_whs;
@@ -553,6 +559,7 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
         if (bl) pcap::writeRecord(pcap, beacon, bl, bTs);
         if (g_whs.m1RawLen > 0) pcap::writeRecord(pcap, g_whs.m1Raw, g_whs.m1RawLen, g_whs.m1Ts);
         if (g_whs.m2RawLen > 0) pcap::writeRecord(pcap, g_whs.m2Raw, g_whs.m2RawLen, g_whs.m2Ts);
+        if (g_whs.m3RawLen > 0) pcap::writeRecord(pcap, g_whs.m3Raw, g_whs.m3RawLen, g_whs.m3Ts);
         pcap.flush();
         pcap.close();
     };
@@ -618,6 +625,14 @@ void HandshakeCapture::run(const uint8_t* bssid, int channel, const char* ssid) 
                 g_whs.m2RawLen = frame.len;
                 g_whs.m2Ts     = frame.ts_ms;
                 g_whs.hasM2 = true;
+            }
+            if (frame.msgNum == 3 && !g_whs.hasM3 && frame.len <= sizeof(g_whs.m3Raw)) {
+                // Store the AP's M3 raw frame so the cap carries an M2+M3 pair for
+                // aircrack-ng. No crypto extraction needed — pairing only.
+                memcpy(g_whs.m3Raw, frame.data, frame.len);
+                g_whs.m3RawLen = frame.len;
+                g_whs.m3Ts     = frame.ts_ms;
+                g_whs.hasM3 = true;
             }
 
             if (frame.msgNum >= 1 && frame.msgNum <= 4) {

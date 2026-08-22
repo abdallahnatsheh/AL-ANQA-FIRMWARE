@@ -3,3 +3,9 @@
 
 # PlatformIO build output
 .pio/
+
+# Machine-specific IDE/tool config (local paths, usernames)
+.claude/settings.json
+.claude/settings.local.json
+.vscode/c_cpp_properties.json
+.vscode/launch.json
