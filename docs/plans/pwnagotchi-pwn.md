@@ -634,8 +634,8 @@ modes. `GridAdv{magic"ANQG",ver,name[12],pwned,hs,pmkid,uptimeMin}` in a beacon-
 frame at offset 36; detected in the sniffer cb (kind 3) by the SA prefix, dispatched by
 inner magic. UI: `g<N>` peer count — now shown in **both** the AI and non-AI stats
 lines (a fix: the AI channel readout used to hide it) — + "met <name>" ticker + SOCIAL
-phoenix pose. Name override `/apps/pwn/grid.conf` (`name=`). v2 (BSSID dedup /
-full-handshake-swap) later.
+phoenix pose. Name override `/apps/pwn/grid.conf` (`name=`). **v2 = cooperative
+channel-split (cell model, cap 8) — design locked 2026-08-20, §12f; not built.**
 
 ### 12i. Cracked-cred sharing (v1.5, ✅ HW-verified 2026-08-17)
 On a successful crack (local RAM or SD file crack), a deck broadcasts
@@ -696,8 +696,9 @@ HARD RULE: our own private prefix, NEVER the `de:ad:be:ef:de:ad` pwngrid format.
 
 ### 12d. Wire format (draft)
 `GridAdv{ magic[4]="ANQG", ver, name[12], pwned, hs, pmkid, uptime_min }` (~26 B),
-carried in a vendor-specific frame. v2 adds a compact captured-BSSID digest (bloom or
-truncated-hash list) for shared dedup.
+carried in a vendor-specific frame. **v2 channel-split adds NO new field (decided
+2026-08-20, #2):** every deck derives all peers' lanes from the MAC-sorted roster it already
+hears (each advert's SA identifies its member), so no channel-mask needs broadcasting.
 
 ### 12e. v1 scope — presence + scoreboard
 - Peers table `GridPeer{ name, pwned, hs, rssi, lastSeenMs }` (drop after ~30s silent).
@@ -706,10 +707,120 @@ truncated-hash list) for shared dedup.
 - Grid is automatic (follows the mode, §12b) — no `pwn grid` command, no `[g]` toggle.
   Broadcast only in active; RX (peer detection + display) in every mode.
 
-### 12f. v2 — cooperation (after v1 proven)
-- **Shared dedup:** advert carries a digest of captured BSSIDs → skip APs a peer already
-  owns (two pets divide the area instead of double-cracking).
-- **Handshake swap:** hand a `.cap` to a peer (multi-frame transfer) so loot is pooled.
+### 12f. v2 — cooperative CHANNEL-SPLIT (the "cell" model — design locked 2026-08-20, NOT built)
+The chosen v2 cooperation feature. Multiple pwn pets in one area **divide the 13 WiFi
+channels between them** so the pack covers the whole band in parallel → full-13 discovery
+at ~N× speed instead of one deck slowly grinding all 13 (directly attacks the §13/§10a
+"full-13 is slow" ceiling with parallelism the single-deck learner can't provide).
+
+**GUIDING PRINCIPLE (user, 2026-08-20):** the goal is to **share the work as much as
+possible**, NOT to guarantee zero overlap. Occasional overlap (an overflow deck, transient
+roster disagreement, two decks briefly on a channel) is **explicitly fine** — it degrades to
+harmless redundancy, no worse than a lone deck. So NO overlap-prevention machinery is needed
+anywhere; best-effort partitioning is the whole design.
+
+**The design — bound the group, GSM-cell style (user's idea, kills the overengineering):**
+- **Cell cap = 8 decks — CONFIRMED 2026-08-20** (matches the existing `GridPeer[8]` table;
+  8 < 13 channels, so a full cell already gives 1–2 unique channels each). Not raised to 13:
+  8 is plenty for real packs and keeps the peer table as-is.
+- **Channel-split via MAC-rank interleave:** the ≤8 members sort by MAC and deterministically
+  split the 13 channels — **1–2 channels each, no overlap in steady state** (since cap < channel
+  count, once rosters agree no two decks share a channel; brief transient overlap during roster
+  disagreement is fine per the guiding principle). Interleaved assignment
+  (`A:1,4,7,10,13 / B:2,5,8,11 / C:3,6,9,12`) so the busy 1/6/11 land on different decks.
+- **Each deck roams only its assigned lane** — smaller cycle = faster capture; the AI learner
+  (§13) just operates over the deck's few channels.
+- **Coordination is stateless — NO extra field broadcast (decided 2026-08-20, #2):** every deck
+  computes the SAME partition purely by deriving each peer's lane from the MAC-sorted ≤8-peer
+  roster it already hears (each advert's SA identifies the member). No channel-mask, no
+  negotiation. At 8 nodes there is NO consensus problem (the whole cell fits in `GridPeer[8]`).
+- **Auto re-partition** when a deck joins/leaves (30s peer TTL): 3 decks → 5/4/4, drop to 2 →
+  7/6, solo → normal full-13 (or 1/6/11), unchanged.
+- **Overflow: the 9th+ deck runs SOLO** (full-13 on its own). Deliberately NOT "form a 2nd cell
+  in the same area" — two cells sharing the same 13 channels in one RF collision domain would
+  just contend for the same channels, so grouping buys nothing there. Cells that are physically
+  far apart don't hear each other and don't interfere (natural GSM-style reuse — nothing special
+  needed).
+
+**Deliberately DROPPED (the cap makes them unnecessary — do NOT build):**
+- **Bloom / BSSID-digest dedup** — was the old §12f plan. Only needed when >1 deck shares a
+  channel; the cell cap (8 < 13) guarantees no shared channels, so within-channel target
+  division is moot. (Researched 2026-08-20: even real Pwnagotchi/pwngrid only shares a
+  BSSID/ESSID list, never swaps crypto — so dedup, not swap, was ever the real cooperation;
+  channel-split delivers the same "divide the work" goal more simply.)
+- **Load-split** (weight the partition by learner productivity for equal *work* not equal
+  *channel count*) — needs a shared load view + leader + hysteresis + a coverage floor; marginal
+  balance gain for real complexity, and 1–2 channels each is already balanced enough. Park it:
+  build only if HW testing on the 3 decks shows a real per-deck capture imbalance.
+- **Handshake swap** (multi-frame `.cap` transfer) — complex over lossy broadcast, and the
+  shipped **cred-share (§12i)** already pools the useful end-result (cracked passwords). Skip.
+- **Emergent hashing / crowded-backoff / adaptive beacon-throttle** — only needed for an
+  UNBOUNDED 100-node pool; the cell cap removes the need entirely.
+
+**Honest limits:** assumes a co-located pack in one RF collision domain; cleartext over the
+private beacon → own-net only; grid OFF in stealth (§12b), so a go-dark deck neither splits
+nor reveals itself. Airtime ceiling is a non-issue at a cap of 8.
+
+**Prerequisite — channels 12/13 enabled (✅ DONE 2026-08-20):** a full-13 split needs all 13
+channels usable, but the IDF default regulatory domain refuses 12/13. Fixed in `runPwnSession`
+(pwn.cpp, right after `WiFi.softAP`): a single `esp_wifi_set_country()` declaring the worldwide
+`"01"` domain, `schan=1 nchan=13`, `WIFI_COUNTRY_POLICY_MANUAL` (explicit range governs, not an
+AP beacon country-IE). Minimal + pwn-only (no config system, dropped as over-engineering); the
+grid-sweep `!=ESP_OK` skip stays as a defensive fallback. Honest: `"01"`+MANUAL enables 12/13
+regardless of physical location → authorized/own-network use only. Without this, a full-13 split
+is really full-11.
+
+**Build phases (no wire-format change, #2):** (1) MAC-rank interleave partition fn over the
+current `GridPeer` roster → this deck's lane; (2) clamp the roam loop to the assigned lane,
+re-run on peer-table change, but **finish any in-progress capture before switching lanes**
+(#3, §12f.1); (3) HUD shows `cell N/8 · ch <list>`; (4) test on the 3 decks — distinct-channel
+self-partition, re-partition on join/leave, per-lane capture. Mechanism is N-agnostic, so 3
+decks validate the capped-8 behaviour fully.
+
+### 12f.1 Channel-split — design details (decided 2026-08-20, keep it simple)
+
+**Exact interleave:** a deck's *cell* = itself + the ANQA peers currently in its `GridPeer`
+table (≤8), sorted ascending by grid-MAC. `rank` = this deck's index in that sorted list;
+`N` = cell size. Assign channel `c` (1..13) to `rank == (c-1) mod N`. Worked:
+- **N=3:** A(rank0)=1,4,7,10,13 · B(1)=2,5,8,11 · C(2)=3,6,9,12.
+- **N=8:** ch1..8 → ranks 0..7, then ch9..13 → ranks 0..4; so ranks 0–4 own 2 channels, 5–7
+  own 1. Busy 1/6/11 fall on ranks 0/5/2 → three different decks. No overlap, full coverage.
+
+Every deck runs the *identical* function on the *identical* sorted roster → identical
+partition, zero negotiation.
+
+**Roster agreement — accept transient disagreement, NO consensus protocol (simplicity over
+rigor):** each deck partitions from the peers *it* hears. Under lossy beacons two decks may
+briefly disagree on the roster → a channel double-owned or briefly unowned for a tick or two,
+self-healing as the 3s swept beacons catch up. We deliberately do **not** build a
+consensus/leader/ACK layer — a couple seconds of transient overlap costs nothing (worst case
+= two decks momentarily hunt one channel, exactly today's solo behaviour), and that layer is
+the overengineering we're avoiding.
+
+**Churn debounce (tiny hysteresis):** add a peer to the partition only after it's been heard
+≥2 grid ticks; drop it only on the existing 30s TTL expiry. Stops an edge deck flapping
+in/out of range from thrashing everyone's lanes every tick.
+
+**Lane change never drops a capture (decided 2026-08-20, #3):** when a re-partition moves a
+channel out of this deck's lane while it is mid-handshake on that channel, finish the capture
+(or hit `CAP_MAX_MS`) BEFORE switching lanes — the same "no hop mid-capture" guard as §8-B,
+extended to lane changes; a §13 hot-channel hold in progress is honoured the same way. Not for
+overlap reasons (overlap is fine, §12f) but to never throw away a half-caught handshake.
+
+**Solo ↔ cell transition (automatic, no command):** a deck starts solo (normal full-13 /
+1-6-11 per its mode). On hearing ≥1 ANQA peer it joins the cell partition (takes its lane);
+on losing all peers (TTL) it reverts to solo full-13. Mirrors the mode-follows-grid rule.
+
+**Stealth can't split (honest consequence of §12b):** stealth never broadcasts any advert, so
+peers never see it in their roster and can't include it in their partition — and it can't claim
+a lane. So a **stealth deck runs its own full-13 and does NOT participate in the split** (it
+still RX-sees peers' lanes one-way). Channel-split is an **active/passive cell feature** —
+state it plainly on-screen.
+
+**Overflow precise:** a deck that already hears a full cell (8 partitioned peers) stays
+**solo full-13** but still appears on peers' scoreboards (RX unaffected) — it just gets no lane.
+
+**HUD:** `cell R/N · ch <list>` (e.g. `cell 2/3 · ch 2,5,8,11`); solo decks show `solo · full-13`.
 
 ### 12g. Files / config
 - `/apps/pwn/grid.conf` — `name=` override, `grid=on|off` default.

@@ -11,7 +11,7 @@ type: project
 > **Top open frontier = LoRa (SX1262 radio still unused): #20/#25/#27.**
 
 ## Already implemented (do NOT re-add)
-`beaconflood/bf` · `bleinfo/bi` · `usbkbd/uk` · `usbexec/ux` (BadUSB) · `clock/ClockManager` · `buddy/bd` · `wguard/wg` · `hiddenssid/hs` · `blespam/bs` · `jiggle/jg` (mouse jiggler) · `fast_pair/fp` (Google Fast Pair scan/spam/hijack) · `show/sh` (last scan results) · `tz` (timezone config) · `volume/vol` (I2S volume) · `notif/nf` (per-level sound config) · `wifimon/wm` (airmon-ng rewrite: nets+clients views, targeted deauth, raw PCAP, probe logger `[p]` → `/apps/wifimon/probes.csv`) · `oui_lookup.h` (shared ~350-entry vendor+type table) · `pmkid/pm` (PMKID capture+crack, no client needed, passive M1 sniff) · `bmon/bm` (passive BLE adv sniffer — iBeacon/Eddystone/cleartext, PCAP) · `espvoice/ev` (ESP-NOW G.722 walkie-talkie) · `mictest/mt` (ES7210 mic test) · `trackme/tm` (anti-tracking, service-UUID sigs) · `ssh/sc` (interactive SSH client via LibSSH-ESP32) · `wardrive/wd` (WiFi+GPS → WiGLE 1.4 CSV, Plus only) · `karma/km` (Karma/MANA: harvest+PNL fingerprint, rogue-AP half-handshake, auto mode, captive portal — wifi/attacks/karma/) · `edit/ed` (nano-style on-device SD text editor — core/editor/, trackball cursor + click-menu) · `macwatch/mw` (WiFi+BLE MAC watchlist → proximity alert: beep+wake+popup, presence SM, hunt meter, BLE-only bg mode + MW badge — bluetooth/tools/macwatch/, built but NOT yet HW-tested) · `ble_ident.h` (header-only BLE device ID: SIG company IDs + Apple Continuity + AirPods/Beats models — used by bmon/sbl/mw). SD layout
+`beaconflood/bf` · `bleinfo/bi` · `usbkbd/uk` · `usbexec/ux` (BadUSB) · `clock/ClockManager` · `buddy/bd` · `wguard/wg` · `hiddenssid/hs` · `blespam/bs` · `jiggle/jg` (mouse jiggler) · `fast_pair/fp` (Google Fast Pair scan/spam/hijack) · `show/sh` (last scan results) · `tz` (timezone config) · `volume/vol` (I2S volume) · `notif/nf` (per-level sound config) · `wifimon/wm` (airmon-ng rewrite: nets+clients views, targeted deauth, raw PCAP, probe logger `[p]` → `/apps/wifimon/probes.csv`) · `oui_lookup.h` (shared ~350-entry vendor+type table) · `pmkid/pm` (PMKID capture+crack, no client needed, passive M1 sniff) · `bmon/bm` (passive BLE adv sniffer — iBeacon/Eddystone/cleartext, PCAP) · `espvoice/ev` (ESP-NOW G.722 walkie-talkie) · `mictest/mt` (ES7210 mic test) · `trackme/tm` (anti-tracking, service-UUID sigs) · `ssh/sc` (interactive SSH client via LibSSH-ESP32) · `wardrive/wd` (WiFi+GPS → WiGLE 1.4 CSV, Plus only) · `karma/km` (Karma/MANA: harvest+PNL fingerprint, rogue-AP half-handshake, auto mode, captive portal — wifi/attacks/karma/) · `edit/ed` (nano-style on-device SD text editor — core/editor/, trackball cursor + click-menu) · `macwatch/mw` (WiFi+BLE MAC watchlist → proximity alert: beep+wake+popup, presence SM, hunt meter, BLE-only bg mode + MW badge — bluetooth/tools/macwatch/, ✅ HW-VERIFIED 2026-06-28 incl. bg) · `ble_ident.h` (header-only BLE device ID: SIG company IDs + Apple Continuity + AirPods/Beats models — used by bmon/sbl/mw). SD layout
 is now `/apps/<tool>/` + `/config/` (v2 reorg) — see `project_sdcard_reorg_v2.md`.
 
 ---
@@ -179,6 +179,16 @@ command_manager.h — arbitrary static array; raise to 128 (~2KB RAM) if working
 30. **WiFi hot/cold locator** — RSSI meter + rising tone to physically FIND a hidden AP / spy camera
     by MAC or SSID. Practical field tool. Command: `locate/loc <bssid|ssid>`.
 31. **Rogue-AP / evil-twin DETECTOR** (defensive) — dedicated alarm; deeper than `wg`'s pass.
+31b. **`spydetect`/`spy` — hidden spy-device detector (WiFi+BLE) ⭐** — 📋 PLANNED, plan doc
+    `docs/plans/spy-detect.md`. TWO axes: (A) signature matcher — camera-brand OUI + BLE
+    tracker/camera UUIDs, reuses `trackme` engine + `oui_lookup`; (B) **motion-correlated
+    traffic analysis [EXP]** — correlate a suspect's encrypted WiFi bitrate (VBR video spikes
+    on motion) with induced/CSI-sensed motion → confirms "a camera is watching you"
+    regardless of brand/MAC. Axis B = first-on-ESP32 (proven on phones: Snoopdog/DeWiCam/
+    SCamF/CamLoPA). PoC-first: per-MAC byte-rate meter + move/still Pearson correlation on one
+    real camera before building the full command. Supersedes the dropped `camdetect`. Pairs
+    with #30 `locate`. Honest limit: only sees live over-air streams; says "watching," not
+    "room is clean".
 32. **Channel/airtime utilization graph** — find the clearest channel.
 33. **BSSID geolocation** — offline lookup of scanned BSSIDs vs a WiGLE dump on SD (ties to `wardrive`).
 

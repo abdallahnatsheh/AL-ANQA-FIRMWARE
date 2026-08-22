@@ -57,6 +57,7 @@ static bool s_haveSd = true;
 #define PWN_F_WORDLIST  SD_DIR_PWN "/wordlist.txt"    // optional user dictionary
 #define PWN_F_LEARN     SD_DIR_PWN "/learn.csv"       // channel,value,count (adaptive roaming)
 #define PWN_F_AIDBG     SD_DIR_PWN "/ai_debug.log"    // human-readable learner trace (`pwn ai debug`)
+#define PWN_F_BASICDBG  SD_DIR_PWN "/basic_debug.log" // round-robin trace (`pwn basic debug`) — own file, never mixed with the AI trace
 
 // ── tunables (draft; see plan §5) ─────────────────────────────────────────────
 static const uint8_t PWN_CHANS[]   = {1, 6, 11};
@@ -136,11 +137,14 @@ struct PwnCapBuf {
 };
 static PwnCapBuf s_cap;
 static uint8_t   s_apMac[6] = {0};   // our own hidden-softAP MAC — never target/attack it
-// diag counters (logged per-hop in ai_debug.log) — tell whether the deauth/capture
-// pipeline is firing AND landing: dD=directed bursts (client known), dB=broadcast bursts
-// (no client), txf=frames the driver rejected (!=ESP_OK), m1/m2=EAPOL frames observed.
+static uint8_t   s_staMac[6] = {0};  // our STA MAC — an M1 addressed HERE is the AP answering our
+                                     // OWN solicitation (an echo), NOT a real client handshake
+// diag counters (logged per-hop) — tell whether the deauth/capture pipeline is firing AND
+// landing: dD=directed bursts (client known), dB=broadcast bursts (no client), txf=frames the
+// driver rejected (!=ESP_OK), m1=REAL-client M1s, solM1=solicit-echo M1s, m2=M2s observed.
 static uint32_t  s_dtxD = 0, s_dtxB = 0, s_txFail = 0, s_m1Seen = 0, s_m2Seen = 0;
 static uint32_t  s_solTx = 0;   // clientless PMKID solicitations sent (auth+assoc pairs)
+static uint32_t  s_solM1 = 0;   // M1s that were the AP's reply to OUR solicitation (dst == s_staMac)
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 static void macStr(const uint8_t* m, char* out) {
@@ -580,7 +584,7 @@ static void gridSendAdv(uint16_t pwned, uint16_t hs, uint16_t pmkid, uint16_t up
     // guard restores promiscuous on scope-exit — after we've set the channel back to roamCh.
     ScopedPromiscPause _;
     for (uint8_t ch = 1; ch <= PWN_GRID_SWEEP_HI; ch++) {
-        if (esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE) != ESP_OK) continue;  // region may block 12/13
+        if (esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE) != ESP_OK) continue;  // 12/13 enabled via set_country in runPwnSession; skip is a defensive fallback
         esp_wifi_80211_tx(WIFI_IF_AP, fr, n, false);   // AP iface — see softAP note in runPwnSession
         vTaskDelay(pdMS_TO_TICKS(PWN_GRID_TX_GAP_MS));
     }
@@ -821,23 +825,32 @@ static char drainOne(uint8_t curCh) {
     if (whitelisted(b, ssidTmp)) return 0;              // bssid-whitelist even without a target yet
 
     if (ev.msg == 1) {
-        // start/refresh capture for this bssid
+        // Who is this M1 addressed to? An AP→client M1 (from-DS) carries the client in Addr1
+        // (fr.data+4). If that's OUR STA MAC, the AP is answering pwn's OWN solicitation — NOT a
+        // real client: no M2 will ever come (we never finish the assoc). Such an M1 is useful
+        // ONLY if it carries a PMKID; otherwise it's a dead end that must NOT trigger the
+        // hot-hold or the +3 reward — that echo is the ghost the learner was chasing.
+        bool solicited = (memcmp(fr.data + 4, s_staMac, 6) == 0);
+        bool hasPmkid = false;                          // PMKID KDE in M1 key-data?
+        if (ev.len >= 99) {
+            uint16_t kdl = ((uint16_t)ev.p[97] << 8) | ev.p[98];
+            const uint8_t* kd = ev.p + 99; uint32_t maxkd = ev.len - 99; if (kdl > maxkd) kdl = maxkd;
+            for (uint16_t i = 0; i + 22 <= kdl; i++)
+                if (kd[i] == 0xDD && kd[i+2] == 0x00 && kd[i+3] == 0x0F && kd[i+4] == 0xAC && kd[i+5] == 0x04) {
+                    hasPmkid = true; break;
+                }
+        }
+        if (solicited && !hasPmkid) { s_solM1++; return 0; }   // AP didn't cache a PMKID for us → dead end, drop
+        // start/refresh capture for this bssid (real client, or solicited-WITH-PMKID)
         if (!s_cap.active || memcmp(s_cap.bssid, b, 6) != 0) {
             memset(&s_cap, 0, sizeof(s_cap));
             s_cap.active = true; s_cap.startMs = millis(); memcpy(s_cap.bssid, b, 6);
             if (t) strncpy(s_cap.ssid, t->ssid, 32);
         }
         memcpy(s_cap.m1, fr.data, fr.len); s_cap.m1Len = fr.len; s_cap.haveM1 = true;
-        // PMKID present in M1 key-data?
-        if (ev.len >= 99) {
-            uint16_t kdl = ((uint16_t)ev.p[97] << 8) | ev.p[98];
-            const uint8_t* kd = ev.p + 99; uint32_t maxkd = ev.len - 99; if (kdl > maxkd) kdl = maxkd;
-            for (uint16_t i = 0; i + 22 <= kdl; i++)
-                if (kd[i] == 0xDD && kd[i+2] == 0x00 && kd[i+3] == 0x0F && kd[i+4] == 0xAC && kd[i+5] == 0x04) {
-                    s_cap.m1HasPmkid = true; break;
-                }
-        }
-        return '1';
+        s_cap.m1HasPmkid = hasPmkid;
+        if (solicited) { s_solM1++; return 0; }   // solicited PMKID → the capture path (main loop) writes it; NO hot-hold/reward
+        return '1';                               // real client handshake → main loop hot-holds + rewards, waits for M2
     } else if (ev.msg == 2) {
         if (s_cap.active && memcmp(s_cap.bssid, b, 6) == 0) {
             memcpy(s_cap.m2, fr.data, fr.len); s_cap.m2Len = fr.len; s_cap.haveM2 = true;
@@ -1043,10 +1056,37 @@ static void aiDbgHop(uint32_t ms, uint8_t leftCh, float reward, uint8_t picked, 
     //   dD>0 & txf>0        → the driver is REJECTING frames → real TX bug (softAP/channel).
     //   dD>0 & txf=0 & m1=0 → directed deauth queued fine but no reconnect handshake → the
     //        frame isn't landing on the victim's channel (softAP-vs-hop mismatch) or PMF.
-    f.printf(" => c%-2u dwell=%lums  dD=%lu dB=%lu sol=%lu txf=%lu m1=%lu m2=%lu ap=%d cli=%d\n",
+    f.printf(" => c%-2u dwell=%lums  dD=%lu dB=%lu sol=%lu txf=%lu m1=%lu solM1=%lu m2=%lu ap=%d cli=%d\n",
              picked, (unsigned long)dwell, (unsigned long)s_dtxD, (unsigned long)s_dtxB,
              (unsigned long)s_solTx, (unsigned long)s_txFail, (unsigned long)s_m1Seen,
-             (unsigned long)s_m2Seen, s_nTarg, s_nCli);
+             (unsigned long)s_solM1, (unsigned long)s_m2Seen, s_nTarg, s_nCli);
+    f.close();
+}
+
+// ── basic (round-robin) debug trace (`pwn basic debug`) — its OWN file so a basic run
+// is never confused with a stale AI session. No learner means/probs (meaningless in
+// round-robin); what matters is the channel visited + whether the radio ACCEPTED it
+// (`set=OK` vs an error — the direct proof that ch 12/13 tune in pwn's APSTA mode).
+static void basicDbgSession(PwnMode mode, bool fullChans) {
+    if (!s_aiDebug) return;
+    ScopedPromiscPause _;
+    File f = SD.open(PWN_F_BASICDBG, FILE_APPEND);
+    if (!f) return;
+    f.printf("\n=== pwn basic session @%lu  mode=%s chans=%s  select=round-robin ===\n",
+             (unsigned long)millis(), modeName(mode), fullChans ? "1-13" : "1/6/11");
+    f.printf("cols: @ms hop c<ch> set=<OK|err> dwell | dD dB sol txf m1 solM1 m2 ap cli  (m1=real-client M1, solM1=solicit echo)\n");
+    f.close();
+}
+static void basicDbgHop(uint32_t ms, uint8_t ch, esp_err_t setRc, uint32_t dwell) {
+    if (!s_aiDebug) return;
+    ScopedPromiscPause _;
+    File f = SD.open(PWN_F_BASICDBG, FILE_APPEND);
+    if (!f) return;
+    f.printf("@%lu hop c%-2u set=%s dwell=%lums | dD=%lu dB=%lu sol=%lu txf=%lu m1=%lu solM1=%lu m2=%lu ap=%d cli=%d\n",
+             (unsigned long)ms, ch, setRc == ESP_OK ? "OK" : esp_err_to_name(setRc),
+             (unsigned long)dwell, (unsigned long)s_dtxD, (unsigned long)s_dtxB,
+             (unsigned long)s_solTx, (unsigned long)s_txFail, (unsigned long)s_m1Seen,
+             (unsigned long)s_solM1, (unsigned long)s_m2Seen, s_nTarg, s_nCli);
     f.close();
 }
 
@@ -1163,7 +1203,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     DisplayManager& dm = displayManager;
     s_nTarg = 0; s_nCli = 0; s_nPeer = 0; s_metName[0] = 0;
     memset(&s_cap, 0, sizeof(s_cap)); s_priorityDone.clear(); s_sessionCaps.clear(); s_crackSkip.clear();
-    s_dtxD = s_dtxB = s_txFail = s_m1Seen = s_m2Seen = 0;   // reset per-session diag counters
+    s_dtxD = s_dtxB = s_txFail = s_m1Seen = s_m2Seen = s_solTx = s_solM1 = 0;   // reset per-session diag counters
     s_rHead = s_rTail = 0;
     whitelistLoad();   // cache whitelist once (hot path checks RAM, not SD)
 
@@ -1175,7 +1215,16 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     // hop, so the softAP "home" channel is cosmetic and gets overridden immediately.
     WiFi.mode(WIFI_MODE_APSTA);
     WiFi.softAP("x", nullptr, 1, 1, 0, false);   // ssid,pass,ch,hidden,maxconn,ftm
+    // Declare a 1..13 regulatory domain so the roam can actually use channels 12/13. Without
+    // this the IDF default domain refuses them (esp_wifi_set_channel(12/13) fails) and full-13
+    // is really full-11. Worldwide "01" + MANUAL policy → the explicit schan/nchan govern
+    // regardless of any AP beacon country-IE. No per-region config by design; own-network use.
+    wifi_country_t ctry = {};
+    strncpy(ctry.cc, "01", sizeof(ctry.cc));
+    ctry.schan = 1; ctry.nchan = 13; ctry.policy = WIFI_COUNTRY_POLICY_MANUAL;
+    esp_wifi_set_country(&ctry);
     esp_wifi_get_mac(WIFI_IF_AP, s_apMac);        // so we can ignore our own AP's beacons
+    esp_wifi_get_mac(WIFI_IF_STA, s_staMac);      // so an M1 addressed here = our own solicitation echo
     esp_wifi_set_promiscuous(false);
     wifi_promiscuous_filter_t filt = { .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA };
     esp_wifi_set_promiscuous_filter(&filt);
@@ -1196,7 +1245,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     uint8_t  hotChan = 0;               // channel with live handshake (M1) activity — hold & keep trying
     uint32_t hotUntil = 0, hotStart = 0;
     if (s_aiOn) learnLoad(); else learnReset();   // adaptive roaming table (decayed on load)
-    if (s_aiOn && s_aiDebug) aiDbgSession(mode, fullChans);
+    if (s_aiDebug) { if (s_aiOn) aiDbgSession(mode, fullChans); else basicDbgSession(mode, fullChans); }
     float curReward = 0;                // reward accrued on the CURRENT channel this dwell
     int   apBase = 0, cliBase = 0;      // AP/client counts at dwell start (for new-discovery reward)
     bool running = true;
@@ -1270,7 +1319,7 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
                 ci = (ci + 1) % nChans;
             }
             curReward = 0; apBase = s_nTarg; cliBase = s_nCli;   // reset dwell accumulators
-            esp_wifi_set_channel(curCh, WIFI_SECOND_CHAN_NONE);
+            esp_err_t chSetRc = esp_wifi_set_channel(curCh, WIFI_SECOND_CHAN_NONE);  // capture: proves 12/13 accepted
             // FOCUS one un-captured target per dwell (rotating). A single capture buffer
             // means simultaneous handshakes collide, so we work ONE AP at a time like ws.
             // Like pwnagotchi: PREFER an AP with a KNOWN client (recon → targeted deauth) —
@@ -1316,7 +1365,8 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
             }
             if (mode == PWN_STEALTH) dwell += esp_random() % 1500;   // jitter
             hopAt = now + dwell;
-            if (s_aiOn && s_aiDebug) aiDbgHop(now, aiLeftCh, aiLeftRew, curCh, dwell, fullChans);
+            if (s_aiDebug) { if (s_aiOn) aiDbgHop(now, aiLeftCh, aiLeftRew, curCh, dwell, fullChans);
+                             else        basicDbgHop(now, curCh, chSetRc, dwell); }
         }
 
         // keep kicking the FOCUSED target through the dwell until it hands over a handshake
