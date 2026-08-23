@@ -569,7 +569,7 @@ uses `s_sessionCaps`.
 `whitelist.csv` had MACs written with COMMAS between octets (`bssid,80,C5,48,21,55,C3,label`) —
 a natural hand-edit mistake since the file is itself CSV. `whitelistLoad` split on commas and took
 the field between the 1st/2nd comma as the BSSID (`"80"`), so `whitelisted()` never matched the real
-MAC → the "protected" AP (`BeSpot32F3_2.4`) was deauthed + captured. A silently-failing whitelist is
+MAC → the "protected" AP (a whitelisted test network) was deauthed + captured. A silently-failing whitelist is
 the worst outcome for an authorization-safety feature. **Fix:** `wlNormalizeMac()` — tolerant parse
 that accepts `:`/`,`/`-`/space separators and missing leading zeros, reads exactly 6 octets, ignores
 the trailing label, emits canonical `XX:XX:XX:XX:XX:XX`. Canonical colon files (what `wl add` writes)
@@ -922,7 +922,7 @@ risinek tool docs, ESP-IDF `esp_wifi` reference — methodology only, no code co
 
 **Context from HW runs:** a residential-AP run got **1 passive capture in 16 min** — most residential
 APs had no active client during the dwell, so there was nothing to deauth and nothing to passively
-catch. The BeSpot run saw an M1 flood but few completed captures (single-buffer collision). Both point
+catch. A busy-AP run saw an M1 flood but few completed captures (single-buffer collision). Both point
 straight at the two top items below.
 
 ### 14a. #1 lever — ACTIVE PMKID solicitation (clientless) — biggest gap
@@ -988,7 +988,7 @@ straight at the two top items below.
 
 ### 14c. #3 — Multi-slot capture buffer (fix the single-buffer collision)
 - pwn has ONE `s_cap`; a different BSSID's M1 clobbers a half-captured one (`drainOne`). On a busy
-  channel → many M1s, few completed captures (the BeSpot symptom). Replace with a **small array of
+  channel → many M1s, few completed captures (the busy-channel symptom). Replace with a **small array of
   in-progress captures keyed by BSSID** so concurrent 4-ways complete independently. Direct yield win
   on crowded channels.
 

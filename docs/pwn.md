@@ -23,7 +23,7 @@ An unattended, channel-roaming "pet" that captures WPA/WPA2 handshakes and PMKID
 Each cycle the pet:
 
 1. **Roams** WiFi channels — by default an **adaptive AI learner over all 13 channels** that concentrates on productive channels and remembers your area across reboots (`pwn basic` = plain 1/6/11 round-robin).
-2. **Captures** crackable key material — full/half 4-way handshakes (deauth-assisted) and PMKIDs. PMKIDs are grabbed **clientlessly**: the pet spoof-associates to each AP to solicit the first handshake message (no client, no deauth needed). All saved as standard `.cap` files.
+2. **Captures** crackable key material — full/half 4-way handshakes (deauth-assisted) and PMKIDs. PMKIDs are grabbed **clientlessly**: the pet spoof-associates to each AP to solicit the first handshake message (no client, no deauth needed). All saved as standard `.cap` files that work in **both hashcat and aircrack-ng** — the pet keeps the AP's M3 when it appears so the cap carries the M2+M3 pair aircrack-ng requires, with correctly staggered frame timestamps so the tools accept the handshake.
 3. **Cracks** during idle moments, using a resume cursor so it picks up exactly where it left off — even across reboots — and a smart priority order so likely passwords are tried first.
 
 Its mood face reflects **real** events: hunting when targets appear, excited on a capture, and a green **PWNED** flash when a password actually breaks.
@@ -57,19 +57,21 @@ By default `pwn` runs a per-channel **Discounted-UCB learner** over **all 13 cha
 
 Toggle live with **`[m]`**. `pwn` **never** emits the pwnagotchi `de:ad:be:ef` pwngrid beacon, so pwnagotchi detectors (nzyme, Kismet, Marauder) cannot fingerprint it — only our own private grid beacon (below), and only when not in stealth.
 
-### Grid — AL-ANQA pets greet each other
+### Grid — AL-ANQA pets hunt as a pack
 
-Run `pwn` on **two or more T-Decks** and they find each other on the air and show each other's stats — the social side of a pwnagotchi.
+Run `pwn` on **two or more T-Decks** and they find each other on the air, split the work, and pool their wins — the social side of a pwnagotchi, taken further than any other ESP32 build.
 
 - Each deck has an identity `A2:9A:0A:xx:xx:xx` (AL-ANQA prefix + its own MAC tail) and a name `ANQA-XXXX`, shown on screen. Override the name in `/apps/pwn/grid.conf` (`name=MyPet`).
 - **Broadcast** happens only in **active** and **passive** (both "social/visible"); **stealth stays dark** — it never transmits the grid beacon, so it's undetectable, but it still **listens** and shows peers one-way.
 - The HUD shows `g<N>` (peer count) on the stats line, and a `met ANQA-XXXX` message + a happy phoenix pose when a new pet appears.
 
-Uses a private beacon frame (not ESP-NOW libraries) received in pwn's own sniffer — no extra radio setup. The greeting is **swept across all 13 channels** each cycle, so two pets find each other no matter which channels they're roaming (no channel-sync needed).
+Uses a private beacon frame (not ESP-NOW libraries) received in pwn's own sniffer — no extra radio setup. The greeting is **swept across all 13 channels** each cycle, so pets find each other no matter which channels they're roaming (no channel-sync needed).
+
+**Cooperative channel-split — the pack covers the whole band in parallel.** When co-located pets see each other, they **divide the 13 channels between them** so the group sweeps the entire band at once instead of all crowding the same few channels. The split is **deterministic and negotiation-free**: every deck sorts the pets it hears by MAC and takes its own lane (`lane = { channels where (ch−1) mod N == my_rank }`), so all decks independently compute the *same* partition with zero coordination traffic. Three pets → each roams ~4–5 channels; the pack's effective coverage triples. A pet joins a cell only after it's been heard steadily for a few seconds (churn debounce), and **stealth never splits** (it broadcasts nothing, so it can't be placed in the partition — it runs its own full sweep, dark). The HUD shows `cell R/N` and this deck's assigned channels; a toast announces the split forming, re-partitioning, or dissolving back to solo.
 
 **Cracked-credential sharing (the pack learns together).** When any deck cracks a network, it broadcasts the recovered **SSID + password** over the grid, and every other pet **auto-saves it** (to NVS on a card-less deck, or `cracked.csv` on a deck with a card) and shows a `learned <ssid>` message. So a whole pack of pets pools its wins — crack a network on one, and they all know it. Sharing follows the same mode rules (active/passive broadcast, stealth stays dark). The password travels in clear over the pack's private beacon, so this is for **your own networks** only.
 
-> ✅ **Hardware-verified (two decks).** Mutual discovery, peer names, `g1` count, independent-channel rendezvous, and card-less→card cred-sharing were all confirmed on real hardware.
+> ✅ **Hardware-verified (three decks, 2026-08-23).** Mutual discovery, independent-channel rendezvous (peers found within seconds despite full-13 roaming), the deterministic channel-split (three decks correctly formed `cell 3/3` and each took its own lane), the churn debounce, clean dissolve back to solo, and card-less→card cred-sharing were all confirmed on real hardware.
 
 ### On-screen controls
 
@@ -136,7 +138,7 @@ Everything lives in `/apps/pwn/`:
 
 | File | Contents |
 |------|----------|
-| `<BSSID>_<SSID>.cap` | one capture per network (Wireshark / hashcat compatible) |
+| `<BSSID>_<SSID>.cap` | one capture per network (Wireshark / hashcat / aircrack-ng compatible) |
 | `captured.csv` | capture log — `time,bssid,ssid,ch,type,rssi,lat,lon` |
 | `cracked.csv` | recovered passwords — `time,bssid,ssid,password` |
 | `progress.csv` | per-capture resume cursor (so cracking never restarts) |
