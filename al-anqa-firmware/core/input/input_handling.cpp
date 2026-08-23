@@ -6,6 +6,7 @@
 #include "wguard.h"
 #include "espchat.h"
 #include "macwatch.h"
+#include "capcrack_bg.h"   // cc bg — cooperative background crack
 #include "undercover.h"
 #include <Wire.h>
 #include <esp_timer.h>
@@ -93,6 +94,7 @@ char InputHandling::getKeyboardInput() {
     wGuard.pollBackground();
     pollEspchatBg();
     pollMacwatchBg();
+    pollCapcrackBg();   // cc bg — cracks under the CLI and the undercover cover
 
     // Double-click screen-off — ISR captured it, we just act on the flag
     if (s_doubleClickPending) {

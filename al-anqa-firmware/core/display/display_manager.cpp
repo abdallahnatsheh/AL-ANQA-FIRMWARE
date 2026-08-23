@@ -205,6 +205,14 @@ void DisplayManager::updateStatusBar() {
         tft.print("MW");
     }
 
+    // ── CC (cc bg — background crack) badge — next to MW ─────────────────────────
+    tft.fillRect(126, promptY + 20, 18, 8, 0x000F);  // clear area
+    if (_ccActive) {
+        tft.setTextColor(TFT_ORANGE);
+        tft.setCursor(126, promptY + 20);
+        tft.print("CC");
+    }
+
     // ── BT icon ───────────────────────────────────────────────────────────────
     drawBTIcon(tft, 255, promptY + 15, _btActive);
 
@@ -250,6 +258,18 @@ void DisplayManager::setMwActive(bool active) {
         tft.setTextColor(TFT_GREEN);
         tft.setCursor(104, promptY + 20);
         tft.print("MW");
+    }
+}
+
+void DisplayManager::setCcActive(bool active) {
+    _ccActive = active;
+    if (_blocked) return;   // OPSEC: never draw the CC badge over the cover — it'd expose the disguise
+    // Partial redraw — just the CC badge area
+    tft.fillRect(126, promptY + 20, 18, 8, 0x000F);
+    if (_ccActive) {
+        tft.setTextColor(TFT_ORANGE);
+        tft.setCursor(126, promptY + 20);
+        tft.print("CC");
     }
 }
 

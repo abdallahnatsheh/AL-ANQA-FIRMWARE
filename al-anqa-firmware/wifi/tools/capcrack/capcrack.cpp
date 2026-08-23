@@ -15,6 +15,7 @@
 #include "wpa_crack.h"      // PBKDF2 / handshake-MIC / PMKID dictionary crack
 #include "crack_progress.h" // shared per-cap wordlist resume cursor (also used by pwn)
 #include "path_prompt.h"    // interactive path input with '-key autocomplete
+#include "capcrack_bg.h"    // cc bg — cooperative background crack (runs under the cover)
 #include <Arduino.h>
 #include <SD.h>
 #include <vector>
@@ -341,8 +342,93 @@ static bool chooseWordlists(const char* arg, const char* cwd,
 }
 
 // ── entry point ───────────────────────────────────────────────────────────────
+// Live monitor for the running background crack — real-time tried/rate/candidate.
+// Pumping getKeyboardInput() here also advances the crack. [q] leaves the monitor
+// WITHOUT stopping it (it keeps running in the background). If the crack finishes
+// while you watch, the outcome is shown until you press a key.
+static void ccBgMonitor() {
+    DisplayManager& dm = displayManager;
+    auto drawChrome = [&]() {
+        header("CC BG");
+        dm.setCursor(4, dm.getCursorY()); dm.setTextColor(0x7BEF); dm.printText("SSID ");
+        dm.setTextColor(TFT_WHITE);
+        char s[34]; snprintf(s, sizeof(s), "%.27s", capcrackBgSsid()); dm.println(s);
+        dm.printSeparator();
+    };
+    drawChrome();
+    int32_t  statY   = dm.getCursorY();
+    uint32_t t0      = millis(), tried0 = capcrackBgTried(), lastDraw = 0;
+    while (capcrackBgActive()) {
+        char k = inputHandler.getKeyboardInput();          // also pumps the crack forward
+        if (k == 'q' || k == 'Q') { dm.printCommandScreen(); return; }   // leave; crack keeps running
+        if (dm.isBlocked()) { vTaskDelay(pdMS_TO_TICKS(15)); continue; }
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) { drawChrome(); statY = dm.getCursorY(); }
+        uint32_t now = millis();
+        if (now - lastDraw >= 300) {
+            lastDraw = now;
+            uint32_t tried = capcrackBgTried();
+            uint32_t el    = (now - t0) / 1000;
+            uint32_t rate  = el ? (tried - tried0) / el : 0;
+            dm.fillRect(4, statY, SCREEN_WIDTH - 8, LINE_HEIGHT * 4, TFT_BLACK);
+            dm.setCursor(4, statY); dm.setTextColor(TFT_WHITE);
+            int pct = capcrackBgPct();   // list position (reflects resume); tried is session-relative
+            char b[56];
+            if (pct >= 0) snprintf(b, sizeof(b), "list %d%%  +%lu  %lu/s", pct, (unsigned long)tried, (unsigned long)rate);
+            else          snprintf(b, sizeof(b), "built-in  +%lu  %lu/s", (unsigned long)tried, (unsigned long)rate);
+            dm.println(b);
+            dm.setCursor(4, dm.getCursorY()); dm.setTextColor(0x4208);
+            char c[40]; snprintf(c, sizeof(c), "%.34s", capcrackBgCurrent()); dm.println(c);
+            dm.setCursor(4, dm.getCursorY()); dm.setTextColor(0x7BEF);
+            dm.println("[q] back (keeps running in bg)");
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    // finished while watching — show the outcome, wait for a key
+    dm.fillRect(4, statY, SCREEN_WIDTH - 8, LINE_HEIGHT * 4, TFT_BLACK);
+    dm.setCursor(4, statY); dm.setTextColor(TFT_GREEN); dm.println(capcrackBgStatus());
+    dm.setCursor(4, dm.getCursorY()); dm.setTextColor(0x7BEF); dm.println("any key...");
+    while (inputHandler.getKeyboardInput() == 0) vTaskDelay(pdMS_TO_TICKS(15));
+    dm.printCommandScreen();
+}
+
 void runCapCrack(char* args) {
     DisplayManager& dm = displayManager;
+
+    // Bare `cc` while a background crack is running = watch it live (what you'd
+    // instinctively type). To start a NEW foreground crack instead, pass a cap
+    // (`cc <cap>`), or stop the bg one first (`cc bg stop`).
+    if ((!args || !*args) && capcrackBgActive()) { ccBgMonitor(); return; }
+
+    // ── background sub-commands: cc bg [stop|status] | cc bg [cap] [wordlist] ────
+    // 'bg' runs the crack cooperatively off the main loop so it keeps going under
+    // the CLI AND the undercover cover (grind wordlists in public). stop/status
+    // are explicit; anything else after 'bg' (incl. nothing) starts a bg crack via
+    // the normal interactive/arg cap+wordlist selection below.
+    bool bgMode = false;
+    if (args && strncmp(args, "bg", 2) == 0 && (args[2] == '\0' || args[2] == ' ')) {
+        char* rest = args + 2; while (*rest == ' ') rest++;
+        if (strncmp(rest, "stop", 4) == 0) {
+            stopCapcrackBg();
+            msgScreen("cc bg: stopped", TFT_YELLOW, "Cursor saved - 'cc bg' resumes.");
+            return;
+        }
+        if (strncmp(rest, "status", 6) == 0) {
+            if (capcrackBgActive()) ccBgMonitor();   // live real-time view
+            else {
+                // Not running: show WHY (finished the list / found / stopped) so an
+                // exhausted run doesn't look like it silently died.
+                const char* s = capcrackBgStatus();
+                if (s && *s) msgScreen("cc bg: not running", TFT_YELLOW, s);
+                else         msgScreen("cc bg: idle", 0x7BEF, "cc bg <cap> [wordlist] to start.");
+            }
+            return;
+        }
+        // bare 'cc bg' while a crack is already running = WATCH it live (you can't run
+        // two anyway); with none running it falls through to start one interactively.
+        if (*rest == '\0' && capcrackBgActive()) { ccBgMonitor(); return; }
+        bgMode = true; args = rest;   // remainder (maybe empty) is the cap [wordlist] selection
+    }
+
     if (!sdCardManager.canAccessSD()) {
         msgScreen("No SD card.", TFT_RED, "Cracking reads .cap from SD.");
         return;
@@ -390,5 +476,12 @@ void runCapCrack(char* args) {
     std::vector<String> wl; bool useBuiltin = true;
     if (!chooseWordlists(wlArg, cwd, wl, useBuiltin)) { dm.printCommandScreen(); return; }
 
-    runCrack(job, wl, useBuiltin);
+    if (bgMode) {
+        startCapcrackBg(job, wl, useBuiltin);
+        msgScreen("cc bg: cracking in background",
+                  TFT_ORANGE, "Runs under the cover. 'cc bg stop' halts.");
+    } else {
+        stopCapcrackBg();                 // don't run a foreground + background crack on the same SD/cursor
+        runCrack(job, wl, useBuiltin);
+    }
 }

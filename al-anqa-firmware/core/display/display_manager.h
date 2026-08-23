@@ -52,6 +52,7 @@ public:
     void setWGuardState(bool active, uint8_t maxSev);
     void setEcActive(bool active);
     void setMwActive(bool active);
+    void setCcActive(bool active);   // cc bg — background crack badge
     void redrawCommandLine(const char* cmd, int cursorPos);
     void flushSPI();   // Drain any pending LovyanGFX DMA and release SPI2 bus
     void setBlocked(bool b) { _blocked = b; }
@@ -63,6 +64,7 @@ private:
     uint8_t _wgMaxSev      = 0;
     bool    _ecActive      = false;
     bool    _mwActive      = false;
+    bool    _ccActive      = false;
     int32_t _cmdLineY  = outputY;
     DigitalRainAnimation<LGFX> matrix_effect = DigitalRainAnimation<LGFX>();
     void scrollIfNeeded();

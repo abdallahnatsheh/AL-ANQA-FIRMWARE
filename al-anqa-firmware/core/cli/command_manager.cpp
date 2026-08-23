@@ -337,6 +337,11 @@ static const ArgHintEntry kArgHints[] = {
     { "pw",          "wl",            "list add rm clear" },
     { "pwn",         "add",           "ssid" },
     { "pw",          "add",           "ssid" },
+    // crack / cc  (bg = cooperative background crack that runs under the cover)
+    { "crack",       "",              "bg" },
+    { "cc",          "",              "bg" },
+    { "crack",       "bg",            "stop status" },
+    { "cc",          "bg",            "stop status" },
     // scanwifi / sw  (WiFi manager)
     { "scanwifi",    "",              "on off" },
     { "sw",          "",              "on off" },
@@ -832,7 +837,7 @@ void CommandManager::setupCommands() {
     registerCommand("karma",       "km",     [](char* a) { stopEspchatBg(); runKarma(a); },                                "Karma: km (harvest) | km auto | km hs/portal <ssid> | [h]/[p]/[s] in list", true,  "WiFi");
     registerCommand("wps",         "wps",    [](char* a) { stopEspchatBg(); runWps(a); },                                  "WPS recon (IE/device leak) + PIN calc + pbc: wps [<idx>|pbc <idx>]", true, "WiFi");
     registerCommand("wardrive",    "wd",     [](char* a) { stopEspchatBg(); runWardrive(a); },                             "Wardrive: WiFi+GPS -> WiGLE CSV (Plus only)",        false, "WiFi");
-    registerCommand("crack",       "cc",     [](char* a) { stopEspchatBg(); runCapCrack(a); },                             "Crack .cap: cc [cap] [wordlist|dir]",                true,  "WiFi", COMP_ANY);
+    registerCommand("crack",       "cc",     [](char* a) { stopEspchatBg(); runCapCrack(a); },                             "Crack .cap: cc [cap] [wl|dir]; 'cc bg'=background (cracks under cover)", true,  "WiFi", COMP_ANY);
     registerCommand("pwn",          "pw",     [](char* a) { stopEspchatBg(); runPwn(a); },                                  "Auto capture+crack pet (AI+13ch default; 'pwn basic'=1/6/11): pwn [basic|stealth|passive|full|fast|wl ...]", true, "WiFi");
     registerCommand("espsniff",    "es",     [](char* a) { if (!Utils::checkChannelArg(a, "es")) return; runEspSniff(a); },     "ESP-NOW sniffer: es [ch 1-13]",                      true,  "WiFi");
     registerCommand("esptest",     "est",    [](char* a) { if (!Utils::checkChannelArg(a, "est")) return; runEspTest(a); },     "ESP-NOW test TX/RX: est [ch 1-13]",                  true,  "WiFi");

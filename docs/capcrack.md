@@ -82,6 +82,41 @@ offset where it left off instead of restarting from word 0. It resumes even acro
 
 ---
 
+### Background crack — `cc bg` (crack under the cover)
+
+For long jobs you don't want to babysit — or that you want to run **in public behind the
+undercover disguise** — start it in the background:
+
+```
+CMD> cc bg capture.cap big.txt   # start straight away
+CMD> cc bg                       # WATCH the running crack live (or start one if none is running)
+CMD> cc                          # same — bare cc watches the running bg crack
+CMD> cc bg status                # live view if running, else the last outcome
+CMD> cc bg stop                  # halt (the resume cursor is saved)
+```
+
+- **Watch it live:** once a bg crack is running, `cc` or `cc bg` opens a real-time monitor (tried,
+  rate, current guess). **`[q]` leaves the monitor without stopping the crack** — it keeps grinding in
+  the background. (To start a *new* foreground crack while one runs in the bg, pass a cap: `cc <cap>`.)
+- It returns you to the CLI and shows a small **`CC`** tag in the status bar while it runs.
+- It **keeps cracking while you use the CLI** *and* **while the undercover cover is active** — so
+  a device that looks like a Notes app is quietly grinding your wordlist the whole time.
+- It's **cooperative and single-threaded** (time-sliced off the main loop), so it never fights the
+  crypto hardware — rock-solid, at the cost of sharing CPU with whatever's on screen. It throttles by
+  **screen state**: while you're **looking at the undercover disguise (screen on) it pauses**, so touch
+  and the UI stay perfectly responsive; on the CLI (screen on) it cracks *gently*; and only when the
+  screen is *off* (pocket / put down) does it crack *hard* — which is the real "grind in public" case.
+- A hit is **silent while under the cover** (no beep to give you away) and is written to `cracked.csv`
+  regardless — you find it when you drop the disguise.
+- It **yields the SD card automatically** whenever WiFi is doing heavy DMA (a scan, monitor, evil-twin),
+  so it's safe to leave running alongside other tools.
+- Uses the same **resume cursor**, so stopping, rebooting, or yielding to WiFi never loses progress.
+
+> On-device cracking is slow either way — `cc bg` is for leaving a weak/common/wordlist-present
+> password grinding over time, not for brute-forcing strong keys.
+
+---
+
 ### What it needs in the capture
 
 To derive the PMK the cracker needs the network **ESSID**, which it reads from a **beacon

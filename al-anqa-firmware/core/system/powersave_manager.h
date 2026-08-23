@@ -50,6 +50,7 @@ public:
     bool isScreenOff() const { return isScreenOffState; }
     bool isManualOff() const { return _manualOff; }
     void updateActivity();    // Called when user provides input
+    uint32_t msSinceActivity() const { return millis() - lastActivityTime; }   // ms since last real user input
     void toggleManualOff();  // Double-click: toggle screen off/on
     void forceWake();         // Force wake regardless of _manualOff — used by notifications
     void deepSleep();         // Command-only deep sleep (~240uA); wake = trackball click → reboot
