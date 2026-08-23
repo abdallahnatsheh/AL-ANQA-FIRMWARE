@@ -13,6 +13,8 @@
 #include "pcap_writer.h"    // pcap read helpers
 #include "cap_parse.h"      // shared .cap → CrackJob parser (also used by pwn)
 #include "wpa_crack.h"      // PBKDF2 / handshake-MIC / PMKID dictionary crack
+#include "crack_progress.h" // shared per-cap wordlist resume cursor (also used by pwn)
+#include "path_prompt.h"    // interactive path input with '-key autocomplete
 #include <Arduino.h>
 #include <SD.h>
 #include <vector>
@@ -48,6 +50,17 @@ static void msgScreen(const char* line1, uint16_t c1, const char* line2) {
         dm.setCursor(4, dm.getCursorY()); dm.setTextColor(TFT_WHITE); dm.println(line2);
     }
     dm.printCommandScreen();
+}
+
+// Like msgScreen but waits for a key and RETURNS to the caller (stays in-flow),
+// instead of dropping to the CLI — for errors shown inside a picker back-loop.
+static void notifyWait(const char* line1, uint16_t c1, const char* line2) {
+    DisplayManager& dm = displayManager;
+    header("INFO");
+    dm.setCursor(4, dm.getCursorY()); dm.setTextColor(c1); dm.println(line1);
+    if (line2 && *line2) { dm.setCursor(4, dm.getCursorY()); dm.setTextColor(TFT_WHITE); dm.println(line2); }
+    dm.setCursor(4, dm.getCursorY()); dm.setTextColor(0x7BEF); dm.println("any key...");
+    while (inputHandler.getKeyboardInput() == 0) vTaskDelay(pdMS_TO_TICKS(15));
 }
 
 // Paginated list picker. `sub` (optional) is shown under the header — used to make
@@ -145,6 +158,19 @@ static void runCrack(const CrackJob& job, const std::vector<String>& wlFiles, bo
     bool     done = false, aborted = false;
     char     srcLabel[40] = "built-in";
 
+    // Resume cursor (shared with pwn): a slow on-device wordlist run can be [q]-
+    // aborted and picked up later at the exact byte offset instead of restarting
+    // from word 0. Keyed by this cap's (BSSID,SSID); persisted to
+    // /apps/capcrack/progress.csv. Only the SD-wordlist path resumes — the tiny
+    // built-in list finishes in seconds, so it is not worth a cursor.
+    char macStr[18];
+    snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+             job.apMac[0], job.apMac[1], job.apMac[2], job.apMac[3], job.apMac[4], job.apMac[5]);
+    const bool  resumeOk = sdCardManager.canAccessSD();
+    const char* progPath = SD_DIR_CAPCRACK "/progress.csv";
+    if (resumeOk) sdCardManager.ensureDir(SD_DIR_CAPCRACK);
+    uint32_t lastSave = 0;
+
     auto status = [&](const char* cand) {
         dm.fillRect(4, statY, SCREEN_WIDTH - 8, LINE_HEIGHT * 3, TFT_BLACK);
         uint32_t el = (millis() - t0) / 1000;
@@ -158,12 +184,29 @@ static void runCrack(const CrackJob& job, const std::vector<String>& wlFiles, bo
         char c[36]; snprintf(c, sizeof(c), "%.30s", cand); dm.println(c);
     };
 
-    // one wordlist file → stream + try each line
+    // one wordlist file → stream + try each line, resuming from the saved cursor
     auto runFile = [&](const String& path) {
         File wl = SD.open(path.c_str(), FILE_READ);
         if (!wl) return;
+        long   wlSize = (long)wl.size();
+        // wordlist_id = full path + size. Path so two different lists (even the same
+        // size) never share a cursor and a typed-path vs cwd-.txt are distinguished;
+        // size so EDITING a list re-arms it. Commas stripped so the id can't shift the
+        // CSV columns. A path-string mismatch only ever restarts from the top (safe) —
+        // never a wrong-offset resume (which a size-only id could do on a size clash).
+        String wid = path; wid.replace(',', ' ');
+        wid += ":"; wid += String(wlSize);
         { int sl = path.lastIndexOf('/');
           snprintf(srcLabel, sizeof(srcLabel), "%.38s", sl >= 0 ? path.c_str() + sl + 1 : path.c_str()); }
+        if (resumeOk) {
+            long at = crackprog::get(progPath, macStr, job.ssid, wid);
+            if (wlSize > 0 && at >= wlSize) { wl.close(); return; }   // already exhausted → skip
+            if (at > 0) {                                            // resume mid-list
+                wl.seek(at);
+                int n = strlen(srcLabel), pct = wlSize ? (int)(at * 100 / wlSize) : 0;
+                snprintf(srcLabel + n, sizeof(srcLabel) - n, " @%d%%", pct);
+            }
+        }
         while (wl.available() && !done && !aborted) {
             String line = wl.readStringUntil('\n'); line.trim();
             if (line.length() < 8 || line.length() > 63) continue;
@@ -178,8 +221,18 @@ static void runCrack(const CrackJob& job, const std::vector<String>& wlFiles, bo
                 if (k == 'q' || k == 'Q') { aborted = true; break; }
                 vTaskDelay(1);
             }
+            // persist the resume point ~every 2s so a q/abort/reboot picks up here
+            if (resumeOk && now - lastSave >= 2000) {
+                crackprog::set(progPath, macStr, job.ssid, wid, (long)wl.position());
+                lastSave = now;
+            }
             if (tryPass(line.c_str())) { strncpy(found, line.c_str(), sizeof(found) - 1); done = true; }
         }
+        // record where we stopped (aborted mid-list, or exhausted = position==size)
+        // so the next run resumes exactly here or skips a finished list. Skip empty
+        // lists (wlSize==0) — they'd only write a useless offset-0 row.
+        if (resumeOk && !done && wlSize > 0)
+            crackprog::set(progPath, macStr, job.ssid, wid, (long)wl.position());
         wl.close();
     };
 
@@ -207,6 +260,7 @@ static void runCrack(const CrackJob& job, const std::vector<String>& wlFiles, bo
     dm.fillRect(4, statY, SCREEN_WIDTH - 8, LINE_HEIGHT * 3, TFT_BLACK);
     dm.setCursor(4, statY);
     if (done) {
+        if (resumeOk) crackprog::remove(progPath, macStr, job.ssid);   // solved → nothing to resume
         dm.setTextColor(TFT_GREEN);
         char b[80]; snprintf(b, sizeof(b), "FOUND: %s", found); dm.println(b);
         if (sdCardManager.canAccessSD()) {
@@ -225,6 +279,22 @@ static void runCrack(const CrackJob& job, const std::vector<String>& wlFiles, bo
     dm.printCommandScreen();
 }
 
+// Resolve a wordlist path token into the file(s) to run: a directory → every
+// `*.txt` inside it; a plain file → just that file. Shared by the explicit-arg
+// path and the interactive "Type a path…" option (no duplicated resolution).
+static void resolveWlPath(const char* path, std::vector<String>& out) {
+    char resolved[160]; sdCardManager.resolvePath(path, resolved, sizeof(resolved));
+    File t = SD.open(resolved);
+    bool isDir = t && t.isDirectory(); if (t) t.close();
+    if (isDir) {
+        std::vector<String> bases, paths;
+        listByExt(resolved, ".txt", bases, paths);
+        out.insert(out.end(), paths.begin(), paths.end());
+    } else {
+        out.push_back(String(resolved));
+    }
+}
+
 // ── wordlist selection ────────────────────────────────────────────────────────
 // Builds the list of wordlist files to run + whether to also try the built-in.
 // arg==nullptr → interactive picker over the current dir. Returns false on cancel.
@@ -232,33 +302,42 @@ static bool chooseWordlists(const char* arg, const char* cwd,
                             std::vector<String>& out, bool& useBuiltin) {
     out.clear(); useBuiltin = true;
 
-    if (arg && *arg) {                                   // explicit path/dir given
-        char resolved[160]; sdCardManager.resolvePath(arg, resolved, sizeof(resolved));
-        File t = SD.open(resolved);
-        bool isDir = t && t.isDirectory(); if (t) t.close();
-        if (isDir) {
-            std::vector<String> bases, paths;
-            listByExt(resolved, ".txt", bases, paths);
-            out = paths;
-        } else {
-            out.push_back(String(resolved));
-        }
-        return true;
-    }
+    if (arg && *arg) { resolveWlPath(arg, out); return true; }   // explicit path/dir given
 
-    // interactive: built-in / all-in-dir / a specific .txt in cwd
+    // interactive: built-in / all-in-dir / type-a-path / a specific .txt in cwd
     std::vector<String> bases, paths;
     listByExt(cwd, ".txt", bases, paths);
     std::vector<String> menu;
     menu.push_back("Built-in list (100)");
     menu.push_back("ALL *.txt in this dir");
+    menu.push_back("Type a path... (' completes)");
+    const int NFIXED = 3;
     for (auto& b : bases) menu.push_back(b);
-    int sel = pickList("WLIST", menu, cwd);
-    if (sel < 0) return false;
-    if (sel == 0) { useBuiltin = true; return true; }            // built-in only
-    if (sel == 1) { out = paths; return true; }                  // every .txt here
-    out.push_back(paths[sel - 2]);                               // one chosen file
-    return true;
+
+    // Back-stack (isoscan idiom): a cancelled/invalid sub-choice re-shows the picker
+    // instead of aborting cc. Only [q] on the picker itself (sel<0) cancels the command.
+    while (true) {
+        int sel = pickList("WLIST", menu, cwd);
+        if (sel < 0) return false;                               // [q] on the picker → cancel cc
+        if (sel == 0) { useBuiltin = true; return true; }        // built-in only
+        if (sel == 1) { out = paths; return true; }              // every .txt here
+        if (sel == 2) {                                          // type a wordlist file or dir path
+            char typed[160];
+            if (!pathprompt::prompt("Wordlist path (file or dir):", typed, sizeof(typed)))
+                continue;                                        // cancelled → back to picker
+            char resolved[160]; sdCardManager.resolvePath(typed, resolved, sizeof(resolved));
+            if (!SD.exists(resolved)) {                          // typo / missing → tell them, stay in the picker
+                notifyWait("Path not found", TFT_YELLOW, resolved); continue;
+            }
+            out.clear(); resolveWlPath(resolved, out);
+            if (out.empty()) {                                   // a dir with no *.txt inside
+                notifyWait("No .txt in that folder", TFT_YELLOW, resolved); continue;
+            }
+            return true;
+        }
+        out.push_back(paths[sel - NFIXED]);                      // one chosen .txt in cwd
+        return true;
+    }
 }
 
 // ── entry point ───────────────────────────────────────────────────────────────

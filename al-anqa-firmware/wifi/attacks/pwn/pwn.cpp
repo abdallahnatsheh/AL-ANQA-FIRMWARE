@@ -27,6 +27,7 @@
 #include "wpa_crack.h"
 #include "mac_util.h"
 #include "wifi_sd_guard.h"
+#include "crack_progress.h"   // shared per-cap wordlist resume cursor (also used by cc)
 #include "wifi_creds.h"       // wifiCredsSaveNvs — no-SD cracked-cred persistence (NVS "wifi")
 #ifdef BOARD_TDECK_PLUS
 #include "gps_manager.h"      // opportunistic geotag (Plus only, read-only if already running)
@@ -254,42 +255,14 @@ static int priorPasswords(const uint8_t* bssid, const char* ssid,
     return (int)out.size();
 }
 
-// progress.csv cursor (bssid,ssid,wordlist_id,next_index) — rewrite-whole-file (small)
-struct PwnCursor { String bssid, ssid, wid; long next; };
-static void cursorLoad(std::vector<PwnCursor>& v) {
-    File f = SD.open(PWN_F_PROGRESS, FILE_READ);
-    if (!f) return;
-    while (f.available()) {
-        String ln = f.readStringUntil('\n'); ln.trim();
-        int c1 = ln.indexOf(','), c2 = ln.indexOf(',', c1 + 1), c3 = ln.indexOf(',', c2 + 1);
-        if (c1 < 0 || c2 < 0 || c3 < 0) continue;
-        PwnCursor c;
-        c.bssid = ln.substring(0, c1); c.ssid = ln.substring(c1 + 1, c2);
-        c.wid = ln.substring(c2 + 1, c3); c.next = ln.substring(c3 + 1).toInt();
-        v.push_back(c);
-    }
-    f.close();
-}
+// progress.csv resume cursor (bssid,ssid,wordlist_id,next_index) now lives in the
+// shared crackprog:: helper (crack_progress.h) — same file also drives cc's resume.
+// Thin PWN_F_PROGRESS-bound wrappers keep the call sites below unchanged.
 static long cursorGet(const char* mac, const char* ssid, const String& wid) {
-    std::vector<PwnCursor> v; cursorLoad(v);
-    for (auto& c : v)
-        if (c.bssid.equalsIgnoreCase(mac) && c.ssid == ssid) {
-            if (c.wid != wid) return 0;      // wordlist changed → re-arm from top
-            return c.next;
-        }
-    return 0;
+    return crackprog::get(PWN_F_PROGRESS, mac, ssid, wid);
 }
 static void cursorSet(const char* mac, const char* ssid, const String& wid, long next) {
-    std::vector<PwnCursor> v; cursorLoad(v);
-    bool found = false;
-    for (auto& c : v)
-        if (c.bssid.equalsIgnoreCase(mac) && c.ssid == ssid) { c.wid = wid; c.next = next; found = true; break; }
-    if (!found) { PwnCursor c{ String(mac), String(ssid), wid, next }; v.push_back(c); }
-    ScopedPromiscPause _;
-    File f = SD.open(PWN_F_PROGRESS, FILE_WRITE);   // truncate + rewrite
-    if (!f) return;
-    for (auto& c : v) f.printf("%s,%s,%s,%ld\n", c.bssid.c_str(), c.ssid.c_str(), c.wid.c_str(), c.next);
-    f.close();
+    crackprog::set(PWN_F_PROGRESS, mac, ssid, wid, next);
 }
 
 // ── whitelist (cached in RAM for the session — hot path, no per-frame SD reads) ─

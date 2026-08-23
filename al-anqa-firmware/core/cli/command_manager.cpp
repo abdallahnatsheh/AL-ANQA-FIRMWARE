@@ -1,5 +1,6 @@
 #include "command_manager.h"
 #include "display_manager.h"
+#include "completion_util.h"   // shared longest-common-prefix for tab-complete
 #include "utils.h"
 #include "esp_info.h"
 #include "wifi_functions.h"
@@ -564,15 +565,10 @@ void CommandManager::doAutocomplete() {
 
     if (matchCount == 0) return;  // no match — do nothing (Linux beep equivalent)
 
-    // ── Find common prefix among all matches ──────────────────────────────────
+    // ── Find common prefix among all matches (shared helper — see path_prompt) ─
     char common[128];
     strncpy(common, matches[0], sizeof(common) - 1); common[sizeof(common) - 1] = '\0';
-    int commonLen = strlen(common);
-    for (int i = 1; i < matchCount; i++) {
-        int j = 0;
-        while (j < commonLen && common[j] == matches[i][j]) j++;
-        commonLen = j;
-    }
+    int commonLen = completion::commonPrefixLen<128>(matches, matchCount);
     common[commonLen] = '\0';
 
     // ── Insert common prefix into command buffer (replace current prefix) ─────

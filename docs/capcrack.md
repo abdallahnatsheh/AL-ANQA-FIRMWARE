@@ -50,13 +50,35 @@ argument.
 
 - Pass a **single file**, or a **directory** to run every `*.txt` in it in sequence.
 - With no wordlist argument you get a picker: **Built-in (100)**, **ALL `*.txt` in this dir**,
-  or any individual `.txt` found in the current directory.
+  **Type a path…**, or any individual `.txt` found in the current directory.
+- **Type a path…** lets you point at a wordlist **file or directory anywhere on the card** (not just
+  the current dir) — press **`'`** while typing to autocomplete file and directory names, exactly
+  like the command line. A directory runs every `*.txt` inside it; a file runs just that file.
 - The **built-in 100-password list always runs last** as a fallback, so a quick `cc cap`
   always tries something even with no SD wordlist.
 - Passwords shorter than 8 or longer than 63 characters are skipped (WPA limits).
 
 Press **`q`** any time to abort; the screen shows live tries, rate, current wordlist, and
 candidate.
+
+---
+
+### Resume a long crack
+
+On-device cracking is slow (each candidate is a full PBKDF2 derivation), so a big wordlist
+can take a while. You don't have to babysit it: press **`q`** to stop, use the device, and
+**relaunch the same `.cap` with the same wordlist later** — `cc` picks up at the exact byte
+offset where it left off instead of restarting from word 0. It resumes even across a reboot.
+
+- The capture is identified by the **BSSID + SSID read from inside the `.cap`** (not its
+  filename), so two different networks that happen to share a filename resume independently,
+  and two captures of the *same* network share progress.
+- The wordlist is identified by its **full path + size**, so **different lists never share a
+  cursor** (even at the same size), the same list resumes whichever way you selected it, and
+  **editing a list re-arms it** (its size changes). Saved to `/apps/capcrack/progress.csv`.
+- A wordlist that was **fully exhausted** is skipped instantly on the next run (nothing left
+  to try), and a **successful crack clears** its cursor.
+- The small built-in 100-password list isn't tracked — it finishes in seconds.
 
 ---
 
@@ -80,6 +102,7 @@ Cracked passwords are appended to:
 
 ```
 /apps/capcrack/cracked.csv      ← ssid,password,HS|PMKID
+/apps/capcrack/progress.csv     ← resume cursor: bssid,ssid,wordlist_id,offset
 ```
 
 ---
