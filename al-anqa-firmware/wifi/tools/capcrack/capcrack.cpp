@@ -361,6 +361,7 @@ static void ccBgMonitor() {
     while (capcrackBgActive()) {
         char k = inputHandler.getKeyboardInput();          // also pumps the crack forward
         if (k == 'q' || k == 'Q') { dm.printCommandScreen(); return; }   // leave; crack keeps running
+        if (k == 's' || k == 'S') { stopCapcrackBg(); break; }           // stop it → fall to the outcome screen
         if (dm.isBlocked()) { vTaskDelay(pdMS_TO_TICKS(15)); continue; }
         if (LockScreenManager::getInstance().consumeJustUnlocked()) { drawChrome(); statY = dm.getCursorY(); }
         uint32_t now = millis();
@@ -379,7 +380,7 @@ static void ccBgMonitor() {
             dm.setCursor(4, dm.getCursorY()); dm.setTextColor(0x4208);
             char c[40]; snprintf(c, sizeof(c), "%.34s", capcrackBgCurrent()); dm.println(c);
             dm.setCursor(4, dm.getCursorY()); dm.setTextColor(0x7BEF);
-            dm.println("[q] back (keeps running in bg)");
+            dm.println("[q] back (keeps running)  [s] stop");
         }
         vTaskDelay(pdMS_TO_TICKS(20));
     }

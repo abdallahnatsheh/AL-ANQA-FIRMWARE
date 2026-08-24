@@ -95,9 +95,10 @@ CMD> cc bg status                # live view if running, else the last outcome
 CMD> cc bg stop                  # halt (the resume cursor is saved)
 ```
 
-- **Watch it live:** once a bg crack is running, `cc` or `cc bg` opens a real-time monitor (tried,
-  rate, current guess). **`[q]` leaves the monitor without stopping the crack** — it keeps grinding in
-  the background. (To start a *new* foreground crack while one runs in the bg, pass a cap: `cc <cap>`.)
+- **Watch it live:** once a bg crack is running, `cc` or `cc bg` opens a real-time monitor (list %,
+  tried, rate, current guess). **`[q]` leaves without stopping** (it keeps grinding), and **`[s]` stops
+  it** right there (cursor saved). (To start a *new* foreground crack while one runs in the bg, pass a
+  cap: `cc <cap>`.) `cc bg stop` still works from the command line too.
 - It returns you to the CLI and shows a small **`CC`** tag in the status bar while it runs.
 - It **keeps cracking while you use the CLI** *and* **while the undercover cover is active** — so
   a device that looks like a Notes app is quietly grinding your wordlist the whole time.

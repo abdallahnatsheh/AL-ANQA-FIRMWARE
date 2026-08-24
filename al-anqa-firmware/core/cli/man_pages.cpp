@@ -523,7 +523,7 @@ static const ManEntry PAGES[] = {
         "BG       cc bg [cap] [list] = crack in the",
         "         background; under the undercover",
         "         cover (silent) + CLI. [CC] tag.",
-        "         'cc' or 'cc bg' = watch it LIVE.",
+        "         'cc'/'cc bg' watch LIVE ([s]=stop).",
         "         cc bg stop | status.",
         "FILES    /apps/capcrack/cracked.csv +",
         "         progress.csv (resume cursor)",
