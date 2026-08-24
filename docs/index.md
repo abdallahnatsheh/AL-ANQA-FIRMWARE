@@ -66,6 +66,7 @@ Al-Anqa turns the LilyGo T-Deck into a pocket pentesting terminal. No menus, no 
 - [ARP Spoof](arpspoof) — `arpspoof` — L2 ARP cache poisoning + redirected-traffic log
 - [Responder](responder) — `responder` — **[EXP]** LLMNR/NBT-NS/mDNS poisoner + NetNTLM capture
 - [Default-Password Check](dpwo) — `dpwo` / `dw` — default creds on FTP/SSH/Telnet/HTTP/RTSP/Redis/MQTT/SNMP (custom ports too)
+- [Chromecast Control](cast) — `cast` / `ca` — discover Cast devices, rickroll, play URLs/saved content, share local SD photos/videos
 
 ---
 

@@ -726,6 +726,37 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "cast", "ca", {
+        "SYNTAX   ca [ip|# | <verb> <ip>]",
+        "         verbs: rickroll saved share launch",
+        "         stop play pause vol status",
+        "",
+        "ABOUT    Control Google Cast devices",
+        "         (Chromecast / Google TV / Nest).",
+        "         Discover via mDNS, then cast.",
+        "         Needs cw (same Wi-Fi as the TV).",
+        "",
+        "MODES    DIAL (:8008) launches YouTube;",
+        "         Cast v2 (:8009 TLS) loads media +",
+        "         play/pause/stop/volume/status.",
+        "",
+        "SAVED    /apps/cast/media.csv: name,target",
+        "         target = http(s) URL (Cast v2) or a",
+        "         YouTube video id (DIAL).",
+        "SHARE    drop photos/videos in",
+        "         /apps/cast/share; the T-Deck serves",
+        "         them over HTTP for the TV to fetch",
+        "         (HTTP Range = video seek).",
+        "",
+        "UI       [trackball/ws] move  [enter] do",
+        "         [1-9] quick-pick  [q] back.",
+        "OUTPUT   /apps/cast/devices.csv",
+        "NOTE     own devices only. Cast v2 uses TLS",
+        "         (DRAM cost). No transcoding — the TV",
+        "         must support the codec (mp4/webm).",
+        nullptr
+    }},
+
     { "portscan", "ps", {
         "SYNTAX   ps <ip|#|ns#> <start> <end>",
         "         ps top <ip|#|ns#>",

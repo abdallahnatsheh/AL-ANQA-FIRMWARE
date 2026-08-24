@@ -80,6 +80,7 @@ void runIsoscan(char* a);
 void runArpSpoof(char* a);
 void runResponder(char* a);
 void runDpwo(char* a);
+void runCast(char* a);
 void runWps(char* a);
 void runWpa3Down(char* a);
 
@@ -852,6 +853,7 @@ void CommandManager::setupCommands() {
     registerCommand("arpspoof",    "as",     [](char* a) { runArpSpoof(a); },                                                "ARP cache poisoning + traffic log: as <victim> [gw]", true, "Network");
     registerCommand("responder",   "rsp",    [](char* a) { runResponder(a); },                                               "[EXP] LLMNR/NBT/mDNS poison+capture; rsp passive = listen-only", true, "Network");
     registerCommand("dpwo",         "dw",     [](char* a) { runDpwo(a); },                                                     "Default-password check: dw <ip|nd#|ns#> [svc|port|svc:port]", true, "Network");
+    registerCommand("cast",         "ca",     [](char* a) { runCast(a); },                                                     "Chromecast: ca [ip|# | rickroll/saved/share/launch/stop/vol]", true, "Network");
     registerCommand("ping",        "pg",     [](char* a) { networkScanner.pingHost(a); },                                   "Ping: pg <ip|host|#|ns#>",                 true,  "Network");
     registerCommand("ssh",         "sc",     [](char* a) { runSshCon(a); },                                                 "SSH client: ssh <ip|name> [user] | save/list/rm", true,  "Network");
     // ── Bluetooth ─────────────────────────────────────────────────────────────

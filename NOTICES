@@ -241,3 +241,21 @@ This project incorporates code from the following open-source projects:
     Notes:   pwn's differentiator over all of the above is ON-DEVICE cracking during
              idle time (resume cursor + prior-related-password priority ordering) — no
              prior pwnagotchi recovers passwords on the device unattended.
+
+24. cast (Google Cast / Chromecast control — protocol/prior-art reference)
+    Source:  Protocol documentation and open-source implementations (no code copied):
+               - node-castv2 (https://github.com/thibauts/node-castv2) — the Cast v2
+                 protocol: CastMessage protobuf fields, length-prefixed framing, the
+                 connection/heartbeat/receiver/media namespaces and JSON payloads.
+               - ArduCastControl (https://github.com/andrasbiro/ArduCastControl) and
+                 ESPCaster (https://github.com/amitn/ESPCaster) — ESP32 prior art
+                 (feasibility + message-flow reference; nanopb NOT used, envelope
+                 hand-rolled).
+               - chromecast_dial (https://github.com/ivan-krukov/chromecast_dial) — the
+                 DIAL YouTube-launch method; DIAL/SSDP per the "Discovery and Launch"
+                 spec (https://en.wikipedia.org/wiki/Discovery_and_Launch).
+    License: Protocol / prior-art reference only — no source code copied. The CastMessage
+             encoder/decoder, DIAL client, the on-device HTTP file server (Range), and the
+             UI are original to Al-Anqa.
+    Notes:   Default Media Receiver appId CC1AD845 and the well-known Cast ports (:8008
+             DIAL, :8009 Cast v2) are public protocol constants. Own devices only.

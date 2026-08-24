@@ -67,6 +67,7 @@
 #define SD_DIR_WPS           "/apps/wps"              // wps recon reports + PBC-recovered creds
 #define SD_DIR_WPA3DOWN      "/apps/wpa3down"          // WPA3 transition-downgrade handshakes (.cap)
 #define SD_DIR_DPWO          "/apps/dpwo"             // default-password checker: results.csv + creds.csv
+#define SD_DIR_CHROMECAST    "/apps/cast"             // cast/ca discovered Google Cast devices (devices.csv)
 
 #define SD_DIR_MACWATCH      "/apps/macwatch"
 #define SD_LOG_MACWATCH_LIST "/apps/macwatch/watchlist.csv"

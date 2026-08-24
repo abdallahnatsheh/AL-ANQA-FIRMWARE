@@ -29,6 +29,7 @@ has_children: true
 | [Ping]({{ site.baseurl }}/ping) | `pg` | ICMP × 4 مع ملخّص RTT والفقد |
 | [عميل SSH]({{ site.baseurl }}/ssh) | `ssh` · `sc` | طرفية SSH تفاعلية ملوّنة مع تمرير للخلف |
 | [فحص كلمات المرور الافتراضية]({{ site.baseurl }}/dpwo) | `dw` | تجربة بيانات الاعتماد الافتراضية على FTP/SSH/Telnet/HTTP/RTSP/Redis/MQTT/SNMP (أو منفذ مخصّص `svc:port`) ← `results.csv` |
+| [التحكم بكروم كاست]({{ site.baseurl }}/cast) | `ca` | التحكم بأجهزة Google Cast — اكتشاف عبر mDNS، تشغيل يوتيوب (DIAL)، بثّ روابط أو محتوى محفوظ، ومشاركة صور/فيديوهات من بطاقة SD (Cast v2) |
 
 ## الهجمات
 

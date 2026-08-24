@@ -26,6 +26,7 @@ Tools for mapping and attacking the LAN you're connected to. **All of them requi
 | [Ping](ping) | `pg` | ICMP echo × 4 with RTT + loss summary |
 | [SSH Client](ssh) | `ssh` · `sc` | Interactive colour SSH terminal with scrollback |
 | [Default-Password Check](dpwo) | `dw` | Try factory/default creds on FTP/SSH/Telnet/HTTP/RTSP/Redis/MQTT/SNMP (or a custom `svc:port`) → `results.csv` |
+| [Chromecast Control](cast) | `ca` | Google Cast — discover, rickroll (DIAL), play media URLs / saved content, and share local SD photos/videos (Cast v2) |
 
 > **Targeting shortcut:** after `nd` or `ns`, use the host **index** instead of typing an IP — e.g. `ps top 0`, `pg 1`, `as ns3`.
 
