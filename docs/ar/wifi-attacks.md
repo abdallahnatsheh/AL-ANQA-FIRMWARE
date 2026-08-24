@@ -21,7 +21,7 @@ has_children: true
 | [التقاط WPA]({{ site.baseurl }}/wpasniff) | `wpasniff` / `ws` | التقاط مصافحة WPA2 وكسرها (يتطلّب عميلًا) |
 | [هجوم PMKID]({{ site.baseurl }}/pmkid) | `pmkid` / `pm` | التقاط PMKID وكسره — **نشِط بلا عميل افتراضيًّا** (`pm passive` = مسح صامت)، لا يتطلّب عميلًا |
 | [Karma]({{ site.baseurl }}/karma) | `karma` / `km` | حزمة نقطة الوصول المزيّفة — حصاد الطلبات، بصمة PNL، نصف مصافحة / إغراء ببوّابة |
-| [كاسر الحزم]({{ site.baseurl }}/capcrack) | `crack` / `cc` | كسر ملف `.cap` دون اتصال (مصافحة أو PMKID) بقوائم كلمات |
+| [كاسر الحزم]({{ site.baseurl }}/capcrack) | `crack` / `cc` | كسر ملف `.cap` دون اتصال (مصافحة أو PMKID) بقوائم كلمات — مؤشر استئناف، ومُنتقٍ لكتابة المسار، و**وضع خلفية** (`cc bg`) يطحن حتى تحت غطاء الوضع المتخفّي |
 | [نظام الحماية WGuard]({{ site.baseurl }}/wguard) | `wguard` / `wg` | كشف تسلّل WiFi سلبي |
 | [إغراق المنارات]({{ site.baseurl }}/beacon-flood) | `beaconflood` / `bf` | إغراق قوائم مسح WiFi بأسماء مزيّفة |
 | [WPS]({{ site.baseurl }}/wps) | `wps` | استطلاع WPS + مولّد PIN + اتصال بالزرّ |

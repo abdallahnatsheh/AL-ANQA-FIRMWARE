@@ -18,7 +18,7 @@ has_children: true
 | [WPA Sniff](wpasniff) | `wpasniff` / `ws` | Capture + crack WPA2 handshake (needs client) |
 | [PMKID Attack](pmkid) | `pmkid` / `pm` | PMKID capture + crack — **active clientless by default** (`pm passive` = silent sniff), no client needed |
 | [Karma](karma) | `karma` / `km` | Rogue-AP suite — probe harvest, PNL fingerprint, half-handshake / portal bait |
-| [Cap Cracker](capcrack) | `crack` / `cc` | Offline crack of a `.cap` (handshake or PMKID) with wordlists |
+| [Cap Cracker](capcrack) | `crack` / `cc` | Offline crack of a `.cap` (handshake or PMKID) with wordlists — resume cursor, type-a-path picker, and a **background mode** (`cc bg`) that grinds even under the undercover cover |
 | [WGuard IDS](wguard) | `wguard` / `wg` | Passive WiFi intrusion detection |
 | [Beacon Flood](beacon-flood) | `beaconflood` / `bf` | Flood WiFi scan lists with fake SSIDs |
 | [WPS](wps) | `wps` | WPS recon (IE decode + device-info leak) + PIN calculator + push-button connect |

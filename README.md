@@ -41,7 +41,7 @@ wardriving and audio tools). The project is under **active development**.
 - Scan, connect, and a full WiFi manager (radio on/off, forget networks)
 - Monitor mode — APs + clients views, targeted deauth, raw PCAP capture (Wireshark-compatible), passive probe logger
 - Evil Twin captive portal, hidden-SSID reveal, MAC spoofing, WPS detection
-- WPA/WPA2 handshake **and** PMKID capture with **on-device cracking**; offline `.cap` cracker
+- WPA/WPA2 handshake **and** PMKID capture with **on-device cracking**; offline `.cap` cracker with a **resume cursor** and a **background mode** (`cc bg`) that keeps grinding wordlists even behind the undercover disguise
 - WPA3 transition-mode downgrade, Karma rogue-AP suite, beacon flood
 - ⭐ **Autonomous pwnagotchi pet** (`pwn`) — the flagship. Roams channels with an **adaptive AI learner** (learns your area across reboots), captures handshakes/PMKIDs (**clientless PMKID solicitation** — no client needed), and **cracks them on-device** during idle time (resume cursor, smart priority guessing) — the first ESP32 pwnagotchi to close the capture→crack loop. Caps are **hashcat _and_ aircrack-ng ready**. **Runs card-less** (capture + crack one handshake in RAM → cracked WiFi saved to NVS). **AL-ANQA pets hunt as a pack** over a private beacon: they greet each other, **cooperatively split the 13 channels** between them (deterministic MAC-sorted lanes, zero negotiation) so the pack covers the whole band at once, and **auto-share every cracked network** (SSID + password) so the whole pack learns it. Retro phoenix HUD. *Grid channel-split + cred-sharing HW-verified on 3 decks.*
 - Wardriving → WiGLE 1.4 CSV (Plus), passive WiFi IDS (`wguard`), WiFi-CSI motion detection
@@ -140,7 +140,7 @@ Run `help` for the list on-device, or `man <cmd>` for a full manual page.
 | `pmkid` | `pm` | `[passive] <idx\|bssid> [ch]` | PMKID capture + crack — active clientless by default (`pm passive` = silent sniff) |
 | `wpa3down` | `w3d` | `[probe] [auto] [idx] [mac]` | **[EXP]** WPA3 transition downgrade → crackable `.cap`; auto-discovers the AP's clients (no MAC typing) + empirical PMF probe |
 | `karma` | `km` | `[auto\|hs\|portal <ssid>]` | Rogue-AP suite — harvest, PNL fingerprint, half-handshake, portal |
-| `crack` | `cc` | `[cap] [wordlist\|dir]` | Offline WPA/WPA2 crack (handshake or PMKID) |
+| `crack` | `cc` | `[cap] [wl\|dir]` · `bg [...]` | Offline WPA/WPA2 `.cap` crack (handshake/PMKID) — **resume cursor** (pick up mid-wordlist across reboots), type-a-path wordlist picker w/ autocomplete; **`cc bg`** cracks in the **background, even under the undercover cover** (live monitor via `cc`, `[s]` to stop) |
 | `pwn` ⭐ | `pw` | `[basic\|stealth\|passive\|full\|fast\|wl ...]` | Flagship autonomous pet — **AI adaptive roam over all 13 channels by default** (`pwn basic` = plain 1/6/11); captures handshakes + PMKIDs (clientless solicit), **cracks on-device** in idle time (hashcat+aircrack-ready caps); **runs card-less** (RAM crack → NVS save); **pack of decks splits the 13 channels between them** + **shares cracked creds** over the grid; phoenix HUD |
 | `wguard` | `wg` | `<idx\|bssid> [ch] [bg]` | Passive WiFi IDS; `wg stop` / `wg view` |
 | `beaconflood` | `bf` | `[list\|rickroll\|seq <base>\|file\|clone]` | Beacon flood — fake AP injection |
