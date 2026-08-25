@@ -9,3 +9,8 @@
 .claude/settings.local.json
 .vscode/c_cpp_properties.json
 .vscode/launch.json
+
+# Jekyll docs — build output + local gem install (regenerable, never commit)
+docs/_site/
+docs/vendor/
+docs/.bundle/
