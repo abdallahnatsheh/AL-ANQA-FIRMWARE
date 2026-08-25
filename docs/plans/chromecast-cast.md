@@ -156,6 +156,13 @@ images fetch once then it can stop); no transcoding — the device must natively
 - **Own devices only** — this controls real TVs; the confirm-before-fire step is mandatory.
 - Cast v2 media = direct URLs, not YouTube pages (see scope note).
 
+## Status: ✅ BUILT + HW-VERIFIED (2026-08-25)
+Verified against a fake Cast-receiver rig (`~/cast-test/fake_chromecast.py` on Ubuntu: mDNS advert +
+DIAL:8008 + Cast v2:8009 TLS). Discovery, rickroll (DIAL), media LOAD (Cast v2), and local-file share
+all confirmed end-to-end. UI-render bug fixed (footer `println`→`printText`, see CLAUDE.md) + `home_ui`
+`signalRedraw` on uc-exit. One gotcha during bring-up: a host firewall blocked the inbound `:8123`
+share port — open it (`ufw allow 8008,8009,8123/tcp && ufw allow 5353/udp`).
+
 ## Verification (user, on hardware)
 1. `cw` to the LAN, run `ca` → confirm mDNS lists the real Cast device(s).
 2. Phase 1: `ca rickroll <#>` launches the YouTube video on the TV; `ca stop` stops it.

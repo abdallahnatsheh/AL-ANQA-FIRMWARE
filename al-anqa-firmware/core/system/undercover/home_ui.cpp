@@ -313,6 +313,10 @@ bool HomeLauncher::run(bool standalone) {
     if (standalone) {
         displayManager.setBlocked(false);
         displayManager.tdeck_begin();   // full clean slate: black + real status bar + prompt
+        // If we were panic-hidden mid-command, the command's static UI was blanked by the
+        // cover. Raise the unlock-style repaint signal so it fully redraws on its next loop
+        // (every consumeJustUnlocked-aware command). Mirrors notes_ui's standalone exit.
+        LockScreenManager::getInstance().signalRedraw();
     }
     return _secretExit;
 }

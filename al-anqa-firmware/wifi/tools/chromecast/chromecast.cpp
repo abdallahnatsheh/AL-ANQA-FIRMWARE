@@ -82,9 +82,11 @@ static int       s_mediaCount = 0;
 
 // ── small UI helpers ────────────────────────────────────────────────────────────────
 static void castMsg(const char* line, uint16_t col, int row) {
-    displayManager.setCursor(6, outputY + LINE_HEIGHT * row);
+    int y = outputY + LINE_HEIGHT * row;
+    displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);   // clear the line first (no overlap on re-draw)
+    displayManager.setCursor(6, y);
     displayManager.setTextColor(col);
-    displayManager.println(line);
+    displayManager.printText(line);
     displayManager.setTextColor(TFT_WHITE);
 }
 
@@ -519,24 +521,26 @@ static void drawHeader(const char* sub, const String& who) {
     displayManager.setTextColor(0x7BEF);     displayManager.printText("::");
     displayManager.setTextColor(TFT_YELLOW); displayManager.printText(sub);
     displayManager.setTextColor(0x7BEF);     displayManager.printText("]  ");
-    displayManager.setTextColor(TFT_WHITE);  displayManager.println(who.c_str());
+    displayManager.setTextColor(TFT_WHITE);  displayManager.printText(who.c_str());
 }
 
 static void footer(const char* txt) {
-    displayManager.fillRect(0, SCREEN_HEIGHT - LINE_HEIGHT, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
-    displayManager.setCursor(4, SCREEN_HEIGHT - LINE_HEIGHT + 2);
+    // Sit a few px above the very bottom — the last row of the panel is clipped.
+    int y = SCREEN_HEIGHT - LINE_HEIGHT - 4;      // 222
+    displayManager.fillRect(0, y - 2, SCREEN_WIDTH, LINE_HEIGHT + 6, TFT_BLACK);
+    displayManager.setCursor(4, y);
     displayManager.setTextColor(0x7BEF);
-    displayManager.println(txt);
+    displayManager.printText(txt);
     displayManager.setTextColor(TFT_WHITE);
 }
 
 // A transient status line at row 12 (above the footer).
 static void toast(const char* txt, uint16_t col) {
-    int y = SCREEN_HEIGHT - LINE_HEIGHT * 2;
-    displayManager.fillRect(0, y, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+    int y = SCREEN_HEIGHT - LINE_HEIGHT * 2 - 6;   // 206 — one line ABOVE the footer, no collision
+    displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
     displayManager.setCursor(4, y);
     displayManager.setTextColor(col);
-    displayManager.println(txt);
+    displayManager.printText(txt);
     displayManager.setTextColor(TFT_WHITE);
 }
 
@@ -547,7 +551,7 @@ static int pickDevice() {
     const int rows = (SCREEN_HEIGHT - outputY - LINE_HEIGHT * 3) / LINE_HEIGHT;
     auto drawRow = [&](int idx) {
         int i = idx - top; if (i < 0 || i >= rows) return;
-        int y = outputY + LINE_HEIGHT * (2 + i);
+        int y = outputY + LINE_HEIGHT * (1 + i);
         displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, idx == sel ? 0x0010 : TFT_BLACK);
         if (idx >= s_devCount) return;
         displayManager.setCursor(4, y);
@@ -556,7 +560,7 @@ static int pickDevice() {
         displayManager.printText(s_dev[idx].name.c_str());
         displayManager.setTextColor(0x7BEF);
         displayManager.printText("  ");
-        displayManager.println(s_dev[idx].ip.toString().c_str());
+        displayManager.printText(s_dev[idx].ip.toString().c_str());
     };
     auto full = [&]() {
         displayManager.clearScreen();
@@ -616,7 +620,7 @@ static void pickMedia(const IPAddress& ip, const String& who) {
     const int rows = (SCREEN_HEIGHT - outputY - LINE_HEIGHT * 3) / LINE_HEIGHT;
     auto drawRow = [&](int idx) {
         int i = idx - top; if (i < 0 || i >= rows) return;
-        int y = outputY + LINE_HEIGHT * (2 + i);
+        int y = outputY + LINE_HEIGHT * (1 + i);
         displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, idx == sel ? 0x0010 : TFT_BLACK);
         if (idx >= s_mediaCount) return;
         displayManager.setCursor(4, y);
@@ -624,7 +628,7 @@ static void pickMedia(const IPAddress& ip, const String& who) {
         displayManager.printText(idx == sel ? "> " : "  ");
         displayManager.printText(s_media[idx].name.c_str());
         displayManager.setTextColor(0x7BEF);
-        displayManager.println(s_media[idx].target.startsWith("http") ? "  [url]" : "  [yt]");
+        displayManager.printText(s_media[idx].target.startsWith("http") ? "  [url]" : "  [yt]");
     };
     auto full = [&]() {
         displayManager.clearScreen();
@@ -694,7 +698,7 @@ static bool pickShareFile(String& outPath, String& outName) {
     const int rows = (SCREEN_HEIGHT - outputY - LINE_HEIGHT * 3) / LINE_HEIGHT;
     auto drawRow = [&](int idx) {
         int i = idx - top; if (i < 0 || i >= rows) return;
-        int y = outputY + LINE_HEIGHT * (2 + i);
+        int y = outputY + LINE_HEIGHT * (1 + i);
         displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, idx == sel ? 0x0010 : TFT_BLACK);
         if (idx >= n) return;
         displayManager.setCursor(4, y);
@@ -702,7 +706,7 @@ static bool pickShareFile(String& outPath, String& outName) {
         displayManager.printText(idx == sel ? "> " : "  ");
         displayManager.printText(names[idx].c_str());
         displayManager.setTextColor(0x7BEF);
-        displayManager.println(isImageFile(names[idx]) ? "  [img]" : "  [vid]");
+        displayManager.printText(isImageFile(names[idx]) ? "  [img]" : "  [vid]");
     };
     auto full = [&]() {
         displayManager.clearScreen();
@@ -745,20 +749,29 @@ static void shareCast(const IPAddress& ip, const String& path, const String& nam
     WiFiServer server(CAST_HTTP_PORT);
     server.begin();
 
-    displayManager.clearScreen();
-    drawHeader("SHARE", who);
-    castMsg((String("File: ") + name).c_str(), TFT_WHITE, 1);
-    castMsg((String("URL:  ") + url).c_str(), 0x7BEF, 2);
-    castMsg("sending to device (Cast v2 / TLS) ...", TFT_CYAN, 4);
+    String status = "sending to device (Cast v2 / TLS) ...";
+    uint16_t scol = TFT_CYAN;
+    auto paint = [&]() {
+        displayManager.clearScreen();
+        displayManager.updateStatusBar();
+        drawHeader("SHARE", who);
+        castMsg((String("File: ") + name).c_str(), TFT_WHITE, 1);
+        castMsg((String("URL:  ") + url).c_str(), 0x7BEF, 2);
+        castMsg(status.c_str(), scol, 4);
+        footer("[q] stop sharing");
+    };
+    paint();
 
     String err;
     bool loaded = castLoadMediaEx(ip, url, ctype, image ? "NONE" : "BUFFERED", err);
-    castMsg(loaded ? "device is fetching — serving file" : (String("load failed: ") + err).c_str(),
-            loaded ? TFT_GREEN : TFT_ORANGE, 4);
-    footer("[q] stop sharing");
+    status = loaded ? String("device is fetching — serving file") : (String("load failed: ") + err);
+    scol   = loaded ? TFT_GREEN : TFT_ORANGE;
+    castMsg(status.c_str(), scol, 4);
 
     unsigned long served = 0; int reqs = 0; uint32_t lastDraw = 0;
     while (true) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) paint();   // redraw after unlock / uc-exit
+        PowerSaveManager::getInstance().updateActivity();
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
         WiFiClient client = server.available();
@@ -794,12 +807,12 @@ static void actionMenu(int devIdx) {
     String who = d.name + "  " + d.ip.toString();
     int sel = 0; bool muted = false; int vol = 50;
     auto drawRow = [&](int i) {
-        int y = outputY + LINE_HEIGHT * (2 + i);
+        int y = outputY + LINE_HEIGHT * (1 + i);
         displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, i == sel ? 0x0010 : TFT_BLACK);
         displayManager.setCursor(4, y);
         displayManager.setTextColor(i == sel ? TFT_YELLOW : TFT_WHITE);
         displayManager.printText(i == sel ? "> " : "  ");
-        displayManager.println(ACTIONS[i]);
+        displayManager.printText(ACTIONS[i]);
     };
     auto full = [&]() {
         displayManager.clearScreen();
@@ -868,7 +881,7 @@ static void bail(const char* line) {
     displayManager.clearScreen();
     displayManager.setCursor(6, outputY);
     displayManager.setTextColor(TFT_ORANGE);
-    displayManager.println(line);
+    displayManager.printText(line);
     displayManager.setTextColor(TFT_WHITE);
     delay(1600);
     displayManager.clearScreen();
