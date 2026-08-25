@@ -42,6 +42,7 @@
 #include "lockscreen_manager.h"
 #include "network_scanner.h"   // resolveNetTarget()
 #include "sdcard_manager.h"    // SD_DIR_CHROMECAST
+#include "powersave_manager.h" // keep the screen awake while browsing a picker
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
@@ -539,45 +540,54 @@ static void toast(const char* txt, uint16_t col) {
     displayManager.setTextColor(TFT_WHITE);
 }
 
-// Device picker → returns chosen index, or -1 on quit.
+// Device picker → returns chosen index, or -1 on quit. Draw-once + partial row
+// updates (dpwo/netspy pattern — NEVER clearScreen inside the loop, or it flickers).
 static int pickDevice() {
     int sel = 0, top = 0;
     const int rows = (SCREEN_HEIGHT - outputY - LINE_HEIGHT * 3) / LINE_HEIGHT;
-    bool redraw = true;
-    while (true) {
-        if (redraw) {
-            displayManager.clearScreen();
-            drawHeader("DEVICES", String(s_devCount) + " found");
-            if (s_devCount == 0) {
-                castMsg("No casts found. Same Wi-Fi as the TV?", TFT_ORANGE, 2);
-                castMsg("[u] rescan   [q] back", 0x7BEF, 4);
-            } else {
-                for (int i = 0; i < rows && top + i < s_devCount; i++) {
-                    int idx = top + i, y = outputY + LINE_HEIGHT * (2 + i);
-                    displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, idx == sel ? 0x0010 : TFT_BLACK);
-                    displayManager.setCursor(4, y);
-                    displayManager.setTextColor(idx == sel ? TFT_YELLOW : TFT_WHITE);
-                    displayManager.printText(idx == sel ? "> " : "  ");
-                    displayManager.printText(s_dev[idx].name.c_str());
-                    displayManager.setTextColor(0x7BEF);
-                    displayManager.printText("  ");
-                    displayManager.println(s_dev[idx].ip.toString().c_str());
-                }
-                footer("[trackball/ws] move  [enter] open  [1-9] pick  [u] rescan  [q] back");
-            }
-            redraw = false;
+    auto drawRow = [&](int idx) {
+        int i = idx - top; if (i < 0 || i >= rows) return;
+        int y = outputY + LINE_HEIGHT * (2 + i);
+        displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, idx == sel ? 0x0010 : TFT_BLACK);
+        if (idx >= s_devCount) return;
+        displayManager.setCursor(4, y);
+        displayManager.setTextColor(idx == sel ? TFT_YELLOW : TFT_WHITE);
+        displayManager.printText(idx == sel ? "> " : "  ");
+        displayManager.printText(s_dev[idx].name.c_str());
+        displayManager.setTextColor(0x7BEF);
+        displayManager.printText("  ");
+        displayManager.println(s_dev[idx].ip.toString().c_str());
+    };
+    auto full = [&]() {
+        displayManager.clearScreen();
+        displayManager.updateStatusBar();
+        drawHeader("DEVICES", String(s_devCount) + " found");
+        if (s_devCount == 0) {
+            castMsg("No casts found. Same Wi-Fi as the TV?", TFT_ORANGE, 2);
+            castMsg("[u] rescan   [q] back", 0x7BEF, 4);
+        } else {
+            for (int i = 0; i < rows && top + i < s_devCount; i++) drawRow(top + i);
         }
+        footer("[trackball/ws] move  [enter] open  [1-9] pick  [u] rescan  [q] back");
+    };
+    full();
+    while (true) {
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) full();
+        PowerSaveManager::getInstance().updateActivity();   // don't let the backlight dim while browsing
+        int prevSel = sel, prevTop = top;
         TrackballEvent e = inputHandler.getTrackballEvent();
-        if (e == TBALL_UP   && sel > 0)              { sel--; if (sel < top) top = sel; redraw = true; }
-        if (e == TBALL_DOWN && sel < s_devCount - 1) { sel++; if (sel >= top + rows) top = sel - rows + 1; redraw = true; }
-        if (e == TBALL_CLICK && s_devCount > 0) return sel;
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') return -1;
-        if (k == 'u' || k == 'U') { castScan(); sel = 0; top = 0; redraw = true; }
-        if ((k == 'w' || k == 'W') && sel > 0)              { sel--; if (sel < top) top = sel; redraw = true; }
-        if ((k == 's' || k == 'S') && sel < s_devCount - 1) { sel++; if (sel >= top + rows) top = sel - rows + 1; redraw = true; }
-        if (k == '\r' || k == '\n') { if (s_devCount > 0) return sel; }
+        if (k == 'u' || k == 'U') { castScan(); sel = 0; top = 0; full(); continue; }
+        if (((e == TBALL_UP)   || k == 'w' || k == 'W') && sel > 0)              sel--;
+        if (((e == TBALL_DOWN) || k == 's' || k == 'S') && sel < s_devCount - 1) sel++;
+        if (sel < top) top = sel;
+        if (sel >= top + rows) top = sel - rows + 1;
+        if (e == TBALL_CLICK && s_devCount > 0) return sel;
+        if ((k == '\r' || k == '\n') && s_devCount > 0) return sel;
         if (k >= '1' && k <= '9' && (k - '1') < s_devCount) return k - '1';
+        if (top != prevTop)      full();                                  // scrolled
+        else if (sel != prevSel) { drawRow(prevSel); drawRow(sel); }      // partial
         delay(15);
     }
 }
@@ -604,41 +614,48 @@ static void pickMedia(const IPAddress& ip, const String& who) {
     loadMedia();
     int sel = 0, top = 0;
     const int rows = (SCREEN_HEIGHT - outputY - LINE_HEIGHT * 3) / LINE_HEIGHT;
-    bool redraw = true;
+    auto drawRow = [&](int idx) {
+        int i = idx - top; if (i < 0 || i >= rows) return;
+        int y = outputY + LINE_HEIGHT * (2 + i);
+        displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, idx == sel ? 0x0010 : TFT_BLACK);
+        if (idx >= s_mediaCount) return;
+        displayManager.setCursor(4, y);
+        displayManager.setTextColor(idx == sel ? TFT_YELLOW : TFT_WHITE);
+        displayManager.printText(idx == sel ? "> " : "  ");
+        displayManager.printText(s_media[idx].name.c_str());
+        displayManager.setTextColor(0x7BEF);
+        displayManager.println(s_media[idx].target.startsWith("http") ? "  [url]" : "  [yt]");
+    };
+    auto full = [&]() {
+        displayManager.clearScreen();
+        displayManager.updateStatusBar();
+        drawHeader("CONTENT", who);
+        if (s_mediaCount == 0) castMsg("No saved content. Add /apps/cast/media.csv", TFT_ORANGE, 2);
+        for (int i = 0; i < rows && top + i < s_mediaCount; i++) drawRow(top + i);
+        footer("[trackball/ws] move  [enter] play  [1-9] pick  [q] back");
+    };
+    full();
     while (true) {
-        if (redraw) {
-            displayManager.clearScreen();
-            drawHeader("CONTENT", who);
-            if (s_mediaCount == 0) castMsg("No saved content. Add /apps/cast/media.csv", TFT_ORANGE, 2);
-            for (int i = 0; i < rows && top + i < s_mediaCount; i++) {
-                int idx = top + i, y = outputY + LINE_HEIGHT * (2 + i);
-                displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, idx == sel ? 0x0010 : TFT_BLACK);
-                displayManager.setCursor(4, y);
-                displayManager.setTextColor(idx == sel ? TFT_YELLOW : TFT_WHITE);
-                displayManager.printText(idx == sel ? "> " : "  ");
-                displayManager.printText(s_media[idx].name.c_str());
-                displayManager.setTextColor(0x7BEF);
-                displayManager.println(s_media[idx].target.startsWith("http") ? "  [url]" : "  [yt]");
-            }
-            footer("[trackball/ws] move  [enter] play  [1-9] pick  [q] back");
-            redraw = false;
-        }
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) full();
+        PowerSaveManager::getInstance().updateActivity();   // don't let the backlight dim while browsing
+        int prevSel = sel, prevTop = top;
         TrackballEvent e = inputHandler.getTrackballEvent();
-        if (e == TBALL_UP   && sel > 0)                { sel--; if (sel < top) top = sel; redraw = true; }
-        if (e == TBALL_DOWN && sel < s_mediaCount - 1) { sel++; if (sel >= top + rows) top = sel - rows + 1; redraw = true; }
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') return;
-        if ((k == 'w' || k == 'W') && sel > 0)                { sel--; if (sel < top) top = sel; redraw = true; }
-        if ((k == 's' || k == 'S') && sel < s_mediaCount - 1) { sel++; if (sel >= top + rows) top = sel - rows + 1; redraw = true; }
+        if (((e == TBALL_UP)   || k == 'w' || k == 'W') && sel > 0)                sel--;
+        if (((e == TBALL_DOWN) || k == 's' || k == 'S') && sel < s_mediaCount - 1) sel++;
         int quick = (k >= '1' && k <= '9' && (k - '1') < s_mediaCount) ? (k - '1') : -1;
         if (quick >= 0) sel = quick;
+        if (sel < top) top = sel;
+        if (sel >= top + rows) top = sel - rows + 1;
         bool fire = (e == TBALL_CLICK) || (k == '\r') || (k == '\n') || (quick >= 0);
         if (fire && s_mediaCount > 0) {
             toast((String("playing ") + s_media[sel].name).c_str(), TFT_CYAN);
             String err; bool ok = playTarget(ip, s_media[sel].target, err);
             toast(ok ? "Playing." : (err.length() ? ("Failed: " + err).c_str() : "Failed"), ok ? TFT_GREEN : TFT_ORANGE);
-            delay(1300); redraw = true;
-        }
+            delay(1300); full();
+        } else if (top != prevTop)   full();
+        else if (sel != prevSel)     { drawRow(prevSel); drawRow(sel); }
         delay(15);
     }
 }
@@ -675,36 +692,44 @@ static bool pickShareFile(String& outPath, String& outName) {
     }
     int sel = 0, top = 0;
     const int rows = (SCREEN_HEIGHT - outputY - LINE_HEIGHT * 3) / LINE_HEIGHT;
-    bool redraw = true;
+    auto drawRow = [&](int idx) {
+        int i = idx - top; if (i < 0 || i >= rows) return;
+        int y = outputY + LINE_HEIGHT * (2 + i);
+        displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, idx == sel ? 0x0010 : TFT_BLACK);
+        if (idx >= n) return;
+        displayManager.setCursor(4, y);
+        displayManager.setTextColor(idx == sel ? TFT_YELLOW : TFT_WHITE);
+        displayManager.printText(idx == sel ? "> " : "  ");
+        displayManager.printText(names[idx].c_str());
+        displayManager.setTextColor(0x7BEF);
+        displayManager.println(isImageFile(names[idx]) ? "  [img]" : "  [vid]");
+    };
+    auto full = [&]() {
+        displayManager.clearScreen();
+        displayManager.updateStatusBar();
+        drawHeader("SHARE", String(n) + " files");
+        for (int i = 0; i < rows && top + i < n; i++) drawRow(top + i);
+        footer("[trackball/ws] move  [enter] share  [1-9] pick  [q] back");
+    };
+    full();
     while (true) {
-        if (redraw) {
-            displayManager.clearScreen();
-            drawHeader("SHARE", String(n) + " files");
-            for (int i = 0; i < rows && top + i < n; i++) {
-                int idx = top + i, y = outputY + LINE_HEIGHT * (2 + i);
-                displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, idx == sel ? 0x0010 : TFT_BLACK);
-                displayManager.setCursor(4, y);
-                displayManager.setTextColor(idx == sel ? TFT_YELLOW : TFT_WHITE);
-                displayManager.printText(idx == sel ? "> " : "  ");
-                displayManager.printText(names[idx].c_str());
-                displayManager.setTextColor(0x7BEF);
-                displayManager.println(isImageFile(names[idx]) ? "  [img]" : "  [vid]");
-            }
-            footer("[trackball/ws] move  [enter] share  [1-9] pick  [q] back");
-            redraw = false;
-        }
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) full();
+        PowerSaveManager::getInstance().updateActivity();   // don't let the backlight dim while browsing
+        int prevSel = sel, prevTop = top;
         TrackballEvent e = inputHandler.getTrackballEvent();
-        if (e == TBALL_UP   && sel > 0)     { sel--; if (sel < top) top = sel; redraw = true; }
-        if (e == TBALL_DOWN && sel < n - 1) { sel++; if (sel >= top + rows) top = sel - rows + 1; redraw = true; }
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') return false;
-        if ((k == 'w' || k == 'W') && sel > 0)     { sel--; if (sel < top) top = sel; redraw = true; }
-        if ((k == 's' || k == 'S') && sel < n - 1) { sel++; if (sel >= top + rows) top = sel - rows + 1; redraw = true; }
+        if (((e == TBALL_UP)   || k == 'w' || k == 'W') && sel > 0)     sel--;
+        if (((e == TBALL_DOWN) || k == 's' || k == 'S') && sel < n - 1) sel++;
         int quick = (k >= '1' && k <= '9' && (k - '1') < n) ? (k - '1') : -1;
         if (quick >= 0) sel = quick;
+        if (sel < top) top = sel;
+        if (sel >= top + rows) top = sel - rows + 1;
         if ((e == TBALL_CLICK) || (k == '\r') || (k == '\n') || quick >= 0) {
             outName = names[sel]; outPath = String(CAST_SHARE_DIR) + "/" + names[sel]; return true;
         }
+        if (top != prevTop)      full();
+        else if (sel != prevSel) { drawRow(prevSel); drawRow(sel); }
         delay(15);
     }
 }
@@ -767,86 +792,72 @@ static const char* ACTIONS[A_N] = {
 static void actionMenu(int devIdx) {
     const CastDev& d = s_dev[devIdx];
     String who = d.name + "  " + d.ip.toString();
-    int sel = 0; bool redraw = true; bool muted = false; int vol = 50;
+    int sel = 0; bool muted = false; int vol = 50;
+    auto drawRow = [&](int i) {
+        int y = outputY + LINE_HEIGHT * (2 + i);
+        displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, i == sel ? 0x0010 : TFT_BLACK);
+        displayManager.setCursor(4, y);
+        displayManager.setTextColor(i == sel ? TFT_YELLOW : TFT_WHITE);
+        displayManager.printText(i == sel ? "> " : "  ");
+        displayManager.println(ACTIONS[i]);
+    };
+    auto full = [&]() {
+        displayManager.clearScreen();
+        displayManager.updateStatusBar();
+        drawHeader("CONTROL", who);
+        for (int i = 0; i < A_N; i++) drawRow(i);
+        footer("[trackball/ws] move  [enter] do  [1-9] pick  [q] back");
+    };
+    full();
     while (true) {
-        if (redraw) {
-            displayManager.clearScreen();
-            drawHeader("CONTROL", who);
-            for (int i = 0; i < A_N; i++) {
-                int y = outputY + LINE_HEIGHT * (2 + i);
-                displayManager.fillRect(0, y - 1, SCREEN_WIDTH, LINE_HEIGHT, i == sel ? 0x0010 : TFT_BLACK);
-                displayManager.setCursor(4, y);
-                displayManager.setTextColor(i == sel ? TFT_YELLOW : TFT_WHITE);
-                displayManager.printText(i == sel ? "> " : "  ");
-                displayManager.println(ACTIONS[i]);
-            }
-            footer("[trackball/ws] move  [enter] do  [1-9] pick  [q] back");
-            redraw = false;
-        }
+        if (LockScreenManager::getInstance().consumeJustUnlocked()) full();
+        PowerSaveManager::getInstance().updateActivity();   // don't let the backlight dim while browsing
+        int prevSel = sel;
         TrackballEvent e = inputHandler.getTrackballEvent();
-        if (e == TBALL_UP   && sel > 0)       { sel--; redraw = true; }
-        if (e == TBALL_DOWN && sel < A_N - 1) { sel++; redraw = true; }
-
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') return;
-        if ((k == 'w' || k == 'W') && sel > 0)       { sel--; redraw = true; }
-        if ((k == 's' || k == 'S') && sel < A_N - 1) { sel++; redraw = true; }
+        if (((e == TBALL_UP)   || k == 'w' || k == 'W') && sel > 0)       sel--;
+        if (((e == TBALL_DOWN) || k == 's' || k == 'S') && sel < A_N - 1) sel++;
         int quick = (k >= '1' && k <= '9' && (k - '1') < A_N) ? (k - '1') : -1;
         if (quick >= 0) sel = quick;
 
         bool fire = (e == TBALL_CLICK) || (k == '\r') || (k == '\n') || (quick >= 0);
-        if (!fire) { delay(15); continue; }
+        if (!fire) {
+            if (sel != prevSel) { drawRow(prevSel); drawRow(sel); }        // partial
+            delay(15); continue;
+        }
 
         bool ok = false;
         switch (sel) {
             case A_RICK:
-                if (!confirm("Rickroll this device?", who)) { redraw = true; break; }
+                if (!confirm("Rickroll this device?", who)) break;
                 toast("launching YouTube ...", TFT_CYAN);
                 ok = dialOk(dialLaunch(d.ip, "YouTube", String("v=") + RICKROLL_VID));
                 toast(ok ? "Rickrolled." : "DIAL refused (try Cast v2 test video)", ok ? TFT_GREEN : TFT_ORANGE);
-                delay(1200); redraw = true; break;
-            case A_SAVED:
-                pickMedia(d.ip, who);
-                redraw = true; break;
-            case A_SHARE: {
-                String p, nm;
-                if (pickShareFile(p, nm)) shareCast(d.ip, p, nm, who);
-                redraw = true; break; }
-            case A_PLAY:
-                toast("play ...", TFT_CYAN); ok = castMediaCtl(d.ip, "PLAY");
-                toast(ok ? "Playing." : "No active session", ok ? TFT_GREEN : TFT_ORANGE);
-                delay(1000); redraw = true; break;
-            case A_PAUSE:
-                toast("pause ...", TFT_CYAN); ok = castMediaCtl(d.ip, "PAUSE");
-                toast(ok ? "Paused." : "No active session", ok ? TFT_GREEN : TFT_ORANGE);
-                delay(1000); redraw = true; break;
+                delay(1200); break;
+            case A_SAVED:  pickMedia(d.ip, who); break;
+            case A_SHARE:  { String p, nm; if (pickShareFile(p, nm)) shareCast(d.ip, p, nm, who); break; }
+            case A_PLAY:   toast("play ...", TFT_CYAN);  ok = castMediaCtl(d.ip, "PLAY");
+                           toast(ok ? "Playing." : "No active session", ok ? TFT_GREEN : TFT_ORANGE); delay(1000); break;
+            case A_PAUSE:  toast("pause ...", TFT_CYAN); ok = castMediaCtl(d.ip, "PAUSE");
+                           toast(ok ? "Paused." : "No active session", ok ? TFT_GREEN : TFT_ORANGE); delay(1000); break;
             case A_STOP:
-                if (!confirm("Stop playback on this device?", who)) { redraw = true; break; }
+                if (!confirm("Stop playback on this device?", who)) break;
                 toast("stop ...", TFT_CYAN);
                 ok = castMediaCtl(d.ip, "STOP") || dialOk(dialStop(d.ip, "YouTube"));
-                toast(ok ? "Stopped." : "Nothing to stop", ok ? TFT_GREEN : TFT_ORANGE);
-                delay(1000); redraw = true; break;
-            case A_VUP:
-                vol = min(100, vol + 10); ok = castVolume(d.ip, vol, false, false);
-                toast(ok ? (String("volume ") + vol + "%").c_str() : "volume failed", ok ? TFT_GREEN : TFT_ORANGE);
-                delay(700); redraw = true; break;
-            case A_VDN:
-                vol = max(0, vol - 10); ok = castVolume(d.ip, vol, false, false);
-                toast(ok ? (String("volume ") + vol + "%").c_str() : "volume failed", ok ? TFT_GREEN : TFT_ORANGE);
-                delay(700); redraw = true; break;
-            case A_MUTE:
-                muted = !muted; ok = castVolume(d.ip, vol, muted, true);
-                toast(ok ? (muted ? "Muted." : "Unmuted.") : "mute failed", ok ? TFT_GREEN : TFT_ORANGE);
-                delay(800); redraw = true; break;
-            case A_STATUS: {
-                toast("querying ...", TFT_CYAN);
-                String np = castNowPlaying(d.ip);
-                toast(np.length() ? (String("Now: ") + np).c_str() : "Idle / nothing playing",
-                      np.length() ? TFT_GREEN : 0x7BEF);
-                delay(1800); redraw = true; break; }
-            case A_BACK:
-                return;
+                toast(ok ? "Stopped." : "Nothing to stop", ok ? TFT_GREEN : TFT_ORANGE); delay(1000); break;
+            case A_VUP:    vol = min(100, vol + 10); ok = castVolume(d.ip, vol, false, false);
+                           toast(ok ? (String("volume ") + vol + "%").c_str() : "volume failed", ok ? TFT_GREEN : TFT_ORANGE); delay(700); break;
+            case A_VDN:    vol = max(0, vol - 10); ok = castVolume(d.ip, vol, false, false);
+                           toast(ok ? (String("volume ") + vol + "%").c_str() : "volume failed", ok ? TFT_GREEN : TFT_ORANGE); delay(700); break;
+            case A_MUTE:   muted = !muted; ok = castVolume(d.ip, vol, muted, true);
+                           toast(ok ? (muted ? "Muted." : "Unmuted.") : "mute failed", ok ? TFT_GREEN : TFT_ORANGE); delay(800); break;
+            case A_STATUS: { toast("querying ...", TFT_CYAN); String np = castNowPlaying(d.ip);
+                           toast(np.length() ? (String("Now: ") + np).c_str() : "Idle / nothing playing",
+                                 np.length() ? TFT_GREEN : 0x7BEF); delay(1800); break; }
+            case A_BACK:   return;
         }
+        full();   // repaint the menu after a toast / confirm / sub-screen
     }
 }
 
