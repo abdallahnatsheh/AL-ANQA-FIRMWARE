@@ -16,11 +16,13 @@ public:
     const char* title() const override { return "Weather"; }
     void onEnter() override;                    // auto-refresh if stale (with indicator)
     void draw() override;
-    Nav  onTouch(const TouchEvent&) override;   // tap = refresh
+    Nav  onTouch(const TouchEvent&) override;
     Nav  onTrackball(TrackballEvent) override;
+    Nav  onKey(char) override;
 private:
-    void refresh();                             // blocking fetch, self-renders a loading frame first
+    void refresh();
     bool _loading = false;
+    int  _focus   = 1;   // 0=back · 1=Refresh button
 };
 
 #endif // APP_WEATHER_H

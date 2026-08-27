@@ -10,8 +10,26 @@
 #include "undercover.h"
 #include <Wire.h>
 #include <esp_timer.h>
+#if defined(BOARD_TPAGER)
+#include "tpager/tpager_keyboard.h"   // TCA8418 keyboard engine
+#include "tpager/tpager_encoder.h"    // rotary encoder → TrackballEvent
+#endif
 
 extern WGuard wGuard;
+
+// Board-specific raw keyboard read. Returns a resolved char (0 = no key). All the
+// shared handling (backspace hold-repeat, panic key, lockscreen intercept, activity
+// hooks) stays in getKeyboardInput() below and is identical across boards.
+static char boardReadKey() {
+#if defined(BOARD_TPAGER)
+    return tpagerKeyboardRead();
+#else
+    if (Wire.requestFrom(LILYGO_KB_SLAVE_ADDRESS, 1) != 0) {
+        return (char)Wire.read();
+    }
+    return 0;
+#endif
+}
 
 // ISR-based click detection — works even during blocking BLE scans
 static volatile int64_t s_isrLastClickUs    = 0;
@@ -31,6 +49,13 @@ static void IRAM_ATTR clickISR() {
 }
 
 void InputHandling::begin() {
+#if defined(BOARD_TPAGER)
+    // Wire + XL9555 rails already up (boardPowerOn). Bring up the TCA8418 keyboard
+    // and the rotary encoder; both expose the same char / TrackballEvent contract.
+    lastActivityTime = millis();
+    tpagerKeyboardBegin();
+    tpagerEncoderBegin();
+#else
     pinMode(BOARD_KEYBOARD_INT, INPUT_PULLUP);
     lastActivityTime = millis();
     delay(300);
@@ -49,9 +74,22 @@ void InputHandling::begin() {
     // Click pin — ISR handles all timing
     pinMode(BOARD_BOOT_PIN, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(BOARD_BOOT_PIN), clickISR, FALLING);
+#endif
 }
 
 TrackballEvent InputHandling::getTrackballEvent() {
+#if defined(BOARD_TPAGER)
+    // Rotary encoder stands in for the trackball. Apply the same activity hooks
+    // the T-Deck path applies on any real event.
+    TrackballEvent ev = tpagerEncoderRead();
+    if (ev != TBALL_NONE) {
+        updateActivity();
+        if (!PowerSaveManager::getInstance().isManualOff())
+            PowerSaveManager::getInstance().updateActivity();
+        LockScreenManager::getInstance().updateActivity();
+    }
+    return ev;
+#else
     static const uint8_t pins[4] = {
         BOARD_TBOX_G02, BOARD_TBOX_G01, BOARD_TBOX_G04, BOARD_TBOX_G03
     };
@@ -81,6 +119,7 @@ TrackballEvent InputHandling::getTrackballEvent() {
     }
 
     return TBALL_NONE;
+#endif
 }
 
 char InputHandling::getKeyboardInput() {
@@ -102,10 +141,14 @@ char InputHandling::getKeyboardInput() {
         PowerSaveManager::getInstance().toggleManualOff();
     }
 
-    char key = 0;
-    if (Wire.requestFrom(LILYGO_KB_SLAVE_ADDRESS, 1) != 0) {
-        key = Wire.read();
+    char key = boardReadKey();
+    {
         if (key != 0) {
+#if !defined(BOARD_TPAGER)
+            // T-Deck: the I2C keyboard sends no key-up, so backspace hold-repeat is a
+            // software timer here. The T-Pager keyboard driver does native hold-to-repeat
+            // for every key (the TCA8418 reports releases), so this whole block is
+            // skipped there — see tpager_keyboard.cpp.
             // Only backspace repeats on hold — all other keys cancel any pending repeat.
             if (key == '\b') {
                 if (_repeatKey != 0) {
@@ -123,13 +166,16 @@ char InputHandling::getKeyboardInput() {
                 _repeatKey      = 0;
                 _lastBsReturnMs = 0;  // reset: next \b is cold → fresh hold works immediately
             }
+#endif  // !BOARD_TPAGER
             updateActivity();
             PowerSaveManager::getInstance().updateActivity();
         }
     }
 
-    // Software key repeat: fire synthetic events after kRepeatDelayMs hold,
-    // then every kRepeatRateMs. Clears automatically when next physical key arrives.
+#if !defined(BOARD_TPAGER)
+    // Software key repeat (T-Deck only): fire synthetic events after kRepeatDelayMs
+    // hold, then every kRepeatRateMs. Clears automatically when next physical key
+    // arrives. On the T-Pager the driver already returned the repeat char.
     if (key == 0 && _repeatKey != 0 &&
         now - _repeatStart >= kRepeatDelayMs &&
         now - _repeatLast  >= kRepeatRateMs) {
@@ -137,6 +183,7 @@ char InputHandling::getKeyboardInput() {
         _repeatLast     = now;
         _lastBsReturnMs = now;  // keep state hot while auto-delete is running
     }
+#endif
 
     // Panic key: instant drop into the Notes cover from anywhere — even mid-command,
     // since every blocking loop reads keys through here. Only armed once an exit

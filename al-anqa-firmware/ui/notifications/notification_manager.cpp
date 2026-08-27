@@ -1,4 +1,5 @@
 #include "notification_manager.h"
+#include "board_audio.h"
 #include "powersave_manager.h"
 #include "display_manager.h"
 #include "sdcard_manager.h"
@@ -50,12 +51,12 @@ void NotificationManager::playTones(const int* freqs, const int* durs, int count
     cfg.intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1;
     cfg.dma_buf_count        = 8;
     cfg.dma_buf_len          = 128;
-    cfg.use_apll             = false;
+    cfg.use_apll             = BOARD_I2S_USE_APLL;
     cfg.tx_desc_auto_clear   = true;
     if (i2s_driver_install(NM_I2S_PORT, &cfg, 0, NULL) != ESP_OK) return;
 
     i2s_pin_config_t pins = {};
-    pins.mck_io_num   = I2S_PIN_NO_CHANGE;
+    pins.mck_io_num   = BOARD_I2S_MCK_PIN;
     pins.bck_io_num   = BOARD_I2S_BCK;
     pins.ws_io_num    = BOARD_I2S_WS;
     pins.data_out_num = BOARD_I2S_DOUT;
@@ -64,6 +65,9 @@ void NotificationManager::playTones(const int* freqs, const int* durs, int count
         i2s_driver_uninstall(NM_I2S_PORT);
         return;
     }
+    i2s_zero_dma_buffer(NM_I2S_PORT);
+    boardCodecBegin(NM_SR);   // T-Pager: ES8311 muted (test-spk order)
+    boardCodecUnmute();
 
     int16_t amp = (int16_t)(_notifVol / 100.0f * 22000.0f);
 
@@ -88,6 +92,7 @@ void NotificationManager::playTones(const int* freqs, const int* durs, int count
         i2s_zero_dma_buffer(NM_I2S_PORT);
     }
 
+    boardCodecEnd();
     i2s_driver_uninstall(NM_I2S_PORT);
 }
 
@@ -141,12 +146,12 @@ bool NotificationManager::playWav(const char* path) {
     cfg.intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1;
     cfg.dma_buf_count        = 8;
     cfg.dma_buf_len          = 256;
-    cfg.use_apll             = false;
+    cfg.use_apll             = BOARD_I2S_USE_APLL;
     cfg.tx_desc_auto_clear   = true;
     if (i2s_driver_install(NM_I2S_PORT, &cfg, 0, NULL) != ESP_OK) { f.close(); return false; }
 
     i2s_pin_config_t pins = {};
-    pins.mck_io_num   = I2S_PIN_NO_CHANGE;
+    pins.mck_io_num   = BOARD_I2S_MCK_PIN;
     pins.bck_io_num   = BOARD_I2S_BCK;
     pins.ws_io_num    = BOARD_I2S_WS;
     pins.data_out_num = BOARD_I2S_DOUT;
@@ -156,6 +161,9 @@ bool NotificationManager::playWav(const char* path) {
         f.close();
         return false;
     }
+    i2s_zero_dma_buffer(NM_I2S_PORT);
+    boardCodecBegin(hdr.sampleRate);   // T-Pager: ES8311 muted (test-spk order)
+    boardCodecUnmute();
 
     // Apply volume by scaling samples
     float gain = _notifVol / 100.0f;
@@ -173,6 +181,7 @@ bool NotificationManager::playWav(const char* path) {
     }
 
     i2s_zero_dma_buffer(NM_I2S_PORT);
+    boardCodecEnd();
     i2s_driver_uninstall(NM_I2S_PORT);
     f.close();
     return true;

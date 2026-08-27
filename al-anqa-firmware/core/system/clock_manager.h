@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <time.h>   // time_t
 
 // ClockManager — local-time wall clock with two sync sources:
 //   1. NTP  — when WiFi connected; uses configured POSIX TZ string for local time
@@ -33,6 +34,7 @@ public:
     void getTimestamp(char* buf, size_t len) const;  // "YYYY-MM-DD HH:MM:SS" or ""
 
     void setTZ(const char* posixStr);  // apply + save new TZ
+    void setEpochUtc(time_t utc);      // set system clock + hardware RTC from a UTC epoch
     bool loadConfig();
     bool saveConfig();
 

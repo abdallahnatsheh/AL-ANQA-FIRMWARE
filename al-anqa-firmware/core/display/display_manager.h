@@ -3,14 +3,8 @@
 
 #include "LGFX_T-Deck.h"
 #include <DigitalRainAnimation.hpp>
-
-const uint16_t promptHeight = 30;
-const uint16_t promptY      = 0;
-const uint16_t outputY      = promptY + promptHeight + 8;
-
-#define SCREEN_WIDTH  320
-#define SCREEN_HEIGHT 240
-#define LINE_HEIGHT   14
+#include "board.h"   // screen metrics (SCREEN_WIDTH/HEIGHT, LINE_HEIGHT,
+                     // promptHeight/promptY/outputY) now live in the board layer
 
 class DisplayManager {
 public:

@@ -18,6 +18,7 @@ public:
     void onEnter() override;
     void draw() override;
     Nav  onTouch(const TouchEvent&) override;
+    Nav  onTrackball(TrackballEvent) override;
     Nav  onKey(char) override;
 private:
     void input(const char* key);
@@ -25,6 +26,8 @@ private:
     double _acc   = 0;
     char   _op    = 0;
     bool   _fresh = true;
+    int    _kr = 0, _kc = 0;   // keypad focus (encoder); unused on touch-driven T-Deck path
+    bool   _backFocus = false; // app-bar back chevron has encoder focus
 };
 
 #endif // APP_CALCULATOR_H

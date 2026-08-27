@@ -14,12 +14,14 @@ class CalendarApp : public HomeApp {
 public:
     explicit CalendarApp(Ui& ui) : HomeApp(ui) {}
     const char* title() const override { return "Calendar"; }
-    void onEnter() override { _monthOffset = 0; }
+    void onEnter() override { _monthOffset = 0; _focus = 1; }
     void draw() override;
     Nav  onTouch(const TouchEvent&) override;
     Nav  onTrackball(TrackballEvent) override;
+    Nav  onKey(char) override;
 private:
     int _monthOffset = 0;
+    int _focus = 1;   // 0=back · 1=prev month · 2=next month
 };
 
 #endif // APP_CALENDAR_H

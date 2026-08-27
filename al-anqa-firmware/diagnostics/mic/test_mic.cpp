@@ -11,9 +11,15 @@ extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
 
 // Mic (ES7210) + speaker are present on BOTH T-Deck and T-Deck Plus — only the
-// GPS is Plus-exclusive, so this command is NOT board-gated.
+// GPS is Plus-exclusive. The T-Pager instead has an integrated ES8311 codec, so
+// the ES7210 mic path is gated behind BOARD_HAS_ES7210_MIC (its ES8311 mic
+// backend is Phase 2 work). On the T-Deck the flag is set → this is unchanged.
 #include <Wire.h>
+#if BOARD_HAS_ES7210_MIC
 #include "es7210.h"
+#elif defined(BOARD_TPAGER)
+#include "es8311.h"      // T-Pager mic = ES8311 ADC on I2S D-IN (IO17)
+#endif
 
 // ── Config ───────────────────────────────────────────────────────────────────
 #define MIC_I2S_PORT    I2S_NUM_1
@@ -54,7 +60,7 @@ static bool s_micUp = false;
 
 static bool startMicI2S(int gainIdx) {
     if (s_micUp) return true;
-
+#if BOARD_HAS_ES7210_MIC
     audio_hal_codec_config_t codec = {};
     codec.adc_input  = AUDIO_HAL_ADC_INPUT_ALL;
     codec.codec_mode = AUDIO_HAL_CODEC_MODE_ENCODE;
@@ -99,12 +105,54 @@ static bool startMicI2S(int gainIdx) {
     i2s_zero_dma_buffer(MIC_I2S_PORT);
     s_micUp = true;
     return true;
+#elif defined(BOARD_TPAGER)
+    // T-Pager mic = ES8311 ADC. ESP is I2S master (RX) driving MCLK/BCLK/WS; the
+    // codec's ADC output arrives on D-IN (IO17). ALL_LEFT to match the read loop's
+    // de-dup (2 int16/frame).
+    (void)gainIdx;
+    i2s_config_t cfg = {};
+    cfg.mode                 = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX);
+    cfg.sample_rate          = MIC_SAMPLE_RATE;
+    cfg.bits_per_sample      = I2S_BITS_PER_SAMPLE_16BIT;
+    cfg.channel_format       = I2S_CHANNEL_FMT_ALL_LEFT;
+    cfg.communication_format = I2S_COMM_FORMAT_STAND_I2S;
+    cfg.intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1;
+    cfg.dma_buf_count        = 6;
+    cfg.dma_buf_len          = 256;
+    cfg.use_apll             = true;
+
+    if (i2s_driver_install(MIC_I2S_PORT, &cfg, 0, NULL) != ESP_OK) return false;
+
+    i2s_pin_config_t pins = {};
+    pins.mck_io_num   = BOARD_I2S_MCLK;
+    pins.bck_io_num   = BOARD_I2S_BCK;
+    pins.ws_io_num    = BOARD_I2S_WS;
+    pins.data_in_num  = BOARD_I2S_DIN;
+    pins.data_out_num = I2S_PIN_NO_CHANGE;
+
+    if (i2s_set_pin(MIC_I2S_PORT, &pins) != ESP_OK) {
+        i2s_driver_uninstall(MIC_I2S_PORT);
+        return false;
+    }
+    i2s_zero_dma_buffer(MIC_I2S_PORT);
+    // Bring up the codec ADC path (DAC stays muted — mic capture only).
+    es8311Begin(Wire, TPAGER_I2C_ADDR_ES8311, MIC_SAMPLE_RATE, true);
+    s_micUp = true;
+    return true;
+#else
+    (void)gainIdx;
+    return false;
+#endif
 }
 
 static void stopMicI2S() {
     if (!s_micUp) return;
+#if BOARD_HAS_ES7210_MIC
     i2s_driver_uninstall(MIC_I2S_PORT);
     es7210_adc_ctrl_state(AUDIO_HAL_CODEC_MODE_ENCODE, AUDIO_HAL_CTRL_STOP);
+#elif defined(BOARD_TPAGER)
+    i2s_driver_uninstall(MIC_I2S_PORT);
+#endif
     s_micUp = false;
 }
 
@@ -119,13 +167,21 @@ static bool startSpkI2S() {
     cfg.intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1;
     cfg.dma_buf_count        = 6;
     cfg.dma_buf_len          = 256;
+#if defined(BOARD_TPAGER)
+    cfg.use_apll             = true;   // clean 256*fs MCLK for the ES8311
+#else
     cfg.use_apll             = false;
+#endif
     cfg.tx_desc_auto_clear   = true;
 
     if (i2s_driver_install(SPK_I2S_PORT, &cfg, 0, NULL) != ESP_OK) return false;
 
     i2s_pin_config_t pins = {};
+#if defined(BOARD_TPAGER)
+    pins.mck_io_num   = BOARD_I2S_MCLK;   // ES8311 playback needs MCLK
+#else
     pins.mck_io_num   = I2S_PIN_NO_CHANGE;
+#endif
     pins.bck_io_num   = BOARD_I2S_BCK;
     pins.ws_io_num    = BOARD_I2S_WS;
     pins.data_out_num = BOARD_I2S_DOUT;
@@ -136,10 +192,17 @@ static bool startSpkI2S() {
         return false;
     }
     i2s_zero_dma_buffer(SPK_I2S_PORT);
+#if defined(BOARD_TPAGER)
+    es8311Begin(Wire, TPAGER_I2C_ADDR_ES8311, MIC_SAMPLE_RATE);   // DAC → speaker
+    es8311SetMute(false);
+#endif
     return true;
 }
 
 static void stopSpkI2S() {
+#if defined(BOARD_TPAGER)
+    es8311SetMute(true);
+#endif
     i2s_zero_dma_buffer(SPK_I2S_PORT);
     i2s_driver_uninstall(SPK_I2S_PORT);
 }
@@ -333,11 +396,15 @@ void runMicTest() {
 
         if ((k == '+' || k == '=') && gainIdx < GAIN_MAX) {
             gainIdx++;
+#if BOARD_HAS_ES7210_MIC
             es7210_adc_set_gain_all((es7210_gain_value_t)gainIdx);
+#endif
             drawGain(gainIdx);
         } else if (k == '-' && gainIdx > 0) {
             gainIdx--;
+#if BOARD_HAS_ES7210_MIC
             es7210_adc_set_gain_all((es7210_gain_value_t)gainIdx);
+#endif
             drawGain(gainIdx);
         } else if (k == 'r' || k == 'R') {
             if (!recBuf) recBuf = (int16_t*)ps_malloc(MIC_REC_SAMPLES * sizeof(int16_t));

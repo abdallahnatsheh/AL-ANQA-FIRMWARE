@@ -1,4 +1,6 @@
 #include "clock_manager.h"
+#include "board.h"
+#include "tpager/tpager_rtc.h"   // PCF85063 hardware RTC (real on T-Pager, no-op elsewhere)
 #include "display_manager.h"
 #include "sdcard_manager.h"
 #include "input_handling.h"
@@ -9,7 +11,7 @@
 #include <SD.h>
 #include <Preferences.h>
 
-#ifdef BOARD_TDECK_PLUS
+#if defined(BOARD_HAS_GPS)
 #include "gps_manager.h"
 #endif
 
@@ -80,6 +82,20 @@ void ClockManager::init() {
         }
     }
     applyTZ();
+
+    // T-Pager: seed the system clock from the battery-backed PCF85063 RTC so the
+    // wall clock is valid immediately after a reboot / power-off, before any NTP or
+    // GPS sync. NTP/GPS will refine it later and write back (see update()). No-op on
+    // the T-Deck (no hardware RTC). Wire was already begun by boardPowerOn().
+    tpagerRtcBegin();
+    time_t rtcEpoch;
+    if (tpagerRtcReadEpoch(rtcEpoch)) {
+        struct timeval tv;
+        tv.tv_sec  = (long)rtcEpoch;
+        tv.tv_usec = 0;
+        settimeofday(&tv, nullptr);
+        _valid = true;
+    }
 }
 
 void ClockManager::applyTZ() {
@@ -133,9 +149,18 @@ void ClockManager::setTZ(const char* posixStr) {
         configTzTime(_tzStr, "pool.ntp.org", "time.cloudflare.com");
 }
 
+void ClockManager::setEpochUtc(time_t utc) {
+    struct timeval tv;
+    tv.tv_sec  = (long)utc;
+    tv.tv_usec = 0;
+    settimeofday(&tv, nullptr);
+    _valid = (utc > MIN_VALID_EPOCH);
+    tpagerRtcWriteEpoch(utc);   // persist to the battery-backed RTC (no-op on T-Deck)
+}
+
 // ── GPS epoch helper ──────────────────────────────────────────────────────────
 
-#ifdef BOARD_TDECK_PLUS
+#if defined(BOARD_HAS_GPS)
 static time_t gpsToEpoch(uint16_t yr, uint8_t mon, uint8_t day,
                           uint8_t h, uint8_t m, uint8_t s) {
     static const uint8_t dpm[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
@@ -182,7 +207,7 @@ void ClockManager::update() {
     if (now - _lastSyncMs < 10000) return;
     _lastSyncMs = now;
 
-#ifdef BOARD_TDECK_PLUS
+#if defined(BOARD_HAS_GPS)
     if (!wifiUp) {
         GpsManager& gm = GpsManager::instance();
         if (gm.isRunning() && gm.timeValid() && gm.dateValid() &&
@@ -201,6 +226,24 @@ void ClockManager::update() {
 
     if (!_valid && time(nullptr) > MIN_VALID_EPOCH)
         _valid = true;
+
+#if defined(BOARD_TPAGER)
+    // Keep the battery-backed RTC in sync with a live source (NTP/GPS) so it stays
+    // accurate for the next boot. Only when a live source is present (not when we're
+    // merely running off the RTC's own seed) and at most every 10 min — the PCF85063
+    // barely drifts, this just captures the accurate time. No-op on T-Deck.
+    if (_valid && tpagerRtcPresent()) {
+        bool liveSource = _ntpStarted;
+#if defined(BOARD_HAS_GPS)
+        liveSource = liveSource || GpsManager::instance().timeValid();
+#endif
+        static uint32_t s_lastRtcWrite = 0;
+        if (liveSource && (s_lastRtcWrite == 0 || now - s_lastRtcWrite >= 600000UL)) {
+            time_t e = time(nullptr);
+            if (e > MIN_VALID_EPOCH) { tpagerRtcWriteEpoch(e); s_lastRtcWrite = now; }
+        }
+    }
+#endif
 }
 
 // ── Getters (local time) ──────────────────────────────────────────────────────
@@ -395,6 +438,60 @@ void runTzCmd(char* args) {
             displayManager.setTextColor(TFT_YELLOW);
         }
         displayManager.println(line);
+#if defined(BOARD_TPAGER)
+        // Show the battery-backed RTC's own stored time (proves it persists).
+        displayManager.setCursor(4, displayManager.getCursorY());
+        displayManager.setTextColor(0x7BEF);
+        time_t re;
+        if (tpagerRtcReadEpoch(re)) {
+            struct tm* rt = localtime(&re);
+            snprintf(line, sizeof(line), "RTC: %04d-%02d-%02d %02d:%02d (backed up)",
+                     rt->tm_year + 1900, rt->tm_mon + 1, rt->tm_mday, rt->tm_hour, rt->tm_min);
+        } else {
+            strncpy(line, "RTC: not set (use tz set ...)", sizeof(line));
+        }
+        displayManager.println(line);
+#endif
+        displayManager.printCommandScreen();
+        return;
+    }
+
+    // "set YYYY-MM-DD HH:MM[:SS]" → manually set the wall clock (local time). Writes
+    // the ESP32 clock AND the hardware RTC (T-Pager) so it persists across power-off.
+    // Useful offline with no GPS fix / no WiFi. Input is LOCAL time in the current TZ.
+    if (strncmp(args, "set ", 4) == 0) {
+        int Y = 0, Mo = 0, D = 0, h = 0, mi = 0, se = 0;
+        int n = sscanf(args + 4, "%d-%d-%d %d:%d:%d", &Y, &Mo, &D, &h, &mi, &se);
+        bool ok = (n >= 5 && Y >= 2020 && Mo >= 1 && Mo <= 12 && D >= 1 && D <= 31 &&
+                   h >= 0 && h <= 23 && mi >= 0 && mi <= 59 && se >= 0 && se <= 59);
+        time_t utc = 0;
+        if (ok) {
+            struct tm tmv = {};
+            tmv.tm_year = Y - 1900; tmv.tm_mon = Mo - 1; tmv.tm_mday = D;
+            tmv.tm_hour = h; tmv.tm_min = mi; tmv.tm_sec = se; tmv.tm_isdst = -1;
+            utc = mktime(&tmv);                 // local (current TZ) -> UTC epoch
+            ok = (utc > (time_t)1577836800L);
+        }
+        displayManager.clearScreen();
+        displayManager.setCursor(4, outputY);
+        if (ok) {
+            cm.setEpochUtc(utc);
+            displayManager.setTextColor(TFT_GREEN);
+            displayManager.println("CLOCK SET");
+            char t[10], d[12], line[40];
+            cm.getTimeStr(t, sizeof(t)); cm.getDateStr(d, sizeof(d));
+            snprintf(line, sizeof(line), "Local: %s  %s", t, d);
+            displayManager.setCursor(4, displayManager.getCursorY());
+            displayManager.setTextColor(TFT_WHITE);
+            displayManager.println(line);
+            displayManager.setCursor(4, displayManager.getCursorY());
+            displayManager.setTextColor(0x7BEF);
+            displayManager.println(tpagerRtcPresent() ? "Saved to hardware RTC (persists)"
+                                                      : "Set for this session (no RTC)");
+        } else {
+            displayManager.setTextColor(TFT_RED);
+            displayManager.println("Usage: tz set YYYY-MM-DD HH:MM[:SS]");
+        }
         displayManager.printCommandScreen();
         return;
     }

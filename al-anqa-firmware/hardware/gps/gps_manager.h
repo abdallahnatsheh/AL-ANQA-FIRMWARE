@@ -1,7 +1,9 @@
 #ifndef GPS_MANAGER_H
 #define GPS_MANAGER_H
 
-#ifdef BOARD_TDECK_PLUS
+#include "board.h"   // BOARD_HAS_GPS must be defined before the guard below
+                     // (it's a header macro, not a -D build flag)
+#if defined(BOARD_HAS_GPS)
 #include <Arduino.h>
 #include <TinyGPS++.h>
 #include <freertos/FreeRTOS.h>
@@ -72,5 +74,5 @@ private:
     int32_t           _nvsLon       = 0;     // last fix lon × 1e7 (loaded from NVS)
 };
 
-#endif // BOARD_TDECK_PLUS
+#endif // BOARD_HAS_GPS
 #endif // GPS_MANAGER_H

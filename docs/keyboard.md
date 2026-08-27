@@ -57,6 +57,7 @@ Check your physical keyboard — the secondary characters are labeled on the key
 | `⏎` Enter | Execute | Runs the current command |
 | `⌫` Backspace | `\b` | Deletes the character to the left of the cursor |
 | **Hold** Backspace 1.5s | repeated `\b` | Auto-delete at ~16 chars/sec |
+| **Hold any key** (T-Pager) | repeated char | Native hold-to-repeat — the TCA8418 reports releases, so *every* key repeats while held (delay ~420 ms, then ~55 ms). Multiple keys at once, so `gm` gets held movement and diagonals; `gm` uses a faster rate for smooth control. |
 | SYM + K | `'` | Triggers autocomplete |
 | Space | ` ` | Inserts a space |
 

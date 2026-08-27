@@ -8,7 +8,7 @@
 
 void CalendarApp::draw() {
     auto* G = _ui.g();
-    _ui.appBar("Calendar");
+    _ui.appBar("Calendar", _focus == 0);
     int cy0 = UI_CONTENT_Y + 6;
     if (!ClockManager::instance().isValid()) {
         G->setFont(_ui.fBody()); G->setTextColor(_ui.muted);
@@ -27,8 +27,13 @@ void CalendarApp::draw() {
     G->setFont(_ui.fTitle()); G->setTextColor(_ui.ink);
     G->setTextDatum(textdatum_t::middle_center);
     G->drawString(hdr, SCREEN_WIDTH / 2, cy0 + 8);
-    G->fillTriangle(16, cy0 + 8, 24, cy0 + 3, 24, cy0 + 13, _ui.muted);
-    G->fillTriangle(SCREEN_WIDTH - 16, cy0 + 8, SCREEN_WIDTH - 24, cy0 + 3, SCREEN_WIDTH - 24, cy0 + 13, _ui.muted);
+    // Prev / next month controls with focus rings
+    if (_focus == 1) _ui.focusRing(8, cy0 - 2, 28, 20, 6);
+    if (_focus == 2) _ui.focusRing(SCREEN_WIDTH - 36, cy0 - 2, 28, 20, 6);
+    uint16_t prevC = (_focus == 1) ? _ui.sel : _ui.muted;
+    uint16_t nextC = (_focus == 2) ? _ui.sel : _ui.muted;
+    G->fillTriangle(16, cy0 + 8, 24, cy0 + 3, 24, cy0 + 13, prevC);
+    G->fillTriangle(SCREEN_WIDTH - 16, cy0 + 8, SCREEN_WIDTH - 24, cy0 + 3, SCREEN_WIDTH - 24, cy0 + 13, nextC);
     G->setTextDatum(textdatum_t::top_left);
     static const char* wd[] = { "S","M","T","W","T","F","S" };
     int cellW = SCREEN_WIDTH / 7, wy = cy0 + 24;
@@ -40,7 +45,7 @@ void CalendarApp::draw() {
     if (m == 1 && ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0)) ndays = 29;
     struct tm f = {}; f.tm_year = y - 1900; f.tm_mon = m; f.tm_mday = 1; f.tm_hour = 12;
     mktime(&f);
-    int firstWd = f.tm_wday, gridY = wy + 20, rowH = 26;
+    int firstWd = f.tm_wday, gridY = wy + 20, rowH = UI_CAL_ROW_H;
     bool thisMonth = (_monthOffset == 0);
     for (int d = 1; d <= ndays; d++) {
         int idx = firstWd + d - 1, r = idx / 7, c = idx % 7;
@@ -57,14 +62,26 @@ Nav CalendarApp::onTouch(const TouchEvent& te) {
     if (te.type != TouchEvent::TAP) return Nav::Stay;
     if (Ui::hitAppBack(te.x, te.y)) return Nav::Back;
     if (te.y >= UI_CONTENT_Y && te.y < UI_CONTENT_Y + 24) {
-        if (te.x < 60)                { _monthOffset--; return Nav::Stay; }
-        if (te.x > SCREEN_WIDTH - 60) { _monthOffset++; return Nav::Stay; }
+        if (te.x < 60)                { _monthOffset--; _focus = 1; return Nav::Stay; }
+        if (te.x > SCREEN_WIDTH - 60) { _monthOffset++; _focus = 2; return Nav::Stay; }
     }
     return Nav::Stay;
 }
 Nav CalendarApp::onTrackball(TrackballEvent tb) {
-    if (tb == TBALL_CLICK)      return Nav::Back;
-    else if (tb == TBALL_LEFT)  _monthOffset--;
-    else if (tb == TBALL_RIGHT) _monthOffset++;
+    if (tb == TBALL_UP)   { _focus = (_focus + 2) % 3; return Nav::Stay; }
+    if (tb == TBALL_DOWN) { _focus = (_focus + 1) % 3; return Nav::Stay; }
+    if (tb == TBALL_LEFT)  { _monthOffset--; _focus = 1; return Nav::Stay; }
+    if (tb == TBALL_RIGHT) { _monthOffset++; _focus = 2; return Nav::Stay; }
+    if (tb == TBALL_CLICK) {
+        if (_focus == 0) return Nav::Back;
+        if (_focus == 1) { _monthOffset--; return Nav::Stay; }
+        if (_focus == 2) { _monthOffset++; return Nav::Stay; }
+    }
+    return Nav::Stay;
+}
+Nav CalendarApp::onKey(char k) {
+    if (k == 'q' || k == 'Q') return Nav::Back;
+    if (k == ',' || k == '<') { _monthOffset--; return Nav::Stay; }
+    if (k == '.' || k == '>') { _monthOffset++; return Nav::Stay; }
     return Nav::Stay;
 }

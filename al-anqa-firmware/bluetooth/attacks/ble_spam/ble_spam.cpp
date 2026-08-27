@@ -7,6 +7,7 @@
 // https://github.com/BruceDevices/firmware/tree/main/src/modules/ble
 
 #include "ble_spam.h"
+#include "board_power.h"
 #include "display_manager.h"
 #include "input_handling.h"
 #include "lockscreen_manager.h"
@@ -27,6 +28,7 @@ BleSpam bleSpam;
 // ── BLE helpers ───────────────────────────────────────────────────────────────
 
 static void bsReinit() {
+    boardBleRadioPrepare();   // T-Pager: free WiFi RAM (no-op on T-Deck)
     NimBLEDevice::init("");   // idempotent — safe on cold boot, no-op if already up
 }
 
@@ -38,7 +40,7 @@ static void bsRestoreStack() {
     vTaskDelay(pdMS_TO_TICKS(100));
     // Do NOT reinit here — same broken pattern that caused buddy→btkbd interference.
     // Next BLE command inits fresh from uninitialised state.
-    SD.begin(39);
+    SD.begin(BOARD_SDCARD_CS);
 }
 
 // ── Display helpers ───────────────────────────────────────────────────────────

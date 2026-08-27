@@ -85,6 +85,7 @@ static std::vector<int> s_filtered;
 static bool             s_searchActive  = false;
 static bool             s_searchFocused = false;
 static bool             s_backFocused   = false;   // back-to-Home chevron highlighted (only when s_fromHome)
+static bool             s_fabFocused    = false;   // + FAB highlighted (encoder focus; T-Pager-critical)
 
 static bool parseIndex(const String& fname, int& idxOut) {
     int dot = fname.lastIndexOf('.');
@@ -227,20 +228,46 @@ static void rebuildFilter() {
         if (noteMatches(s_notes[i], ql)) s_filtered.push_back(i);
 }
 
-// ── Layout (real px @ 320x240) ───────────────────────────────────────────────
-#define SB_H        COVER_SB_H         // shared status bar height (22)
-#define APPBAR_Y    (SB_H + 8)          // Notes title — clearance under the status-bar clock
-#define SEARCH_Y    60                  // gap below the 20px title so it isn't crowded (clears the taller status bar)
-#define SEARCH_H    26
-#define LIST_TOP    (SEARCH_Y + SEARCH_H + 8)   // scroll region top (= 86)
+// ── Layout (from board cover profile in metrics.h) ───────────────────────────
+#define SB_H        COVER_SB_H
+#if COVER_NOTES_TWO_PANE
+#define PANE_L_W    COVER_NOTES_LIST_W
+#define PANE_R_X    COVER_NOTES_LIST_W
+#define PANE_R_W    (SCREEN_WIDTH - PANE_L_W)
+#define APPBAR_Y    COVER_NOTES_APPBAR_Y
+#define SEARCH_Y    COVER_NOTES_SEARCH_Y
+#define SEARCH_H    COVER_NOTES_SEARCH_H
+#define LIST_TOP    (SEARCH_Y + SEARCH_H + 4)
+#define CARD_X      6
+#define CARD_W      (PANE_L_W - 12)
+#define CARD_H      COVER_NOTES_CARD_H
+#define CARD_GAP    4
+#define LABEL_H     16
+#define FAB_R       COVER_NOTES_FAB_R
+#define FAB_CX      (PANE_L_W - 12 - FAB_R)
+#define FAB_CY      (SCREEN_HEIGHT - 12 - FAB_R)
+#define DOC_TOP     COVER_NOTES_DOC_TOP
+#define DOC_X       (PANE_R_X + 12)
+#define DOC_MAX_W   (PANE_R_W - 28)
+#define LIST_W      PANE_L_W
+#else
+#define APPBAR_Y    COVER_NOTES_APPBAR_Y
+#define SEARCH_Y    COVER_NOTES_SEARCH_Y
+#define SEARCH_H    COVER_NOTES_SEARCH_H
+#define LIST_TOP    (SEARCH_Y + SEARCH_H + 8)
 #define CARD_X      10
 #define CARD_W      (SCREEN_WIDTH - 20)
-#define CARD_H      58                  // tall enough for title + preview + meta
+#define CARD_H      COVER_NOTES_CARD_H
 #define CARD_GAP    6
 #define LABEL_H     18
-#define FAB_R       22
+#define FAB_R       COVER_NOTES_FAB_R
 #define FAB_CX      (SCREEN_WIDTH - 14 - FAB_R)
 #define FAB_CY      (SCREEN_HEIGHT - 14 - FAB_R)
+#define DOC_TOP     COVER_NOTES_DOC_TOP
+#define DOC_X       26
+#define DOC_MAX_W   (SCREEN_WIDTH - 46)
+#define LIST_W      SCREEN_WIDTH
+#endif
 
 enum { VIEW_LIST, VIEW_DETAIL };
 
@@ -282,9 +309,20 @@ static void drawCard(int i, int screenY, bool selected) {
     const NoteRec& n = s_notes[i];
     G->fillSmoothRoundRect(CARD_X + 1, screenY + 2, CARD_W, CARD_H, 11, C_SHADOW);
     G->fillSmoothRoundRect(CARD_X, screenY, CARD_W, CARD_H, 11, C_CARD);
-    G->drawRoundRect(CARD_X, screenY, CARD_W, CARD_H, 11, selected ? C_ACCENT : C_HAIR);
+    if (selected) {
+        G->drawRoundRect(CARD_X - 2, screenY - 2, CARD_W + 4, CARD_H + 4, 12, C_ACCENT);
+        G->drawRoundRect(CARD_X - 1, screenY - 1, CARD_W + 2, CARD_H + 2, 11, C_ACCENT);
+    } else {
+        G->drawRoundRect(CARD_X, screenY, CARD_W, CARD_H, 11, C_HAIR);
+    }
 
-    int tx = CARD_X + 13;
+    int tx = CARD_X + 10;
+#if COVER_NOTES_TWO_PANE
+    G->setFont(&s_fTitle);
+    drawClipped(n.title.c_str(), tx, screenY + 6, CARD_X + CARD_W - 10 - tx, C_INK);
+    G->setFont(&s_fMeta);
+    drawClipped(notePreview(n).c_str(), tx, screenY + 24, CARD_W - 20, C_PREV);
+#else
     G->setFont(&s_fTitle);
     drawClipped(n.title.c_str(), tx, screenY + 9, CARD_X + CARD_W - 13 - tx, C_INK);
     G->setFont(&s_fMeta);
@@ -293,6 +331,7 @@ static void drawCard(int i, int screenY, bool selected) {
     int lc = (int)n.body.size();
     char m[24]; snprintf(m, sizeof(m), "%d line%s", lc, lc == 1 ? "" : "s");
     G->drawString(m, tx, screenY + 43);
+#endif
 }
 
 static void drawSectionLabel(const char* s, int screenY) {
@@ -302,14 +341,22 @@ static void drawSectionLabel(const char* s, int screenY) {
 }
 
 static void drawList(int scroll, int sel, bool caretOn) {
-    G->fillRect(0, SB_H, SCREEN_WIDTH, SCREEN_HEIGHT - SB_H, C_PAPER);
+    G->fillRect(0, SB_H, LIST_W, SCREEN_HEIGHT - SB_H, C_PAPER);
+#if COVER_NOTES_TWO_PANE
+    // Keep the right pane from flashing through while we only redraw the list.
+    // Caller paints the right pane separately (preview or editor).
+    G->drawFastVLine(PANE_L_W, SB_H, SCREEN_HEIGHT - SB_H, C_HAIR);
+#endif
 
     // appbar — back-to-Home chevron when launched from the Home launcher,
     // then the title shifts right to make room ("‹ Notes").
     int titleX = 14;
     if (s_fromHome) {
         int chx = 16, chy = APPBAR_Y + 11;
-        if (s_backFocused) G->drawRoundRect(6, APPBAR_Y - 2, 30, 26, 8, C_ACCENT);   // focus ring
+        if (s_backFocused) {   // double focus ring (matches Ui::focusRing)
+            G->drawRoundRect(4, APPBAR_Y - 4, 34, 30, 8, C_ACCENT);
+            G->drawRoundRect(5, APPBAR_Y - 3, 32, 28, 8, C_ACCENT);
+        }
         uint16_t chColor = s_backFocused ? C_ACCENT : C_INK;
         G->drawWideLine(chx + 7, chy - 7, chx, chy, 2, chColor);
         G->drawWideLine(chx, chy, chx + 7, chy + 7, 2, chColor);
@@ -319,7 +366,8 @@ static void drawList(int scroll, int sel, bool caretOn) {
     G->setFont(&s_fBig);
     G->setTextColor(C_INK);
     G->drawString("Notes", titleX, APPBAR_Y);
-    // avatar
+#if !COVER_NOTES_TWO_PANE
+    // avatar (portrait layout only — no room / looks odd in the narrow left pane)
     int avr = 12, avx = SCREEN_WIDTH - 14 - avr, avy = APPBAR_Y + 6;
     G->fillSmoothCircle(avx, avy, avr, C_ACCENT);
     G->setFont(&s_fTitle);
@@ -327,21 +375,24 @@ static void drawList(int scroll, int sel, bool caretOn) {
     G->setTextDatum(textdatum_t::middle_center);
     G->drawString("A", avx, avy - 1);
     G->setTextDatum(textdatum_t::top_left);
+#endif
 
-    // search pill — FUNCTIONAL: shows the live query (or a placeholder), gets an
-    // accent ring when focused (trackball) or active (editing), a blinking caret
-    // while editing, and a clear (x) button once there's a query.
+    // search pill
     bool sfocus = s_searchFocused || s_searchActive;
-    G->fillSmoothRoundRect(10, SEARCH_Y, SCREEN_WIDTH - 20, SEARCH_H, 9, sfocus ? C_CARD : C_SEARCH);
-    if (sfocus) G->drawRoundRect(10, SEARCH_Y, SCREEN_WIDTH - 20, SEARCH_H, 9, C_ACCENT);
+    int searchW = LIST_W - 20;
+    G->fillSmoothRoundRect(10, SEARCH_Y, searchW, SEARCH_H, 9, sfocus ? C_CARD : C_SEARCH);
+    if (sfocus) {
+        G->drawRoundRect(8, SEARCH_Y - 2, searchW + 4, SEARCH_H + 4, 10, C_ACCENT);
+        G->drawRoundRect(9, SEARCH_Y - 1, searchW + 2, SEARCH_H + 2, 9, C_ACCENT);
+    }
     int mcx = 26, mcy = SEARCH_Y + SEARCH_H / 2;   // magnifier
     G->drawCircle(mcx, mcy - 1, 4, C_MUTED);
     G->drawWideLine(mcx + 3, mcy + 2, mcx + 6, mcy + 5, 2, C_MUTED);
     G->setFont(&s_fBody);
-    int qMaxW = SCREEN_WIDTH - 40 - 34;            // leave room for the clear-x
+    int qMaxW = searchW - 30 - 24;            // leave room for the clear-x
     if (s_query.length()) {
         drawClipped(s_query.c_str(), 40, SEARCH_Y + 5, qMaxW, C_INK);
-        int xcx = SCREEN_WIDTH - 24, xcy = mcy;    // clear (x)
+        int xcx = LIST_W - 24, xcy = mcy;    // clear (x)
         G->drawWideLine(xcx - 4, xcy - 4, xcx + 4, xcy + 4, 2, C_MUTED);
         G->drawWideLine(xcx - 4, xcy + 4, xcx + 4, xcy - 4, 2, C_MUTED);
     } else {
@@ -354,10 +405,8 @@ static void drawList(int scroll, int sel, bool caretOn) {
         G->fillRect(cxq, SEARCH_Y + 5, 2, 16, C_INK);
     }
 
-    // scroll region: section label + cards, clipped so partial cards don't
-    // spill over the fixed header/status bar. Iterates s_filtered (search result
-    // set), so an active query narrows the list live.
-    G->setClipRect(0, LIST_TOP, SCREEN_WIDTH, SCREEN_HEIGHT - LIST_TOP);
+    // scroll region
+    G->setClipRect(0, LIST_TOP, LIST_W, SCREEN_HEIGHT - LIST_TOP);
     int base = LIST_TOP - scroll;
     int n = (int)s_filtered.size();
     char lbl[24];
@@ -367,19 +416,30 @@ static void drawList(int scroll, int sel, bool caretOn) {
     if (n == 0) {
         G->setFont(&s_fBody);
         G->setTextColor(C_MUTED);
+#if COVER_NOTES_TWO_PANE
+        G->drawString(s_query.length() ? "No matching notes" :
+#if BOARD_HAS_TOUCH
+                      "No notes yet - tap + to add one",
+#else
+                      "No notes — click +",
+#endif
+                      CARD_X + 4, base + LABEL_H + 12);
+#else
         G->drawString(s_query.length() ? "No matching notes" : "No notes yet - tap + to add one",
                       CARD_X + 4, base + LABEL_H + 12);
+#endif
     } else {
-        bool anySel = !s_searchFocused && !s_searchActive && !s_backFocused;   // no card highlight while the pill/back has focus
+        bool anySel = !s_searchFocused && !s_searchActive && !s_backFocused && !s_fabFocused;
         for (int pos = 0; pos < n; pos++) {
             int y = base + cardTop(pos);
-            if (y > SCREEN_HEIGHT || y + CARD_H < LIST_TOP) continue;   // fully offscreen
+            if (y > SCREEN_HEIGHT || y + CARD_H < LIST_TOP) continue;
             drawCard(s_filtered[pos], y, anySel && pos == sel);
         }
     }
     G->clearClipRect();
 
-    // FAB (drawn last, floats over the list)
+    // FAB (drawn last, floats over the list) — focus ring when encoder-selected
+    if (s_fabFocused) G->fillSmoothCircle(FAB_CX, FAB_CY, FAB_R + 3, C_ACCENT);
     G->fillSmoothCircle(FAB_CX, FAB_CY, FAB_R, C_ACCENT);
     G->drawWideLine(FAB_CX - 9, FAB_CY, FAB_CX + 9, FAB_CY, 3, C_CARD);
     G->drawWideLine(FAB_CX, FAB_CY - 9, FAB_CX, FAB_CY + 9, 3, C_CARD);
@@ -412,10 +472,10 @@ static int cardAtY(int tapY, int scroll) {
 
 // tap inside the search pill? (and its clear-x sub-region on the right)
 static bool tapSearch(int x, int y) {
-    return y >= SEARCH_Y && y <= SEARCH_Y + SEARCH_H && x >= 10 && x <= SCREEN_WIDTH - 10;
+    return y >= SEARCH_Y && y <= SEARCH_Y + SEARCH_H && x >= 10 && x <= LIST_W - 10;
 }
 static bool tapSearchClear(int x, int y) {
-    int xcx = SCREEN_WIDTH - 24, xcy = SEARCH_Y + SEARCH_H / 2;
+    int xcx = LIST_W - 24, xcy = SEARCH_Y + SEARCH_H / 2;
     return x >= xcx - 8 && x <= xcx + 8 && y >= xcy - 8 && y <= xcy + 8;
 }
 
@@ -423,7 +483,7 @@ static bool tapSearchClear(int x, int y) {
 // Cursor is a (line, col) pair: line 0 = title, line 1..N = body[line-1]. This
 // unifies title/body editing — moving the cursor UP out of the body naturally
 // lands in the title, no separate "titling mode" needed.
-#define DOC_TOP   (SB_H + 34)   // below the back bar
+// DOC_TOP / DOC_X / DOC_MAX_W defined with the layout macros above.
 
 static String* vline(NoteRec& n, int vidx) {
     if (vidx == 0) return &n.title;
@@ -452,7 +512,7 @@ struct LayoutRow {
 // rows it collected, avoiding a second wrap pass just to draw).
 static int layoutNote(const NoteRec& n, std::vector<LayoutRow>& rows) {
     rows.clear();
-    int x = 26, maxW = SCREEN_WIDTH - x - 20;
+    int x = DOC_X, maxW = DOC_MAX_W;
     int y = 0;
 
     G->setFont(&s_fTitle);
@@ -467,6 +527,7 @@ static int layoutNote(const NoteRec& n, std::vector<LayoutRow>& rows) {
         if (src.length() == 0) { rows.push_back({vl, 0, "", y, false}); y += 20; continue; }
         int len = src.length();
         int rowStart = 0, lastSpace = -1, i = 0;
+        (void)x;
         while (i < len) {
             if (src[i] == ' ') lastSpace = i;
             String candidate = src.substring(rowStart, i + 1);
@@ -492,8 +553,8 @@ static void renderRows(const std::vector<LayoutRow>& rows, int scroll) {
         if (r.text.length() == 0) continue;   // blank row — nothing to draw
         G->setFont(r.isTitle ? &s_fTitle : &s_fBody);
         int sy = DOC_TOP - scroll + r.y;
-        if (r.isTitle) drawClipped(r.text.c_str(), 26, sy, SCREEN_WIDTH - 46, C_INK);
-        else { G->setTextColor(C_INK); G->drawString(r.text, 26, sy); }
+        if (r.isTitle) drawClipped(r.text.c_str(), DOC_X, sy, DOC_MAX_W, C_INK);
+        else { G->setTextColor(C_INK); G->drawString(r.text, DOC_X, sy); }
     }
 }
 
@@ -537,7 +598,7 @@ static void moveCursorToTap(const NoteRec& n, int tapX, int tapY, int scroll, in
     if (!best) return;
     curLine = best->vline;
     G->setFont(best->isTitle ? &s_fTitle : &s_fBody);
-    int tx = tapX - 26;
+    int tx = tapX - DOC_X;
     int col = (int)best->text.length();
     for (int ci = 0; ci <= (int)best->text.length(); ci++) {
         String prefix = best->text.substring(0, ci);
@@ -549,7 +610,80 @@ static void moveCursorToTap(const NoteRec& n, int tapX, int tapY, int scroll, in
 static uint32_t s_saveNoticeMs = 0;   // "Saved"/"No SD" toast timer (save-icon tap)
 static bool     s_saveNoticeOk = true;
 
+#if COVER_NOTES_TWO_PANE
+// Right-pane preview of the selected list card (VIEW_LIST). Empty state when none.
+static void drawRightPreview(int sel) {
+    G->fillRect(PANE_R_X, SB_H, PANE_R_W, SCREEN_HEIGHT - SB_H, C_PAPER);
+    G->drawFastVLine(PANE_L_W, SB_H, SCREEN_HEIGHT - SB_H, C_HAIR);
+    int n = (int)s_filtered.size();
+    if (n <= 0 || sel < 0 || sel >= n || s_searchFocused || s_searchActive || s_backFocused || s_fabFocused) {
+        G->setFont(&s_fBody);
+        G->setTextColor(C_MUTED);
+        G->setTextDatum(textdatum_t::middle_center);
+        G->drawString(n <= 0 ? "Select or add a note" : "Preview",
+                      PANE_R_X + PANE_R_W / 2, SB_H + (SCREEN_HEIGHT - SB_H) / 2);
+        G->setTextDatum(textdatum_t::top_left);
+        return;
+    }
+    const NoteRec& nrec = s_notes[s_filtered[sel]];
+    G->setFont(&s_fTitle);
+    G->setTextColor(C_INK);
+    drawClipped(nrec.title.length() ? nrec.title.c_str() : "(untitled)",
+                DOC_X, SB_H + 12, DOC_MAX_W, C_INK);
+    G->setFont(&s_fMeta);
+    G->setTextColor(C_MUTED);
+    int lc = (int)nrec.body.size();
+    char m[24]; snprintf(m, sizeof(m), "%d line%s", lc, lc == 1 ? "" : "s");
+    G->drawString(m, DOC_X, SB_H + 34);
+    G->setFont(&s_fBody);
+    G->setTextColor(C_PREV);
+    String prev = notePreview(nrec);
+    // wrap a few preview lines into the right pane
+    int y = SB_H + 56;
+    String line;
+    for (int i = 0; i < (int)prev.length() && y < SCREEN_HEIGHT - 16; i++) {
+        char c = prev[i];
+        String tryL = line + c;
+        if (G->textWidth(tryL.c_str()) > DOC_MAX_W && line.length()) {
+            G->drawString(line, DOC_X, y); y += 18; line = String(c);
+        } else line = tryL;
+    }
+    if (line.length() && y < SCREEN_HEIGHT - 16) G->drawString(line, DOC_X, y);
+    G->setFont(&s_fMeta);
+    G->setTextColor(C_MUTED);
+    G->setTextDatum(textdatum_t::middle_center);
+    G->drawString("Click to open", PANE_R_X + PANE_R_W / 2, SCREEN_HEIGHT - 14);
+    G->setTextDatum(textdatum_t::top_left);
+}
+#endif
+
 static void drawDetail(const NoteRec& n, int scroll, int curLine, int curCol, bool cursorOn) {
+#if COVER_NOTES_TWO_PANE
+    // Editor lives in the right pane only — left list is painted by the caller.
+    G->fillRect(PANE_R_X, SB_H, PANE_R_W, SCREEN_HEIGHT - SB_H, C_PAPER);
+    G->drawFastVLine(PANE_L_W, SB_H, SCREEN_HEIGHT - SB_H, C_HAIR);
+    int barY = SB_H, barH = 26;
+    G->drawFastHLine(PANE_R_X, barY + barH - 1, PANE_R_W, C_HAIR);
+    int cvx = PANE_R_X + 12, cvy = barY + barH / 2;
+    G->drawWideLine(cvx + 5, cvy - 5, cvx, cvy, 2, C_ACCENT);
+    G->drawWideLine(cvx, cvy, cvx + 5, cvy + 5, 2, C_ACCENT);
+    G->setTextDatum(textdatum_t::top_left);
+    G->setFont(&s_fTitle);
+    G->setTextColor(C_ACCENT);
+    G->drawString("Edit", cvx + 12, barY + 5);
+    int dx2 = SCREEN_WIDTH - 18;
+    G->drawRoundRect(dx2 - 7, cvy - 7, 14, 14, 2, C_ACCENT);
+    G->fillRect(dx2 - 4, cvy - 7, 8, 5, C_ACCENT);
+    G->drawFastHLine(dx2 - 5, cvy + 2, 10, C_ACCENT);
+    if (millis() - s_saveNoticeMs < 1200) {
+        G->setFont(&s_fMeta);
+        G->setTextColor(s_saveNoticeOk ? C_SAVED : C_ACCENT);
+        G->setTextDatum(textdatum_t::middle_right);
+        G->drawString(s_saveNoticeOk ? "Saved" : "No SD", dx2 - 12, cvy);
+        G->setTextDatum(textdatum_t::top_left);
+    }
+    G->setClipRect(PANE_R_X, DOC_TOP, PANE_R_W, SCREEN_HEIGHT - DOC_TOP);
+#else
     G->fillRect(0, SB_H, SCREEN_WIDTH, SCREEN_HEIGHT - SB_H, C_PAPER);
 
     // back bar
@@ -589,6 +723,7 @@ static void drawDetail(const NoteRec& n, int scroll, int curLine, int curCol, bo
 
     // doc body, clipped + scrolled
     G->setClipRect(0, DOC_TOP, SCREEN_WIDTH, SCREEN_HEIGHT - DOC_TOP);
+#endif
     std::vector<LayoutRow> rows;
     layoutNote(n, rows);
     renderRows(rows, scroll);
@@ -598,14 +733,14 @@ static void drawDetail(const NoteRec& n, int scroll, int curLine, int curCol, bo
     G->setTextColor(C_MUTED);
     int lc = (int)n.body.size();
     char m[24]; snprintf(m, sizeof(m), "%d line%s", lc, lc == 1 ? "" : "s");
-    G->drawString(m, 26, DOC_TOP - scroll + 24);
+    G->drawString(m, DOC_X, DOC_TOP - scroll + 24);
 
     if (cursorOn) {
         for (auto& r : rows) {
             if (r.vline == curLine && curCol >= r.colStart && curCol <= r.colStart + (int)r.text.length()) {
                 G->setFont(r.isTitle ? &s_fTitle : &s_fBody);
                 String prefix = r.text.substring(0, curCol - r.colStart);
-                int cx = 26 + G->textWidth(prefix.c_str());
+                int cx = DOC_X + G->textWidth(prefix.c_str());
                 int cy = DOC_TOP - scroll + r.y;
                 int ch = r.isTitle ? 18 : 16;
                 G->fillRect(cx, cy, 2, ch, C_INK);
@@ -618,18 +753,42 @@ static void drawDetail(const NoteRec& n, int scroll, int curLine, int curCol, bo
 
 // tap on the back chevron/"Notes" region of the detail bar?
 static bool tapBack(int x, int y) {
+#if COVER_NOTES_TWO_PANE
+    return y >= SB_H && y <= SB_H + 28 && x >= PANE_R_X && x <= PANE_R_X + 80;
+#else
     return y >= SB_H && y <= SB_H + 34 && x <= 80;
+#endif
 }
 // tap on the save-button icon?
 static bool tapSave(int x, int y) {
     int dx2 = SCREEN_WIDTH - 24, iy = SB_H + 34 / 2;
+#if COVER_NOTES_TWO_PANE
+    dx2 = SCREEN_WIDTH - 18; iy = SB_H + 13;
+#endif
     return x >= dx2 - 12 && x <= dx2 + 8 && y >= iy - 12 && y <= iy + 12;
 }
 
 // Compose a full frame into the canvas, then blit once (no flicker).
-static void paintList(int scroll, int sel, bool caretOn = true) { drawStatusBar(); drawList(scroll, sel, caretOn); cover::flush(); }
+static void paintList(int scroll, int sel, bool caretOn = true) {
+    drawStatusBar();
+    drawList(scroll, sel, caretOn);
+#if COVER_NOTES_TWO_PANE
+    drawRightPreview(sel);
+#endif
+    cover::flush();
+}
 static void paintDetail(const NoteRec& n, int ds, int curLine, int curCol, bool cursorOn) {
-    drawStatusBar(); drawDetail(n, ds, curLine, curCol, cursorOn); cover::flush();
+    drawStatusBar();
+#if COVER_NOTES_TWO_PANE
+    // Keep the left list visible beside the editor.
+    int idx = -1, listSel = 0;
+    for (int i = 0; i < (int)s_notes.size(); i++) if (&s_notes[i] == &n) { idx = i; break; }
+    for (int i = 0; i < (int)s_filtered.size(); i++) if (s_filtered[i] == idx) { listSel = i; break; }
+    s_fabFocused = false; s_searchFocused = false; s_backFocused = false; s_searchActive = false;
+    drawList(0, listSel, false);
+#endif
+    drawDetail(n, ds, curLine, curCol, cursorOn);
+    cover::flush();
 }
 
 // The secret-passphrase rolling buffer lives in cover_kit (shared with home_ui):
@@ -654,7 +813,7 @@ bool runNotesUi(bool standalone) {
     s_fromHome = !standalone;   // launched from Home → show the back-to-Home chevron
 
     // Fresh search state each session, then build the (initially unfiltered) set.
-    s_query = ""; s_searchActive = false; s_searchFocused = false; s_backFocused = false;
+    s_query = ""; s_searchActive = false; s_searchFocused = false; s_backFocused = false; s_fabFocused = false;
 
     loadNotesFromSD();
     rebuildFilter();
@@ -770,13 +929,13 @@ bool runNotesUi(bool standalone) {
                     if (s_query.length() && tapSearchClear(te.x, te.y)) {
                         s_query = ""; rebuildFilter(); sel = 0; scroll = 0;
                     }
-                    s_searchActive = true; s_searchFocused = true; s_backFocused = false;
+                    s_searchActive = true; s_searchFocused = true; s_backFocused = false; s_fabFocused = false;
                     cursorOn = true; lastBlinkMs = millis();
                     paintList(scroll, sel, cursorOn);
                 } else {
                     // Tapping anywhere else drops search-edit / back focus.
-                    bool wasFocused = s_searchActive || s_searchFocused || s_backFocused;
-                    s_searchActive = false; s_searchFocused = false; s_backFocused = false;
+                    bool wasFocused = s_searchActive || s_searchFocused || s_backFocused || s_fabFocused;
+                    s_searchActive = false; s_searchFocused = false; s_backFocused = false; s_fabFocused = false;
                     int dx = te.x - FAB_CX, dy = te.y - FAB_CY;
                     if (dx * dx + dy * dy <= (FAB_R + 4) * (FAB_R + 4)) {
                         // New note — clear any active query so the fresh note is visible.
@@ -856,6 +1015,22 @@ bool runNotesUi(bool standalone) {
                             s_searchActive = false; s_searchFocused = false;
                             sel = 0; scroll = 0; paintList(scroll, sel);
                         }
+                    } else if (s_fabFocused) {
+                        // + FAB highlighted: CLICK creates a note; UP returns to the last card
+                        // (or the search pill when the list is empty).
+                        if (tb == TBALL_CLICK) {
+                            s_fabFocused = false;
+                            s_query = "";
+                            s_notes.insert(s_notes.begin(), NoteRec());
+                            rebuildFilter();
+                            cur = 0; sel = 0; docScroll = 0; curLine = 0; curCol = 0; cursorOn = true;
+                            view = VIEW_DETAIL; paintDetail(s_notes[cur], 0, curLine, curCol, cursorOn);
+                        } else if (tb == TBALL_UP) {
+                            s_fabFocused = false;
+                            if (n > 0) { sel = n - 1; scroll = scrollToSel(sel, scroll); }
+                            else       { s_searchFocused = true; }
+                            paintList(scroll, sel);
+                        }
                     } else if (s_backFocused) {
                         // Back-to-Home chevron highlighted: CLICK returns to Home
                         // (same as tapping it); DOWN drops back to the search pill.
@@ -872,12 +1047,19 @@ bool runNotesUi(bool standalone) {
                         } else if (tb == TBALL_UP && s_fromHome) {
                             s_searchFocused = false; s_backFocused = true; paintList(scroll, sel);
                         } else if (tb == TBALL_DOWN) {
-                            s_searchFocused = false; sel = 0;
-                            scroll = scrollToSel(sel, scroll); paintList(scroll, sel);
+                            s_searchFocused = false;
+                            if (n > 0) { sel = 0; scroll = scrollToSel(sel, scroll); }
+                            else       { s_fabFocused = true; }
+                            paintList(scroll, sel);
                         }
-                    } else if (tb == TBALL_DOWN && sel < n - 1) {
-                        sel++; scroll = scrollToSel(sel, scroll);
-                        paintList(scroll, sel);
+                    } else if (tb == TBALL_DOWN) {
+                        if (sel < n - 1) {
+                            sel++; scroll = scrollToSel(sel, scroll);
+                            paintList(scroll, sel);
+                        } else {
+                            // past the last card (or empty list) → focus the + FAB
+                            s_fabFocused = true; paintList(scroll, sel);
+                        }
                     } else if (tb == TBALL_UP) {
                         if (sel > 0) {
                             sel--; scroll = scrollToSel(sel, scroll);

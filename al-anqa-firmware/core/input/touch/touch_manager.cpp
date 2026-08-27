@@ -13,17 +13,21 @@
 #include "utilities.h"
 #include "display_manager.h"
 #include <Wire.h>
+#if BOARD_HAS_TOUCH
 // SensorLib 0.4.x: the per-driver "TouchDrvGT911.hpp" top-level header is
 // deprecated (emits a #pragma message) — the umbrella "TouchDrv.hpp" is the
 // supported entry point; it still pulls in TouchDrvGT911 + TouchPoints.
 #include "TouchDrv.hpp"
+#endif
 
 #define TOUCH_POLL_MS       20    // ~50Hz poll throttle
 #define TOUCH_MOVE_PX        8    // travel beyond this = drag, not tap
 #define TOUCH_TAP_MS        250   // press+release faster than this = tap
 #define TOUCH_LONGPRESS_MS  600   // held this long without moving = long-press
 
+#if BOARD_HAS_TOUCH
 static TouchDrvGT911 s_touch;
+#endif
 
 TouchManager& TouchManager::instance() {
     static TouchManager inst;
@@ -31,6 +35,10 @@ TouchManager& TouchManager::instance() {
 }
 
 void TouchManager::begin() {
+#if !BOARD_HAS_TOUCH
+    _present = false;   // no capacitive touch on this board (e.g. T-Pager) — all
+    return;             // consumers already degrade to keyboard/encoder on isPresent()==false
+#else
     // No reset pin is broken out on this board (rst=-1) — the driver auto-
     // probes GT911_SLAVE_ADDRESS_L then _H internally, verifying the real
     // product-ID register (==911) rather than a bare I2C ACK, so it can't be
@@ -49,11 +57,13 @@ void TouchManager::begin() {
     s_touch.setMirrorXY(false, true);
 
     _addr = GT911_SLAVE_ADDRESS_L;   // the address requested first; the driver's internal auto-probe doesn't expose which of L/H it actually landed on
+#endif
 }
 
 TouchEvent TouchManager::poll() {
     TouchEvent ev;
     if (!_present) return ev;
+#if BOARD_HAS_TOUCH
 
     static uint32_t lastPoll = 0;
     uint32_t now = millis();
@@ -131,5 +141,6 @@ TouchEvent TouchManager::poll() {
         }
         // else: already reported LONG_PRESS while held — release is silent
     }
+#endif // BOARD_HAS_TOUCH
     return ev;
 }

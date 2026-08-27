@@ -7,6 +7,7 @@
 // https://github.com/BruceDevices/firmware/tree/main/src/modules/ble
 
 #include "fast_pair.h"
+#include "board_power.h"
 #include "fast_pair_keys.h"
 #include "display_manager.h"
 #include "input_handling.h"
@@ -64,6 +65,7 @@ static void ensureFpBuffers() {
 
 // ── BLE init (idempotent via NimBLE) ─────────────────────────────────────────
 static void fpBleInit() {
+    boardBleRadioPrepare();   // T-Pager: free WiFi RAM before BLE (no-op on T-Deck)
     NimBLEDevice::init("AL-ANQA");
     g_fpBtInited = true;
 }
@@ -75,7 +77,7 @@ static int fpRng(void*, unsigned char* buf, size_t len) {
 }
 
 // ── SD helpers ────────────────────────────────────────────────────────────────
-static inline void fpSdRemount() { SD.begin(39); }
+static inline void fpSdRemount() { SD.begin(BOARD_SDCARD_CS); }
 
 void FastPair::saveLog(const char* mac, uint32_t modelId, const char* name,
                        int8_t rssi, const char* status) {
@@ -230,6 +232,7 @@ class FpScanCb : public NimBLEScanCallbacks {
 void FastPair::scan() {
     DisplayManager& dm = displayManager;
 
+    boardBleRadioPrepare();   // T-Pager: free WiFi RAM before BLE (no-op on T-Deck)
     NimBLEDevice::init("");
     s_fpCount = 0; s_scanDone = false;
 

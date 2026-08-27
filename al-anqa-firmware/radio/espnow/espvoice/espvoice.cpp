@@ -17,6 +17,7 @@
 // Plus-exclusive — so this command is NOT board-gated.
 
 #include "espvoice.h"
+#include "board_audio.h"
 #include "display_manager.h"
 #include "input_handling.h"
 #include "lockscreen_manager.h"
@@ -29,7 +30,11 @@
 #include <math.h>
 #include <driver/i2s.h>
 #include <Wire.h>
+#if BOARD_HAS_ES7210_MIC
 #include "es7210.h"
+#elif defined(BOARD_TPAGER)
+#include "es8311.h"        // T-Pager: one ES8311 does mic (ADC) + speaker (DAC)
+#endif
 #include "g722.h"
 #include "g722_encoder.h"
 #include "g722_decoder.h"
@@ -38,13 +43,21 @@ extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
 
 // ── Config ───────────────────────────────────────────────────────────────────
+#if defined(BOARD_TPAGER)
+#define MIC_I2S_PORT    I2S_NUM_0   // one ES8311 on one bus -> shared full-duplex port
+#else
 #define MIC_I2S_PORT    I2S_NUM_1
+#endif
 #define SPK_I2S_PORT    I2S_NUM_0
 #define AUDIO_RATE      16000          // G.722 wideband input/output rate
 #define EV_SAMPLES      320            // PCM samples per frame (20 ms @ 16 kHz)
 #define EV_BYTES        160            // G.722 bytes per frame (2 samples/byte)
 #define EV_RING         24             // RX jitter buffer (frames)
-#define EV_MIC_GAIN     10             // GAIN_30DB default
+#if defined(BOARD_TPAGER)
+#define EV_MIC_GAIN     6              // ES8311 PGA idx 6 = 36 dB (solid default)
+#else
+#define EV_MIC_GAIN     10             // ES7210 GAIN_30DB default
+#endif
 #define G722_BITRATE    64000          // Mode 1
 #define EV_RX_SILENCE   500            // ms of no frames → transmission ended
 #define EV_EOT_REPEAT   3              // EOT markers sent on release (lossy net)
@@ -99,19 +112,69 @@ static int s_vol = 100;
 // "louder" on the far end — a hotter source beats boosting the already-full RX
 // signal past unity. Session-local; resets to the default each launch.
 static int s_gain = EV_MIC_GAIN;   // index into EV_GAIN_DB
-#define EV_GAIN_MAX  14            // GAIN_37_5DB
+#if defined(BOARD_TPAGER)
+// ES8311 analog PGA: reg 0x16 = 0..7 in fixed 6 dB steps. Index IS the register
+// value (no clamp/relabel mismatch — a value >7 leaves the mic silent).
+#define EV_GAIN_MAX  7
+static const char* const EV_GAIN_DB[] = {
+    "0", "6", "12", "18", "24", "30", "36", "42"
+};
+#else
+#define EV_GAIN_MAX  14            // ES7210 GAIN_37_5DB
 static const char* const EV_GAIN_DB[] = {
     "0", "3", "6", "9", "12", "15", "18", "21",
     "24", "27", "30", "33", "34.5", "36", "37.5"
 };
+#endif
 
 // ── I2S / ES7210 lifecycle (mirrors mictest) ─────────────────────────────────
 static bool s_micUp = false;
 static bool s_spkUp = false;
 
+#if defined(BOARD_TPAGER)
+// T-Pager has ONE ES8311 codec on ONE I2S bus, so mic + speaker share a single
+// full-duplex port (TX+RX), resident the whole session (installing/uninstalling on
+// a PTT toggle while ESP-NOW DMA is live crashes — same coexistence rule as T-Deck).
+static bool s_duplexUp = false;
+static bool duplexStart() {
+    if (s_duplexUp) return true;
+    i2s_config_t cfg = {};
+    cfg.mode                 = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_RX);
+    cfg.sample_rate          = AUDIO_RATE;
+    cfg.bits_per_sample      = I2S_BITS_PER_SAMPLE_16BIT;
+    cfg.channel_format       = I2S_CHANNEL_FMT_RIGHT_LEFT;
+    cfg.communication_format = I2S_COMM_FORMAT_STAND_I2S;
+    cfg.intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1;
+    cfg.dma_buf_count        = 8;
+    cfg.dma_buf_len          = 256;
+    cfg.use_apll             = true;
+    cfg.tx_desc_auto_clear   = true;
+    if (i2s_driver_install(SPK_I2S_PORT, &cfg, 0, NULL) != ESP_OK) return false;
+    i2s_pin_config_t pins = {};
+    pins.mck_io_num   = BOARD_I2S_MCLK;
+    pins.bck_io_num   = BOARD_I2S_BCK;
+    pins.ws_io_num    = BOARD_I2S_WS;
+    pins.data_out_num = BOARD_I2S_DOUT;   // DAC -> speaker
+    pins.data_in_num  = BOARD_I2S_DIN;    // ADC <- mic
+    if (i2s_set_pin(SPK_I2S_PORT, &pins) != ESP_OK) { i2s_driver_uninstall(SPK_I2S_PORT); return false; }
+    i2s_zero_dma_buffer(SPK_I2S_PORT);
+    es8311Begin(Wire, TPAGER_I2C_ADDR_ES8311, AUDIO_RATE, true);   // DAC + ADC
+    es8311SetMute(false);   // begin() leaves DAC muted until DMA is primed
+    s_duplexUp = true;
+    return true;
+}
+static void duplexStop() {
+    if (!s_duplexUp) return;
+    es8311SetMute(true);
+    i2s_zero_dma_buffer(SPK_I2S_PORT);
+    i2s_driver_uninstall(SPK_I2S_PORT);
+    s_duplexUp = false;
+}
+#endif
+
 static bool micStart(int gainIdx) {
     if (s_micUp) return true;
-
+#if BOARD_HAS_ES7210_MIC
     audio_hal_codec_config_t codec = {};
     codec.adc_input  = AUDIO_HAL_ADC_INPUT_ALL;
     codec.codec_mode = AUDIO_HAL_CODEC_MODE_ENCODE;
@@ -156,18 +219,37 @@ static bool micStart(int gainIdx) {
     i2s_zero_dma_buffer(MIC_I2S_PORT);
     s_micUp = true;
     return true;
+#elif defined(BOARD_TPAGER)
+    if (!duplexStart()) return false;
+    es8311SetMicGain((uint8_t)gainIdx);   // idx = reg 0x16 (0..7); driver clamps
+    s_micUp = true;
+    return true;
+#else
+    (void)gainIdx;
+    return false;
+#endif
 }
 
 static void micStop() {
     if (!s_micUp) return;
+#if BOARD_HAS_ES7210_MIC
     i2s_driver_uninstall(MIC_I2S_PORT);
     es7210_adc_ctrl_state(AUDIO_HAL_CODEC_MODE_ENCODE, AUDIO_HAL_CTRL_STOP);
+#elif defined(BOARD_TPAGER)
+    s_micUp = false;
+    if (!s_spkUp) duplexStop();   // shared port — tear down only when both idle
+    return;
+#endif
     s_micUp = false;
 }
 
 static bool spkStart() {
     if (s_spkUp) return true;
-
+#if defined(BOARD_TPAGER)
+    if (!duplexStart()) return false;   // shared full-duplex port (mic + speaker)
+    s_spkUp = true;
+    return true;
+#else
     i2s_config_t cfg = {};
     cfg.mode                 = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX);
     cfg.sample_rate          = AUDIO_RATE;
@@ -177,13 +259,13 @@ static bool spkStart() {
     cfg.intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1;
     cfg.dma_buf_count        = 8;
     cfg.dma_buf_len          = 256;
-    cfg.use_apll             = false;
+    cfg.use_apll             = BOARD_I2S_USE_APLL;
     cfg.tx_desc_auto_clear   = true;
 
     if (i2s_driver_install(SPK_I2S_PORT, &cfg, 0, NULL) != ESP_OK) return false;
 
     i2s_pin_config_t pins = {};
-    pins.mck_io_num   = I2S_PIN_NO_CHANGE;
+    pins.mck_io_num   = BOARD_I2S_MCK_PIN;
     pins.bck_io_num   = BOARD_I2S_BCK;
     pins.ws_io_num    = BOARD_I2S_WS;
     pins.data_out_num = BOARD_I2S_DOUT;
@@ -194,12 +276,20 @@ static bool spkStart() {
         return false;
     }
     i2s_zero_dma_buffer(SPK_I2S_PORT);
+    boardCodecBegin(AUDIO_RATE);   // (T-Deck direct DAC; T-Pager took the branch above)
+    boardCodecUnmute();
     s_spkUp = true;
     return true;
+#endif
 }
 
 static void spkStop() {
     if (!s_spkUp) return;
+#if defined(BOARD_TPAGER)
+    s_spkUp = false;
+    if (!s_micUp) duplexStop();   // shared port — tear down only when both idle
+    return;
+#endif
     i2s_zero_dma_buffer(SPK_I2S_PORT);
     i2s_driver_uninstall(SPK_I2S_PORT);
     s_spkUp = false;
@@ -207,7 +297,11 @@ static void spkStop() {
 
 // Push the current mic-gain index to the ES7210 (safe to call live).
 static void applyGain() {
+#if BOARD_HAS_ES7210_MIC
     es7210_adc_set_gain_all((es7210_gain_value_t)s_gain);
+#elif defined(BOARD_TPAGER)
+    es8311SetMicGain((uint8_t)s_gain);   // idx = reg 0x16 (0..7); driver clamps
+#endif
 }
 
 // ── ESP-NOW ──────────────────────────────────────────────────────────────────
@@ -247,12 +341,27 @@ static int captureFrame(int16_t* raw, int16_t* pcm, EvMsg* msg) {
     size_t bytesRead = 0;
     i2s_read(MIC_I2S_PORT, raw, EV_SAMPLES * 2 * sizeof(int16_t), &bytesRead, portMAX_DELAY);
     int peak = 0;
+#if defined(BOARD_TPAGER)
+    // Shared full-duplex port is forced to RIGHT_LEFT (the speaker needs stereo),
+    // so the mono ES8311 ADC sits on ONE slot and the other is silence. Which slot
+    // it lands on isn't guaranteed (ES7210's ALL_LEFT trick isn't available on a
+    // duplex port), so pick whichever carries signal this frame.
+    int peakL = 0, peakR = 0;
     for (int i = 0; i < EV_SAMPLES; i++) {
-        int16_t s = raw[2 * i];            // even raw index = left channel
+        int l = raw[2 * i];     if (l < 0) l = -l; if (l > peakL) peakL = l;
+        int r = raw[2 * i + 1]; if (r < 0) r = -r; if (r > peakR) peakR = r;
+    }
+    int off = (peakR > peakL) ? 1 : 0;
+    peak = (peakR > peakL) ? peakR : peakL;
+    for (int i = 0; i < EV_SAMPLES; i++) pcm[i] = raw[2 * i + off];
+#else
+    for (int i = 0; i < EV_SAMPLES; i++) {
+        int16_t s = raw[2 * i];            // even raw index = left channel (ES7210 ALL_LEFT)
         pcm[i] = s;
         int amp = s < 0 ? -s : s;
         if (amp > peak) peak = amp;
     }
+#endif
     g722_encode(s_enc, pcm, EV_SAMPLES, msg->g722);
     return peak;
 }

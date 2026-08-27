@@ -27,6 +27,7 @@ private:
     enum Mode { STOPWATCH, TIMER };
     void btnA();                                // start/stop
     void btnB();                                // reset
+    int  focusCount() const;                    // how many focus slots in the current mode
     uint32_t swElapsedMs() const;
     Mode     _mode    = STOPWATCH;
     bool     _swRun   = false;
@@ -34,6 +35,7 @@ private:
     int      _tmSet   = 300, _tmConfig = 300, _tmRemain = 300;
     bool     _tmRun   = false, _tmDone = false;
     uint32_t _tmEnd   = 0;
+    int      _focus   = 2;   // 0=back · 1=SW tab · 2=Timer tab · 3=Start · 4=Reset · 5..8 adj
 };
 
 #endif // APP_CLOCK_H

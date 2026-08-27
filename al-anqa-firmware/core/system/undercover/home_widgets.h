@@ -17,9 +17,9 @@
 #include "notification_manager.h" // NotifLevel for the alarm center
 
 // ── Shared layout constants (used by Ui + every app) ─────────────────────────
-#define UI_SB_H       22                       // phone status bar height
-#define UI_APPBAR_H   32                       // sub-app title bar (back chevron + title)
-#define UI_CONTENT_Y  (UI_SB_H + UI_APPBAR_H)  // where app content begins (54)
+// Values come from the board metrics profile (tdeck/metrics.h or tpager/metrics.h).
+// Do NOT #ifdef on BOARD_* here — add a new board by filling its metrics.h.
+#define UI_CONTENT_Y  (UI_SB_H + UI_APPBAR_H)  // where app content begins
 #define UI_FAB_R      20
 #define UI_FAB_CX     (SCREEN_WIDTH - 16 - UI_FAB_R)
 #define UI_FAB_CY     (SCREEN_HEIGHT - 16 - UI_FAB_R)
@@ -42,14 +42,17 @@ public:
 
     // ── chrome ───────────────────────────────────────────────────────────────
     void statusBar();                            // the shared phone status bar
-    void appBar(const char* title);              // back chevron + title
+    void appBar(const char* title, bool backFocused = false);  // back chevron + title
     static bool hitAppBack(int x, int y);
 
     // ── controls ─────────────────────────────────────────────────────────────
-    void twoButtons(const char* a, const char* b, uint16_t aCol);  // bottom A/B buttons
+    void twoButtons(const char* a, const char* b, uint16_t aCol, int focusIdx = -1);  // focusIdx 0=A 1=B
     static bool hitBtnA(int x, int y);
     static bool hitBtnB(int x, int y);
-    void toggle(int x, int y, int w, int h, bool on);              // on/off switch
+    void toggle(int x, int y, int w, int h, bool on);
+    // Encoder/trackball focus outline — draw around any interactive widget.
+    void focusRing(int x, int y, int w, int h, int rad = 8);
+    void focusCircle(int cx, int cy, int r);
 
     // ── misc widgets ─────────────────────────────────────────────────────────
     void signalBars(int x, int cy, int rssi);

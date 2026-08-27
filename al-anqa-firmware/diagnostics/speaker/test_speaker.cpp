@@ -6,6 +6,10 @@
 #include <Arduino.h>
 #include <driver/i2s.h>
 #include <math.h>
+#if defined(BOARD_TPAGER)
+#include <Wire.h>
+#include "es8311.h"        // T-Pager speaker runs through the ES8311 codec
+#endif
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
@@ -28,13 +32,21 @@ static bool startI2S() {
     cfg.intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1;
     cfg.dma_buf_count        = 8;
     cfg.dma_buf_len          = 128;
+#if defined(BOARD_TPAGER)
+    cfg.use_apll             = true;   // clean 256*fs MCLK for the ES8311 codec
+#else
     cfg.use_apll             = false;
+#endif
     cfg.tx_desc_auto_clear   = true;
 
     if (i2s_driver_install(SPK_I2S_PORT, &cfg, 0, NULL) != ESP_OK) return false;
 
     i2s_pin_config_t pins = {};
+#if defined(BOARD_TPAGER)
+    pins.mck_io_num   = BOARD_I2S_MCLK;   // ES8311 needs MCLK
+#else
     pins.mck_io_num   = I2S_PIN_NO_CHANGE;
+#endif
     pins.bck_io_num   = BOARD_I2S_BCK;
     pins.ws_io_num    = BOARD_I2S_WS;
     pins.data_out_num = BOARD_I2S_DOUT;
@@ -45,12 +57,21 @@ static bool startI2S() {
         return false;
     }
     i2s_zero_dma_buffer(SPK_I2S_PORT);
+#if defined(BOARD_TPAGER)
+    // Configure the codec to route I2S → speaker (amp already enabled via XL9555).
+    // es8311Begin leaves DAC muted — unmute only after DMA is silent.
+    es8311Begin(Wire, TPAGER_I2C_ADDR_ES8311, SPK_SAMPLE_RATE);
+    es8311SetMute(false);
+#endif
     s_i2sUp = true;
     return true;
 }
 
 static void stopI2S() {
     if (!s_i2sUp) return;
+#if defined(BOARD_TPAGER)
+    es8311SetMute(true);
+#endif
     i2s_zero_dma_buffer(SPK_I2S_PORT);
     i2s_driver_uninstall(SPK_I2S_PORT);
     s_i2sUp = false;

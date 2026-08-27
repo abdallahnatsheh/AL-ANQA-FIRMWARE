@@ -1,4 +1,5 @@
 #include "bmon.h"
+#include "board_power.h"
 #include "display_manager.h"
 #include "input_handling.h"
 #include "lockscreen_manager.h"
@@ -589,6 +590,7 @@ void runBmon(char* args) {
     s_logPath[0] = '\0';
     s_selected   = 0;
 
+    boardBleRadioPrepare();   // T-Pager: free WiFi RAM (no-op on T-Deck)
     NimBLEDevice::init("");
     displayManager.setBtActive(true);
     displayManager.updateStatusBar();

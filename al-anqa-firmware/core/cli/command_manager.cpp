@@ -44,6 +44,10 @@
 #include "clock_manager.h"
 #include "weather_manager.h"
 #include "touch_test.h"
+#include "board_power.h"   // boardPowerOff() for the poweroff command
+#if defined(BOARD_TPAGER)
+#include "tpager/tpager_keyboard.h"   // test keymap diagnostic
+#endif
 #include "home_ui.h"
 #include "undercover.h"
 #include "nes_emulator.h"
@@ -298,7 +302,7 @@ static const ArgHintEntry kArgHints[] = {
     { "pmkid",       "",              "passive" },
     { "pm",          "",              "passive" },
     // tz
-    { "tz",          "",              "status" },
+    { "tz",          "",              "set status list" },
     // macchanger / mc  ("status" isn't a distinct code path — handleCommand() falls through
     // to the same printStatus() as bare "mc" — but it's offered anyway since users expect
     // it (matches pwrsave/lock's pattern of listing "status" explicitly) and it does work.
@@ -801,6 +805,9 @@ static void handleHwTestCmd(char* a) {
     else if (a && Utils::matchesCmd(a, "mic"))   runMicTest();
     else if (a && Utils::matchesCmd(a, "lora"))  runLoraTest();
     else if (a && Utils::matchesCmd(a, "touch")) runTouchTest();
+#if defined(BOARD_TPAGER)
+    else if (a && Utils::matchesCmd(a, "keymap")) tpagerKeymapTest();
+#endif
     else { displayManager.println("Usage: test <spk|mic|lora|touch>"); displayManager.printCommandScreen(); }
 }
 
@@ -814,11 +821,19 @@ void CommandManager::setupCommands() {
     registerCommand("MATRIX",      "matrix", [](char* a) { displayManager.launchMatrixAnimation(); },                       "Matrix rain animation",                   false, "System");
     registerCommand("pwrsave",     "psv",    [](char* a) { PowerSaveManager::handleCommand(a); },                         "Power save: on/off/set/status",  true,  "System");
     registerCommand("sleep",       "slp",    [](char* a) { PowerSaveManager::getInstance().deepSleep(); },                "Deep sleep (~240uA); click trackball to wake", false, "System");
+    registerCommand("poweroff",    "off",    [](char* a) {
+        displayManager.clearScreen();
+        displayManager.setCursor(10, outputY);
+        displayManager.setTextColor(TFT_RED);
+        displayManager.println("Powering off...");
+        delay(600);
+        boardPowerOff();   // does not return (ship mode / deep sleep)
+    }, "Power off the device", false, "System");
     registerCommand("lock",        "lk",     [](char* a) { LockScreenManager::getInstance().cmd(a); },                       "Screen lock  [new|update|clean|wipe|boot on|off|timeout <s>|status]", true,  "System");
     registerCommand("home",        "hm",     [](char* a) { runHomeUi(); },                                                  "[EXP] Home launcher cover UI: phone-style home; Notes tile opens notes", false, "System");
     registerCommand("game",        "gm",     [](char* a) { runNesEmulator(a); },                                            "[EXP] NES emulator (mapper 0-4+069): gm [<rom.nes>] | k=B l=A e=save r=load",  true,  "System",  COMP_FILE);
     registerCommand("undercover",  "uc",     [](char* a) { runUndercover(a); },                                            "[EXP] Undercover: Notes disguise [set|clear|status|boot on|off|panic set|off]", true,  "System");
-    registerCommand("tz",          "tz",     [](char* a) { runTzCmd(a); },                                                    "Timezone  [+3 | -5:30 | <posix> | status]",          true,  "System");
+    registerCommand("tz",          "tz",     [](char* a) { runTzCmd(a); },                                                    "Timezone  [+3 | -5:30 | set <date time> | status]",          true,  "System");
     registerCommand("weather",     "wx",     [](char* a) { runWeatherCmd(a); },                                               "Weather (Open-Meteo, no key): wx [loc <lat> <lon>|units metric|imperial|now]", true, "System");
     registerCommand("volume",      "vol",    [](char* a) { volCmd(a); },                                                    "General volume: vol [0-100|up|down|off]",   true,  "System");
     registerCommand("notif",       "nf",     [](char* a) { NotificationManager::handleNotifCmd(a); },                        "Notifications: nf [on|off|vol <n>|test|<lvl> on|off|file <f>]", true, "System");

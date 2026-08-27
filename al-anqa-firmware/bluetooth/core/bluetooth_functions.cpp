@@ -6,6 +6,8 @@
 #include "lockscreen_manager.h"
 #include "oui_lookup.h"
 #include "ble_ident.h"
+#include <esp_wifi.h>
+#include "board_power.h"
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
@@ -88,7 +90,11 @@ static uint16_t bleRssiColor(int rssi) {
 }
 
 // ── BLE scan table (bmon-style) ───────────────────────────────────────────────
+#if defined(BOARD_TPAGER)
+#define SB_PER       7                     // fewer rows on the shorter 222px screen (footer fits)
+#else
 #define SB_PER       9                     // rows per page
+#endif
 #define SB_RY(n)    (outputY + (n) * LINE_HEIGHT)
 #define SBX_IDX      2
 #define SBX_NAME    24
@@ -237,6 +243,10 @@ int BluetoothFunctions::scanBleIntoCache() {
     //     init from clean state.
     // Do NOT add a deinit cycle here — it would tear down the stack that btkbd
     // intentionally left alive, causing the same scan failure we're fixing.
+    //
+    // T-Pager: release WiFi so the BT controller can claim its internal RAM (no-op
+    // on T-Deck / when WiFi is already down). Without this, sbl after karma/pwn crashes.
+    boardBleRadioPrepare();
     NimBLEDevice::init("");
     displayManager.setBtActive(true);
     displayManager.updateStatusBar();

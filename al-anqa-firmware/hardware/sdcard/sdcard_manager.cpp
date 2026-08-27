@@ -2,6 +2,7 @@
 #include "utilities.h"
 #include "input_handling.h"
 #include "lockscreen_manager.h"
+#include <SPI.h>
 #include <vector>
 
 extern InputHandling inputHandler;
@@ -10,7 +11,23 @@ SDCardManager::SDCardManager(DisplayManager& displayManager)
     : displayManager(displayManager), ready(false) {}
 
 bool SDCardManager::begin() {
-    // RADIO_CS_PIN (GPIO9) shares SPI2 with the SD card (GPIO39).
+#if defined(BOARD_TPAGER)
+    // The default Arduino SPI pins come from the esp32s3box variant = the T-Deck's
+    // bus (40/38/41). The T-Pager's shared SPI bus is on different pins, so bind
+    // them explicitly before mounting (shared with the ST7796 display + LoRa + NFC).
+    // Do this ONCE — begin() may run again on remount/retry, and re-initialising
+    // the SPI2 bus that LovyanGFX already owns can disturb the display.
+    static bool s_spiBound = false;
+    if (!s_spiBound) {
+        SPI.begin(BOARD_SPI_SCK, BOARD_SPI_MISO, BOARD_SPI_MOSI, BOARD_SDCARD_CS);
+        // NFC (ST25R3916) CS also shares this bus on the T-Pager — deassert it too,
+        // or it corrupts SD transactions the same way a floating LoRa CS does.
+        pinMode(BOARD_NFC_CS, OUTPUT);
+        digitalWrite(BOARD_NFC_CS, HIGH);
+        s_spiBound = true;
+    }
+#endif
+    // RADIO_CS_PIN shares the SPI bus with the SD card (T-Deck: GPIO9/GPIO39).
     // If the LoRa radio CS is low or floating it drives MISO simultaneously,
     // corrupting every SD transaction and causing mount to fail.
     pinMode(RADIO_CS_PIN, OUTPUT);

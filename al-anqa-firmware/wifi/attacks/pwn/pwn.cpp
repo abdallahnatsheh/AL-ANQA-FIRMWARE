@@ -1306,7 +1306,13 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
     uint32_t t0Session = millis();
 
     // layout + double-buffered phoenix box
+    // Ember chamber. Shorter on the 222px T-Pager so the ticker + controls footer
+    // below it stay on-screen (the box would otherwise end at y=214, clipping them).
+#if defined(BOARD_TPAGER)
+    const int BOX_X = 6, BOX_W = 216, BOX_H = 132, BOX_Y = outputY + 18;
+#else
     const int BOX_X = 6, BOX_W = 216, BOX_H = 158, BOX_Y = outputY + 18;   // big ember chamber
+#endif
     const int RX = BOX_X + BOX_W + 4;               // right stats column x (=226)
     const int BY = BOX_Y + BOX_H + 4;               // below-box strip y
     LGFX_Sprite phx(&tft);

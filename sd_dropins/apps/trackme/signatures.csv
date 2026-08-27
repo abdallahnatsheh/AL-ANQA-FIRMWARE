@@ -1,0 +1,53 @@
+# T-REX TrackMe — EXTRA tracker signatures
+# The firmware ALWAYS loads its built-in list first, then ADDS the lines below.
+# Built-ins cover: Apple AirTag (mfr 0x004C/0x12) + Apple suppression, and the
+# service-UUID trackers Tile / Samsung SmartTag / Chipolo / Google Find My (see
+# the reference block at the bottom — those are NOT company-ID rows). Put only
+# your company-ID EXTRAS here; exact duplicates of a built-in are ignored.
+# Max 40 signatures total.
+#
+# Format:  name , companyId , payloadByte , minLen , level
+#   companyId   = BLE manufacturer ID, hex (required)
+#   payloadByte = mfr-data[2] to require, hex; blank/any = match any
+#   minLen      = min mfr-data length, decimal; blank/0 = no check
+#   level       = NONE | NOTICE | WARNING | ALERT  (blank = WARNING)
+#                 NONE = benign/suppressed (won't alert)
+# '#' = comment.
+#
+# TIP: to find a tracker's companyId, scan it with `bmon` — it prints the
+#      manufacturer / company ID of every BLE advertiser. Add a line for it here.
+
+# ── Complete the Apple continuity set → benign (NONE). These are normal Apple
+#    device messages (handoff, tethering, AirPlay, watch, AirPrint). Marking
+#    them benign stops iPhones/Macs/Watches/AirPods from showing as unknown
+#    devices and racking up a tracking score. (Built-ins cover the rest; AirTag
+#    0x12 stays a WARNING.)
+Apple AirPrint,0x004C,0x03,,NONE
+Apple AirPlay Src,0x004C,0x0A,,NONE
+Apple Watch Magic,0x004C,0x0B,,NONE
+Apple Handoff,0x004C,0x0C,,NONE
+Apple Tethering Tgt,0x004C,0x0D,,NONE
+Apple Tethering Src,0x004C,0x0E,,NONE
+
+# ── OPTIONAL noise reduction — suppress a high-volume NON-tracker vendor that
+#    often clutters the scan (Microsoft = Surface/Windows/Xbox Swift Pair).
+#    Uncomment to enable. To suppress other vendors, scan them with `bmon` to
+#    read their company ID, then add a "<name>,0x<id>,,,NONE" line.
+# Microsoft,0x0006,,,NONE
+
+# ── BUILT-IN SERVICE-UUID TRACKERS (detected automatically — no action needed) ─
+#    These tags advertise a 16-bit SERVICE-DATA UUID in finding mode (verified
+#    from seemoo-lab/AirGuard). The firmware now matches these by service UUID
+#    directly, so you do NOT add them here (this CSV is company-ID format only):
+#      Apple Find My / AirTag : mfr 0x004C, type 0x12
+#      Tile                   : service UUID 0xFEED
+#      Samsung SmartTag       : service UUID 0xFD5A
+#      Chipolo                : service UUID 0xFE33
+#      Pebblebee              : service UUID 0xFA25
+#      Google Find My Device  : service UUID 0xFEAA (frame byte 0x40)
+#      (Eufy/Motorola/Hama/Jio/Rolling Square ride Google FMDN -> 0xFEAA)
+
+# ── Add your own trackers below (delete the # to enable) ──────────────────────
+# My Unknown Tag,0x1234,,,WARNING
+# High Priority Tag,0x5678,,,ALERT
+# Some Benign Gadget,0x09AB,,,NONE

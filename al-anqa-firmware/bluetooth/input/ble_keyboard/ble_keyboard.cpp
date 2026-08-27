@@ -3,6 +3,7 @@
 // Copyright (C) 2026 Abdallah Natsheh
 
 #include "ble_keyboard.h"
+#include "board_power.h"
 #include "display_manager.h"
 #include "input_handling.h"
 #include "lockscreen_manager.h"
@@ -254,11 +255,22 @@ int8_t BleKeyboard::mouseStep(uint32_t elapsedMs) {
 // Trackball center: tap <300ms = left click, hold 300ms–1.5s = right click, ≥1.5s = exit.
 // Backspace: auto-repeats after 1s hold (60ms interval, 2s max).
 void BleKeyboard::start() {
+#if BOARD_HAS_TRACKBALL
     static const uint8_t DIR_PINS[4]   = { BOARD_TBOX_G02, BOARD_TBOX_G01,
                                            BOARD_TBOX_G04, BOARD_TBOX_G03 };
     static const int8_t  DIR_SIGN_X[4] = {  1, 0, -1, 0 };
     static const int8_t  DIR_SIGN_Y[4] = {  0, -1, 0,  1 };
     static const char*   DIR_SYM[4]    = { "R", "U", "L", "D" };
+#endif
+    // On a board without a trackball (T-Pager) this is BLE keyboard passthrough
+    // only; the trackball→mouse path is gated out below.
+    // Center-click / long-press-exit control: encoder push on the T-Pager, the
+    // trackball click (boot pin) on the T-Deck.
+#if BOARD_HAS_ENCODER
+    const uint8_t CLICK_PIN = BOARD_ENCODER_PUSH;
+#else
+    const uint8_t CLICK_PIN = BOARD_BOOT_PIN;
+#endif
 
     DisplayManager& dm = displayManager;
 
@@ -302,7 +314,7 @@ void BleKeyboard::start() {
             lastDrawMs = 0;
         }
 
-        bool cc = (bool)digitalRead(BOARD_BOOT_PIN);
+        bool cc = (bool)digitalRead(CLICK_PIN);
         if (!cc && !clickHeld)                                   { clickDownMs = now; clickHeld = true; }
         else if (cc && clickHeld)                                { clickHeld = false; }
         else if (!cc && clickHeld && now - clickDownMs >= 1500)  { exitReq = true; break; }
@@ -348,9 +360,13 @@ void BleKeyboard::start() {
         };
         drawPhase2Header();
 
+#if BOARD_HAS_TRACKBALL
         bool dirLast[4];
         for (int i = 0; i < 4; i++) dirLast[i] = (bool)digitalRead(DIR_PINS[i]);
         uint32_t lastDirMs = millis();
+#elif BOARD_HAS_ENCODER
+        uint32_t lastDirMs = millis();   // encoder detent timing → mouse acceleration
+#endif
 
         clickHeld   = false;
         clickDownMs = 0;
@@ -391,7 +407,7 @@ void BleKeyboard::start() {
                         dm.setTextColor(0x7BEF);     dm.println("Reconnecting...");
                     }
 
-                    bool cc2 = (bool)digitalRead(BOARD_BOOT_PIN);
+                    bool cc2 = (bool)digitalRead(CLICK_PIN);
                     if (!cc2 && !clickHeld)                              { clickDownMs = millis(); clickHeld = true; }
                     else if (cc2 && clickHeld)                           { clickHeld = false; }
                     else if (!cc2 && clickHeld && millis()-clickDownMs>=1500) { running = false; break; }
@@ -446,6 +462,7 @@ void BleKeyboard::start() {
             }
 
             // ── Mouse: accelerated trackball ──────────────────────────────────
+#if BOARD_HAS_TRACKBALL
             for (int i = 0; i < 4; i++) {
                 bool cur = (bool)digitalRead(DIR_PINS[i]);
                 if (cur != dirLast[i]) {
@@ -458,9 +475,27 @@ void BleKeyboard::start() {
                     lastDirSym = DIR_SYM[i];
                 }
             }
+#elif BOARD_HAS_ENCODER
+            // Encoder → mouse: rotate = Y (up/down), Sym+rotate = X (left/right).
+            {
+                int8_t mx = 0, my = 0;
+                switch (inputHandler.getTrackballEvent()) {
+                    case TBALL_UP:    my = -1; lastDirSym = "U"; break;
+                    case TBALL_DOWN:  my =  1; lastDirSym = "D"; break;
+                    case TBALL_LEFT:  mx = -1; lastDirSym = "L"; break;
+                    case TBALL_RIGHT: mx =  1; lastDirSym = "R"; break;
+                    default: break;   // TBALL_CLICK handled by the CLICK_PIN block below
+                }
+                if ((mx || my) && s_bleConnected) {
+                    int8_t step = mouseStep(now - lastDirMs);
+                    lastDirMs = now;
+                    sendMouseMove(mx * step, my * step);
+                }
+            }
+#endif
 
             // ── Trackball center: click / long-press exit ─────────────────────
-            bool clickCur = (bool)digitalRead(BOARD_BOOT_PIN);
+            bool clickCur = (bool)digitalRead(CLICK_PIN);
             if (!clickCur && !clickHeld) {
                 clickDownMs = now; clickHeld = true;
             } else if (clickCur && clickHeld) {
@@ -517,6 +552,7 @@ void BleKeyboard::beginHid(bool bond, const char* cloneMacStr, uint8_t cloneType
     s_connHandle   = BLE_HS_CONN_HANDLE_NONE;
     s_bleExiting   = false;
     s_kbdStaleBond = false;
+    boardBleRadioPrepare();   // T-Pager: free WiFi RAM before BLE (no-op on T-Deck)
     // Double-cycle cold-reset — required; single-cycle leaves the HID stack in
     // a state that crashes on exit. Longer delays (200ms) prevent crashes when
     // coming from buddy, which leaves its own init("AL-ANQA") active on exit.
@@ -638,7 +674,7 @@ void BleKeyboard::endHid() {
     NimBLEDevice::getServer()->setCallbacks(nullptr);  // refuse any reconnection
     vTaskDelay(pdMS_TO_TICKS(200));
 
-    SD.begin(39);
+    SD.begin(BOARD_SDCARD_CS);
 }
 
 // ── jiggle() ──────────────────────────────────────────────────────────────────

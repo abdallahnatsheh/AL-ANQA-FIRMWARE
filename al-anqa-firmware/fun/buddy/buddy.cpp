@@ -8,6 +8,7 @@
 // ASCII pet animations ported from https://github.com/anthropics/claude-desktop-buddy
 
 #include "buddy.h"
+#include "board_power.h"
 #include "buddy_common.h"
 #include "M5StickCPlus.h"      // typedef LGFX_Sprite TFT_eSprite for species files
 #include "display_manager.h"
@@ -802,6 +803,7 @@ void buddyCommand(char* args) {
     spr.setColorDepth(16);
     spr.createSprite(PET_W, PET_H);
 
+    boardBleRadioPrepare();   // T-Pager: free WiFi RAM before BLE (no-op on T-Deck)
     // NimBLE init — double-cycle matching btkbd's proven pattern (200ms delays,
     // isInitialized guard). Ensures clean stack regardless of prior command.
     if (NimBLEDevice::isInitialized()) {
@@ -966,7 +968,7 @@ void buddyCommand(char* args) {
     vTaskDelay(pdMS_TO_TICKS(200));
     // Do NOT reinit here — the stale init("AL-ANQA") was interfering with btkbd's
     // double-cycle. Next BLE command inits fresh from uninitialised state.
-    SD.begin(39);
+    SD.begin(BOARD_SDCARD_CS);
 
     displayManager.setBtActive(false);
     displayManager.updateStatusBar();

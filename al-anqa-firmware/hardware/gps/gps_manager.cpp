@@ -8,7 +8,7 @@
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
 
-#ifdef BOARD_TDECK_PLUS
+#if defined(BOARD_HAS_GPS)
 #include "utilities.h"
 void runGpsTest(); // defined in test_gps.cpp
 
@@ -375,4 +375,4 @@ void runGpsOn()  { displayManager.println("GPS only on T-Deck Plus."); displayMa
 void runGpsOff() { displayManager.println("GPS only on T-Deck Plus."); displayManager.printCommandScreen(); }
 void runGps(char* a) { displayManager.println("GPS only on T-Deck Plus."); displayManager.printCommandScreen(); }
 
-#endif // BOARD_TDECK_PLUS
+#endif // BOARD_HAS_GPS

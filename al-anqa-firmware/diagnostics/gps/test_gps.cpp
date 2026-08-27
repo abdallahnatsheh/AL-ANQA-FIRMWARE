@@ -8,7 +8,7 @@
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
 
-#ifdef BOARD_TDECK_PLUS
+#if defined(BOARD_HAS_GPS)
 
 // ── L76K / u-blox helpers (adapted from LilyGo official example) ──────────────
 

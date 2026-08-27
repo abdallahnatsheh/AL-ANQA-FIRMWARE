@@ -3,6 +3,7 @@
 #include "gps_manager.h"
 #include "clock_manager.h"
 #include "utilities.h"
+#include "board_power.h"
 #include <Wire.h>
 #include <string>
 #include <Arduino.h>
@@ -15,13 +16,18 @@ extern BatteryManager batteryManager;
 DisplayManager::DisplayManager(LGFX& tft) : tft(tft) {}
 
 void DisplayManager::init() {
-    pinMode(BOARD_POWERON, OUTPUT);
-    digitalWrite(BOARD_POWERON, HIGH);
-    Wire.begin(BOARD_I2C_SDA, BOARD_I2C_SCL);
+    boardPowerOn();                 // board rails + shared I2C bus (T-Pager: XL9555 sequence)
     tft.init();
+#if defined(BOARD_TPAGER)
+    tft.setRotation(3);             // 480x222 landscape (180° from rot1; HW-confirmed)
+#else
     tft.setRotation(1);
+#endif
     tft.setBrightness(128);
-#ifdef BOARD_TDECK_PLUS
+#if defined(BOARD_TPAGER)
+    // ST7796 inversion is baked into the panel config (cfg.invert = true) — do NOT
+    // call invertDisplay() here or it would toggle INVON back off.
+#elif defined(BOARD_TDECK_PLUS)
     tft.invertDisplay(1);
 #else
     tft.invertDisplay(0);
@@ -140,6 +146,14 @@ static void drawBattery(LGFX& tft, int x, int y, int pct, bool charging) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Right-anchored status-bar icon x-positions. Expressed relative to the right edge
+// so the icon cluster fills the whole width on any screen (480 T-Pager reaches the
+// edge). At SCREEN_WIDTH=320 these equal the old fixed values → T-Deck unchanged.
+static const int SB_WG_X   = SCREEN_WIDTH - 105;  // WGuard shield  (215 @ 320)
+static const int SB_GPS_X  = SCREEN_WIDTH - 84;   // GPS icon       (236 @ 320)
+static const int SB_BT_X   = SCREEN_WIDTH - 65;   // BT icon        (255 @ 320)
+static const int SB_BATT_X = SCREEN_WIDTH - 45;   // battery        (275 @ 320)
+
 void DisplayManager::updateStatusBar() {
     tft.fillRect(0, promptY, SCREEN_WIDTH, promptHeight, 0x000F);
     tft.drawFastHLine(0, promptY + promptHeight - 1, SCREEN_WIDTH, TFT_CYAN);
@@ -173,19 +187,23 @@ void DisplayManager::updateStatusBar() {
     {
         char clk[6];
         ClockManager::instance().getShortTime(clk, sizeof(clk));
+#if defined(BOARD_TPAGER)
+        tft.setCursor(SCREEN_WIDTH / 2 - 15, promptY + 11);   // centered on the wide bar
+#else
         tft.setCursor(175, promptY + 11);
+#endif
         tft.setTextColor(ClockManager::instance().isValid() ? TFT_WHITE : 0x2104);
         tft.print(clk);
     }
 
     // ── WGuard shield icon ────────────────────────────────────────────────────
-    drawWGuardIcon(tft, 215, promptY + 15, _wgActive, _wgMaxSev);
+    drawWGuardIcon(tft, SB_WG_X, promptY + 15, _wgActive, _wgMaxSev);
 
-    // ── GPS icon (T-Deck Plus only) ───────────────────────────────────────────
-#ifdef BOARD_TDECK_PLUS
+    // ── GPS icon (boards with a GPS: T-Deck Plus + T-Pager) ───────────────────
+#if defined(BOARD_HAS_GPS)
     {
         GpsManager& gm = GpsManager::instance();
-        drawGPSIcon(tft, 236, promptY + 15, gm.isRunning(), gm.isValid());
+        drawGPSIcon(tft, SB_GPS_X, promptY + 15, gm.isRunning(), gm.isValid());
     }
 #endif
 
@@ -214,10 +232,10 @@ void DisplayManager::updateStatusBar() {
     }
 
     // ── BT icon ───────────────────────────────────────────────────────────────
-    drawBTIcon(tft, 255, promptY + 15, _btActive);
+    drawBTIcon(tft, SB_BT_X, promptY + 15, _btActive);
 
     // ── Battery ───────────────────────────────────────────────────────────────
-    drawBattery(tft, 275, promptY + 10, batteryManager.getPct(), batteryManager.isCharging());
+    drawBattery(tft, SB_BATT_X, promptY + 10, batteryManager.getPct(), batteryManager.isCharging());
 
     tft.setTextColor(TFT_WHITE);
 }
@@ -234,7 +252,7 @@ void DisplayManager::setWGuardState(bool active, uint8_t maxSev) {
     // background wguard event paints its shield over the disguise, exposing it.
     // The real status bar redraws the shield honestly once the cover exits.
     if (_blocked) return;
-    drawWGuardIcon(tft, 215, promptY + 15, _wgActive, _wgMaxSev);
+    drawWGuardIcon(tft, SB_WG_X, promptY + 15, _wgActive, _wgMaxSev);
 }
 
 void DisplayManager::setEcActive(bool active) {

@@ -9,6 +9,7 @@
 // BLE-only background mode.
 
 #include "macwatch.h"
+#include "board_power.h"
 #include <NimBLEDevice.h>
 #include "esp_wifi.h"
 #include <WiFi.h>
@@ -259,7 +260,7 @@ static void mwCenterPopup(const MwEntry& e) {
 
 static void mwBgPopup(const MwEntry& e) {
     displayManager.fillRect(0, 222, SCREEN_WIDTH, 16, 0x0240);   // dark green bar
-    displayManager.setCursor(4, 223);
+    displayManager.setCursor(4, SCREEN_HEIGHT - 17);
     displayManager.setTextColor(TFT_GREEN);
     displayManager.printText("[MW] ");
     displayManager.setTextColor(TFT_WHITE);
@@ -300,6 +301,7 @@ static void mwExpire() {
 
 // ── BLE scan control ──────────────────────────────────────────────────────────
 static void mwBleStart() {
+    boardBleRadioPrepare();   // T-Pager: free WiFi RAM (no-op on T-Deck)
     NimBLEDevice::init("");                 // idempotent — no-op if already up
     s_bleHead = s_bleTail = 0;
     NimBLEScan* p = NimBLEDevice::getScan();

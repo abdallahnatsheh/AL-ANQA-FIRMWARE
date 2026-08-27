@@ -21,6 +21,10 @@
 //   The main FreeRTOS task has only 8 KB stack; Bus on the stack crashes immediately.
 
 #include "nes_emulator.h"
+#include "board_audio.h"
+#if defined(BOARD_TPAGER)
+#include "tpager/tpager_keyboard.h"   // hold-to-repeat tuning for smooth held movement
+#endif
 
 #include <Arduino.h>
 #include <SD.h>
@@ -50,7 +54,7 @@ extern DisplayManager   displayManager;
 extern InputHandling    inputHandler;
 
 #define NES_W           256
-#define NES_X_OFF       32      // (320 - 256) / 2
+#define NES_X_OFF       ((SCREEN_WIDTH - NES_W) / 2)   // centre the 256px game (32 on T-Deck, 112 on T-Pager)
 #define NES_HOLD_FRAMES 4
 #define NES_APU_STACK   4096
 
@@ -69,12 +73,12 @@ static void showToast(const char* msg)
 static void drawToast()
 {
     if (millis() >= s_toastEnd) return;
-    tft.fillRect(0, 0, 320, 16, 0x2104);
+    tft.fillRect(0, 0, SCREEN_WIDTH, 16, 0x2104);
     tft.setTextColor(TFT_WHITE, 0x2104);
     tft.setFont(nullptr);   // Font0 6×8
     tft.setTextSize(1);
     int tw = (int)strlen(s_toast) * 6;
-    tft.setCursor((320 - tw) / 2, 4);
+    tft.setCursor((SCREEN_WIDTH - tw) / 2, 4);
     tft.print(s_toast);
 }
 
@@ -85,37 +89,58 @@ static void IRAM_ATTR nesFlush(uint16_t* buf, uint16_t startLine, uint8_t count)
     tft.pushImage(NES_X_OFF, (int32_t)startLine, NES_W, (int32_t)count, buf);
 }
 
-// ── I2S setup ─────────────────────────────────────────────────────────────────
+// ── I2S setup — same bring-up order/config shape as `test spk` / `ev` ─────────
+static bool s_audioLive = false;   // false when vol==0 (no I2S/codec at all)
+
 static bool nesI2sInit()
 {
-    i2s_config_t cfg = {
-        .mode                 = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
-        .sample_rate          = 44100,
-        .bits_per_sample      = I2S_BITS_PER_SAMPLE_16BIT,
-        .channel_format       = I2S_CHANNEL_FMT_RIGHT_LEFT,
-        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-        .intr_alloc_flags     = 0,
-        .dma_buf_count        = 4,
-        .dma_buf_len          = 256,
-        .use_apll             = false,
-        .tx_desc_auto_clear   = true,
-        .fixed_mclk           = 0,
-    };
+    // Mirror diagnostics/speaker/test_speaker.cpp startI2S() — that path is clean
+    // on T-Pager. Differences that previously blasted static: amp GPIO toggling,
+    // codec-before-zero-DMA, and starting I2S even when master volume was 0.
+    i2s_config_t cfg = {};
+    cfg.mode                 = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX);
+    cfg.sample_rate          = 44100;
+    cfg.bits_per_sample      = I2S_BITS_PER_SAMPLE_16BIT;
+    cfg.channel_format       = I2S_CHANNEL_FMT_RIGHT_LEFT;
+    cfg.communication_format = I2S_COMM_FORMAT_STAND_I2S;
+    cfg.intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1;
+    cfg.dma_buf_count        = 8;
+    cfg.dma_buf_len          = 128;
+    cfg.use_apll             = BOARD_I2S_USE_APLL;
+    cfg.tx_desc_auto_clear   = true;
     if (i2s_driver_install(I2S_NUM_0, &cfg, 0, NULL) != ESP_OK) return false;
 
-    i2s_pin_config_t pins = {
-        // mck MUST be explicit: an omitted designated-initializer field is
-        // zero-initialized to 0 == GPIO0 == BOARD_BOOT_PIN (trackball click),
-        // so leaving it out makes i2s_set_pin() route MCLK onto the click pin.
-        // That leaves GPIO0 reading LOW after the game and the lockscreen's
-        // 3-s trackpad-hold detector then fires on a loop. Pin it to NO_CHANGE.
-        .mck_io_num   = I2S_PIN_NO_CHANGE,
-        .bck_io_num   = I2S_BCLK_PIN,
-        .ws_io_num    = I2S_LRC_PIN,
-        .data_out_num = I2S_DOUT_PIN,
-        .data_in_num  = I2S_PIN_NO_CHANGE,
-    };
-    return i2s_set_pin(I2S_NUM_0, &pins) == ESP_OK;
+    i2s_pin_config_t pins = {};
+    // mck MUST be explicit: an omitted field zero-inits to GPIO0 == BOOT/click.
+    pins.mck_io_num   = BOARD_I2S_MCK_PIN;
+    pins.bck_io_num   = I2S_BCLK_PIN;
+    pins.ws_io_num    = I2S_LRC_PIN;
+    pins.data_out_num = I2S_DOUT_PIN;
+    pins.data_in_num  = I2S_PIN_NO_CHANGE;
+    if (i2s_set_pin(I2S_NUM_0, &pins) != ESP_OK) {
+        i2s_driver_uninstall(I2S_NUM_0);
+        return false;
+    }
+
+    // Exact test-spk order: zero DMA → codec (muted) → push silence → stay muted
+    // until the APU is actually producing buffers.
+    i2s_zero_dma_buffer(I2S_NUM_0);
+    boardCodecBegin(44100);
+    {
+        int16_t silence[256] = {};
+        size_t wr = 0;
+        i2s_write(I2S_NUM_0, silence, sizeof(silence), &wr, pdMS_TO_TICKS(50));
+        i2s_write(I2S_NUM_0, silence, sizeof(silence), &wr, pdMS_TO_TICKS(50));
+    }
+    return true;
+}
+
+static void nesI2sTeardown()
+{
+    if (!s_audioLive) return;
+    boardCodecEnd();
+    i2s_driver_uninstall(I2S_NUM_0);
+    s_audioLive = false;
 }
 
 // ── APU task (core 0) ─────────────────────────────────────────────────────────
@@ -169,7 +194,7 @@ static String pickRom()
     static const int STATUS_H = 30;
     static const int HDR_H  = 26;                        // picker header
     static const int FTR_H  = 24;                        // picker footer
-    static const int FTR_Y  = 240 - FTR_H;              // 216
+    static const int FTR_Y  = SCREEN_HEIGHT - FTR_H;
     static const int LIST_Y = STATUS_H + HDR_H;          // 56
     static const int ROW_H  = 16;
     static const int ROWS   = (FTR_Y - LIST_Y) / ROW_H; // (216-56)/16 = 10
@@ -204,26 +229,26 @@ static String pickRom()
 
     // ── draw helpers ──────────────────────────────────────────────────────────
     auto drawHeader = [&]() {
-        tft.fillRect(0, STATUS_H, 320, HDR_H, C_HDR_BG);
-        tft.fillRect(0, STATUS_H, 320, 3, C_ACCENT);                    // top accent
-        tft.fillRect(0, STATUS_H + HDR_H - 3, 320, 3, C_ACCENT);       // bottom accent
+        tft.fillRect(0, STATUS_H, SCREEN_WIDTH, HDR_H, C_HDR_BG);
+        tft.fillRect(0, STATUS_H, SCREEN_WIDTH, 3, C_ACCENT);                    // top accent
+        tft.fillRect(0, STATUS_H + HDR_H - 3, SCREEN_WIDTH, 3, C_ACCENT);       // bottom accent
         // "NES LIBRARY" centred — Font0 size 2 = 12px/char × 16px tall
         tft.setFont(nullptr); tft.setTextSize(2);
         tft.setTextColor(C_TITLE, C_HDR_BG);
         const char* ttl = "NES LIBRARY";
-        tft.setCursor((320 - (int)strlen(ttl) * 12) / 2, STATUS_H + 5);
+        tft.setCursor((SCREEN_WIDTH - (int)strlen(ttl) * 12) / 2, STATUS_H + 5);
         tft.print(ttl);
         // ROM count right-aligned, small text, vertically centered
         tft.setTextSize(1);
         tft.setTextColor(C_CNT, C_HDR_BG);
         char cnt[12]; snprintf(cnt, sizeof(cnt), "%d ROMs", total);
-        tft.setCursor(320 - (int)strlen(cnt) * 6 - 4, STATUS_H + 9);
+        tft.setCursor(SCREEN_WIDTH - (int)strlen(cnt) * 6 - 4, STATUS_H + 9);
         tft.print(cnt);
     };
 
     auto drawFooter = [&]() {
-        tft.fillRect(0, FTR_Y, 320, FTR_H, C_BG);
-        tft.fillRect(0, FTR_Y, 320, 2, C_ACCENT);
+        tft.fillRect(0, FTR_Y, SCREEN_WIDTH, FTR_H, C_BG);
+        tft.fillRect(0, FTR_Y, SCREEN_WIDTH, 2, C_ACCENT);
         tft.setFont(nullptr); tft.setTextSize(1);
         tft.setTextColor(C_FTR_TXT, C_BG);
         tft.setCursor(4, FTR_Y + 4);
@@ -290,7 +315,7 @@ static String pickRom()
 
     // ── no-ROM screen ─────────────────────────────────────────────────────────
     if (total == 0) {
-        tft.fillRect(0, STATUS_H, 320, 240 - STATUS_H, C_BG);
+        tft.fillRect(0, STATUS_H, SCREEN_WIDTH, SCREEN_HEIGHT - STATUS_H, C_BG);
         drawHeader();
         tft.setFont(nullptr); tft.setTextSize(1);
         tft.setTextColor(C_ACCENT, C_BG);
@@ -309,7 +334,7 @@ static String pickRom()
     // Refresh the status bar (y=0..29): returning from a game leaves it black,
     // and main.ino's loop() — which normally repaints it — is not running here.
     displayManager.updateStatusBar();
-    tft.fillRect(0, STATUS_H, 320, 240 - STATUS_H, C_BG);
+    tft.fillRect(0, STATUS_H, SCREEN_WIDTH, SCREEN_HEIGHT - STATUS_H, C_BG);
     drawHeader();
     drawFooter();
     drawList();
@@ -390,13 +415,18 @@ static void runOneGame(const String& romPath)
         return;
     }
 
-    // I2S audio
-    if (!nesI2sInit()) {
-        displayManager.clearScreen();
-        displayManager.setTextColor(TFT_RED);
-        displayManager.printText("I2S init failed");
-        delay(2000);
-        return;
+    // I2S audio — skip entirely when master volume is 0. Opening the codec/amp
+    // with nothing to play was still blasting static on T-Pager even at vol 0%.
+    s_audioLive = false;
+    if (getMasterVolume() > 0) {
+        if (!nesI2sInit()) {
+            displayManager.clearScreen();
+            displayManager.setTextColor(TFT_RED);
+            displayManager.printText("I2S init failed");
+            delay(2000);
+            return;
+        }
+        s_audioLive = true;
     }
 
     // Cartridge
@@ -406,7 +436,7 @@ static void runOneGame(const String& romPath)
         displayManager.setTextColor(TFT_RED);
         displayManager.printText("Invalid ROM / unsupported mapper");
         delay(2000);
-        i2s_driver_uninstall(I2S_NUM_0);
+        nesI2sTeardown();
         delete cart;
         return;
     }
@@ -418,7 +448,7 @@ static void runOneGame(const String& romPath)
         displayManager.setTextColor(TFT_RED);
         displayManager.printText("Out of memory");
         delay(2000);
-        i2s_driver_uninstall(I2S_NUM_0);
+        nesI2sTeardown();
         delete cart;
         return;
     }
@@ -426,6 +456,9 @@ static void runOneGame(const String& romPath)
     nes->connectDisplayFlush(nesFlush);
     nes->insertCartridge(cart);
     nes->reset();
+    // Apply `vol` BEFORE the APU task runs (default was 100 — unmute heard full
+    // blast for the first frames regardless of /config/vol.conf).
+    nes->cpu.apu.setVolume(getMasterVolume());
 
     displayManager.setBlocked(true);
     tft.fillScreen(TFT_BLACK);
@@ -438,9 +471,20 @@ static void runOneGame(const String& romPath)
     // returns to the library, not the CLI — the toast says "Q=menu" so it's clear.
     showToast("Q=menu  K=B L=A  ENT=Start");
 
-    // APU on core 0
-    xTaskCreatePinnedToCore(apuTask, "NES_APU", NES_APU_STACK,
-                            &nes->cpu.apu, 5, &s_apuTask, 0);
+    if (s_audioLive) {
+        // Start APU while DAC still muted (test-spk style: silence already in DMA).
+        xTaskCreatePinnedToCore(apuTask, "NES_APU", NES_APU_STACK,
+                                &nes->cpu.apu, 5, &s_apuTask, 0);
+        vTaskDelay(pdMS_TO_TICKS(50));
+        boardCodecUnmute();   // same moment test spk unmutes — after clean DMA
+    }
+
+#if defined(BOARD_TPAGER)
+    // Smooth held movement: short delay/rate so holding W/A/S/D (or any button)
+    // keeps the D-pad refreshed continuously instead of re-pressing. Multi-key hold
+    // (driver-side) keeps diagonals alive. Restored to the typing default on exit.
+    tpagerKeyboardSetRepeat(60, 33);
+#endif
 
     // Emulation loop — core 1
     bool was_blocked = false;
@@ -452,7 +496,7 @@ static void runOneGame(const String& romPath)
 
         if (LockScreenManager::getInstance().isLocked()) {
             if (!was_blocked) {
-                vTaskSuspend(s_apuTask);
+                if (s_apuTask) vTaskSuspend(s_apuTask);
                 was_blocked = true;
             }
             delay(30);
@@ -460,7 +504,7 @@ static void runOneGame(const String& romPath)
         }
 
         if (was_blocked) {
-            vTaskResume(s_apuTask);
+            if (s_apuTask) vTaskResume(s_apuTask);
             tft.fillScreen(TFT_BLACK);
             was_blocked = false;
         }
@@ -494,11 +538,14 @@ static void runOneGame(const String& romPath)
     }
 
     // Cleanup.
+#if defined(BOARD_TPAGER)
+    tpagerKeyboardResetRepeat();   // back to the typing-comfortable repeat
+#endif
     if (s_apuTask) {
         vTaskDelete(s_apuTask);
         s_apuTask = nullptr;
     }
-    i2s_driver_uninstall(I2S_NUM_0);
+    nesI2sTeardown();
     // Belt-and-suspenders: re-assert the trackball-click pin as a clean input in
     // case the I2S driver disturbed GPIO0 (see mck_io_num note in nesI2sInit()),
     // so the lockscreen's trackpad-hold detector doesn't read a phantom LOW.

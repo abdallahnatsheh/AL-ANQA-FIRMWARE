@@ -35,15 +35,23 @@
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
 
-// ── Home-grid layout ─────────────────────────────────────────────────────────
-#define HERO_Y    22
-#define HERO_H    72
-#define GRID_Y    (HERO_Y + HERO_H)   // 94
+// ── Home-grid layout (from board cover profile in metrics.h) ─────────────────
+#define HERO_Y    UI_SB_H
 #define COLS      4
 #define ROWS      2
 #define NTILES    8
-#define G_MARGIN  14
-#define ICON_W    50
+#define G_MARGIN  COVER_HOME_G_MARGIN
+#define ICON_W    COVER_HOME_ICON_W
+#if COVER_HOME_SIDE_BY_SIDE
+#define HERO_W    COVER_HOME_HERO_W
+#define GRID_X    HERO_W
+#define GRID_Y    UI_SB_H
+#else
+#define HERO_Y_STACK 22
+#define HERO_H    72
+#define GRID_Y    (HERO_Y_STACK + HERO_H)   // 94 — stacked portrait-phone layout
+#define GRID_X    0
+#endif
 
 class HomeLauncher {
 public:
@@ -84,22 +92,38 @@ private:
 // ── grid geometry ─────────────────────────────────────────────────────────────
 void HomeLauncher::tileCell(int i, int& cx, int& ty) {
     int c = i % COLS, r = i / COLS;
+#if COVER_HOME_SIDE_BY_SIDE
+    int cellW = (SCREEN_WIDTH - GRID_X - 2 * G_MARGIN) / COLS;
+    int cellH = (SCREEN_HEIGHT - GRID_Y) / ROWS;
+    int cellX = GRID_X + G_MARGIN + c * cellW;
+    int cellY = GRID_Y + r * cellH;
+    cx = cellX + cellW / 2;
+    ty = cellY + (cellH - ICON_W - 14) / 2;   // vertically centre icon+label in the cell
+#else
     int cellW = (SCREEN_WIDTH - 2 * G_MARGIN) / COLS;
     int cellH = (SCREEN_HEIGHT - GRID_Y) / ROWS;
     int cellX = G_MARGIN + c * cellW;
     int cellY = GRID_Y + r * cellH;
     cx = cellX + cellW / 2;
     ty = cellY + 6;
+#endif
 }
 
 void HomeLauncher::drawGrid() {
     auto* G = cover::G;
+#if COVER_HOME_SIDE_BY_SIDE
+    G->drawFastVLine(GRID_X, UI_SB_H + 4, SCREEN_HEIGHT - UI_SB_H - 8, _ui.hair);
+#endif
     for (int i = 0; i < NTILES; i++) {
         int cx, ty; tileCell(i, cx, ty);
         uint16_t accent = _ui.col(_tiles[i].accent);
         int tx0 = cx - ICON_W / 2;
         G->fillSmoothRoundRect(tx0 + 1, ty + 3, ICON_W, ICON_W, 13, _ui.shadow);        // drop shadow
-        if (i == _sel) G->fillSmoothRoundRect(tx0 - 3, ty - 3, ICON_W + 6, ICON_W + 6, 15, _ui.sel);
+        if (i == _sel) {
+            // Full selection: filled halo behind icon + double focus ring around icon+label
+            G->fillSmoothRoundRect(tx0 - 3, ty - 3, ICON_W + 6, ICON_W + 6, 15, _ui.sel);
+            _ui.focusRing(tx0 - 4, ty - 4, ICON_W + 8, ICON_W + 20, 14);
+        }
         G->fillSmoothRoundRect(tx0, ty, ICON_W, ICON_W, 13, accent);                    // tile body
         _ui.tileIcon(cx, ty + ICON_W / 2, _tiles[i].icon, accent);
         G->setFont(_ui.fMeta());
@@ -119,15 +143,46 @@ void HomeLauncher::drawHero() {
         time_t now = time(nullptr); struct tm* lt = localtime(&now);
         if (lt) strftime(d, sizeof(d), "%a, %b %d", lt); else strcpy(d, "");
     } else strcpy(d, "Set date & time");
+
+#if COVER_HOME_SIDE_BY_SIDE
+    // Left column: big clock, date, weather stacked under it.
     G->setFont(_ui.fBig()); G->setTextColor(_ui.ink);
     G->setTextDatum(textdatum_t::middle_left);
-    G->drawString(t, 18, HERO_Y + 30);
+    G->drawString(t, 16, HERO_Y + 42);
     G->setFont(_ui.fMeta()); G->setTextColor(_ui.muted);
     G->setTextDatum(textdatum_t::top_left);
-    G->drawString(d, 20, HERO_Y + 48);
+    G->drawString(d, 18, HERO_Y + 62);
 
     WeatherManager& wx = WeatherManager::instance();
-    int sx = SCREEN_WIDTH - 92, sy = HERO_Y + 34;
+    int sy = HERO_Y + 118;
+    if (wx.hasReading()) {
+        _ui.weatherIcon(28, sy, wx.code());
+        char nb[6]; snprintf(nb, sizeof(nb), "%d", wx.temp());
+        char ub[2] = { (char)(wx.imperial() ? 'F' : 'C'), 0 };
+        G->setFont(_ui.fTitle()); int nw = G->textWidth(nb);
+        G->setTextColor(_ui.ink); G->setTextDatum(textdatum_t::middle_left);
+        G->drawString(nb, 48, sy);
+        G->drawCircle(48 + nw + 2, sy - 7, 2, _ui.ink);
+        G->setFont(_ui.fMeta()); G->drawString(ub, 48 + nw + 5, sy);
+        G->setTextColor(_ui.muted); G->setTextDatum(textdatum_t::top_left);
+        G->drawString(wx.condition(), 18, sy + 22);
+    } else {
+        G->fillSmoothCircle(28, sy, 7, _ui.hair);
+        G->setFont(_ui.fTitle()); G->setTextColor(_ui.muted);
+        G->setTextDatum(textdatum_t::middle_left);
+        G->drawString("--", 48, sy);
+        G->setTextDatum(textdatum_t::top_left);
+    }
+#else
+    G->setFont(_ui.fBig()); G->setTextColor(_ui.ink);
+    G->setTextDatum(textdatum_t::middle_left);
+    G->drawString(t, 18, HERO_Y_STACK + 30);
+    G->setFont(_ui.fMeta()); G->setTextColor(_ui.muted);
+    G->setTextDatum(textdatum_t::top_left);
+    G->drawString(d, 20, HERO_Y_STACK + 48);
+
+    WeatherManager& wx = WeatherManager::instance();
+    int sx = SCREEN_WIDTH - 92, sy = HERO_Y_STACK + 34;
     if (wx.hasReading()) {
         _ui.weatherIcon(sx, sy, wx.code());
         char nb[6]; snprintf(nb, sizeof(nb), "%d", wx.temp());
@@ -139,15 +194,16 @@ void HomeLauncher::drawHero() {
         G->drawCircle(x + nw + 2, sy - 7, 2, _ui.ink);
         G->setFont(_ui.fMeta()); G->drawString(ub, x + nw + 5, sy);
         G->setTextColor(_ui.muted); G->setTextDatum(textdatum_t::middle_right);
-        G->drawString(wx.condition(), SCREEN_WIDTH - 14, HERO_Y + 54);
+        G->drawString(wx.condition(), SCREEN_WIDTH - 14, HERO_Y_STACK + 54);
         G->setTextDatum(textdatum_t::top_left);
     } else {
         G->fillSmoothCircle(sx + 14, sy, 7, _ui.hair);
         G->setFont(_ui.fTitle()); G->setTextColor(_ui.muted);
         G->setTextDatum(textdatum_t::middle_right);
-        G->drawString("--", SCREEN_WIDTH - 16, HERO_Y + 34);
+        G->drawString("--", SCREEN_WIDTH - 16, HERO_Y_STACK + 34);
         G->setTextDatum(textdatum_t::top_left);
     }
+#endif
 }
 
 void HomeLauncher::drawHome() {

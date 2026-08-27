@@ -12,7 +12,7 @@
 
 #include "display_manager.h"   // LGFX/lgfx types + SCREEN_WIDTH
 
-static const int COVER_SB_H = 22;
+static const int COVER_SB_H = UI_SB_H;
 
 // Draw the status bar into y=0..COVER_SB_H of G, using the caller's VLW meta font.
 // Battery is read through an internal 10 s cache (getPct() samples the ADC 20x).

@@ -29,7 +29,10 @@ static double calcApply(double a, char op, double b) {
     return b;
 }
 
-void CalculatorApp::onEnter() { _cur = "0"; _acc = 0; _op = 0; _fresh = true; }
+void CalculatorApp::onEnter() {
+    _cur = "0"; _acc = 0; _op = 0; _fresh = true;
+    _kr = 0; _kc = 0; _backFocus = false;
+}
 
 void CalculatorApp::input(const char* key) {
     char k = key[0];
@@ -59,18 +62,26 @@ void CalculatorApp::input(const char* key) {
 
 void CalculatorApp::draw() {
     auto* G = _ui.g();
-    _ui.appBar("Calculator");
+    _ui.appBar("Calculator", _backFocus);
     int dy = UI_CONTENT_Y;
-    G->fillRect(0, dy, SCREEN_WIDTH, 46, _ui.bg);
+    int dispH = UI_CALC_DISP_H;
+    G->fillRect(0, dy, SCREEN_WIDTH, dispH, _ui.bg);
     G->setFont(_ui.fBig()); G->setTextColor(_ui.ink);
     G->setTextDatum(textdatum_t::middle_right);
-    G->drawString(_cur.c_str(), SCREEN_WIDTH - 14, dy + 26);
+    G->drawString(_cur.c_str(), SCREEN_WIDTH - 14, dy + dispH / 2);
     G->setTextDatum(textdatum_t::top_left);
-    int gy = dy + 48, gx = 6, gw = SCREEN_WIDTH - 12, gh = SCREEN_HEIGHT - gy - 6, cw = gw / 4, chh = gh / 5;
+    int gy = dy + dispH + 2, gx = 6, gw = SCREEN_WIDTH - 12, gh = SCREEN_HEIGHT - gy - 4, cw = gw / 4, chh = gh / 5;
     for (int r = 0; r < 5; r++) {
         for (int c = 0; c < 4; c++) {
             int x = gx + c * cw, y = gy + r * chh;
             const char* lbl = kCalcKeys[r][c]; bool op = calcIsOp(lbl);
+#if !BOARD_HAS_TOUCH
+            bool focused = !_backFocus && (r == _kr && c == _kc);
+            if (focused) {
+                _ui.focusRing(x, y, cw, chh, 8);
+                G->fillSmoothRoundRect(x + 1, y + 1, cw - 2, chh - 2, 8, _ui.sel);
+            }
+#endif
             G->fillSmoothRoundRect(x + 2, y + 2, cw - 4, chh - 4, 8, op ? _ui.col(0x00ACC1) : _ui.bar);
             G->setFont(_ui.fTitle()); G->setTextColor(op ? _ui.bg : _ui.ink);
             G->setTextDatum(textdatum_t::middle_center);
@@ -83,10 +94,32 @@ void CalculatorApp::draw() {
 Nav CalculatorApp::onTouch(const TouchEvent& te) {
     if (te.type != TouchEvent::TAP) return Nav::Stay;
     if (Ui::hitAppBack(te.x, te.y)) return Nav::Back;
-    int dy = UI_CONTENT_Y, gy = dy + 48, gx = 6, gw = SCREEN_WIDTH - 12, gh = SCREEN_HEIGHT - gy - 6, cw = gw / 4, chh = gh / 5;
+    int dy = UI_CONTENT_Y;
+    int dispH = UI_CALC_DISP_H;
+    int gy = dy + dispH + 2, gx = 6, gw = SCREEN_WIDTH - 12, gh = SCREEN_HEIGHT - gy - 4, cw = gw / 4, chh = gh / 5;
     if (te.y < gy) return Nav::Stay;
     int c = (te.x - gx) / cw, r = (te.y - gy) / chh;
-    if (c >= 0 && c <= 3 && r >= 0 && r <= 4) input(kCalcKeys[r][c]);
+    if (c >= 0 && c <= 3 && r >= 0 && r <= 4) {
+        _backFocus = false; _kr = r; _kc = c; input(kCalcKeys[r][c]);
+    }
+    return Nav::Stay;
+}
+
+Nav CalculatorApp::onTrackball(TrackballEvent tb) {
+    // Encoder keypad: rotate = vertical, Sym+rotate = horizontal, click = press.
+    // Focus 0 = app-bar back; keys when not on back.
+    if (_backFocus) {
+        if (tb == TBALL_DOWN || tb == TBALL_RIGHT) { _backFocus = false; return Nav::Stay; }
+        if (tb == TBALL_CLICK) return Nav::Back;
+        return Nav::Stay;
+    }
+    if (tb == TBALL_UP) {
+        if (_kr > 0) _kr--;
+        else _backFocus = true;
+    } else if (tb == TBALL_DOWN && _kr < 4) _kr++;
+    else if (tb == TBALL_LEFT  && _kc > 0) _kc--;
+    else if (tb == TBALL_RIGHT && _kc < 3) _kc++;
+    else if (tb == TBALL_CLICK) input(kCalcKeys[_kr][_kc]);
     return Nav::Stay;
 }
 

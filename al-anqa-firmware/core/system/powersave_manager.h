@@ -10,8 +10,11 @@
 #define DEFAULT_DIM_BRIGHTNESS          32
 #define DEFAULT_FULL_BRIGHTNESS         128
 #define DEFAULT_BATTERY_DIM_BRIGHTNESS  30
-#define DEFAULT_BATTERY_THRESHOLD       20      // 20%
+#define DEFAULT_BATTERY_THRESHOLD       20      // 20% → battery-aware dim kicks in
 #define DEFAULT_BATTERY_MODE_ENABLED    true
+#define DEFAULT_BATTERY_WARN_PERCENT      15    // ≤ this (on battery) → one alert notification
+#define DEFAULT_BATTERY_CRITICAL_PERCENT   5    // ≤ this (on battery) → auto deep-sleep
+#define DEFAULT_BATTERY_AUTOSLEEP_ENABLED true
 #define DEFAULT_PWRSAVE_ENABLED         true
 #define DEFAULT_SCREEN_OFF_ENABLED      true
 
@@ -95,6 +98,8 @@ private:
     uint8_t  fullBrightness;
     uint8_t  batteryDimBrightness;
     uint8_t  batteryThreshold;
+    uint8_t  batteryWarnPercent;
+    uint8_t  batteryCriticalPercent;
 
     // Flags
     bool enabled;
@@ -103,6 +108,8 @@ private:
     bool batteryAwareDimEnabled;
     bool screenOffEnabled;
     bool _manualOff;
+    bool batteryAutoSleep;    // auto deep-sleep at the critical threshold
+    bool _lowBattWarned;      // low-battery alert fired once; re-arms on recovery/charge
     
     // Tracking
     uint32_t lastActivityTime;

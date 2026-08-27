@@ -1,4 +1,5 @@
 #include "trackme.h"
+#include "board_power.h"
 #include "gps_manager.h"
 #include "input_handling.h"
 #include "utilities.h"
@@ -1075,6 +1076,7 @@ void TrackMeScanner::start(bool silent) {
     loadWhitelist();
 
     if (!s_bleInited) {
+        boardBleRadioPrepare();   // T-Pager: free WiFi RAM (no-op on T-Deck)
         NimBLEDevice::init("");
         s_bleInited = true;
     }

@@ -1,6 +1,8 @@
 #include "powersave_manager.h"
 #include "display_manager.h"
 #include "battery_manager.h"
+#include "notification_manager.h"   // low-battery alert
+#include "covert.h"                 // g_covert — don't draw over the undercover cover
 #include "utilities.h"        // BOARD_BOOT_PIN
 #include <SD.h>
 #include <SPI.h>
@@ -28,12 +30,16 @@ PowerSaveManager::PowerSaveManager()
       fullBrightness(DEFAULT_FULL_BRIGHTNESS),
       batteryDimBrightness(DEFAULT_BATTERY_DIM_BRIGHTNESS),
       batteryThreshold(DEFAULT_BATTERY_THRESHOLD),
+      batteryWarnPercent(DEFAULT_BATTERY_WARN_PERCENT),
+      batteryCriticalPercent(DEFAULT_BATTERY_CRITICAL_PERCENT),
       enabled(DEFAULT_PWRSAVE_ENABLED),
       isDimState(false),
       isScreenOffState(false),
       batteryAwareDimEnabled(DEFAULT_BATTERY_MODE_ENABLED),
       screenOffEnabled(DEFAULT_SCREEN_OFF_ENABLED),
       _manualOff(false),
+      batteryAutoSleep(DEFAULT_BATTERY_AUTOSLEEP_ENABLED),
+      _lowBattWarned(false),
       lastActivityTime(millis()),
       lastBatteryPercent(-1),
       batteryModeActive(false),
@@ -61,7 +67,41 @@ void PowerSaveManager::update() {
         if (now - lastBatteryCheck >= 1000) {
             lastBatteryCheck = now;
             BatteryManager* bm = static_cast<BatteryManager*>(batteryManager);
-            int currentBattery = bm->getPct();
+            int  currentBattery = bm->getPct();
+
+#if defined(BOARD_TPAGER)
+            // Low-battery alert + critical auto-sleep — T-Pager only. It relies on the
+            // accurate BQ27220 SOC + BQ25896 charge state; the T-Deck's ADC-derived %
+            // is too noisy to trust for an auto-sleep, so this is not compiled there.
+            bool onUsb = bm->isUsbPresent();   // charging or plugged → don't warn/sleep
+            if (onUsb || currentBattery > (int)batteryWarnPercent + 3) {
+                _lowBattWarned = false;        // recovered / plugged in → re-arm the one-shot
+            }
+            if (!onUsb && currentBattery > 0) {
+                // Critical → protect the cell: fire a final alert and deep-sleep.
+                if (batteryAutoSleep && currentBattery <= (int)batteryCriticalPercent) {
+                    NotificationManager::getInstance().notify(NOTIF_ALERT);  // self-gates under cover
+                    if (!g_covert && !displayManager.isBlocked()) {
+                        displayManager.clearScreen();
+                        displayManager.setCursor(10, outputY);
+                        displayManager.setTextColor(TFT_RED);
+                        displayManager.println("BATTERY CRITICAL");
+                        displayManager.setCursor(10, displayManager.getCursorY());
+                        displayManager.setTextColor(0x7BEF);
+                        displayManager.println("Sleeping to protect the battery.");
+                        displayManager.println("Charge, then press to wake.");
+                    }
+                    delay(1500);
+                    deepSleep();   // never returns (wake = reboot)
+                }
+                // Low → one alert notification per discharge cycle.
+                if (currentBattery <= (int)batteryWarnPercent && !_lowBattWarned) {
+                    _lowBattWarned = true;
+                    NotificationManager::getInstance().notify(NOTIF_ALERT);
+                }
+            }
+#endif
+
             if (currentBattery < (int)batteryThreshold && !batteryModeActive) {
                 batteryModeActive = true;
                 applyDim();
@@ -140,10 +180,18 @@ void PowerSaveManager::deepSleep() {
     SPI.end();
     Wire.end();
 
-    // 4. Wake on trackball center-click (GPIO0 active-low). GPIO10/BOARD_POWERON
-    //    is intentionally NOT held — letting it drop powers peripherals down for
-    //    the ~240uA figure; setup() re-drives it HIGH on the wake reboot.
+    // 4. Wake source (active-low). On wake the ESP32 reboots and setup() →
+    //    boardPowerOn() re-drives the peripheral rails.
+#if defined(BOARD_TPAGER)
+    // Encoder push button (GPIO7) — the natural "press to wake" control, matching
+    // LilyGoLib's ROTARY_C wake source. GPIO7 is RTC-capable so ext1 can use it.
+    esp_sleep_enable_ext1_wakeup(1ULL << BOARD_ENCODER_PUSH, ESP_EXT1_WAKEUP_ANY_LOW);
+#else
+    // Trackball center-click (GPIO0 active-low). GPIO10/BOARD_POWERON is
+    // intentionally NOT held — letting it drop powers peripherals down for the
+    // ~240uA figure; setup() re-drives it HIGH on the wake reboot.
     esp_sleep_enable_ext1_wakeup(1ULL << BOARD_BOOT_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
+#endif
     esp_deep_sleep_start();   // never returns — wake = full reboot via setup()
 }
 
@@ -266,6 +314,12 @@ void PowerSaveManager::loadConfigFromSD() {
             batteryThreshold = value.toInt();
         } else if (key == "batteryDimBrightness") {
             batteryDimBrightness = value.toInt();
+        } else if (key == "batteryWarnPercent") {
+            batteryWarnPercent = value.toInt();
+        } else if (key == "batteryCriticalPercent") {
+            batteryCriticalPercent = value.toInt();
+        } else if (key == "batteryAutoSleep") {
+            batteryAutoSleep = (value == "true" || value == "1");
         }
     }
     
@@ -285,6 +339,9 @@ bool PowerSaveManager::writeConfigFile() {
     f.print("batteryAwareDimEnabled="); f.println(batteryAwareDimEnabled ? "true" : "false");
     f.print("batteryThreshold=");       f.println(batteryThreshold);
     f.print("batteryDimBrightness=");   f.println(batteryDimBrightness);
+    f.print("batteryWarnPercent=");     f.println(batteryWarnPercent);
+    f.print("batteryCriticalPercent="); f.println(batteryCriticalPercent);
+    f.print("batteryAutoSleep=");       f.println(batteryAutoSleep ? "true" : "false");
     f.close();
     return true;
 }
@@ -305,7 +362,11 @@ void PowerSaveManager::resetToDefaults() {
     batteryDimBrightness = DEFAULT_BATTERY_DIM_BRIGHTNESS;
     batteryThreshold = DEFAULT_BATTERY_THRESHOLD;
     batteryAwareDimEnabled = DEFAULT_BATTERY_MODE_ENABLED;
-    
+    batteryWarnPercent = DEFAULT_BATTERY_WARN_PERCENT;
+    batteryCriticalPercent = DEFAULT_BATTERY_CRITICAL_PERCENT;
+    batteryAutoSleep = DEFAULT_BATTERY_AUTOSLEEP_ENABLED;
+    _lowBattWarned = false;
+
     // Delete config file from SD
     if (SD.exists(CONFIG_FILE_PATH)) {
         SD.remove(CONFIG_FILE_PATH);
@@ -395,6 +456,18 @@ void PowerSaveManager::printStatus() {
         snprintf(buf, sizeof(buf), "%u", batteryDimBrightness);
         displayManager.println(buf);
     }
+
+#if defined(BOARD_TPAGER)
+    psvLabel("Warn @   ");
+    displayManager.setTextColor(TFT_WHITE);
+    snprintf(buf, sizeof(buf), "%u%% (alert)", batteryWarnPercent);
+    displayManager.println(buf);
+
+    psvLabel("Sleep @  ");
+    displayManager.setTextColor(batteryAutoSleep ? TFT_WHITE : 0x7BEF);
+    snprintf(buf, sizeof(buf), batteryAutoSleep ? "%u%%" : "%u%% (off)", batteryCriticalPercent);
+    displayManager.println(buf);
+#endif
 }
 
 void PowerSaveManager::handleCommand(char* args) {

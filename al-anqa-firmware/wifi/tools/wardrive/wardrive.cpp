@@ -14,7 +14,7 @@
 extern DisplayManager displayManager;   // used by both Plus impl and base-board stub
 extern SDCardManager  sdCardManager;
 
-#ifdef BOARD_TDECK_PLUS
+#if defined(BOARD_HAS_GPS)
 
 #include "gps_manager.h"
 #include "lockscreen_manager.h"
@@ -307,4 +307,4 @@ void runWardrive(char* args) {
     displayManager.printCommandScreen();
 }
 
-#endif // BOARD_TDECK_PLUS
+#endif // BOARD_HAS_GPS

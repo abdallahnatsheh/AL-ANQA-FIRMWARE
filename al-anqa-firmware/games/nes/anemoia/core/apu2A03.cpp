@@ -373,16 +373,33 @@ inline void Apu2A03::generateSample()
     if (!(noise.shift_register & 0x01) && noise.len_counter.timer > 0) sample += noise.env.output;
 
     // Clip audio and apply a low-pass filter
+#if defined(BOARD_TPAGER)
+    // T-Pager: apply master volume in the 16-bit domain, NOT the 8-bit domain.
+    // Scaling the 0..255 sample by volume first (as the T-Deck path below does)
+    // crushes low volumes to 1-2 bits — e.g. vol=1 leaves only 0/1/2 — which the
+    // ES8311 + amp reproduce as loud quantization static. Keep full 8-bit
+    // resolution through the low-pass, map 0..255 -> 0..32767 (unipolar; silence=0
+    // = mid-rail signed, so no wrap), then attenuate in 16-bit.
+    sample += prev_sample;
+    sample >>= 1;
+    sample &= 0xFF;
+    prev_sample = sample;
+    uint32_t pcm = ((uint32_t)sample * 32767u) / 255u;
+    pcm = (pcm * volume) / 100u;
+    audio_buffer[index]     = (uint16_t)pcm;
+    audio_buffer[index + 1] = (uint16_t)pcm;
+#else
+    // T-Deck / T-Deck-Plus: original behaviour, byte-for-byte unchanged.
     uint32_t temp = sample * volume;
     sample = (uint16_t)(((temp + 50) / 100));
     sample += prev_sample;
     sample >>= 1;
     sample &= 0xFF;
     prev_sample = sample;
-
     sample <<= 8;
-    audio_buffer[index] = sample;
+    audio_buffer[index]     = sample;
     audio_buffer[index + 1] = sample;
+#endif
 
     // Reset audio buffer index once filled
     buffer_index++;

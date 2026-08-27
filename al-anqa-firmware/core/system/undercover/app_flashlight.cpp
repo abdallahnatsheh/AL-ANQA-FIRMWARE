@@ -9,6 +9,10 @@ void FlashlightApp::draw() {
     G->fillScreen(_ui.white);
     G->setFont(_ui.fMeta()); G->setTextColor(_ui.muted);
     G->setTextDatum(textdatum_t::middle_center);
+#if BOARD_HAS_TOUCH
     G->drawString("Tap to exit", SCREEN_WIDTH / 2, SCREEN_HEIGHT - 16);
+#else
+    G->drawString("Click to exit", SCREEN_WIDTH / 2, SCREEN_HEIGHT - 16);
+#endif
     G->setTextDatum(textdatum_t::top_left);
 }

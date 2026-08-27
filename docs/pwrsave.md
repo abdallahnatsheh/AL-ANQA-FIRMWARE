@@ -26,4 +26,12 @@ CMD> psv set screenoffmode on|off
 
 **Battery-aware dim** — automatically dims when battery drops below threshold regardless of the inactivity timer.
 
+**Battery-aware alert + auto-sleep (T-Pager)** — using the BQ27220 fuel gauge + BQ25896 charger for an accurate state-of-charge and charge state, while running on battery:
+
+- At **`batteryWarnPercent`** (default 15%) it plays one **alert tone** (re-arms after you charge or recover).
+- At **`batteryCriticalPercent`** (default 5%) it **auto deep-sleeps** to protect the cell — press to wake after charging. Disable with `batteryAutoSleep=false`.
+- Both are suppressed whenever USB is plugged in (charging or not), so a USB/MSC session never sleeps on you. Alerts are silenced under undercover mode.
+
+These three keys live in `/config/pwrsave.conf`; `psv` status shows the warn/sleep thresholds. (The alert/auto-sleep is T-Pager-only — the T-Deck's ADC-derived battery % is too noisy to trust for an auto-sleep.)
+
 Config is saved to `/config/pwrsave.conf` on the SD card and restored on boot.

@@ -38,28 +38,32 @@ void Ui::statusBar() {
     drawCoverStatusBar(cover::G, &cover::fMeta);
 }
 
-void Ui::appBar(const char* title) {
+void Ui::appBar(const char* title, bool backFocused) {
     auto* G = cover::G;
     G->fillScreen(bg);          // clear the whole app canvas first (bar + content area)
     statusBar();
     G->fillRect(0, UI_SB_H, SCREEN_WIDTH, UI_APPBAR_H, bg);
     G->drawFastHLine(0, UI_SB_H + UI_APPBAR_H - 1, SCREEN_WIDTH, hair);
+    if (backFocused) focusRing(4, UI_SB_H + 2, 36, UI_APPBAR_H - 4, 8);
     int chx = 14, chy = UI_SB_H + UI_APPBAR_H / 2;
-    G->drawWideLine(chx + 7, chy - 7, chx, chy, 2, ink);
-    G->drawWideLine(chx, chy, chx + 7, chy + 7, 2, ink);
+    uint16_t chCol = backFocused ? sel : ink;
+    G->drawWideLine(chx + 7, chy - 7, chx, chy, 2, chCol);
+    G->drawWideLine(chx, chy, chx + 7, chy + 7, 2, chCol);
     G->setFont(&cover::fTitle);
     G->setTextColor(ink);
     G->setTextDatum(textdatum_t::top_left);
-    G->drawString(title, 34, UI_SB_H + 8);
+    G->drawString(title, 34, UI_SB_H + (UI_APPBAR_H - 16) / 2);
 }
 bool Ui::hitAppBack(int x, int y) {
     return y >= UI_SB_H && y < UI_SB_H + UI_APPBAR_H && x <= 44;
 }
 
 // ── controls ──────────────────────────────────────────────────────────────────
-void Ui::twoButtons(const char* a, const char* b, uint16_t aCol) {
+void Ui::twoButtons(const char* a, const char* b, uint16_t aCol, int focusIdx) {
     auto* G = cover::G;
-    int by = SCREEN_HEIGHT - 44, bh = 34, bw = (SCREEN_WIDTH - 34) / 2;
+    int by = UI_BTN_Y, bh = UI_BTN_H, bw = (SCREEN_WIDTH - 34) / 2;
+    if (focusIdx == 0) focusRing(14, by, bw, bh, 10);
+    if (focusIdx == 1) focusRing(20 + bw, by, bw, bh, 10);
     G->fillSmoothRoundRect(14, by, bw, bh, 10, aCol);
     G->fillSmoothRoundRect(20 + bw, by, bw, bh, 10, bar);
     G->setFont(&cover::fTitle);
@@ -68,13 +72,26 @@ void Ui::twoButtons(const char* a, const char* b, uint16_t aCol) {
     G->setTextColor(ink); G->drawString(b, 20 + bw + bw / 2, by + bh / 2);
     G->setTextDatum(textdatum_t::top_left);
 }
-bool Ui::hitBtnA(int x, int y) { int by = SCREEN_HEIGHT - 44, bh = 34, bw = (SCREEN_WIDTH - 34) / 2; return y >= by && y <= by + bh && x >= 14 && x <= 14 + bw; }
-bool Ui::hitBtnB(int x, int y) { int by = SCREEN_HEIGHT - 44, bh = 34, bw = (SCREEN_WIDTH - 34) / 2; return y >= by && y <= by + bh && x >= 20 + bw && x <= 20 + 2 * bw; }
+bool Ui::hitBtnA(int x, int y) { int by = UI_BTN_Y, bh = UI_BTN_H, bw = (SCREEN_WIDTH - 34) / 2; return y >= by && y <= by + bh && x >= 14 && x <= 14 + bw; }
+bool Ui::hitBtnB(int x, int y) { int by = UI_BTN_Y, bh = UI_BTN_H, bw = (SCREEN_WIDTH - 34) / 2; return y >= by && y <= by + bh && x >= 20 + bw && x <= 20 + 2 * bw; }
 
 void Ui::toggle(int x, int y, int w, int h, bool on) {
     auto* G = cover::G;
     G->fillSmoothRoundRect(x, y, w, h, h / 2, on ? col(0x34A853) : hair);
     G->fillSmoothCircle(on ? x + w - h / 2 : x + h / 2, y + h / 2, h / 2 - 2, white);
+}
+
+void Ui::focusRing(int x, int y, int w, int h, int rad) {
+    auto* G = cover::G;
+    // Double outline so the focus is obvious on a small landscape panel.
+    G->drawRoundRect(x - 2, y - 2, w + 4, h + 4, rad, sel);
+    G->drawRoundRect(x - 3, y - 3, w + 6, h + 6, rad + 1, sel);
+}
+
+void Ui::focusCircle(int cx, int cy, int r) {
+    auto* G = cover::G;
+    G->drawCircle(cx, cy, r + 2, sel);
+    G->drawCircle(cx, cy, r + 3, sel);
 }
 
 // ── misc widgets ──────────────────────────────────────────────────────────────

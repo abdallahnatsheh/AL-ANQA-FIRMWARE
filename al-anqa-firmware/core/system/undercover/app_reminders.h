@@ -16,7 +16,7 @@ class RemindersApp : public HomeApp {
 public:
     explicit RemindersApp(Ui& ui) : HomeApp(ui) {}
     const char* title() const override { return "Reminders"; }
-    void onEnter() override { _edit = false; _sel = 0; }
+    void onEnter() override { _edit = false; _sel = 0; _focusFab = false; _focus = 1; }
     void draw() override;
     Nav  onTouch(const TouchEvent&) override;
     Nav  onTrackball(TrackballEvent) override;
@@ -33,6 +33,8 @@ private:
     std::vector<Rem> _rem;
     int  _sel      = 0;
     bool _edit     = false;
+    bool _focusFab = false;   // + FAB has encoder focus
+    int  _focus    = 1;       // list: 0=back; edit: 0=back 1=hour 2=min 3=label 4=Save 5=Cancel
     int  _editIdx  = -1;
     int  _eh = 8, _em = 0, _ef = 0;
     char _elabel[24] = {};

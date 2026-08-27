@@ -30,8 +30,11 @@ Al-Anqa turns the LilyGo T-Deck (ESP32-S3) into a self-contained offensive-secur
 a blinking cursor, a physical keyboard, and 60+ WiFi / Bluetooth / network / radio tools —
 no PC, no app, no GUI. Everything runs on-device and logs to the SD card.
 
-Two boards are supported: **T-Deck** and **T-Deck Plus** (adds GPS and a speaker for
-wardriving and audio tools). The project is under **active development**.
+Three boards are supported: **T-Deck**, **T-Deck Plus** (adds GPS and a speaker for
+wardriving and audio tools), and the **T-Lora Pager** (widescreen ST7796, TCA8418
+keyboard + rotary encoder, ES8311 audio, GPS, and battery-backed RTC). The project
+is under **active development**; T-Pager changes are board-gated so the T-Deck builds
+are unaffected.
 
 ---
 
@@ -83,13 +86,14 @@ wardriving and audio tools). The project is under **active development**.
 
 | Component | Details |
 |-----------|---------|
-| Devices | LilyGo T-Deck · LilyGo T-Deck Plus |
-| MCU | ESP32-S3 · 16 MB flash · 8 MB PSRAM |
-| Display | 320×240 ST7789 TFT (GT911 capacitive touch) |
-| Input | Physical QWERTY keyboard (I2C) + trackball |
+| Devices | LilyGo T-Deck · T-Deck Plus · **T-Lora Pager** |
+| MCU | ESP32-S3 · 16 MB flash · 8 MB PSRAM (Pager: QSPI) |
+| Display | 320×240 ST7789 + GT911 touch · **Pager: 480×222 ST7796** |
+| Input | QWERTY keyboard (I2C) + trackball · **Pager: TCA8418 keyboard + rotary encoder** |
 | Radio | WiFi 2.4 GHz · Bluetooth LE (NimBLE) · LoRa SX1262 |
-| GPS | L76K / u-blox M10Q — **T-Deck Plus only** |
-| Audio | ES7210 mic + I2S speaker — **T-Deck Plus** |
+| GPS | L76K / u-blox M10Q — **T-Deck Plus + T-Lora Pager** |
+| Audio | ES7210 mic + I2S speaker (Plus) · **Pager: ES8311 codec** |
+| Power | **Pager: BQ27220 gauge + BQ25896 charger + PCF85063 RTC + AW9364 backlight** |
 
 ---
 
@@ -119,10 +123,11 @@ Run `help` for the list on-device, or `man <cmd>` for a full manual page.
 | `clear` | `clr` | — | Clear screen |
 | `pwrsave` | `psv` | `[status\|on\|off\|set ...]` | Power-save config (dim / screen-off on idle) |
 | `sleep` | `slp` | — | Deep sleep (~240 µA); click trackball to wake |
+| `poweroff` | `off` | — | Full power-off (T-Pager: BQ25896 ship mode, 0 draw — wake with the power key/USB; T-Deck: deep sleep) |
 | `lock` | `lk` | `[new\|update\|clean\|timeout <s>\|status]` | Screen lock — optional SHA-256 PIN |
 | `volume` | `vol` | `[0-100\|up\|down\|off]` | Master audio volume |
 | `notif` | `nf` | `[on\|off\|vol <n>\|test\|<lvl> ...]` | Notification manager (per-level, custom WAV) |
-| `tz` | `tz` | `[+HH:MM\|<posix>\|status]` | Device timezone (persisted) |
+| `tz` | `tz` | `[+HH:MM\|<posix>\|set <date time>\|status]` | Device timezone + clock (persisted; T-Pager keeps time across power-off via its RTC) |
 | `weather` | `wx` | `[loc <lat> <lon>\|units ...\|now]` | Live weather (Open-Meteo, **no API key**) |
 | `home` | `hm` | `[EXP]` | Home-launcher cover UI (standalone) |
 | `undercover` | `uc` | `[set\|clear\|status\|boot ...\|panic ...]` | **[EXP]** Silent disguise — passphrase exit, panic key |

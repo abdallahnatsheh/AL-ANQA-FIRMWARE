@@ -8,10 +8,17 @@
 #define VIDEO_STANDARD  1   // 1 = NTSC
 #define FRAMESKIP           // skip every other frame for performance
 
-// I2S audio — T-Deck hardware pins
+// I2S audio pins — board-specific (T-Pager routes through the ES8311 codec).
+#include "board.h"
+#if defined(BOARD_TPAGER)
+#define I2S_BCLK_PIN    BOARD_I2S_BCK
+#define I2S_LRC_PIN     BOARD_I2S_WS
+#define I2S_DOUT_PIN    BOARD_I2S_DOUT
+#else
 #define I2S_BCLK_PIN    7
 #define I2S_LRC_PIN     5
 #define I2S_DOUT_PIN    6
+#endif
 
 // SCREEN_SWAP_BYTES: do NOT define — LovyanGFX handles byte-swapping internally
 // #define SCREEN_SWAP_BYTES

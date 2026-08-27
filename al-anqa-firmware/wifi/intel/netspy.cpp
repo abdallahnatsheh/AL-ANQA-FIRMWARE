@@ -531,7 +531,7 @@ static void nsSave() {
         }
     }
     char b[40]; snprintf(b, sizeof(b), "Saved %d -> %s", s_devN, path);
-    dm.setTextColor(0x6FE8); dm.setCursor(6, 226); dm.printText(b);
+    dm.setTextColor(0x6FE8); dm.setCursor(6, SCREEN_HEIGHT - 14); dm.printText(b);
 }
 
 // ── discovery UI ───────────────────────────────────────────────────────────────
@@ -590,7 +590,7 @@ static void nsDraw(int page, int sel) {
     char foot[64];
     snprintf(foot, sizeof(foot), "dev:%d pg%d/%d ent=info p=ping o=port s=save q",
              s_devN, page + 1, total);
-    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText(foot);
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, SCREEN_HEIGHT - 10); dm.printText(foot);
 }
 
 // ── device detail overlay (Enter / [i]) ─────────────────────────────────────────
@@ -624,7 +624,7 @@ static void nsDetail(int idx) {
         nsDetailRow(y, "Seen", b, 0x6FE8); y += LINE_HEIGHT;
         nsSvcStr(d.svc, b, sizeof(b));
         nsDetailRow(y, "Svc", b[0] ? b : "none", b[0] ? TFT_CYAN : TFT_DARKGREY);
-        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText("any key: back");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, SCREEN_HEIGHT - 10); dm.printText("any key: back");
     };
     draw();
     while (true) {

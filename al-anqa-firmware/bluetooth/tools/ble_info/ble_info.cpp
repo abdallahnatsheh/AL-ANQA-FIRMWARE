@@ -1,4 +1,5 @@
 #include "ble_info.h"
+#include "board_power.h"
 #include "bluetooth_functions.h"
 #include "display_manager.h"
 #include "input_handling.h"
@@ -1841,6 +1842,7 @@ static void runSniff(const char* macStr, uint8_t addrType) {
 
 void runBleInfo(char* arg) {
     ensureBiBuffers();
+    boardBleRadioPrepare();   // T-Pager: free WiFi RAM before BLE (no-op on T-Deck)
     displayManager.clearScreen();
     displayManager.setDefaultTextSize();
     displayManager.setCursor(4, outputY);

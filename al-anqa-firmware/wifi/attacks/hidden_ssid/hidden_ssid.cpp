@@ -3,6 +3,7 @@
 // Copyright (C) 2026 Abdallah Natsheh
 
 #include "hidden_ssid.h"
+#include "board_audio.h"
 #include "input_handling.h"
 #include "wifimon_functions.h"
 #include "utilities.h"
@@ -65,16 +66,19 @@ static void playBeep() {
     cfg.intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1;
     cfg.dma_buf_count        = 8;
     cfg.dma_buf_len          = 128;
-    cfg.use_apll             = false;
+    cfg.use_apll             = BOARD_I2S_USE_APLL;
     cfg.tx_desc_auto_clear   = true;
     if (i2s_driver_install(I2S_NUM_0, &cfg, 0, NULL) != ESP_OK) return;
     i2s_pin_config_t pins = {};
-    pins.mck_io_num   = I2S_PIN_NO_CHANGE;
+    pins.mck_io_num   = BOARD_I2S_MCK_PIN;
     pins.bck_io_num   = BOARD_I2S_BCK;
     pins.ws_io_num    = BOARD_I2S_WS;
     pins.data_out_num = BOARD_I2S_DOUT;
     pins.data_in_num  = I2S_PIN_NO_CHANGE;
     if (i2s_set_pin(I2S_NUM_0, &pins) != ESP_OK) { i2s_driver_uninstall(I2S_NUM_0); return; }
+    i2s_zero_dma_buffer(I2S_NUM_0);
+    boardCodecBegin(22050);   // T-Pager: ES8311 muted (test-spk order)
+    boardCodecUnmute();
     const int SR = 22050;
     const int freqs[] = { 1000, 2000 };
     for (int f : freqs) {
@@ -91,6 +95,7 @@ static void playBeep() {
             i2s_write(I2S_NUM_0, buf, cycLen * 4, &wr, pdMS_TO_TICKS(50));
         i2s_zero_dma_buffer(I2S_NUM_0);
     }
+    boardCodecEnd();
     i2s_driver_uninstall(I2S_NUM_0);
 }
 

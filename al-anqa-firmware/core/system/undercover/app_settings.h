@@ -44,6 +44,7 @@ private:
     char    _pass[65] = {}; int _passLen = 0;
     char    _tgtSsid[33] = {}; bool _tgtOpen = false; uint8_t _tgtBssid[6] = {};
     uint32_t _msgMs = 0; char _msgText[40] = {}; uint16_t _msgCol = 0;
+    int      _focus = 1;   // encoder focus slot (0 = back chevron)
 };
 
 #endif // APP_SETTINGS_H

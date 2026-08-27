@@ -53,11 +53,22 @@ int8_t UsbKeyboard::mouseStep(uint32_t elapsedMs) {
 // Trackball center: tap < 300ms = left click, hold 300ms–1.5s = right click, hold ≥1.5s = exit.
 // Backspace: auto-repeats after 500ms (60ms interval, 2s max — press BS again for more).
 void UsbKeyboard::start() {
+#if BOARD_HAS_TRACKBALL
     static const uint8_t DIR_PINS[4]   = { BOARD_TBOX_G02, BOARD_TBOX_G01,
                                            BOARD_TBOX_G04, BOARD_TBOX_G03 };
     static const int8_t  DIR_SIGN_X[4] = {  1, 0, -1, 0 };   // RIGHT, UP, LEFT, DOWN
     static const int8_t  DIR_SIGN_Y[4] = {  0, -1, 0,  1 };
     static const char*   DIR_SYM[4]    = { "R", "U", "L", "D" };
+#endif
+    // NOTE: on a board without a trackball (T-Pager) this tool provides USB
+    // keyboard passthrough only; the trackball→mouse path is gated out below.
+    // Center-click / long-press-exit control: the encoder push on the T-Pager,
+    // the trackball click (boot pin) on the T-Deck.
+#if BOARD_HAS_ENCODER
+    const uint8_t CLICK_PIN = BOARD_ENCODER_PUSH;
+#else
+    const uint8_t CLICK_PIN = BOARD_BOOT_PIN;
+#endif
 
     DisplayManager& dm = displayManager;
 
@@ -90,9 +101,13 @@ void UsbKeyboard::start() {
     int statusY = dm.getCursorY();
 
     // ── State ─────────────────────────────────────────────────────────────────
+#if BOARD_HAS_TRACKBALL
     bool dirLast[4];
     for (int i = 0; i < 4; i++) dirLast[i] = (bool)digitalRead(DIR_PINS[i]);
     uint32_t lastDirMs = millis();
+#elif BOARD_HAS_ENCODER
+    uint32_t lastDirMs = millis();   // encoder detent timing → mouse acceleration
+#endif
 
     bool     clickHeld   = false;
     uint32_t clickDownMs = 0;
@@ -177,6 +192,7 @@ void UsbKeyboard::start() {
         }
 
         // ── Mouse: accelerated trackball directions ───────────────────────────
+#if BOARD_HAS_TRACKBALL
         for (int i = 0; i < 4; i++) {
             bool cur = (bool)digitalRead(DIR_PINS[i]);
             if (cur != dirLast[i]) {
@@ -188,10 +204,28 @@ void UsbKeyboard::start() {
                 lastDirSym = DIR_SYM[i];
             }
         }
+#elif BOARD_HAS_ENCODER
+        // Encoder → mouse: rotate = Y (up/down), Sym+rotate = X (left/right).
+        {
+            int8_t mx = 0, my = 0;
+            switch (inputHandler.getTrackballEvent()) {
+                case TBALL_UP:    my = -1; lastDirSym = "U"; break;
+                case TBALL_DOWN:  my =  1; lastDirSym = "D"; break;
+                case TBALL_LEFT:  mx = -1; lastDirSym = "L"; break;
+                case TBALL_RIGHT: mx =  1; lastDirSym = "R"; break;
+                default: break;   // TBALL_CLICK handled by the CLICK_PIN block below
+            }
+            if (mx || my) {
+                int8_t step = mouseStep(now - lastDirMs);
+                lastDirMs = now;
+                _mouse.move(mx * step, my * step, 0);
+            }
+        }
+#endif
 
         // ── Mouse: center click / long-press exit ─────────────────────────────
-        // BOARD_BOOT_PIN (GPIO0): LOW = pressed, HIGH = released (active-low)
-        bool clickCur = (bool)digitalRead(BOARD_BOOT_PIN);
+        // CLICK_PIN: LOW = pressed, HIGH = released (active-low)
+        bool clickCur = (bool)digitalRead(CLICK_PIN);
         if (!clickCur && !clickHeld) {
             clickDownMs = now;
             clickHeld   = true;
