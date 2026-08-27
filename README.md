@@ -275,7 +275,7 @@ Issues and PRs are welcome. To add a command or module:
 3. Implement (new modules get their own `.cpp/.h`; register the command in `setupCommands()`).
 4. Submit a PR referencing the issue.
 
-CI compiles both `T-Deck` and `T-Deck-Plus` on every push.
+CI compiles `T-Deck`, `T-Deck-Plus`, and `T-Pager` on every push.
 
 ---
 

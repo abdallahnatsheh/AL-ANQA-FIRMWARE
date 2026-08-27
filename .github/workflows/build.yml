@@ -1,7 +1,7 @@
 name: Firmware Build
 
-# Compile-gate: proves both board targets still build on every push / PR.
-# Does not test runtime behavior (that needs a physical T-Deck) — it answers
+# Compile-gate: proves all three board targets still build on every push / PR.
+# Does not test runtime behavior (that needs physical hardware) — it answers
 # the one question that recurs on every change: "did this still compile?"
 
 on:
@@ -12,6 +12,7 @@ on:
       - "lib/**"
       - "platformio.ini"
       - "convert_splash.py"
+      - "convert_font.py"
       - ".github/workflows/build.yml"
   pull_request:
     paths:
@@ -19,6 +20,7 @@ on:
       - "lib/**"
       - "platformio.ini"
       - "convert_splash.py"
+      - "convert_font.py"
   workflow_dispatch:
 
 permissions:
@@ -30,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false        # report both boards even if one breaks
       matrix:
-        env: [T-Deck, T-Deck-Plus]
+        env: [T-Deck, T-Deck-Plus, T-Pager]
     name: build (${{ matrix.env }})
     steps:
       - name: Checkout
