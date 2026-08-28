@@ -468,7 +468,19 @@ static const uint8_t PWN_GRID_PREFIX[3] = {0xA2, 0x9A, 0x0A};   // "an AL-ANQA p
 #define PWN_GRID_TX_MS   3000
 #define PWN_GRID_ADV_OFF 36          // GridAdv sits at this byte offset in the frame
 #define PWN_MAX_PEERS    8
-#define PWN_PEER_TTL_MS  30000
+// Roster hysteresis (§12f.1): a peer stays in the roster this long after its last
+// heard advert. Raised 30s→60s because a busy peer goes advert-silent for tens of
+// seconds while it's grinding a crack slice / scanning its .cap backlog (its loop
+// isn't TXing adverts during that window). At 30s those normal gaps EXPIRED the peer,
+// and every re-add reset firstSeenMs → a fresh PWN_GRID_STABLE_MS (6s) re-stabilization
+// before it could rejoin the channel-split cell. Measured effect: peer heard 75% of
+// hops yet the cell was active only ~19% (62 g=0 flaps + 144 g=1-solo re-stab windows,
+// D:/apps/pwn logs). 60s rides over those crack gaps so the cell holds; a peer that is
+// genuinely gone still expires within a minute (then the deck correctly reverts to solo
+// / full-band). This constant removes the routine churn; the >60s crack-backlog blackout
+// is handled separately by the advert keepalive fired before each crack batch (fix #2 in
+// the main loop) so a grinding deck never lets its heartbeat lapse past this TTL.
+#define PWN_PEER_TTL_MS  60000
 #define PWN_GRID_SWEEP_HI  13        // advert is swept over channels 1..this so a peer on ANY channel hears it
 #define PWN_GRID_TX_GAP_MS 3         // ms between per-channel advert TX (let each frame leave before hopping)
 #define PWN_GRID_STABLE_MS 6000      // a peer must be heard this long (~2 grid ticks) before it joins the channel-split cell — churn debounce (§12f.1)
@@ -1532,6 +1544,16 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         // listen before concluding "nothing to capture" — else a fresh session goes deaf on
         // its backlog instead of finding the APs around it (12s ≈ one 1/6/11 sweep).
         bool canCrack = s_haveSd && !captureWork && (now - lastM1Ms) > 1200 && (now - t0Session) > 12000;
+        // Grid keepalive during cracking (fix #2, the >60s-blackout churn): a crack batch
+        // pauses promiscuous and can span many loop iterations back-to-back (crackAt=now on
+        // progress), so the normal gridTxAt heartbeat above can lapse — the peer then wrongly
+        // TTL-expires on the other deck and the whole pack re-greets + re-divides. Fire a due
+        // advert BEFORE the batch so the heartbeat survives a long backlog grind.
+        if (mode != PWN_STEALTH && canCrack && now >= gridTxAt) {
+            gridTxAt = now + PWN_GRID_TX_MS;
+            gridSendAdv(pwnedCount, hsCount, pmCount, (uint16_t)((now - t0Session) / 60000), curCh);
+            if (s_shareReps > 0) { gridSendCred(s_shareSsid, s_sharePsk, s_shareBssid, curCh); s_shareReps--; }
+        }
         if (canCrack && now >= crackAt) {
             bool didWork = false;
             {   // GDMA (fix #2): a crack batch reads the SD (dir list, .cap, wordlist) and
@@ -1584,6 +1606,11 @@ static void runPwnSession(PwnMode mode, bool fullChans, bool backlog) {
         // list in short slices. Runs opportunistically (even with prey around, since the slot
         // holds only one HS and the slice is short); PWNED → NVS save + grid share.
         if (!s_haveSd && s_ramJobActive && (now - lastM1Ms) > 800 && now >= crackAt) {
+            if (mode != PWN_STEALTH && now >= gridTxAt) {   // grid keepalive during RAM crack (fix #2, cardless path)
+                gridTxAt = now + PWN_GRID_TX_MS;
+                gridSendAdv(pwnedCount, hsCount, pmCount, (uint16_t)((now - t0Session) / 60000), curCh);
+                if (s_shareReps > 0) { gridSendCred(s_shareSsid, s_sharePsk, s_shareBssid, curCh); s_shareReps--; }
+            }
             char found[64] = {0}; int r;
             { ScopedPromiscPause _; r = pwnRamCrackSlice(found, sizeof(found)); }
             if (r == 1) {
