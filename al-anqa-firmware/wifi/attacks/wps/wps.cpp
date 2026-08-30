@@ -24,6 +24,7 @@
 #include "input_handling.h"
 #include "wifi_functions.h"
 #include "sdcard_manager.h"
+#include "layout.h"
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
@@ -264,6 +265,8 @@ static void doPbc(const char* ssid, const uint8_t bssid[6]) {
         dm.setTextColor(0x5AEB); dm.println("saved creds.csv - any key");
         while (inputHandler.getKeyboardInput()==0) delay(20);
     } else { dm.setTextColor(TFT_RED); dm.println("No PBC connect (button/timeout)."); delay(2200); }
+    dm.clearScreen();
+    dm.printCommandScreen();
 }
 
 // ═══ the one command: recon + PIN calc + live handshake sniff ════════════════
@@ -320,7 +323,7 @@ static void wpsRun(int idx) {
                 (i+1<npins)?(unsigned long)pins[i+1].pin:0, (i+1<npins)?pins[i+1].algo:"");
             dm.setCursor(6,y); dm.printText(b); y+=12;
         }
-        dm.setTextColor(0x7BEF); dm.setCursor(6,214); dm.printText("[p] push-button   [q] stop");
+        dm.setTextColor(0x7BEF); dm.setCursor(6, layoutFooterY(26)); dm.printText("[p] push-button   [q] stop");
     };
     panel();
     const int sniffY=156;
@@ -356,6 +359,8 @@ static void wpsRun(int idx) {
         delay(15);
     }
     s_sniff=false; esp_wifi_set_promiscuous(false); esp_wifi_set_promiscuous_rx_cb(NULL);
+    dm.clearScreen();
+    dm.printCommandScreen();
 }
 
 // ═══ entry ═══════════════════════════════════════════════════════════════════
@@ -370,7 +375,7 @@ void runWps(char* args) {
     if (wifiFunctions.getNetworkCount() <= 0) {
         dm.setTextColor(TFT_YELLOW); dm.println("Run `sw` first, then `wps <idx>`.");
         dm.setTextColor(0x7BEF); dm.println("wps <idx> = recon + PIN + handshake sniff");
-        delay(2600); return;
+        delay(2600); dm.clearScreen(); dm.printCommandScreen(); return;
     }
     dm.setTextColor(TFT_CYAN); dm.println("WPS APs (wps <#> = recon+sniff):");
     dm.setTextColor(TFT_WHITE); int n=wifiFunctions.getNetworkCount(), shown=0;
@@ -378,4 +383,6 @@ void runWps(char* args) {
     if(!shown){ dm.setTextColor(0x7BEF); dm.println("(none flagged WPS in last scan)"); }
     dm.setTextColor(0x5AEB); dm.println("any key");
     while (inputHandler.getKeyboardInput()==0) delay(20);
+    dm.clearScreen();
+    dm.printCommandScreen();
 }

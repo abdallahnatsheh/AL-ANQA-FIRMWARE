@@ -23,6 +23,7 @@
 #include "display_manager.h"
 #include "input_handling.h"
 #include "lockscreen_manager.h"
+#include "layout.h"                 // layoutFooterY — bottom-anchored footer positions
 #include "netspy.h"                 // victim list: count / ip / mac / name; live GTK
 #include "iso_ccmp.h"              // software CCMP encrypt + self-test
 #include <lwip/etharp.h>           // read the victim's reply straight from our ARP cache
@@ -133,7 +134,7 @@ static void isoPickBody(int page, int sel) {
     }
     char foot[64];
     snprintf(foot, sizeof(foot), "dev:%d pg%d/%d  trkbl=sel ent=pick a/l=page q", devN, page + 1, total);
-    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText(foot);
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, layoutFooterY(10)); dm.printText(foot);
 }
 
 // Returns a netspy device index, or -1 if cancelled. Chrome once; rows redrawn
@@ -173,7 +174,7 @@ static void isoMenuChrome(int idx) {
     const char* nm = netspyDeviceName(idx); if (!nm) nm = "?";
     dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT);  dm.printText("target:");
     dm.setTextColor(TFT_CYAN);     dm.setCursor(58, outputY + LINE_HEIGHT); dm.printText(nm);
-    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, layoutFooterY(10));
     dm.printText("trkbl=move   ent=run   q=back");
 }
 static void isoMenuBody(int sel) {
@@ -239,7 +240,7 @@ static bool isoConfirm(int idx, IsoAttack attack) {
         dm.setTextColor(TFT_WHITE);    dm.setCursor(72, y); dm.printText(b); y += LINE_HEIGHT + 6;
         dm.setTextColor(TFT_RED);      dm.setCursor(6, y);
         dm.printText("This TRANSMITS at the target.");
-        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, layoutFooterY(10));
         dm.printText("[y] fire   [n]/[q] cancel");
     };
     if (!ok) return false;
@@ -356,7 +357,7 @@ static bool isoInjectArp(int idx) {
         dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yKey);  dm.printText("keyid");
         dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yOk);   dm.printText("TX ok");
         dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yErr);  dm.printText("TX err");
-        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);   dm.printText("[k] keyid 1/2   [q] back to menu");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, layoutFooterY(10));   dm.printText("[k] keyid 1/2   [q] back to menu");
     };
     auto val = [&](int y, uint16_t col, const char* s) {   // repaint one value cell in place
         dm.fillRect(66, y, SCREEN_WIDTH - 66, LINE_HEIGHT, TFT_BLACK);
@@ -459,7 +460,7 @@ static bool isoGwPoison(int idx) {
         dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yTx);  dm.printText("TX ok");
         dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, yErr); dm.printText("TX err");
         dm.setTextColor(0x7BEF);       dm.setCursor(6, yHint); dm.printText("watch victim net: stalls = holding");
-        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);  dm.printText("[k] keyid 1/2   [q] back to menu");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, layoutFooterY(10));  dm.printText("[k] keyid 1/2   [q] back to menu");
     };
     auto values = [&]() {                             // repaint only the counters, in place
         if (dm.isBlocked()) return;
@@ -657,7 +658,7 @@ static bool isoPortDown(int idx) {
     esp_wifi_set_promiscuous(true);
 
     uint32_t written = 0, lastDraw = 0, lastFlush = 0;
-    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText("[q] save + back to menu");
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, layoutFooterY(10)); dm.printText("[q] save + back to menu");
     while (true) {
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
@@ -765,7 +766,7 @@ static bool isoMitm(int idx) {
     // an old ARP entry) is NOT a held MITM — only a SUSTAINED data rate is. Sample the
     // redirect count over a 2s window; declare LIVE only above a real throughput.
     uint32_t winRedir0 = 0, winMs = millis(), rate = 0; bool sustained = false;
-    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText("[k] keyid 1/2   [q] save + back to menu");
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, layoutFooterY(10)); dm.printText("[k] keyid 1/2   [q] save + back to menu");
     while (true) {
         char k = inputHandler.getKeyboardInput();
         if (k == 'q' || k == 'Q') break;
@@ -1002,7 +1003,7 @@ static bool isoSmartAuto(int idx) {
         dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, line); dm.printText("VERDICT"); line += LINE_HEIGHT;
         dm.setTextColor(vcol);         dm.setCursor(6, line); dm.printText(verdict);
     }
-    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230); dm.printText("any key -> back to menu");
+    dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, layoutFooterY(10)); dm.printText("any key -> back to menu");
     while (true) { char k = inputHandler.getKeyboardInput(); if (k) break;
                    if (LockScreenManager::getInstance().consumeJustUnlocked()) break; vTaskDelay(pdMS_TO_TICKS(30)); }
     dm.clearScreen(); return true;
@@ -1170,7 +1171,7 @@ static bool isoRaDns(int idx) {
         dm.setTextColor(log ? 0x6FE8 : TFT_DARKGREY); dm.setCursor(72, outputY + LINE_HEIGHT * 5);
         dm.printText(log ? path : "(no SD - screen only)");
         dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, outputY + LINE_HEIGHT * 6); dm.printText("victim is reaching:");
-        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, 230);                       dm.printText("[k] keyid   [q] back to menu");
+        dm.setTextColor(TFT_DARKGREY); dm.setCursor(6, layoutFooterY(10));                       dm.printText("[k] keyid   [q] back to menu");
     };
     chrome();
 

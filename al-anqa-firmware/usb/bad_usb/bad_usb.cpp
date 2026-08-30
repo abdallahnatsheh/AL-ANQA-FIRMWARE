@@ -14,6 +14,7 @@
 #include "ble_info.h"              // runBleInfo — [i] inspect a target's GATT from the clone picker
 #include "espchat.h"               // stopEspchatBg() — must stop before WiFi mode change
 #include "macwatch.h"              // stopMacwatchBg() — must stop before BLE bring-up
+#include "layout.h"                // layoutFooterY — bottom-anchored footer positions
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -359,8 +360,8 @@ void BadUsb::drawBleFooter(const char* hint) {
     DisplayManager& dm = displayManager;
     // Separator sits at y+LINE_HEIGHT/2, so anchor it ABOVE the hint text (was y=210 →
     // line at 217, cutting through the hint at 214).
-    dm.setCursor(0, 202);   dm.printSeparator();
-    dm.setCursor(6, 214);   dm.setTextColor(0x7BEF); dm.printText(hint);
+    dm.setCursor(0, layoutFooterY(38));   dm.printSeparator();
+    dm.setCursor(6, layoutFooterY(26));   dm.setTextColor(0x7BEF); dm.printText(hint);
     dm.setTextColor(TFT_WHITE);
 }
 
@@ -478,10 +479,10 @@ int BadUsb::blePickTarget() {
                 dm.printText(mb);   // full MAC (matches sbl) so devices cross-reference
             }
             // footer: keys line + a legend that explains the green/`*` marker
-            dm.setCursor(0, 202); dm.printSeparator();     // line lands at ~209, below row text
-            dm.setCursor(6, 212); dm.setTextColor(0x7BEF);
+            dm.setCursor(0, layoutFooterY(38)); dm.printSeparator();
+            dm.setCursor(6, layoutFooterY(28)); dm.setTextColor(0x7BEF);
             dm.printText("trkbl=sel a/l=pg u=scan i=info ent=pick q=back");
-            dm.setCursor(6, 226); dm.setTextColor(TFT_GREEN);
+            dm.setCursor(6, layoutFooterY(14)); dm.setTextColor(TFT_GREEN);
             dm.printText("green */rnd = clonable  ");
             dm.setTextColor(0x7BEF);
             dm.printText("pub/RPA = name-only");

@@ -52,6 +52,7 @@
 #include "dot11.h"
 #include "oui_lookup.h"
 #include "pcap_writer.h"
+#include "layout.h"    // layoutFooterY
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
@@ -235,8 +236,8 @@ static W3dPmf w3dRunPmfProbe(const uint8_t* bssid, int ch, const uint8_t* victim
     char chs[10]; snprintf(chs, sizeof(chs), "  ch%d", ch);
     displayManager.setTextColor(0x7BEF); displayManager.println(chs);
     displayManager.setCursor(0, outputY + 3 * LINE_HEIGHT + 2); displayManager.printSeparator();
-    displayManager.setCursor(0, 210); displayManager.printSeparator();
-    displayManager.setCursor(6, 214);
+    displayManager.setCursor(0, layoutFooterY(30)); displayManager.printSeparator();
+    displayManager.setCursor(6, layoutFooterY(26));
     displayManager.setTextColor(0x7BEF); displayManager.printText("[q] abort");
     displayManager.setTextColor(TFT_WHITE);
 
@@ -327,8 +328,8 @@ static bool w3dShowVerdict(const char* ssid, W3dPmf pmf, const char* det, bool p
     displayManager.setCursor(10, outputY + 5 * LINE_HEIGHT);
     displayManager.setTextColor(0x7BEF); displayManager.println(det);
 
-    displayManager.setCursor(0, 210); displayManager.printSeparator();
-    displayManager.setCursor(6, 214);
+    displayManager.setCursor(0, layoutFooterY(30)); displayManager.printSeparator();
+    displayManager.setCursor(6, layoutFooterY(26));
     displayManager.setTextColor(0x7BEF);
     displayManager.printText(probeOnly ? "[any] back" : "[q] cancel   any key = start attack");
     displayManager.setTextColor(TFT_WHITE);
@@ -457,9 +458,9 @@ static void w3dDrawClientList(const W3dClient* tbl, int n, int sel) {
         snprintf(meta, sizeof(meta), " %-7.7s %d", ven ? ven : "?", tbl[k].rssi);
         displayManager.setTextColor(0x7BEF); displayManager.printText(meta);
     }
-    displayManager.setCursor(0, 210);
+    displayManager.setCursor(0, layoutFooterY(30));
     displayManager.printSeparator();
-    displayManager.setCursor(6, 214);
+    displayManager.setCursor(6, layoutFooterY(26));
     displayManager.setTextColor(0x7BEF);
     displayManager.printText(n == 0 ? "[u]rescan  [b]broadcast  [q]cancel"
                                     : "trkbl/ent pick [a]auto [u]resc [b]bcast [q]");
@@ -483,8 +484,8 @@ static int w3dPickClient(const uint8_t* bssid, int ch, bool autoPick, uint8_t* o
     displayManager.setTextColor(0x7BEF);     displayManager.println("]");
     displayManager.setCursor(10, outputY + LINE_HEIGHT);
     displayManager.setTextColor(0x7BEF);     displayManager.println("Finding clients on the AP...");
-    displayManager.setCursor(0, 210); displayManager.printSeparator();
-    displayManager.setCursor(6, 214);
+    displayManager.setCursor(0, layoutFooterY(30)); displayManager.printSeparator();
+    displayManager.setCursor(6, layoutFooterY(26));
     displayManager.setTextColor(0x7BEF); displayManager.printText("[q] abort");
     displayManager.setTextColor(TFT_WHITE);
 
@@ -567,9 +568,9 @@ static int w3dPickTarget(const int* tdIdx, int tdCount) {
                 displayManager.setTextColor(TFT_YELLOW); displayManager.printText(" WPA3/TD");
             }
 
-            displayManager.setCursor(0, 210);
+            displayManager.setCursor(0, layoutFooterY(30));
             displayManager.printSeparator();
-            displayManager.setCursor(6, 214);
+            displayManager.setCursor(6, layoutFooterY(26));
             displayManager.setTextColor(0x7BEF);
             displayManager.printText("trkbl=sel  click/ent=pick  [q]cancel");
             displayManager.setTextColor(TFT_WHITE);
@@ -642,9 +643,9 @@ static void w3dDrawChrome(const char* ssid, const uint8_t* bssid, int ch, W3dPmf
         displayManager.println("PMF unknown - may not drop");
     }
 
-    displayManager.setCursor(0, 210);
+    displayManager.setCursor(0, layoutFooterY(30));
     displayManager.printSeparator();
-    displayManager.setCursor(6, 214);
+    displayManager.setCursor(6, layoutFooterY(26));
     displayManager.setTextColor(0x7BEF);
     displayManager.printText("[q] stop");
     displayManager.setTextColor(TFT_WHITE);

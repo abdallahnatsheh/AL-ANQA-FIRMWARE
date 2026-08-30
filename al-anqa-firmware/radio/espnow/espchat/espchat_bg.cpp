@@ -7,6 +7,7 @@
 #include "display_manager.h"
 #include "sdcard_manager.h"
 #include "notification_manager.h"
+#include "layout.h"
 #include <WiFi.h>
 
 extern DisplayManager displayManager;
@@ -105,7 +106,7 @@ void pollEspchatBg() {
 
                 // Popup bar: cyan for private, green for public
                 uint16_t bgCol = isPrivate ? 0x0318 : 0x0240;  // dark-cyan / dark-green
-                displayManager.fillRect(0, 222, SCREEN_WIDTH, 16, bgCol);
+                displayManager.fillRect(0, layoutFooterY(18), SCREEN_WIDTH, 16, bgCol);
                 displayManager.setCursor(4, SCREEN_HEIGHT - 17);
                 displayManager.setTextColor(isPrivate ? TFT_CYAN : TFT_GREEN);
                 displayManager.printText(isPrivate ? "[EC PRV] " : "[EC PUB] ");

@@ -47,6 +47,7 @@
 #include "lockscreen_manager.h"
 #include "network_scanner.h"   // resolveNetTarget()
 #include "sdcard_manager.h"    // SD_DIR_DPWO
+#include "layout.h"            // layoutFooterY — bottom-anchored footer positions
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
@@ -855,7 +856,7 @@ static void dpDrawChrome(IPAddress ip) {
     displayManager.setCursor(0, outputY + LINE_HEIGHT + 2);
     displayManager.printSeparator();
     for (int i = 0; i < s_runN; i++) dpDrawRow(i);
-    displayManager.setCursor(0, 210);
+    displayManager.setCursor(0, layoutFooterY(30));
     displayManager.printSeparator();
 }
 
@@ -891,8 +892,8 @@ static void dpDrawCounts(int nHit, int nOpen, bool unreachable) {
 // Footer shown while a scan is running.
 static void dpDrawFooterScan() {
     if (displayManager.isBlocked()) return;
-    displayManager.fillRect(0, 212, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
-    displayManager.setCursor(6, 214);
+    displayManager.fillRect(0, layoutFooterY(28), SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+    displayManager.setCursor(6, layoutFooterY(26));
     displayManager.setTextColor(0x7BEF); displayManager.printText("[q] stop");
     displayManager.setTextColor(TFT_WHITE);
 }
@@ -900,8 +901,8 @@ static void dpDrawFooterScan() {
 // Footer for the interactive results view: trackpad picks a row, keys re-scan.
 static void dpDrawFooterResults() {
     if (displayManager.isBlocked()) return;
-    displayManager.fillRect(0, 212, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
-    displayManager.setCursor(6, 214);
+    displayManager.fillRect(0, layoutFooterY(28), SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+    displayManager.setCursor(6, layoutFooterY(26));
     struct { const char* k; const char* label; } keys[] = {
         { "r", " rescan " }, { "a", " all " }, { "q", " quit  " },
     };

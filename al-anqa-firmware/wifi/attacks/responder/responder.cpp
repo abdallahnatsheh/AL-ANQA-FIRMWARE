@@ -21,6 +21,7 @@
 #include "input_handling.h"
 #include "lockscreen_manager.h"
 #include "sdcard_manager.h"
+#include "layout.h"
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
@@ -296,7 +297,7 @@ void runResponder(char* args) {
         dm.setTextColor(TFT_WHITE); dm.setCursor(10,76);  dm.printText("me  "+ip.toString());
         dm.setTextColor(0x5AEB);    dm.setCursor(10,92);  dm.printText("SD "+s_dir);
         dm.setTextColor(0x5AEB);    dm.setCursor(10,lblY);dm.printText("recent name queries:");
-        dm.setTextColor(0x7BEF);    dm.setCursor(10,214); dm.printText(s_passive?"[q] stop   (listen-only, no capture)":"[q] stop  hashcat -m 5600/5500");
+        dm.setTextColor(0x7BEF);    dm.setCursor(10, layoutFooterY(26)); dm.printText(s_passive?"[q] stop   (listen-only, no capture)":"[q] stop  hashcat -m 5600/5500");
     };
     drawStatic();
 

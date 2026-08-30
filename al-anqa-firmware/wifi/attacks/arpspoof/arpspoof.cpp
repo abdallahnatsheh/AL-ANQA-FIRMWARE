@@ -26,6 +26,7 @@
 #include "network_scanner.h"   // resolveNetTarget()
 #include "wifi_sd_guard.h"     // ScopedPromiscPause (GDMA rule)
 #include "sdcard_manager.h"    // SD_DIR_ARPSPOOF
+#include "layout.h"            // layoutFooterY
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
@@ -310,7 +311,7 @@ void runArpSpoof(char* args) {
         dm.setTextColor(0xC618);    dm.setCursor(10, 92);  dm.printText("gateway " + gwIp.toString());
         dm.setCursor(112, 92); dm.printText(asMacStr(gwMac));
         dm.setTextColor(0x5AEB);    dm.setCursor(10, reachLblY); dm.printText("victim reaching:");
-        dm.setTextColor(0x7BEF);    dm.setCursor(10, 214); dm.printText("[q] stop + heal");
+        dm.setTextColor(0x7BEF);    dm.setCursor(10, layoutFooterY(26)); dm.printText("[q] stop + heal");
     };
     drawStatic();
 

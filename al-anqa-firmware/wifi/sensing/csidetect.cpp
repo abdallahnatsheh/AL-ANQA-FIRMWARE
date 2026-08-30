@@ -51,6 +51,7 @@
 #include "clock_manager.h"
 #include "wifi_sd_guard.h"            // ScopedPromiscPause — GDMA-safe SD writes
 #include "wguard.h"
+#include "layout.h"                    // layoutFooterY
 
 extern DisplayManager displayManager;
 extern InputHandling  inputHandler;
@@ -541,7 +542,7 @@ static void csiDrawPanel(float thresh, float disp, bool present, int zones) {
     } else if (fr == 0) {
         dm.setTextColor(TFT_ORANGE);
         dm.setCursor(PANEL_X, 196); dm.printText("no frames-");
-        dm.setCursor(PANEL_X, 208); dm.printText("need traffic");
+        dm.setCursor(PANEL_X, layoutFooterY(32)); dm.printText("need traffic");
     } else {
         dm.setTextColor(0x6FE8);
         dm.setCursor(PANEL_X, 196); dm.printText("CSI live");
@@ -550,9 +551,9 @@ static void csiDrawPanel(float thresh, float disp, bool present, int zones) {
 
 static void csiDrawFooter() {
     auto& dm = displayManager;
-    dm.fillRect(0, 229, SCREEN_WIDTH, 11, TFT_BLACK);
+    dm.fillRect(0, layoutFooterY(11), SCREEN_WIDTH, 11, TFT_BLACK);
     dm.setTextColor(TFT_DARKGREY);
-    dm.setCursor(6, 230); dm.printText("a/l sens c=cal t=auto n=nbvi s=log q");
+    dm.setCursor(6, layoutFooterY(10)); dm.printText("a/l sens c=cal t=auto n=nbvi s=log q");
 }
 
 // full-screen help overlay ([h]); any key / click returns

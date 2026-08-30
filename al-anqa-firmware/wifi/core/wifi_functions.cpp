@@ -9,6 +9,7 @@
 #include "input_handling.h"
 #include "utils.h"
 #include "mac_changer.h"
+#include "layout.h"
 
 extern InputHandling inputHandler;
 
@@ -277,12 +278,12 @@ static void renderManager(DisplayManager& dm, int sel, int top, int total) {
     }
 
     // Footer — a separator rule with a clear gap above the tips
-    dm.setCursor(0, 192);
+    dm.setCursor(0, layoutFooterY(48));
     dm.printSeparator();
-    dm.setCursor(6, 200);
+    dm.setCursor(6, layoutFooterY(40));
     dm.setTextColor(0x7BEF);
     dm.printText("trkbl=sel  click/ent=connect");
-    dm.setCursor(6, 214);
+    dm.setCursor(6, layoutFooterY(26));
     dm.printText("[d]isc [f]orget [o]n/off [u] [q]");
     dm.setTextColor(TFT_WHITE);
 }
@@ -301,8 +302,8 @@ void WiFiFunctions::forgetSelected(int idx) {
         const char* r = lookupHidden(scanCache[idx].bssid);
         if (r) ss = String(r);
     }
-    displayManager.fillRect(0, 202, SCREEN_WIDTH, SCREEN_HEIGHT - 202, TFT_BLACK);
-    displayManager.setCursor(6, 210);
+    displayManager.fillRect(0, layoutFooterY(38), SCREEN_WIDTH, 38, TFT_BLACK);
+    displayManager.setCursor(6, layoutFooterY(30));
     if (ss.isEmpty()) {
         displayManager.setTextColor(TFT_YELLOW);
         displayManager.printText("Hidden net — can't forget");

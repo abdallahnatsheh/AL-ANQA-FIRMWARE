@@ -25,6 +25,7 @@
 #include "lockscreen_manager.h"
 #include "clock_manager.h"
 #include "oui_lookup.h"
+#include "layout.h"
 #include <SD.h>
 
 extern DisplayManager displayManager;
@@ -1138,8 +1139,8 @@ void WGuard::pollBackground() {
             // Popup bar at bottom of screen — only for sev>0 and screen not locked
             if (e.sev > 0 && !_dm.isBlocked()) {
                 uint16_t bgColor = (e.sev >= 2) ? TFT_RED : 0x9400;
-                _dm.fillRect(0, 222, 320, 16, bgColor);
-                _dm.setCursor(4, 223);
+                _dm.fillRect(0, layoutFooterY(18), SCREEN_WIDTH, 16, bgColor);
+                _dm.setCursor(4, layoutFooterY(17));
                 _dm.setTextColor(TFT_WHITE);
                 _dm.printText("WGUARD: ");
                 char trunc[30]; strncpy(trunc, e.msg, 29); trunc[29] = '\0';
