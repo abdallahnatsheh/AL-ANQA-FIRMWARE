@@ -189,7 +189,7 @@ Order of first-boot checks on the real T-Pager: power-on rail → display init/o
 
 ## Deferred (not in this plan)
 - **LoRa scanner/logger** (SX1262) — the long-pending feature the T-Pager hardware finally justifies. First candidate for the follow-up.
-- **NFC** (ST25R3916 read/write/emulate) — an entire new attack class to design.
+- **NFC** (ST25R3916 read/write/emulate) — **planned:** [docs/plans/nfc-ultimate-tpager.md](nfc-ultimate-tpager.md) (CLI-first `nfc`/`nm`, Flipper-HF Phase 1 → lab-depth Phase 2+).
 - **IMU gestures** (BHI260AP), **haptics** (DRV2605), **hardware RTC** (PCF85063A).
 
 ---
@@ -203,7 +203,7 @@ Order of first-boot checks on the real T-Pager: power-on rail → display init/o
 | ES8311 codec | Espressif ES8311 driver / LilyGo example | I2C 0x18; new AudioManager backend (mic may be PDM — verify) |
 | BQ27220 + BQ25896 | LilyGoLib / a BQ27220 Arduino lib | I2C 0x55 / 0x6B; `BatteryManager` backend, replaces Pangodream ADC |
 | SX1262 LoRa (deferred) | **RadioLib** (already a dep) | Already in `lib_deps`; CS36/RST47/BUSY48/DIO1-14 when LoRa work starts |
-| ST25R3916 NFC (deferred) | TBD | New attack class; CS39/IRQ5; research in the follow-up |
+| ST25R3916 NFC (deferred → planned) | LilyGo ST25R3916-fork + NFC-RFAL-fork | See [nfc-ultimate-tpager.md](nfc-ultimate-tpager.md); CS39 / **IRQ GPIO5** (not wiki Quick Start INT=1) |
 | RTC / IMU / haptic (deferred bonus) | PCF85063A 0x51 / BHI260AP 0x28 / DRV2605 0x5A | Nice-to-haves, not needed for the core port |
 
 Everything else (WiFi/BLE/NimBLE/mbedTLS/crack/SD/DuckyScript) is unchanged. **`Xinyuan-LilyGO/LilyGoLib` is the reference implementation** for every init sequence above.
