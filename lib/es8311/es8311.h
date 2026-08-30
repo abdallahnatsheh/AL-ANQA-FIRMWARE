@@ -35,3 +35,13 @@ void es8311SetMicGain(uint8_t gain_0_to_7);
 void es8311SetVolume(uint8_t vol);
 
 void es8311SetMute(bool mute);
+
+// Full codec power-down per ES8311 User Guide Rev 1.11:
+//   §9.2  Reg 0x0D: set all PDN_* bits (analog / bias / ADC bias / ADC ref /
+//                   DAC ref / VREF disable) → analog reference & bias circuits off
+//   §9.1  Reg 0x00: assert all reset bits + clear CSM_ON → digital blocks reset
+//                   and state machine off (minimum-consumption standby)
+// After this the codec no longer emits ANY output — its OUTP/OUTN pins collapse
+// to a defined state instead of holding a bias voltage the external amp could
+// amplify as continuous hiss. Call re-init via es8311Begin() to bring it back.
+void es8311PowerDown();

@@ -52,7 +52,6 @@ void boardPowerOn() {
         EXPANDS_LORA_EN,  // LoRa power
         EXPANDS_GPS_EN,   // GNSS power
         EXPANDS_DRV_EN,   // haptic
-        EXPANDS_AMP_EN,   // audio amp
         EXPANDS_NFC_EN,   // NFC power
         EXPANDS_GPS_RST,  // release GNSS reset
         EXPANDS_KB_EN,    // keyboard power
@@ -63,6 +62,12 @@ void boardPowerOn() {
         s_xl9555.pinMode(pin, OUTPUT);
         s_xl9555.digitalWrite(pin, HIGH);
     }
+    // Amp EN starts LOW — enabled only during actual audio playback by
+    // boardCodecBegin/End. Amp-always-on made the ES8311 codec's noise floor
+    // (and any I2S-line garbage after driver uninstall) audible as continuous
+    // hiss, even in download mode / device off. Set pin as OUTPUT with LOW.
+    s_xl9555.pinMode(EXPANDS_AMP_EN, OUTPUT);
+    s_xl9555.digitalWrite(EXPANDS_AMP_EN, LOW);
 
     // SD insert-detect is an expander input, not a GPIO.
     s_xl9555.pinMode(EXPANDS_SD_DETECT, INPUT);
@@ -71,6 +76,10 @@ void boardPowerOn() {
 }
 
 void boardPowerOff() {
+    // Amp off first so the speaker goes silent before anything else — otherwise
+    // it would keep hissing right up to the moment BATFET disconnects.
+    boardAmpEnable(false);
+
     // Backlight off so the screen goes dark immediately.
     pinMode(BOARD_BL_PIN, OUTPUT);
     digitalWrite(BOARD_BL_PIN, LOW);

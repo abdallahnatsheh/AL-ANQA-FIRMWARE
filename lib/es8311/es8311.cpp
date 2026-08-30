@@ -172,3 +172,29 @@ void es8311SetMicGain(uint8_t gain_0_to_7) {
     if (gain_0_to_7 > 7) gain_0_to_7 = 7;
     wr(R16, gain_0_to_7);
 }
+
+void es8311PowerDown() {
+    if (!s_wire) return;
+    // Battle-tested suspend sequence lifted verbatim from LilyGoLib's own
+    // T-Pager BSP driver (src/bsp_codec/device/es8311/es8311.c es8311_suspend,
+    // Apache-2.0). This is what LilyGo's own firmware runs on the same board,
+    // so the register order + values are proven silent on this exact hardware.
+    // The two-write datasheet minimum (just PDN + reset) leaves the analog
+    // reference/bias briefly emitting between mute and reset; this sequence
+    // zeros DAC/ADC volume FIRST, then powers down each block in order.
+    wr(0x32, 0x00);   // DAC volume = 0  (analog fade to silence)
+    wr(0x17, 0x00);   // ADC volume = 0
+    wr(0x0E, 0xFF);   // SYSTEM 0x0E — all ADC PDN bits
+    wr(0x12, 0x02);   // SYSTEM 0x12 — DAC PDN
+    wr(0x14, 0x00);   // SYSTEM 0x14 — mic input off
+    wr(0x0D, 0xFA);   // SYSTEM 0x0D — all PDN except VMID/VREF (soft power-down)
+    wr(0x15, 0x00);   // ADC 0x15 idle
+    wr(0x02, 0x10);   // CLK MGR 0x02 — safe idle divider
+    wr(0x00, 0x00);   // RESET 0x00 — state machine off, no reset assertion
+    wr(0x00, 0x1F);   // RESET 0x00 — assert every reset bit
+    wr(0x01, 0x30);   // CLK MGR 0x01 — MCLK off
+    wr(0x01, 0x00);   // CLK MGR 0x01 — all clocks off
+    wr(0x45, 0x00);   // GP 0x45 idle
+    wr(0x0D, 0xFC);   // SYSTEM 0x0D — back to reset default (fully powered down)
+    wr(0x02, 0x00);   // CLK MGR 0x02 — clock manager reset
+}
