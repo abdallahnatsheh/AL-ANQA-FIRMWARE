@@ -4,7 +4,7 @@
 **Branch policy:** stay on `feature/pentest-enhancements`; never merge to `main` without ask.  
 **User builds/flashes:** no `pio` unless requested.  
 **Locked choices:**
-- **1B — CLI-first:** `nfc` / short `nm` command tree, AL-ANQA style (optional status lines / progress on the CLI canvas — not a full-screen GUI app).
+- ~~**1B — CLI-first:**~~ **1B REVISED 2026-08-30 → Interactive-app-first**: bare `nfc` opens a full-screen live app (like `wm`/`bmon`/`netspy`/`wg`) with continuous polling + action shortcuts (`[d]`ump `[w]`rite `[e]`mu `[i]`nfo `[s]`cene `[q]`uit). CLI subcommands (`nfc info` / `nfc scan`) stay as one-shot shortcuts for pipelines/scripting — same pattern as `sw` vs `wm`.
 - **2C — Ship Flipper-HF field tool first; lab-depth as Phase 2+** in the same roadmap.
 - **3D — On-device exploits:** attack engines run **on the T‑Pager** so lab tests need no laptop. PC export remains a *fallback / speed-up*, not the primary path.
 
@@ -466,11 +466,23 @@ Vendored or `lib_deps` behind `#if BOARD_HAS_NFC` / env flag so T-Deck builds ne
 
 ## 8. CLI command tree (`nfc` / `nm`)
 
-Category: **Radio** (or new **NFC** category string in `command_manager`).
+Category: **NFC** (own category string in `command_manager`, per S1 wiring).
+
+**Revised 2026-08-30:** `nfc` (bare) opens the **interactive app** (like `wm`/`bmon`/`netspy`). All subcommands below stay callable as one-shot CLI shortcuts too (like `sw` vs `wm`), so pipelines still work — but the primary interface is the interactive UI, and action keys inside the app map 1:1 to these subcommands.
 
 ```
 nfc | nm
-  (bare / help)     → short usage + man pointer
+  (bare)            → OPEN INTERACTIVE APP (default)
+                      layout:
+                        [ NFC HF — ST25R3916 ]
+                        field: POLLING A/B/F/V
+                        ┌ current tag ─────────┐
+                        │ UID / band / type    │
+                        │ vuln cards           │
+                        └──────────────────────┘
+                        history (last 8)
+                        [d]ump [w]rite [e]mu [i]nfo [s]cene [q]uit
+  help              → short usage + man pointer
   info              → chip present?, IRQ pin, RFAL version, last error
   scan | read       → poll field, print type/UID/ATQA/SAK; keep as "current"
   dump [path]       → dump current (or rescan) → SD; default path auto
@@ -656,3 +668,11 @@ First implementation PR should be **Phase 0 only** (info + scan), then Phase 1 v
 ### Suggested first *signature* milestone
 
 After Phase 1 dumps work: **GPS geotag + `nfc auto` + `nfc scene`** — that is the first “this isn’t Flipper” demo.
+
+---
+
+## 15. Implementation status (running log)
+
+- **2026-08-30 — Phase 0 complete on hardware.** `BOARD_HAS_NFC` capability flag wired (T-Pager branch only); `radio/nfc/` module created; `USING_ST25R3916` build flag + `ST25R3916-fork` + `NFC-RFAL-fork` added to the T-Pager env's `lib_deps` (git URLs, LilyGo's blessed pair). S1's raw-SPI IC_IDENTITY probe was deleted after HW verified that ESP32-Arduino's SPI framing loses a bit between the command + response bytes (`0x54` read as `0x2A`, HW-confirmed across `SPI.transfer()` and `SPI.transferBytes()`); pivoted to LilyGoLib's exact idiom — `RfalRfST25R3916Class nfc_hw(&SPI, NFC_CS, NFC_INT);  RfalNfcClass NFCReader(&nfc_hw);  NFCReader.rfalNfcInitialize();`. `nfc info` prints `RFAL init OK — chip online` on HW.
+- **2026-08-30 — Phase 1 slice 1 (`nfc scan`).** Discovery over all four HF bands (A/B/F/V) via `rfalNfcDiscover` + `rfalNfcWorker` pump, `q`-cancellable, poll-forever until tag or quit (no arbitrary timeout). Type-aware print block reads SAK/ATQA for NFC-A, prints the band label for B/F/V (per-band field extraction lands in later slices alongside vuln fingerprinting). HW-verified against a credit card (NFC-A → SAK-classified) and a Ravkav transit card (NFC-B → after A/B/F/V expansion; before that, Ravkav was invisible because it isn't NFC-A).
+- **Next up (interactive pivot, §8 revision):** build the interactive `nfc` app skeleton — chrome + status bar + continuous-poll loop + `q`, action shortcuts as stubs. `NfcSession` state holds "current tag" so `[d]`ump / `[w]`rite / `[e]`mu operate on it without a re-scan.

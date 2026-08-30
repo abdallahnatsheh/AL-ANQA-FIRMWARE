@@ -1206,6 +1206,27 @@ static const ManEntry PAGES[] = {
         nullptr
     }},
 
+    { "nfc", "nm", {
+        "SYNTAX   nfc [info|scan|read|help]",
+        "",
+        "ABOUT    [EXP] NFC HF front-end (ST25R3916, 13.56 MHz).",
+        "         Uses ST's RFAL stack (LilyGo fork).",
+        "         Dump/emu/magic land in later slices.",
+        "",
+        "         info      RFAL init + chip status.",
+        "         scan|read poll 5s for one NFC-A tag,",
+        "                   print UID, ATQA, SAK, type.",
+        "         help      this text.",
+        "",
+        "HW       CS  GPIO39   IRQ GPIO5",
+        "         Power via XL9555 EXPANDS_NFC_EN.",
+        "         Shared SPI bus with display/SD/LoRa.",
+        "",
+        "NOTE     T-Pager only. HF band only —",
+        "         no LF 125 kHz silicon.",
+        nullptr
+    }},
+
     { "notes", "nt", {
         "SYNTAX   (opened from the `home` launcher — no command)",
         "",

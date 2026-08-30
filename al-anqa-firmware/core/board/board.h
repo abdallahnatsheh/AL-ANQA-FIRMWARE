@@ -25,6 +25,9 @@
   #include "tpager/metrics.h"
   #define BOARD_HAS_GPS       1   // MIA-M10Q built in
   #define BOARD_HAS_ENCODER   1   // rotary encoder (no trackball)
+  #define BOARD_HAS_NFC       1   // ST25R3916 HF (13.56 MHz), SPI CS=39 IRQ=5,
+                                  // powered via XL9555 EXPANDS_NFC_EN. Gates
+                                  // the `nfc`/`nm` command tree + RFAL link.
   // no BOARD_HAS_TOUCH   (no GT911 on the T-Pager)
   // no BOARD_HAS_TRACKBALL
 #else

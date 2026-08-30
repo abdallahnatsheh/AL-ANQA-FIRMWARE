@@ -87,6 +87,7 @@ void runDpwo(char* a);
 void runCast(char* a);
 void runWps(char* a);
 void runWpa3Down(char* a);
+void runNfc(char* a);
 
 CommandManager::CommandManager()
     : commandIndex(0), commandCount(0), _cursorPos(0),
@@ -899,4 +900,6 @@ void CommandManager::setupCommands() {
     registerCommand("test",        "tst",    [](char* a) { handleHwTestCmd(a); },                                           "HW test: test <spk|mic|lora|touch>",      true,  "Diagnostics");
     registerCommand("i2cscan",     "isc",    [](char* a) { runI2cScan(a); },                                                 "[EXP] I2C scanner: isc [r|w|d] <args>",  true,  "Diagnostics");
     registerCommand("csidetect",   "csi",    [](char* a) { runCsiDetect(a); },                                               "[EXP] WiFi CSI motion detect (csi | csi auto)", true,  "Diagnostics");
+    // ── NFC (T-Pager only — stub prints "not on this board" on T-Deck) ────────
+    registerCommand("nfc",         "nm",     [](char* a) { runNfc(a); },                                                     "[EXP] NFC HF (ST25R3916): nfc [info|scan|help]", true,  "NFC");
 }
