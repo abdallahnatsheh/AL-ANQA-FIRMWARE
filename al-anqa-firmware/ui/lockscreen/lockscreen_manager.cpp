@@ -178,9 +178,17 @@ void LockScreenManager::refreshDuration() {
              (unsigned)((secs / 3600) % 24),
              (unsigned)((secs / 60) % 60),
              (unsigned)(secs % 60));
+    // Dormant duration row: T-Deck row 12 (y=206 fits 240), T-Pager row 11
+    // (row 12 would fit but row 13 UTC below wouldn't — shift the pair up 1).
+#if defined(BOARD_TPAGER)
+    int32_t dy = _pinActive
+               ? (outputY + LINE_HEIGHT * 8)
+               : (outputY + LINE_HEIGHT * 11);
+#else
     int32_t dy = _pinActive
                ? (outputY + LINE_HEIGHT * 8)
                : (outputY + LINE_HEIGHT * 12);
+#endif
     dm.fillRect(0, dy, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
     dm.setCursor(10, dy);
     dm.setTextColor(0x4208); dm.println(buf);
@@ -188,9 +196,17 @@ void LockScreenManager::refreshDuration() {
     // UTC clock line — only when GPS time is available
     {
         ClockManager& clk = ClockManager::instance();
+        // UTC line: T-Deck row 13 (y=220 fits 240 by 6px); T-Pager row 12
+        // (row 13 would clip 6px on 222) — paired with the shifted dy above.
+#if defined(BOARD_TPAGER)
+        int32_t utcY = _pinActive
+                     ? (outputY + LINE_HEIGHT * 9)
+                     : (outputY + LINE_HEIGHT * 12);
+#else
         int32_t utcY = _pinActive
                      ? (outputY + LINE_HEIGHT * 9)
                      : (outputY + LINE_HEIGHT * 13);
+#endif
         dm.fillRect(0, utcY, SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
         if (clk.isValid()) {
             char t[10], d[12], utcLine[26];
@@ -218,8 +234,15 @@ void LockScreenManager::drawDormant() {
     drawLockHeader();
 
     // ── Padlock ASCII art — Nokia-style, centered ─────────────────────────
-    // Each string ~11 chars @ ~6px = 66px wide; left edge ≈ (320-66)/2 = 127
-    const int32_t ax = 122;
+    // Each string ~11 chars @ ~6px = 66px wide; the anchor centres the art on
+    // whichever screen the board has. T-Deck keeps its exact historical x=122
+    // (rough centre of 320); T-Pager (480) centres properly at ~207 so the art
+    // stops sitting on the far left with a huge black band on the right.
+#if defined(BOARD_TPAGER)
+    const int32_t ax = (SCREEN_WIDTH - 66) / 2;   // 207 on 480px
+#else
+    const int32_t ax = 122;                        // preserves historical T-Deck layout
+#endif
     dm.setTextColor(TFT_YELLOW);
     dm.setCursor(ax, outputY + LINE_HEIGHT * 3);  dm.println("  .------.");
     dm.setCursor(ax, outputY + LINE_HEIGHT * 4);  dm.println(" /        \\");
@@ -236,7 +259,12 @@ void LockScreenManager::drawDormant() {
     } else {
         dm.setTextColor(TFT_YELLOW); dm.println("Type PIN  then  [Enter]");
     }
+    // Bottom separator only on the T-Deck — on the T-Pager the duration + UTC
+    // lines move up one row to fit inside 222px, and the separator would
+    // collide with them.
+#if !defined(BOARD_TPAGER)
     dm.fillRect(0, outputY + LINE_HEIGHT * 11, SCREEN_WIDTH, 1, 0x7BEF);
+#endif
 
     refreshDuration();
     dm.setTextColor(TFT_WHITE);
