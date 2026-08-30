@@ -26,6 +26,7 @@
 #include "ble_ident.h"
 #include "wguard.h"
 #include "wifi_sd_guard.h"   // ScopedPromiscPause — GDMA-safe SD writes while wg bg holds promiscuous
+#include "layout.h"
 
 extern DisplayManager displayManager;
 extern SDCardManager  sdCardManager;
@@ -37,7 +38,11 @@ extern WGuard         wGuard;
 #define MW_BLE_RING          24
 #define MW_PROBE_RING        16
 #define MW_CAND_MAX          32
-#define MW_VIS                7          // table rows per page (bmon-style)
+// MW_VIS = data rows on the watchlist page. 3 header rows (title, cols, sep)
+// + 4 footer rows (bottom-sep, notice, keys, diag) → data rows self-adapt.
+//   T-Deck  (240): 7 (byte-identical to the old hardcoded 7)
+//   T-Pager (222): 6 (last row was clipped otherwise)
+constexpr int MW_VIS               = layoutMaxDataRows(3, 4);
 #define MW_PRESENCE_TIMEOUT  180000UL    // 3 min — "left" only after this silence
 #define MW_RADIO_WIFI        0x01
 #define MW_RADIO_BT          0x02
@@ -259,7 +264,7 @@ static void mwCenterPopup(const MwEntry& e) {
 }
 
 static void mwBgPopup(const MwEntry& e) {
-    displayManager.fillRect(0, 222, SCREEN_WIDTH, 16, 0x0240);   // dark green bar
+    displayManager.fillRect(0, layoutFooterY(18), SCREEN_WIDTH, 16, 0x0240);   // dark green bar
     displayManager.setCursor(4, SCREEN_HEIGHT - 17);
     displayManager.setTextColor(TFT_GREEN);
     displayManager.printText("[MW] ");
@@ -635,9 +640,9 @@ static void mwDrawCandTable(int page, int sel) {
         dm.setTextColor(seld ? TFT_YELLOW : 0x7BEF); dm.printText(macbuf);
     }
 
-    // row 10 — separator + footer
-    dm.setCursor(CC_SEL, MW_RY(10)); dm.printSeparator();
-    dm.setCursor(CC_SEL, MW_RY(11));
+    // rows past the data — derived so MW_VIS change auto-shifts them
+    dm.setCursor(CC_SEL, MW_RY(3 + MW_VIS));     dm.printSeparator();
+    dm.setCursor(CC_SEL, MW_RY(3 + MW_VIS + 1));
     dm.setTextColor(TFT_DARKGREY);
     dm.printText("click=pick [h]hunt [n]near [u]rescan [q]cancel");
 }
@@ -931,22 +936,26 @@ static void mwDrawWatch() {
         }
     }
 
-    // row 10 — separator
-    dm.setCursor(CW_SEL, MW_RY(10)); dm.printSeparator();
+    // Rows past the data — derived from MW_VIS so both boards fit correctly.
+    // On T-Deck (MW_VIS=7): sep=10 notice=11 keys=12 diag=13 (identical to before).
+    // On T-Pager (MW_VIS=6): sep=9 notice=10 keys=11 diag=12 (was clipped otherwise).
+    const int mwSepRow    = 3 + MW_VIS;
+    const int mwNoticeRow = mwSepRow + 1;
+    const int mwKeysRow   = mwSepRow + 2;
+    const int mwDiagRow   = mwSepRow + 3;
 
-    // row 11 — transient notice
+    dm.setCursor(CW_SEL, MW_RY(mwSepRow)); dm.printSeparator();
+
     if (s_noticeUntil && millis() < s_noticeUntil) {
-        dm.setCursor(CW_SEL, MW_RY(11));
+        dm.setCursor(CW_SEL, MW_RY(mwNoticeRow));
         dm.setTextColor(s_noticeCol);
         dm.printText(s_noticeText);
     }
-    // row 12 — footer keys
-    dm.setCursor(CW_SEL, MW_RY(12));
+    dm.setCursor(CW_SEL, MW_RY(mwKeysRow));
     dm.setTextColor(TFT_DARKGREY);
     dm.printText("[a]add [r]del [s]log [c]clr ~=near q=quit");
 
-    // row 13 — bring-up diagnostic (both radios feeding the matcher?)
-    dm.setCursor(CW_SEL, MW_RY(13));
+    dm.setCursor(CW_SEL, MW_RY(mwDiagRow));
     dm.setTextColor(0x528A);
     char diag[40];
     snprintf(diag, sizeof(diag), "diag ble:%lu wifi:%lu",

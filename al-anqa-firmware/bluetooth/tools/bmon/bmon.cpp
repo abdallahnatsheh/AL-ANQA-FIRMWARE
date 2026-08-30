@@ -402,7 +402,17 @@ static BmonCb s_cb;
 // 12  206   Extended detail — line 2
 // 13  220   Footer / controls
 
-#define BMON_ROWS_PER_PAGE  7
+// BMON_ROWS_PER_PAGE self-adapts to the board's screen height.
+// Layout = 3 header rows + N data rows + 4 footer rows (sep, det1, det2, ctrls).
+//   T-Deck  (240): 7  (byte-identical to the old hardcoded 7)
+//   T-Pager (222): 6  (last row was clipped otherwise)
+#include "layout.h"
+constexpr int BMON_ROWS_PER_PAGE = layoutMaxDataRows(3, 4);
+// Row indices derived from the RPP so the footer follows the data on every board.
+#define BMON_ROW_SEP     (3 + BMON_ROWS_PER_PAGE)     // T-Deck: 10, T-Pager: 9
+#define BMON_ROW_DET1    (BMON_ROW_SEP + 1)           // T-Deck: 11, T-Pager: 10
+#define BMON_ROW_DET2    (BMON_ROW_SEP + 2)           // T-Deck: 12, T-Pager: 11
+#define BMON_ROW_FOOT    (BMON_ROW_SEP + 3)           // T-Deck: 13, T-Pager: 12
 #define RY(n)               (outputY + (n) * LINE_HEIGHT)
 
 // Column x-positions (6 px/char)
@@ -524,8 +534,8 @@ static void drawBmon(int page) {
         dm.printText("Listening for BLE advertisements...");
     }
 
-    // ── row 10 — separator ────────────────────────────────────────────────────
-    dm.setCursor(CX_SEL, RY(10));
+    // ── separator ─────────────────────────────────────────────────────────────
+    dm.setCursor(CX_SEL, RY(BMON_ROW_SEP));
     dm.printSeparator();
 
     // ── rows 11-12 — extended detail for selected device ──────────────────────
@@ -550,21 +560,21 @@ static void drawBmon(int page) {
             snprintf(det2, sizeof(det2), "%.52s", rest);
         }
 
-        dm.setCursor(CX_SEL, RY(11));
+        dm.setCursor(CX_SEL, RY(BMON_ROW_DET1));
         dm.setTextColor(TFT_WHITE); dm.printText(det1);
 
         if (det2[0]) {
-            dm.setCursor(CX_SEL, RY(12));
+            dm.setCursor(CX_SEL, RY(BMON_ROW_DET2));
             dm.setTextColor(0xA514); dm.printText(det2);
         }
     } else {
-        dm.setCursor(CX_SEL, RY(11));
+        dm.setCursor(CX_SEL, RY(BMON_ROW_DET1));
         dm.setTextColor(0x4208);
         dm.printText(s_count == 0 ? "no devices yet" : "no extended data");
     }
 
-    // ── row 13 — footer / controls ────────────────────────────────────────────
-    dm.setCursor(CX_SEL, RY(13));
+    // ── footer / controls ─────────────────────────────────────────────────────
+    dm.setCursor(CX_SEL, RY(BMON_ROW_FOOT));
     if (s_logOpen) {
         dm.setTextColor(TFT_CYAN);   dm.printText("[s]");
         dm.setTextColor(TFT_RED);    dm.printText("stop");
@@ -652,9 +662,9 @@ void runBmon(char* args) {
                 s_logOpen = false;
             } else {
                 if (!openLog()) {
-                    displayManager.setCursor(CX_SEL, RY(13));
-                    displayManager.fillRect(0, RY(13), SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
-                    displayManager.setCursor(CX_SEL, RY(13));
+                    displayManager.setCursor(CX_SEL, RY(BMON_ROW_FOOT));
+                    displayManager.fillRect(0, RY(BMON_ROW_FOOT), SCREEN_WIDTH, LINE_HEIGHT, TFT_BLACK);
+                    displayManager.setCursor(CX_SEL, RY(BMON_ROW_FOOT));
                     displayManager.setTextColor(TFT_RED);
                     displayManager.printText("SD not available");
                     vTaskDelay(pdMS_TO_TICKS(1500));
