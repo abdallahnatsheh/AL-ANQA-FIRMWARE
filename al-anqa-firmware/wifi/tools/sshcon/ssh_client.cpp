@@ -37,17 +37,29 @@ extern InputHandling  inputHandler;
 extern SDCardManager  sdCardManager;
 extern LGFX           tft;
 
+#include "layout.h"
+
 // ── Terminal geometry ─────────────────────────────────────────────────────────
+// ROWS is board-adaptive: the T-Deck's 240px screen fits 13 rows below TERM_Y;
+// the T-Pager's 222px screen only fits 12 (last cell's bottom-6px would clip
+// otherwise). This is a spec change — the pty size we ask the server for changes
+// per board — but nothing renders the last cell's bottom half off-screen.
 #define TERM_Y    (outputY + LINE_HEIGHT)            // one header line above grid
-#define ROWS      13                                 // visible rows
-#define COLS      52                                 // visible columns
+#if defined(BOARD_TPAGER)
+  #define ROWS    12                                 // visible rows (222px screen)
+#else
+  #define ROWS    13                                 // visible rows (240px screen)
+#endif
+// Text-grid columns come from layout.h so the T-Pager gets a proper 78-col
+// terminal (was 52 on both boards; T-Deck stays 52 = (320-8)/6, byte-identical).
+constexpr int COLS = layoutCharCols();
 #define SB        120                                // scrollback lines
 #define CHAR_W    6
 #define CELL_X(c) (2 + (c) * CHAR_W)
 #define CELL_Y(r) (TERM_Y + (r) * LINE_HEIGHT)
 #define TERM_W    (COLS * CHAR_W)
 #define TERM_H    (SCREEN_HEIGHT - TERM_Y)
-#define SBAR_X    314                                // scrollbar
+#define SBAR_X    (TERM_W + 2)                       // scrollbar, right of the grid (T-Deck: 314, T-Pager: 470)
 
 // ANSI 16-colour palette → RGB565.
 static const uint16_t PAL[16] = {

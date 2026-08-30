@@ -22,6 +22,7 @@
 #include "input_handling.h"
 #include "sdcard_manager.h"
 #include "lockscreen_manager.h"
+#include "layout.h"          // layoutCharCols — board-adaptive text-grid width
 
 extern LGFX            tft;
 extern DisplayManager  displayManager;
@@ -33,7 +34,10 @@ extern SDCardManager   sdCardManager;
 #define ED_TEXT_Y    (outputY + LINE_HEIGHT)
 #define ED_HINT_Y    (SCREEN_HEIGHT - LINE_HEIGHT)
 #define ED_ROWS      ((ED_HINT_Y - ED_TEXT_Y) / LINE_HEIGHT)   // visible text rows
-#define ED_COLS      52
+// Text-grid width self-adapts to the board's screen.
+//   T-Deck  (320): 52   (byte-identical to the old hardcoded 52)
+//   T-Pager (480): 78   (+26 chars/line — was ~35% wasted right-side gap)
+constexpr int ED_COLS = layoutCharCols();
 #define ED_CHAR_W    6
 #define ED_CELL_X(c) (2 + (c) * ED_CHAR_W)
 #define ED_SBAR_X    315
