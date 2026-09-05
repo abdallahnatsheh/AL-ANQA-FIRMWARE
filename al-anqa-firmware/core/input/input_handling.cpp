@@ -25,7 +25,13 @@ static char boardReadKey() {
     return tpagerKeyboardRead();
 #else
     if (Wire.requestFrom(LILYGO_KB_SLAVE_ADDRESS, 1) != 0) {
-        return (char)Wire.read();
+        uint8_t b = (uint8_t)Wire.read();
+        // T-Deck / T-Deck-Plus: the stock LilyGo keyboard has no '=' key, so
+        // WiFi PSKs / CLI args that need it can't be typed (issue #3). Sym+0
+        // is an unmapped combo — the MCU sends 0xE0 for it. Remap here so
+        // every consumer (CLI, editor, wp, ux…) sees '='.
+        if (b == 0xE0) return '=';
+        return (char)b;
     }
     return 0;
 #endif

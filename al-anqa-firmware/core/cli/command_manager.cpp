@@ -47,6 +47,9 @@
 #include "board_power.h"   // boardPowerOff() for the poweroff command
 #if defined(BOARD_TPAGER)
 #include "tpager/tpager_keyboard.h"   // test keymap diagnostic
+#else
+#include <Wire.h>
+#include "utilities.h"                 // LILYGO_KB_SLAVE_ADDRESS for `test keydump`
 #endif
 #include "home_ui.h"
 #include "undercover.h"
@@ -358,8 +361,8 @@ static const ArgHintEntry kArgHints[] = {
     { "portscan",    "",              "top" },
     { "ps",          "",              "top" },
     // test / tst  (merged: was spktest + mictest + loratest + touchtest)
-    { "test",        "",              "spk mic lora touch" },
-    { "tst",         "",              "spk mic lora touch" },
+    { "test",        "",              "spk mic lora touch keydump" },
+    { "tst",         "",              "spk mic lora touch keydump" },
     // show / sh
     { "show",        "",              "wifi ble hosts" },
     { "sh",          "",              "wifi ble hosts" },
@@ -800,6 +803,36 @@ static void handlePortScanCmd(char* a) {
     } else networkScanner.networkPortScan(a);
 }
 
+#if !defined(BOARD_TPAGER)
+// T-Deck / T-Deck-Plus: dump raw bytes coming from the I2C keyboard MCU.
+// Diagnostic for identifying what unmapped Sym combos actually send — e.g.
+// which byte Sym+0 emits so we can remap it to '='. Press 'q' to quit.
+static void runKeydumpTest() {
+    displayManager.clearScreen();
+    displayManager.setTextColor(TFT_CYAN);
+    displayManager.println("[KEYDUMP]");
+    displayManager.setTextColor(TFT_WHITE);
+    displayManager.println("Press keys — hex + ascii shown.");
+    displayManager.println("Try Sym+0, Sym+other keys.");
+    displayManager.println("Press 'q' to quit.");
+    displayManager.println("");
+    for (;;) {
+        if (Wire.requestFrom(LILYGO_KB_SLAVE_ADDRESS, 1) != 0) {
+            uint8_t b = (uint8_t)Wire.read();
+            if (b != 0) {
+                if (b == 'q') break;
+                char line[40];
+                snprintf(line, sizeof(line), "0x%02X  '%c'",
+                         b, (b >= 0x20 && b < 0x7F) ? (char)b : '.');
+                displayManager.println(line);
+            }
+        }
+        delay(15);
+    }
+    displayManager.printCommandScreen();
+}
+#endif
+
 // Hardware self-tests: test spk|mic|lora (merged spktest/mictest/loratest)
 static void handleHwTestCmd(char* a) {
     if (a && Utils::matchesCmd(a, "spk"))        runSpeakerTest();
@@ -808,8 +841,10 @@ static void handleHwTestCmd(char* a) {
     else if (a && Utils::matchesCmd(a, "touch")) runTouchTest();
 #if defined(BOARD_TPAGER)
     else if (a && Utils::matchesCmd(a, "keymap")) tpagerKeymapTest();
+#else
+    else if (a && Utils::matchesCmd(a, "keydump")) runKeydumpTest();
 #endif
-    else { displayManager.println("Usage: test <spk|mic|lora|touch>"); displayManager.printCommandScreen(); }
+    else { displayManager.println("Usage: test <spk|mic|lora|touch|keydump>"); displayManager.printCommandScreen(); }
 }
 
 void CommandManager::setupCommands() {
@@ -897,7 +932,7 @@ void CommandManager::setupCommands() {
     registerCommand("jiggle",      "jg",     [](char* a) { if (a && *a && !Utils::matchesCmd(a,"usb") && !Utils::matchesCmd(a,"ble")) { Utils::printUsage("jg"); return; } if (a && (a[0]=='b'||a[0]=='B')) bleKeyboard.jiggle(); else usbKeyboard.jiggle(); }, "Jiggler: jg [usb|ble] — prevent screen lock", true,  "USB");
     // ── Diagnostics ───────────────────────────────────────────────────────────
     registerCommand("gps",         "gps",    [](char* a) { runGps(a); },                                                "GPS: gps on|off|test",                    true,  "Diagnostics");
-    registerCommand("test",        "tst",    [](char* a) { handleHwTestCmd(a); },                                           "HW test: test <spk|mic|lora|touch>",      true,  "Diagnostics");
+    registerCommand("test",        "tst",    [](char* a) { handleHwTestCmd(a); },                                           "HW test: test <spk|mic|lora|touch|keydump>", true,  "Diagnostics");
     registerCommand("i2cscan",     "isc",    [](char* a) { runI2cScan(a); },                                                 "[EXP] I2C scanner: isc [r|w|d] <args>",  true,  "Diagnostics");
     registerCommand("csidetect",   "csi",    [](char* a) { runCsiDetect(a); },                                               "[EXP] WiFi CSI motion detect (csi | csi auto)", true,  "Diagnostics");
     // ── NFC (T-Pager only — stub prints "not on this board" on T-Deck) ────────

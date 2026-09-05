@@ -21,6 +21,8 @@ When you connect to a network, Al-Anqa resolves the password in this order:
 
 On successful connection the network is always appended to `/wpa_supplicant.conf` on the SD card (if inserted) in standard Linux `wpa_supplicant` format.
 
+> **Typing `=` in a password (T-Deck / T-Deck-Plus):** the stock LilyGo keyboard has no `=` key. Al-Anqa remaps **SYM + 0** to `=` so any PSK containing it can be typed at the `cw` prompt. See the [Keyboard Reference](keyboard.md#sym--special-characters) for details.
+
 ---
 
 ## `wifipass` / `wp` — Manage Saved Credentials

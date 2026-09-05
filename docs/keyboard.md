@@ -39,8 +39,11 @@ Hold **SYM** and press a letter to type the symbol shown on the key's lower face
 | Combo | Character | Used for |
 |-------|-----------|---------|
 | SYM + K | `'` (apostrophe) | **Autocomplete trigger** in the CLI |
+| SYM + 0 | `=` (equals) | Remapped by Al-Anqa — the stock LilyGo keyboard has no `=` key at all, so any WiFi PSK or CLI argument containing `=` was impossible to type ([issue #3](https://github.com/abdallahnatsheh/AL-ANQA-FIRMWARE/issues/3)). The keyboard MCU sends the otherwise-unused byte `0xE0` for SYM+0; `boardReadKey()` translates it to `'='` before any command sees it, so this works everywhere — CLI prompt, `edit`, `wp add`, `ux` BadUSB, `bk` HID forwarder, notes editor, lock-screen PIN entry, etc. T-Pager keyboards already have a real `=` key (SYM+5), so the remap is T-Deck / T-Deck-Plus only. |
 
 The physical keys show all other Sym characters directly — look at the lower-right of each keycap.
+
+> **Finding more unmapped combos:** run `test keydump` (T-Deck / T-Deck-Plus only) to see the raw byte the keyboard MCU sends for any key or combo. Useful if you find another missing character you want to remap.
 
 ### ALT — Numbers and Punctuation
 

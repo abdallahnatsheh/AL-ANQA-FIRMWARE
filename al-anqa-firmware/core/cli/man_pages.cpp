@@ -1348,7 +1348,7 @@ static const ManEntry PAGES[] = {
     }},
 
     { "test", "tst", {
-        "SYNTAX   test spk | test mic | test lora | test touch",
+        "SYNTAX   test spk | mic | lora | touch | keydump",
         "",
         "ABOUT    Hardware self-tests. Pick a target:",
         "",
@@ -1366,6 +1366,12 @@ static const ManEntry PAGES[] = {
         "         crosshair tracks the finger, shows raw",
         "         mapped x/y + tap/long-press/drag events.",
         "         Corner brackets verify no mirror/swap.",
+        "KEYDUMP  T-Deck/Plus only — raw byte from the",
+        "         I2C keyboard MCU shown as 0xHH 'c'. Use",
+        "         it to identify what unmapped Sym combos",
+        "         emit (that is how SYM+0 -> '=' was found;",
+        "         the MCU sends 0xE0 for it, now remapped",
+        "         in boardReadKey). Press 'q' to quit.",
         nullptr
     }},
 

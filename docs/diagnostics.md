@@ -23,12 +23,14 @@ Cold start takes ~4 minutes outdoors. Run `gps on` before `trackme` to pre-warm 
 
 ## `test` / `tst` — Hardware Self-Tests
 
-The three hardware tests are sub-commands of one `test` command (formerly the standalone `spktest` / `mictest` / `loratest`):
+The hardware tests are sub-commands of one `test` command (formerly the standalone `spktest` / `mictest` / `loratest`):
 
 ```
-CMD> test spk     # I2S speaker
-CMD> test mic     # ES7210 microphone
-CMD> test lora    # LoRa SX1262
+CMD> test spk       # I2S speaker
+CMD> test mic       # ES7210 microphone
+CMD> test lora      # LoRa SX1262
+CMD> test touch     # GT911 touch (T-Deck / T-Deck-Plus)
+CMD> test keydump   # raw byte from the I2C keyboard MCU (T-Deck / T-Deck-Plus)
 ```
 
 ---
@@ -87,6 +89,20 @@ CMD> test lora
 ```
 
 Initializes the LoRa SX1262, runs a TX test, then enters RX monitor mode. Press `q` to stop.
+
+---
+
+## `test keydump` — Keyboard Raw-Byte Dump  *(T-Deck / T-Deck-Plus only)*
+
+```
+CMD> test keydump
+```
+
+Reads one byte at a time from the LilyGo I2C keyboard MCU (0x55) and prints it as `0xHH  'c'`. Press `q` to exit.
+
+**Use it to discover what an unmapped Sym / Alt combo actually sends.** The keyboard firmware resolves modifier combos internally and hands the ESP32 one already-resolved byte — Al-Anqa can only intercept bytes it can see. If you find a key or combo that types nothing but returns a specific non-zero byte in the dump, that byte can be remapped in `boardReadKey()` (see [Keyboard Reference](keyboard.md#sym--special-characters) — SYM+0 → `=` was discovered exactly this way).
+
+Not available on T-Pager (it has its own `test keymap` for the same purpose, tailored to the TCA8418 driver which does key resolution in our own code).
 
 ---
 
